@@ -191,6 +191,17 @@ def test_from_config_and_parse_prices(tmp_path):
         parse_prices({"budget": {"prices": {"openai": {"m": {"per": 0}}}}})
     with pytest.raises(ConfigError):
         parse_prices({"budget": {"prices": {"openai": {"m": {"input": -1}}}}})
+    with pytest.raises(ConfigError):
+        parse_prices({"budget": {"prices": {"openai": {"web_search": {"per_call": -0.01}}}}})
+
+
+def test_taxa_por_chamada_do_web_search():
+    prices = parse_prices({"budget": {"prices": {"openai": {"web_search": {"per_call": 0.01}}}}})
+    assert prices[("openai", "web_search")] == Price(per_call=0.01)
+    b = MonthlyBudget(FakeRepo(), cap_usd=5.0, prices=prices)
+    assert b.price_usd(Usage("openai", ProviderTask.SEARCH, "web_search")) == pytest.approx(0.01)
+    tokens_e_taxa = Price(input=1.0, per_call=0.5)
+    assert tokens_e_taxa.usd(Usage("openai", ProviderTask.SEARCH, "m", 1e6)) == pytest.approx(1.5)
 
 
 def test_corrupt_state_is_ignored(tmp_path):

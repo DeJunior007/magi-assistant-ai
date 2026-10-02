@@ -8,8 +8,10 @@ Regras:
 - **Preço** (R16.1): ``Usage`` chega com ``usd=0`` e unidades (tokens de entrada/saída, segundos
   de áudio no STT, caracteres no TTS). O USD sai da tabela ``[budget.prices.<provider>."<model>"]``
   da config (``input``/``output`` em USD por ``per`` unidades; ``"*"`` vale para qualquer modelo
-  do provedor). Se o provedor já mandou ``usd > 0``, esse valor é mantido. Sem preço: custo 0 e
-  um aviso no log (uma vez por provedor/modelo).
+  do provedor; ``per_call`` soma uma taxa fixa por chamada registrada, como a da ferramenta
+  ``web_search`` da OpenAI, que o adaptador registra com o modelo ``"web_search"``). Se o provedor
+  já mandou ``usd > 0``, esse valor é mantido. Sem preço: custo 0 e um aviso no log (uma vez por
+  provedor/modelo).
 - **Mês** (R16.5): soma do mês civil em America/Sao_Paulo; no dia 1 o acumulado recomeça sozinho
   (a soma é por mês, nada é apagado).
 - **Aviso** (R16.3): ao cruzar 80% do teto, ``on_warn(status)`` é chamado uma vez por mês e por
@@ -59,14 +61,17 @@ OnWarn = Callable[[BudgetStatus], Awaitable[None] | None]
 
 @dataclass(frozen=True, slots=True)
 class Price:
-    """USD por ``per`` unidades de entrada (``input``) e de saída (``output``)."""
+    """USD por ``per`` unidades de entrada (``input``) e de saída (``output``), mais ``per_call``
+    USD fixos por chamada (cada ``Usage`` registrado é uma chamada)."""
 
     input: float = 0.0
     output: float = 0.0
     per: float = 1_000_000.0
+    per_call: float = 0.0
 
     def usd(self, usage: Usage) -> float:
-        return (usage.input_units * self.input + usage.output_units * self.output) / self.per
+        tokens = (usage.input_units * self.input + usage.output_units * self.output) / self.per
+        return tokens + self.per_call
 
 
 Prices = dict[tuple[str, str], Price]
@@ -82,16 +87,17 @@ def parse_prices(raw: Mapping[str, Any]) -> Prices:
         for model, p in models.items():
             where = f'budget.prices.{provider}."{model}"'
             if not isinstance(p, Mapping):
-                raise ConfigError(f"{where} deve ter input/output/per")
+                raise ConfigError(f"{where} deve ter input/output/per/per_call")
             try:
                 price = Price(
                     input=float(p.get("input", 0.0)),
                     output=float(p.get("output", 0.0)),
                     per=float(p.get("per", 1_000_000.0)),
+                    per_call=float(p.get("per_call", 0.0)),
                 )
             except (TypeError, ValueError) as e:
                 raise ConfigError(f"{where}: valor inválido ({e})") from e
-            if price.input < 0 or price.output < 0 or price.per <= 0:
+            if min(price.input, price.output, price.per_call) < 0 or price.per <= 0:
                 raise ConfigError(f"{where}: preços >= 0 e per > 0")
             prices[(str(provider), str(model))] = price
     return prices

@@ -1,7 +1,8 @@
 """Adaptador fino da OpenAI (SDK ``openai``), tarefa 3.1.
 
 Serve qualquer API compatível: ``[providers.x] kind = "openai"`` + ``base_url``. O cliente é
-criado com ``max_retries=0`` para que 429/401/403 cheguem ao KeyPool na hora.
+criado com ``max_retries=0`` para que 429/401/403 cheguem ao KeyPool na hora. Cada pedido leva o
+``timeout_s`` da tarefa (padrão em ``base.timeout_s``); estouro vira ``ProviderError``.
 """
 
 from __future__ import annotations
@@ -26,13 +27,36 @@ from magi.common.contracts import (
     Transcript,
     Usage,
 )
-from magi.providers.base import CallCtx, approx_tokens, audio_seconds, get_attr, pcm_to_wav
-from magi.providers.keypool import COOLDOWN_STATUSES, KeyRejected
+from magi.providers.base import (
+    CallCtx,
+    PricedSearchResult,
+    approx_tokens,
+    audio_seconds,
+    get_attr,
+    pcm_to_wav,
+    timeout_s,
+    with_timeout,
+)
+from magi.providers.keypool import COOLDOWN_STATUSES, KeyRejected, is_model_quota
 
 #: Saída ``pcm`` do endpoint de voz: 24 kHz, 16 bits, mono.
 TTS_FORMAT = PcmFormat(rate=24_000, width=2, channels=1)
 DEFAULT_DIMENSIONS = 1536
 TTS_CHUNK = 4096
+#: Opções de ``[tasks.<t>]`` repassadas como estão a ``chat.completions.create`` (S3: o
+#: ``gpt-5.6-luna`` só aceita tools com ``reasoning_effort = "none"``).
+CHAT_OPTIONS = (
+    "temperature",
+    "top_p",
+    "reasoning_effort",
+    "verbosity",
+    "max_completion_tokens",
+    "seed",
+    "presence_penalty",
+    "frequency_penalty",
+    "service_tier",
+    "parallel_tool_calls",
+)
 
 
 @contextmanager
@@ -44,7 +68,8 @@ def openai_errors(provider: str) -> Iterator[None]:
         yield
     except openai.APIStatusError as e:
         if e.status_code in COOLDOWN_STATUSES:
-            raise KeyRejected(e.status_code, f"{provider}: {e.message}") from e
+            scoped = is_model_quota(e.status_code, f"{e.message} {e.body}")
+            raise KeyRejected(e.status_code, f"{provider}: {e.message}", model_scoped=scoped) from e
         raise ProviderError(f"{provider}: HTTP {e.status_code}: {e.message}") from e
     except openai.OpenAIError as e:
         raise ProviderError(f"{provider}: {e}") from e
@@ -111,6 +136,13 @@ def _reply(resp: Any, ctx: CallCtx) -> ChatReply:
     return ChatReply(text=get_attr(msg, "content", default=""), tool_calls=calls, usage=usage)
 
 
+def _chat_options(ctx: CallCtx, tools: bool) -> dict[str, Any]:
+    out = {k: ctx.options[k] for k in CHAT_OPTIONS if k in ctx.options}
+    if not tools:
+        out.pop("parallel_tool_calls", None)  # a API recusa sem tools
+    return out
+
+
 class OpenAIBackend:
     """Implementa ``base.Backend`` com o SDK assíncrono da OpenAI."""
 
@@ -144,11 +176,12 @@ class OpenAIBackend:
             "model": ctx.model,
             "file": ("audio.wav", pcm_to_wav(audio, fmt), "audio/wav"),
             "language": language,
+            "timeout": timeout_s(ctx),
         }
         if hint:
             kwargs["prompt"] = hint
         with openai_errors(ctx.provider):
-            res = await self._client(key).audio.transcriptions.create(**kwargs)
+            res = await with_timeout(ctx, self._client(key).audio.transcriptions.create(**kwargs))
         text = res if isinstance(res, str) else get_attr(res, "text", default="")
         return Transcript.raw(text.strip(), language), ctx.usage(audio_seconds(audio, fmt))
 
@@ -163,6 +196,7 @@ class OpenAIBackend:
             "voice": ctx.options.get("voice", "alloy"),
             "input": text,
             "response_format": "pcm",
+            "timeout": timeout_s(ctx),
         }
         for opt in ("instructions", "speed"):
             if opt in ctx.options:
@@ -184,23 +218,32 @@ class OpenAIBackend:
         tools: Sequence[ToolSpec],
         json_mode: bool,
     ) -> ChatReply:
-        kwargs: dict[str, Any] = {"model": ctx.model, "messages": _messages(messages)}
+        kwargs: dict[str, Any] = {
+            "model": ctx.model,
+            "messages": _messages(messages),
+            "timeout": timeout_s(ctx),
+            **_chat_options(ctx, bool(tools)),
+        }
         if tools:
             kwargs["tools"] = _tools(tools)
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
-        if "temperature" in ctx.options:
-            kwargs["temperature"] = ctx.options["temperature"]
         with openai_errors(ctx.provider):
-            resp = await self._client(key).chat.completions.create(**kwargs)
+            resp = await with_timeout(ctx, self._client(key).chat.completions.create(**kwargs))
         return _reply(resp, ctx)
 
     async def ask(self, key: ApiKey, ctx: CallCtx, question: str, image: bytes, mime: str) -> ChatReply:
         url = f"data:{mime};base64,{base64.b64encode(image).decode()}"
         content = [{"type": "text", "text": question}, {"type": "image_url", "image_url": {"url": url}}]
         with openai_errors(ctx.provider):
-            resp = await self._client(key).chat.completions.create(
-                model=ctx.model, messages=[{"role": "user", "content": content}]
+            resp = await with_timeout(
+                ctx,
+                self._client(key).chat.completions.create(
+                    model=ctx.model,
+                    messages=[{"role": "user", "content": content}],
+                    timeout=timeout_s(ctx),
+                    **_chat_options(ctx, False),
+                ),
             )
         return _reply(resp, ctx)
 
@@ -212,11 +255,11 @@ class OpenAIBackend:
     async def embed(
         self, key: ApiKey, ctx: CallCtx, texts: Sequence[str]
     ) -> tuple[list[list[float]], Usage | None]:
-        kwargs: dict[str, Any] = {"model": ctx.model, "input": list(texts)}
+        kwargs: dict[str, Any] = {"model": ctx.model, "input": list(texts), "timeout": timeout_s(ctx)}
         if "dimensions" in ctx.options:
             kwargs["dimensions"] = int(ctx.options["dimensions"])
         with openai_errors(ctx.provider):
-            resp = await self._client(key).embeddings.create(**kwargs)
+            resp = await with_timeout(ctx, self._client(key).embeddings.create(**kwargs))
         data = sorted(get_attr(resp, "data", default=[]), key=lambda d: get_attr(d, "index", default=0))
         vectors = [list(get_attr(d, "embedding", default=[])) for d in data]
         tokens = get_attr(resp, "usage", "prompt_tokens", default=None)
@@ -225,12 +268,24 @@ class OpenAIBackend:
     # -- pesquisa --------------------------------------------------------------------------
 
     async def search(self, key: ApiKey, ctx: CallCtx, query: str) -> SearchResult:
+        tool = str(ctx.options.get("search_tool", "web_search"))
+        kwargs: dict[str, Any] = {
+            "model": ctx.model,
+            "input": query,
+            "tools": [{"type": tool}],
+            "timeout": timeout_s(ctx),
+        }
+        if "reasoning_effort" in ctx.options:
+            kwargs["reasoning"] = {"effort": ctx.options["reasoning_effort"]}
         with openai_errors(ctx.provider):
-            resp = await self._client(key).responses.create(
-                model=ctx.model, input=query, tools=[{"type": ctx.options.get("search_tool", "web_search")}]
-            )
+            resp = await with_timeout(ctx, self._client(key).responses.create(**kwargs))
         sources: dict[str, SearchSource] = {}
-        for item in get_attr(resp, "output", default=[]):
+        output = get_attr(resp, "output", default=[])
+        # Cada chamada da ferramenta tem taxa própria, além dos tokens: um Usage por chamada, com o
+        # nome da ferramenta como modelo (preço em [budget.prices.openai."web_search"].per_call).
+        tool_calls = sum(1 for item in output if get_attr(item, "type") == "web_search_call")
+        extra = tuple(Usage(provider=ctx.provider, task=ctx.task, model=tool) for _ in range(tool_calls))
+        for item in output:
             for part in get_attr(item, "content", default=[]) or []:
                 for ann in get_attr(part, "annotations", default=[]) or []:
                     url = get_attr(ann, "url")
@@ -240,6 +295,9 @@ class OpenAIBackend:
             get_attr(resp, "usage", "input_tokens", default=0),
             get_attr(resp, "usage", "output_tokens", default=0),
         )
-        return SearchResult(
-            answer=get_attr(resp, "output_text", default=""), sources=tuple(sources.values()), usage=usage
+        return PricedSearchResult(
+            answer=get_attr(resp, "output_text", default=""),
+            sources=tuple(sources.values()),
+            usage=usage,
+            extra_usage=extra,
         )

@@ -13,13 +13,22 @@ free_tier = true                        # proíbe dados pessoais (memória, voz,
 
 # Provedor e modelo de cada tarefa (medidos no spike S3, docs/spikes/S3.md, 2026-10-02).
 # A voz do TTS NÃO foi escolhida: ouça as amostras em ~/Music/magi-vozes/ (modelo-voz.wav).
+# Opções comuns a qualquer tarefa:
+#   timeout_s = 15          tempo máximo por chamada; estouro vira erro tratável (padrão: 8 s em
+#                           search, 15 s nas demais; o Gemini recebe no mínimo 10 s como prazo do
+#                           servidor, e o corte abaixo disso é local)
+# Opções de chat repassadas à OpenAI (agent, vision, news): temperature, top_p, reasoning_effort
+# ("none"/"low"/"medium"/"high"), verbosity, max_completion_tokens, seed, parallel_tool_calls...
+# Em /v1/chat/completions, gpt-5.4-mini e gpt-5.6-luna só aceitam tools com reasoning_effort =
+# "none" (testado em 2026-10-02; "low" dá HTTP 400). Em search na OpenAI,
+# reasoning_effort vira reasoning.effort da Responses API.
 [tasks]
 stt        = { provider = "openai", model = "gpt-transcribe" }
 tts        = { provider = "openai", model = "gpt-4o-mini-tts", voice = "<escolher ouvindo ~/Music/magi-vozes>", instructions = "Fale em português do Brasil com sotaque brasileiro natural. Voz feminina jovem, animada e brincalhona, como uma amiga gamer conversando no Discord." }
-agent      = { provider = "openai", model = "gpt-5.4-mini" }
+agent      = { provider = "openai", model = "gpt-5.4-mini", reasoning_effort = "none", timeout_s = 15 }
 vision     = { provider = "openai", model = "gpt-5.4-mini" }  # não medido no S3 (mesmo modelo do agente)
 embeddings = { provider = "openai", model = "text-embedding-3-small", dimensions = 1536 }  # = memories.embedding
-search     = { provider = "gemini", model = "gemini-2.5-flash" }  # único com Google Search na cota gratuita
+search     = { provider = "gemini", model = "gemini-2.5-flash", timeout_s = 8 }  # único com Google Search na cota gratuita
 news       = { provider = "gemini", model = "gemini-3.5-flash-lite", embedding_model = "gemini-embedding-001", dimensions = 768 }  # = news_items.embedding
 
 [budget]
@@ -30,7 +39,7 @@ monthly_usd = 5.0                       # teto mensal; "aumenta o teto pra 8 dó
 # Preços por provedor e modelo: USD por `per` unidades de entrada (input) e de saída (output).
 # Unidades: tokens (agent, vision, embeddings, search, news), segundos de áudio (stt),
 # caracteres (tts). O modelo "*" vale para qualquer modelo do provedor sem entrada própria.
-# Sem preço, a chamada custa 0 e o log avisa.
+# `per_call` soma uma taxa fixa (USD) por chamada. Sem preço, a chamada custa 0 e o log avisa.
 # Fonte: https://developers.openai.com/api/docs/pricing (acessada em 2026-10-02, tier standard).
 [budget.prices.openai."gpt-5.4-mini"]
 input = 0.75                            # USD por 1M tokens de entrada
@@ -51,6 +60,12 @@ per = 1000000
 [budget.prices.openai."text-embedding-3-small"]
 input = 0.02                            # USD por 1M tokens
 per = 1000000
+
+[budget.prices.openai."web_search"]
+# Taxa da ferramenta web_search (tarefa search na OpenAI), cobrada por chamada além dos tokens:
+# US$ 10 por 1k chamadas. Os tokens do conteúdo pesquisado entram no preço do modelo.
+# (web_search_preview em modelo sem raciocínio: US$ 25/1k, use o modelo "web_search_preview".)
+per_call = 0.01                         # USD por chamada da ferramenta
 
 [budget.prices.gemini."*"]
 input = 0.0                             # cota gratuita (free_tier = true) não passa pelo orçamento
