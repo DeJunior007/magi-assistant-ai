@@ -1,6 +1,7 @@
 """``magi-news``: roda uma execução e termina (design §8). Chamado pelo timer systemd a cada 2 h.
 
-Por enquanto só o passo 1 (coleta). Uso::
+Passos: 1 coleta; depois, no máximo a cada 6 h, o progresso do usuário (AniList e Steam, tarefa
+6.8), que o anti-spoiler usa. ``--only`` roda só a coleta. Uso::
 
     magi-news [--config PATH] [--dsn DSN] [--only rss] [--timeout 50] [-v]
 
@@ -16,10 +17,12 @@ import asyncio
 import logging
 import os
 import sys
+from datetime import UTC, datetime
 
 import psycopg
 
 from magi.common.config import DEFAULT_DSN, Config, ConfigError, load_config
+from magi.news.progress import update_if_due
 from magi.news.repo import PgNewsRepo
 from magi.news.sources import (
     DEFAULT_TIMEOUT_S,
@@ -54,7 +57,17 @@ async def run_once(
     repo = await PgNewsRepo.connect(dsn)
     try:
         async with make_http_client() as http:
-            return await collect_all(repo, sources, http, config=config, timeout_s=timeout_s)
+            report = await collect_all(repo, sources, http, config=config, timeout_s=timeout_s)
+            if not only:
+                try:
+                    prog = await update_if_due(repo, http, sources, news_settings(config),
+                                               datetime.now(UTC))
+                except (psycopg.Error, OSError, ValueError) as exc:  # não derruba a coleta
+                    log.warning("progresso: %s", exc)
+                else:
+                    if prog is not None:
+                        log.info("%s", prog.summary())
+            return report
     finally:
         await repo.close()
 

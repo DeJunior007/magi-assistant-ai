@@ -262,6 +262,7 @@ dsn = "{mig.dsn_from_env()}?options=-csearch_path%3D{schema},public"
 
 [news]
 defaults = false
+progress = false
 [[news.sources]]
 name = "{ANIME.name}"
 kind = "rss"
