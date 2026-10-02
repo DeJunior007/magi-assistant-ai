@@ -1,10 +1,23 @@
 # MAGI Assistant AI ("Magui")
 
 Assistente de voz em PT-BR especializada em cultura pop (games, anime e cultura japonesa),
-integrada ao MAGI Gamer (HUD do segundo monitor). Desenvolvimento guiado por spec (SDD).
+integrada ao MAGI Gamer, o HUD estilo NERV do segundo monitor. Desenvolvimento guiado por spec (SDD).
 
-- PRD (fonte da verdade, editável): https://claude.ai/code/artifact/5504dd26-a040-4fda-9931-590a2883e45f
-- `docs/PRD.md` — exportação do PRD (pendente)
-- `specs/magi-assistant/requirements.md` — requisitos em formato EARS (pendente)
-- `specs/magi-assistant/design.md` — design técnico (pendente)
-- `specs/magi-assistant/tasks.md` — plano de tarefas por fase (pendente)
+| Caminho | Conteúdo |
+| --- | --- |
+| [`docs/PRD.md`](docs/PRD.md) | PRD (cópia; o doc editável é a fonte da verdade: https://claude.ai/code/artifact/5504dd26-a040-4fda-9931-590a2883e45f) |
+| [`specs/magi-assistant/requirements.md`](specs/magi-assistant/requirements.md) | Requisitos em formato EARS, ligados aos RF do PRD |
+| [`specs/magi-assistant/design.md`](specs/magi-assistant/design.md) | Design técnico: processos, protocolos, dados, algoritmos, erros, testes |
+| [`specs/magi-assistant/tasks.md`](specs/magi-assistant/tasks.md) | Plano de tarefas por fase (0 a 6) com critério de pronto |
+| [`hud/`](hud/) | MAGI Gamer (HUD) e instalador; `~/.local/share/gamerhud` aponta para cá |
+
+## Estado
+
+- HUD: funcionando (FPS, sensores, RGB sync, tela de ociosidade, notícias de jogo via vigia).
+- Assistente: especificada; próximo passo é a Fase 0 (base do projeto e spikes).
+
+## Instalar o HUD
+
+```bash
+./hud/install.sh
+```
