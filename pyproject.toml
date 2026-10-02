@@ -63,7 +63,7 @@ packages = ["magi"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-q"
+addopts = "-q --import-mode=importlib"
 markers = [
     "db: precisa do Postgres de desenvolvimento (deploy/docker-compose.yml)",
     "live: chama provedores reais (precisa de chaves no keyring)",
