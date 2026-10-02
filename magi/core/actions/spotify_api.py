@@ -416,9 +416,15 @@ def speech_for(m: Match) -> str:
 class SpotifyPlayer:
     """Implementa ``PlayQuery`` (``music.play`` com slot ``query``) de ``spotify_mpris``."""
 
-    def __init__(self, mpris: SpotifyMpris, api: SpotifyApi | None = None) -> None:
+    def __init__(
+        self,
+        mpris: SpotifyMpris,
+        api: SpotifyApi | None = None,
+        on_play: Callable[[str, str], None] | None = None,
+    ) -> None:
         self.mpris = mpris
         self.api = api or SpotifyApi()
+        self.on_play = on_play  # (uri, pedido): marca a escolha da Magui (sinais, 2.4)
 
     async def play_query(self, req: ActionRequest, query: str) -> ActionResult:
         confused = Expression.CONFUSED
@@ -438,11 +444,16 @@ class SpotifyPlayer:
         except (MprisError, OSError) as e:
             log.warning("OpenUri falhou: %r", e)
             return ActionResult(ok=False, speech=SAY_DBUS_FAILED, expression=confused)
+        if self.on_play is not None:
+            self.on_play(m.uri, query)
         return ActionResult(ok=True, speech=speech_for(m))
 
     __call__ = play_query
 
 
-def make_play_query(mpris: SpotifyMpris, api: SpotifyApi | None = None) -> PlayQuery:
-    """Para ``spotify_mpris.handlers(mpris, play_query=make_play_query(mpris))``."""
-    return SpotifyPlayer(mpris, api).play_query
+def make_play_query(
+    mpris: SpotifyMpris, api: SpotifyApi | None = None, on_play: Callable[[str, str], None] | None = None
+) -> PlayQuery:
+    """Para ``spotify_mpris.handlers(mpris, play_query=make_play_query(mpris))``. ``on_play(uri,
+    pedido)`` é chamado depois de tocar (ex.: ``MusicSignals.mark_picked``)."""
+    return SpotifyPlayer(mpris, api, on_play).play_query

@@ -16,19 +16,25 @@ Apps novos do Spotify em modo de desenvolvimento (verificado em 2026-10): o top 
 ``audio-features`` dão 403 e ``recommendations`` dá 404. Por isso o gênero é opcional (vazio quando
 ausente) e cada fonte que falhar é só registrada no relatório, sem derrubar a importação.
 
-Uso: ``uv run python -m magi.core.music.import_taste [--dsn ...] [--dry-run]``. O núcleo chama
-:func:`import_if_empty` em segundo plano ao subir (primeira configuração, tabela vazia); para
-atualizar depois, rode o comando acima (ex.: 1×/dia num timer do systemd).
+Uso: ``uv run python -m magi.core.music.import_taste [--dsn ...] [--dry-run]``. O núcleo roda
+:func:`refresh_loop` em segundo plano (tarefa 2.4): ao subir e depois a cada hora verifica se a
+última importação (data em ``taste-import.json`` no diretório de dados) tem mais de 24 h ou se a
+tabela está vazia, e só então reimporta. Reimportar não apaga sinais nem ajustes: o upsert troca só
+o peso base, e o peso efetivo (base + ``bonus`` + sinais) sai da view ``taste_effective``.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import json
 import logging
+import time
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 
 from magi.common.contracts import TasteEntry, TasteRepo
@@ -41,6 +47,9 @@ LIMIT = 50
 TRACK_MAIN = 0.5
 TRACK_FEAT = 0.25
 RECENT_PLAY = 0.02  # 50 execuções = 1 artista em 1º no prazo curto
+REFRESH_S = 24 * 3600.0  # reimportação 1×/dia
+CHECK_S = 3600.0
+STATE_FILE = "taste-import.json"
 
 
 class SpotifyGetter(Protocol):
@@ -162,6 +171,61 @@ async def import_if_empty(repo: Any, api: SpotifyApi | None = None) -> ImportRep
     finally:
         if own:
             await api.aclose()
+
+
+def last_import(state_path: Path) -> float | None:
+    """Epoch da última importação gravada em ``state_path`` (``None`` se não houver)."""
+    try:
+        return float(json.loads(state_path.read_text(encoding="utf-8"))["last_import"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _save_last(state_path: Path, at: float) -> None:
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = state_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"last_import": at}), encoding="utf-8")
+    tmp.replace(state_path)
+
+
+async def import_if_stale(
+    repo: Any,
+    state_path: Path,
+    api: SpotifyGetter | None = None,
+    *,
+    now: Callable[[], float] = time.time,
+    max_age_s: float = REFRESH_S,
+) -> ImportReport | None:
+    """Reimporta se a tabela está vazia ou a última importação tem mais de ``max_age_s``.
+    Grava a data só quando algo foi importado. Nunca levanta (roda em segundo plano)."""
+    own = api is None
+    try:
+        last = last_import(state_path)
+        if last is not None and now() - last < max_age_s and await repo.count() > 0:
+            return None
+        if own:
+            api = SpotifyApi()
+        if hasattr(api, "connected") and not api.connected():
+            log.info("gosto: Spotify não conectado; importação adiada")
+            return None
+        rep = await import_taste(api, repo)
+        if rep.entries:
+            _save_last(state_path, now())
+        return rep
+    except Exception:
+        log.exception("gosto: reimportação falhou")
+        return None
+    finally:
+        if own and api is not None:
+            with contextlib.suppress(Exception):
+                await api.aclose()
+
+
+async def refresh_loop(repo: Any, state_path: Path, *, check_s: float = CHECK_S) -> None:
+    """Tarefa leve do núcleo: verifica a cada ``check_s`` e reimporta 1×/dia."""
+    while True:
+        await import_if_stale(repo, state_path)
+        await asyncio.sleep(check_s)
 
 
 def _print_top(entries: Sequence[TasteEntry], n: int = 10) -> None:
