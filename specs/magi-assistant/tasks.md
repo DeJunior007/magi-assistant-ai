@@ -177,7 +177,7 @@ Formato de cada tarefa:
   - Orçamento: ~35k
   - Pronto: frase em cache sai sem chamada de rede.
 
-- [ ] **1.13 Voz no satélite** — reprodução pelo PipeWire, `magi-mouth` a cada 50 ms, ducking de Spotify e jogo, `playback-done`, corte na interrupção. *(R12.4, R12.5)*
+- [x] **1.13 Voz no satélite** — reprodução pelo PipeWire, `magi-mouth` a cada 50 ms, ducking de Spotify e jogo, `playback-done`, corte na interrupção. *(R12.4, R12.5)*
   - Lê: `contracts.py`, §5, `docs/spikes/S1.md`
   - Escreve: `magi/satellite/playback.py`, `magi/satellite/ducking.py`, testes
   - Depende de: 1.2, 1.12
