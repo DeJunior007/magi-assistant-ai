@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from magi.common.contracts import ApiKey, KeyPool, NoKeyAvailable
-from magi.providers.keypool import RotatingKeyPool
+from magi.providers.keypool import RotatingKeyPool, is_model_quota
 
 
 def _pool(clock, n: int = 3) -> RotatingKeyPool:
@@ -30,6 +30,30 @@ def test_429_poe_em_espera_e_pula_a_chave(clock):
     assert [pool.acquire().name for _ in range(4)] == ["k2", "k3", "k2", "k3"]
     clock.advance(60)
     assert pool.available() == 3
+
+
+def test_espera_por_modelo_nao_tira_a_chave_dos_outros_modelos(clock):
+    pool = _pool(clock, 2)
+    k1 = pool.acquire("m-a")
+    pool.mark_failed(k1, 429, "m-a")
+    assert pool.available() == 2 and pool.available("m-a") == 1 and pool.available("m-b") == 2
+    assert [pool.acquire("m-a").name for _ in range(2)] == ["k2", "k2"]
+    assert pool.acquire("m-b").name == "k1" and pool.acquire().name in {"k1", "k2"}
+    pool.mark_failed(pool.acquire("m-a"), 429, "m-a")
+    with pytest.raises(NoKeyAvailable, match="para m-a"):
+        pool.acquire("m-a")
+    pool.mark_ok(k1, "m-a")
+    assert pool.acquire("m-a").name == "k1"
+    clock.advance(60)
+    assert pool.available("m-a") == 2
+
+
+def test_detecta_cota_zerada_do_modelo():
+    assert is_model_quota(429, "Quota exceeded for metric: x_free_tier_requests, limit: 0, model: g-3")
+    assert is_model_quota(429, "{'quotaValue': '0'}")
+    assert not is_model_quota(429, "Quota exceeded, limit: 10, model: g-3")
+    assert not is_model_quota(429, "Rate limit reached for requests")
+    assert not is_model_quota(403, "limit: 0")
 
 
 @pytest.mark.parametrize("status", [401, 403, 429])

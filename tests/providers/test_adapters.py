@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import os
+import time
 from types import SimpleNamespace as NS
 
 import httpx
@@ -21,6 +23,7 @@ from magi.common.contracts import (
     ToolSpec,
 )
 from magi.providers.gemini_provider import GeminiBackend
+from magi.providers.keypool import FreeQuotaExhausted, KeyRejected
 from magi.providers.openai_provider import OpenAIBackend
 from magi.providers.registry import Registry
 
@@ -253,7 +256,11 @@ async def test_gemini_pesquisa_com_fontes(gemini_env):
     state["response"] = _gresp([NS(text="saiu ontem", function_call=None)], NS(grounding_chunks=web))
     res = await reg.search().search("lançamento", personal=False)
     assert res.answer == "saiu ontem" and [(s.title, s.url) for s in res.sources] == [("B", "https://b")]
-    assert calls[0][2]["config"] == {"tools": [{"google_search": {}}]}
+    assert calls[0][2]["config"] == {
+        "tools": [{"google_search": {}}],
+        "http_options": {"timeout": 10_000},  # mínimo da API; o corte de 8 s é local (S3)
+        "automatic_function_calling": {"disable": True},
+    }
 
 
 async def test_gemini_429_troca_e_500_vira_provider_error(gemini_env):
@@ -294,6 +301,123 @@ async def test_gemini_tts_e_stt(make_config, budget, get_secret):
     t = await reg.stt().transcribe(b"\0" * 320, PcmFormat(), personal=False)
     assert t.heard == ""
     assert calls[1][2]["contents"][0]["parts"][1]["inline_data"]["mime_type"] == "audio/wav"
+
+
+# -- correções do Spike S3 (3.1b) -------------------------------------------------------------
+
+
+def _with_task(reg, task: str, **options):
+    tcfg = reg.config.tasks[task]
+    tasks = {**reg.config.tasks, task: dataclasses.replace(tcfg, options={**tcfg.options, **options})}
+    reg.reload(dataclasses.replace(reg.config, tasks=tasks))
+
+
+async def test_openai_chat_repassa_reasoning_effort_e_timeout(openai_reg):
+    reg, calls, _ = openai_reg
+    _with_task(reg, "agent", reasoning_effort="low", verbosity="low", parallel_tool_calls=False, timeout_s=3)
+    msgs = [ChatMessage(role="user", content="oi")]
+    await reg.chat().chat(msgs, tools=[ToolSpec("tocar", "toca")], personal=True)
+    kw = calls[-1][2]
+    assert (kw["reasoning_effort"], kw["verbosity"], kw["parallel_tool_calls"]) == ("low", "low", False)
+    assert kw["timeout"] == 3.0
+    await reg.chat().chat(msgs, personal=True)
+    assert "parallel_tool_calls" not in calls[-1][2]  # a API recusa sem tools
+
+
+async def test_openai_timeout_padrao_e_erro_tratavel(openai_reg):
+    reg, calls, fail = openai_reg
+    await reg.chat().chat([ChatMessage(role="user", content="oi")], personal=True)
+    assert calls[-1][2]["timeout"] == 15.0
+    fail.append(openai.APITimeoutError(request=httpx.Request("POST", "https://api.openai.com/v1/x")))
+    with pytest.raises(ProviderError) as exc:
+        await reg.chat().chat([ChatMessage(role="user", content="oi")], personal=True)
+    assert not isinstance(exc.value, KeyRejected) and reg.pool("openai").available() == 2
+
+
+async def test_openai_web_search_cobra_por_chamada(openai_reg, budget):
+    reg, calls, _ = openai_reg
+    search_openai = {**reg.config.tasks, "search": reg.config.tasks["agent"]}
+    reg.reload(dataclasses.replace(reg.config, tasks=search_openai))
+    _with_task(reg, "search", reasoning_effort="low")
+    await reg.search().search("quem ganhou?", personal=False)
+    kw = calls[-1][2]
+    assert kw["timeout"] == 8.0 and kw["reasoning"] == {"effort": "low"}
+    assert [(u.model, u.input_units) for u in budget.recorded] == [("chat-x", 4), ("web_search", 0)]
+
+
+async def test_gemini_embed_um_content_por_texto(gemini_env):
+    reg, calls, _, _ = gemini_env
+    _with_task(reg, "news", dimensions=768)
+    vecs = await reg.embeddings(ProviderTask.NEWS).embed(["n1", "n2", "n3"], personal=False)
+    assert len(vecs) == 3
+    kw = calls[0][2]
+    assert kw["contents"] == [{"parts": [{"text": t}]} for t in ("n1", "n2", "n3")]
+    assert kw["config"] == {"http_options": {"timeout": 15000}, "output_dimensionality": 768}
+
+
+async def test_gemini_embed_confere_quantidade_de_vetores(make_config, budget, get_secret):
+    class UmVetor(FakeGemini):
+        async def _embed(self, **kw):
+            return NS(embeddings=[NS(values=[1.0])])
+
+    backends = {"gemini": lambda cfg: GeminiBackend(cfg, lambda key: UmVetor(key, [], [], None))}
+    reg = Registry(make_config(), budget, backends=backends, get_secret=get_secret)
+    with pytest.raises(ProviderError, match="1 vetores para 2 textos"):
+        await reg.embeddings(ProviderTask.NEWS).embed(["a", "b"], personal=False)
+
+
+async def test_gemini_timeout_vira_provider_error(make_config, budget, get_secret):
+    class Lento(FakeGemini):
+        async def _gen(self, **kw):
+            self.calls.append((self.key.name, "gen", kw))
+            await asyncio.sleep(5)
+
+    calls: list = []
+    backends = {"gemini": lambda cfg: GeminiBackend(cfg, lambda key: Lento(key, [], calls, None))}
+    reg = Registry(make_config(), budget, backends=backends, get_secret=get_secret)
+    _with_task(reg, "search", timeout_s=0.05)
+    t0 = time.monotonic()
+    with pytest.raises(ProviderError, match="sem resposta em 0.05 s"):
+        await reg.search().search("x", personal=False)
+    assert time.monotonic() - t0 < 1 and calls[0][2]["config"]["http_options"] == {"timeout": 10_000}
+    assert reg.pool("gemini").available() == 2  # timeout não põe chave em espera
+
+
+async def test_gemini_chat_com_tools_desliga_afc(gemini_env):
+    reg, calls, _, _ = gemini_env
+    await reg.chat(ProviderTask.NEWS).chat(
+        [ChatMessage(role="user", content="oi")], tools=[ToolSpec("tocar", "toca")], personal=False
+    )
+    assert calls[0][2]["config"]["automatic_function_calling"] == {"disable": True}
+
+
+LIMIT_0 = (
+    "You exceeded your current quota. Quota exceeded for metric: "
+    "generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: search-x"
+)
+
+
+async def test_gemini_429_limite_0_so_bloqueia_o_modelo(gemini_env):
+    reg, calls, fail, _ = gemini_env
+    fail.extend(gerrors.ClientError(429, {"error": {"code": 429, "message": LIMIT_0}}) for _ in range(2))
+    with pytest.raises(FreeQuotaExhausted):
+        await reg.search().search("x", personal=False)
+    assert [c[0] for c in calls] == ["gemini-1", "gemini-2"]
+    pool = reg.pool("gemini")
+    assert pool.available() == 2 and pool.available("search-x") == 0
+    # notícias (outro modelo) seguem usando as mesmas chaves
+    reply = await reg.chat(ProviderTask.NEWS).chat([ChatMessage(role="user", content="oi")], personal=False)
+    assert reply.text == "oi"
+    with pytest.raises(FreeQuotaExhausted):  # e o search não volta a bater no provedor
+        await reg.search().search("x", personal=False)
+    assert len(calls) == 3
+
+
+async def test_gemini_429_geral_continua_por_chave(gemini_env):
+    reg, _, fail, _ = gemini_env
+    fail.append(gerrors.ClientError(429, {"error": {"code": 429, "message": "Resource exhausted"}}))
+    await reg.search().search("x", personal=False)
+    assert reg.pool("gemini").available() == 1 and reg.pool("gemini").available("news-x") == 1
 
 
 # -- rede de verdade (pulado por padrão) -------------------------------------------------------

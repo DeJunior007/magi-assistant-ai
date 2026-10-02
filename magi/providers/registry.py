@@ -111,8 +111,28 @@ class _Guarded:
         if usage is not None and not self.free_tier:
             await self._budget.record(usage)
 
+    def _available(self) -> int:
+        if isinstance(self._pool, RotatingKeyPool):
+            return self._pool.available(self.model)
+        return self._pool.available()
+
+    def _ok(self, key: ApiKey) -> None:
+        if isinstance(self._pool, RotatingKeyPool):
+            self._pool.mark_ok(key, self.model)
+        else:
+            self._pool.mark_ok(key)
+
+    def _failed(self, key: ApiKey, e: KeyRejected) -> None:
+        """Cota zerada só deste modelo põe em espera o par (chave, modelo), não a chave (S3)."""
+        if e.model_scoped and isinstance(self._pool, RotatingKeyPool):
+            self._pool.mark_failed(key, e.status, self.model)
+        else:
+            self._pool.mark_failed(key, e.status)
+
     def _acquire(self) -> ApiKey:
         try:
+            if isinstance(self._pool, RotatingKeyPool):
+                return self._pool.acquire(self.model)
             return self._pool.acquire()
         except NoKeyAvailable as e:
             if self.free_tier:
@@ -125,15 +145,15 @@ class _Guarded:
 
     async def _with_key(self, op: Callable[[ApiKey], Awaitable[T]]) -> T:
         last: KeyRejected | None = None
-        for _ in range(max(1, self._pool.available())):
+        for _ in range(max(1, self._available())):
             key = self._acquire()
             try:
                 out = await op(key)
             except KeyRejected as e:
-                self._pool.mark_failed(key, e.status)
+                self._failed(key, e)
                 last = e
                 continue
-            self._pool.mark_ok(key)
+            self._ok(key)
             return out
         raise self._no_key(last) from last
 
@@ -166,7 +186,7 @@ class GuardedTts(_Guarded):
         await self._before(personal)
         async for segment in tts_segments(text):
             last: KeyRejected | None = None
-            for _ in range(max(1, self._pool.available())):
+            for _ in range(max(1, self._available())):
                 key = self._acquire()
                 started = False
                 try:
@@ -174,12 +194,12 @@ class GuardedTts(_Guarded):
                         started = True
                         yield chunk
                 except KeyRejected as e:
-                    self._pool.mark_failed(key, e.status)
+                    self._failed(key, e)
                     if started:  # já tocou parte da frase: não dá para repetir com outra chave
                         raise
                     last = e
                     continue
-                self._pool.mark_ok(key)
+                self._ok(key)
                 break
             else:
                 raise self._no_key(last) from last
@@ -229,7 +249,10 @@ class GuardedSearch(_Guarded):
             res = await self._backend.search(k, self._ctx, query)
             return res, res.usage
 
-        return await self._run(personal, op)
+        res = await self._run(personal, op)
+        for extra in getattr(res, "extra_usage", ()):  # taxa por chamada da ferramenta de busca
+            await self._after(extra)
+        return res
 
 
 G = TypeVar("G", bound=_Guarded)

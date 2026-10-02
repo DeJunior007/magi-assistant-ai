@@ -1,7 +1,9 @@
 """Adaptador fino do Gemini (SDK ``google-genai``), tarefa 3.1.
 
 Usa a API assíncrona (``genai.Client(...).aio``). Pedidos e configs vão como dicts, que o SDK
-aceita no lugar dos tipos pydantic.
+aceita no lugar dos tipos pydantic. Toda chamada leva o ``timeout_s`` da tarefa em
+``http_options`` (e um teto em ``asyncio``); estouro vira ``ProviderError``. A chamada automática
+de funções (AFC) do SDK fica desligada: quem executa as ferramentas é o agente.
 """
 
 from __future__ import annotations
@@ -25,8 +27,16 @@ from magi.common.contracts import (
     Transcript,
     Usage,
 )
-from magi.providers.base import CallCtx, approx_tokens, audio_seconds, get_attr, pcm_to_wav
-from magi.providers.keypool import COOLDOWN_STATUSES, KeyRejected
+from magi.providers.base import (
+    CallCtx,
+    approx_tokens,
+    audio_seconds,
+    get_attr,
+    pcm_to_wav,
+    timeout_s,
+    with_timeout,
+)
+from magi.providers.keypool import COOLDOWN_STATUSES, KeyRejected, is_model_quota
 
 #: Saída de voz dos modelos TTS do Gemini: 24 kHz, 16 bits, mono.
 TTS_FORMAT = PcmFormat(rate=24_000, width=2, channels=1)
@@ -48,7 +58,9 @@ def gemini_errors(provider: str) -> Iterator[None]:
         yield
     except errors.APIError as e:
         if e.code in COOLDOWN_STATUSES:
-            raise KeyRejected(e.code, f"{provider}: {e.message}") from e
+            # 429 "limit: 0" do modelo (ex.: grounding do Gemini 3.x) espera só por (chave, modelo).
+            scoped = is_model_quota(e.code, f"{e.message} {e.details}")
+            raise KeyRejected(e.code, f"{provider}: {e.message}", model_scoped=scoped) from e
         raise ProviderError(f"{provider}: HTTP {e.code}: {e.message}") from e
     except httpx.HTTPError as e:
         raise ProviderError(f"{provider}: {e}") from e
@@ -114,6 +126,15 @@ def _usage(resp: Any, ctx: CallCtx) -> Usage:
     return ctx.usage(get_attr(resp, "usage_metadata", "prompt_token_count", default=0), out)
 
 
+#: Prazo mínimo que a API do Gemini aceita (HTTP 400 "Minimum allowed deadline is 10s").
+MIN_DEADLINE_MS = 10_000
+
+
+def _http_options(ctx: CallCtx) -> dict[str, Any]:
+    """Prazo do pedido em ms, com o mínimo da API; ``with_timeout`` corta antes se ``timeout_s`` < 10."""
+    return {"timeout": max(int(timeout_s(ctx) * 1000), MIN_DEADLINE_MS)}
+
+
 class GeminiBackend:
     """Implementa ``base.Backend`` com o ``google-genai``."""
 
@@ -134,9 +155,13 @@ class GeminiBackend:
         return self._clients[ck]
 
     async def _generate(self, key: ApiKey, ctx: CallCtx, contents: Any, config: dict[str, Any]) -> Any:
+        config = {**config, "http_options": _http_options(ctx)}
+        if "tools" in config:  # sem AFC: nada de chamadas extras nem aviso a cada pedido (S3)
+            config["automatic_function_calling"] = {"disable": True}
         with gemini_errors(ctx.provider):
-            return await self._client(key).models.generate_content(
-                model=ctx.model, contents=contents, config=config or None
+            return await with_timeout(
+                ctx,
+                self._client(key).models.generate_content(model=ctx.model, contents=contents, config=config),
             )
 
     # -- STT -------------------------------------------------------------------------------
@@ -223,14 +248,21 @@ class GeminiBackend:
     async def embed(
         self, key: ApiKey, ctx: CallCtx, texts: Sequence[str]
     ) -> tuple[list[list[float]], Usage | None]:
-        config = (
-            {"output_dimensionality": int(ctx.options["dimensions"])} if "dimensions" in ctx.options else None
-        )
+        config: dict[str, Any] = {"http_options": _http_options(ctx)}
+        if "dimensions" in ctx.options:
+            config["output_dimensionality"] = int(ctx.options["dimensions"])
+        # Um Content por texto: com a lista de strings, o gemini-embedding-2 junta tudo num único
+        # conteúdo e devolve 1 vetor para N textos (S3).
+        contents = [{"parts": [{"text": t}]} for t in texts]
         with gemini_errors(ctx.provider):
-            resp = await self._client(key).models.embed_content(
-                model=ctx.model, contents=list(texts), config=config
+            resp = await with_timeout(
+                ctx, self._client(key).models.embed_content(model=ctx.model, contents=contents, config=config)
             )
         vectors = [list(get_attr(e, "values", default=[])) for e in get_attr(resp, "embeddings", default=[])]
+        if len(vectors) != len(texts):
+            raise ProviderError(
+                f"{ctx.provider}: {len(vectors)} vetores para {len(texts)} textos ({ctx.model})"
+            )
         return vectors, ctx.usage(approx_tokens(texts))
 
     # -- pesquisa --------------------------------------------------------------------------

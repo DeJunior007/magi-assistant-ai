@@ -7,9 +7,10 @@ de rodízio, orçamento nem dados pessoais: isso é do registro (``registry.py``
 
 from __future__ import annotations
 
+import asyncio
 import io
 import wave
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -19,6 +20,7 @@ from magi.common.contracts import (
     ChatMessage,
     ChatReply,
     PcmFormat,
+    ProviderError,
     ProviderTask,
     SearchResult,
     ToolSpec,
@@ -113,3 +115,32 @@ def get_attr(obj: Any, *path: str, default: Any = None) -> Any:
             return default
         cur = cur.get(name) if isinstance(cur, Mapping) else getattr(cur, name, None)
     return default if cur is None else cur
+
+
+#: Timeout padrão por chamada (S3: uma pesquisa no Gemini levou 174 s sem timeout).
+SEARCH_TIMEOUT_S = 8.0
+DEFAULT_TIMEOUT_S = 15.0
+
+
+def timeout_s(ctx: CallCtx) -> float:
+    """``timeout_s`` de ``[tasks.<t>]``; sem ele, 8 s na pesquisa e 15 s nas demais tarefas."""
+    if "timeout_s" in ctx.options:
+        return float(ctx.options["timeout_s"])
+    return SEARCH_TIMEOUT_S if ctx.task is ProviderTask.SEARCH else DEFAULT_TIMEOUT_S
+
+
+async def with_timeout[T](ctx: CallCtx, aw: Awaitable[T]) -> T:
+    """Teto de tempo da chamada: estouro vira ``ProviderError`` (tratável), não trava o turno."""
+    limit = timeout_s(ctx)
+    try:
+        return await asyncio.wait_for(aw, limit)
+    except TimeoutError as e:
+        raise ProviderError(f"{ctx.provider}: sem resposta em {limit:g} s ({ctx.task}/{ctx.model})") from e
+
+
+@dataclass(frozen=True, slots=True)
+class PricedSearchResult(SearchResult):
+    """``SearchResult`` com consumos extras cobrados à parte, como a taxa por chamada da ferramenta
+    ``web_search`` da OpenAI (modelo ``"web_search"`` em ``[budget.prices.openai]``)."""
+
+    extra_usage: tuple[Usage, ...] = ()

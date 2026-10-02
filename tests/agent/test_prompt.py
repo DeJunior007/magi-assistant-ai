@@ -72,6 +72,11 @@ def test_persona_cobre_os_tracos():
         assert termo in text
 
 
+def test_persona_proibe_markdown_e_listas_na_fala():
+    linha = next(x for x in load_persona().splitlines() if "nunca use markdown" in x.lower())
+    assert "lista" in linha and "voz" in linha
+
+
 # --- montagem completa --------------------------------------------------------------------------
 
 
