@@ -381,7 +381,7 @@ Formato de cada tarefa:
   - Orçamento: ~30k
   - Pronto: amigos não ouvem a fala para a Magui.
 
-- [ ] **5.3 Alertas** — temperatura de CPU/GPU, bateria do controle ≤ 15%, custo 80%/100%; só na tela em call. *(R15.1, R15.2)*
+- [x] **5.3 Alertas** — temperatura de CPU/GPU, bateria do controle ≤ 15%, custo 80%/100%; só na tela em call. *(R15.1, R15.2)*
   - Lê: `contracts.py`, R15, do `hud/gamerhud.py` só as classes `Sensors` e a função `controllers` (lógica reaproveitável)
   - Escreve: `magi/core/proactive/alerts.py`, testes
   - Depende de: 1.12, 3.2, 5.1
