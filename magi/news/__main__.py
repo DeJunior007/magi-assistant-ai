@@ -1,8 +1,9 @@
 """``magi-news``: roda uma execução e termina (design §8). Chamado pelo timer systemd a cada 2 h.
 
-Por enquanto os passos 1 (coleta) e 2 (agrupamento, ``magi.news.cluster``). O agrupamento usa
-os embeddings da tarefa ``news`` e só roda com provedor ``free_tier`` com chave no keyring; sem
-isso, é pulado com aviso. Uso::
+Passos: 1 coleta; depois, no máximo a cada 6 h, o progresso do usuário (AniList e Steam, tarefa
+6.8), que o anti-spoiler usa; 2 agrupamento (``magi.news.cluster``), que usa os embeddings da
+tarefa ``news`` e só roda com provedor ``free_tier`` com chave no keyring (sem isso, é pulado com
+aviso). ``--only`` roda só a coleta. Uso::
 
     magi-news [--config PATH] [--dsn DSN] [--only rss] [--timeout 50] [-v]
 
@@ -18,6 +19,7 @@ import asyncio
 import logging
 import os
 import sys
+from datetime import UTC, datetime
 
 import psycopg
 
@@ -31,6 +33,7 @@ from magi.common.contracts import (
     Usage,
 )
 from magi.news.cluster import cluster_pending
+from magi.news.progress import update_if_due
 from magi.news.repo import PgNewsRepo
 from magi.news.sources import (
     DEFAULT_TIMEOUT_S,
@@ -105,6 +108,15 @@ async def run_once(
     try:
         async with make_http_client() as http:
             report = await collect_all(repo, sources, http, config=config, timeout_s=timeout_s)
+            if not only:
+                try:
+                    prog = await update_if_due(repo, http, sources, news_settings(config),
+                                               datetime.now(UTC))
+                except (psycopg.Error, OSError, ValueError) as exc:  # não derruba a coleta
+                    log.warning("progresso: %s", exc)
+                else:
+                    if prog is not None:
+                        log.info("%s", prog.summary())
         embedder = make_embedder(config)
         if embedder is not None:
             try:

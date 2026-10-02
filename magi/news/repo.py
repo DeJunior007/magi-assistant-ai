@@ -1,6 +1,6 @@
 """``NewsRepo`` em Postgres (design §7). Tarefa 6.1 cobre fontes e notícias cruas; a 6.6, criar
-itens e juntar cruas a eles (agrupamento). Os demais métodos de itens, preferências, progresso e
-retorno são das tarefas 6.7+ e ainda levantam ``NotImplementedError``.
+itens e juntar cruas a eles (agrupamento); a 6.8, preferências por obra e progresso. Os demais
+métodos (classificação e retorno) são das tarefas 6.7+ e ainda levantam ``NotImplementedError``.
 
 Usa uma ``psycopg.AsyncConnection`` em modo ``autocommit`` (cada chamada é uma transação). Os
 nomes das tabelas não têm schema: o ``search_path`` da conexão decide (testes usam um schema
@@ -205,17 +205,57 @@ class PgNewsRepo:
     ) -> list[NewsItem]:
         raise _todo("search_items")
 
+    # --- preferências por obra e progresso (6.8) ----------------------------------------------
+
     async def franchise_prefs(self) -> list[FranchisePref]:
-        raise _todo("franchise_prefs")
+        cur = await self.conn.execute(
+            "SELECT franchise, weight, dropped, spoilers_ok FROM franchise_prefs ORDER BY franchise"
+        )
+        return [FranchisePref(f, float(w), bool(d), bool(s)) for f, w, d, s in await cur.fetchall()]
 
     async def set_franchise_pref(self, pref: FranchisePref) -> None:
-        raise _todo("set_franchise_pref")
+        """Grava a linha inteira (chave: ``franchise``)."""
+        await self.conn.execute(
+            """
+            INSERT INTO franchise_prefs (franchise, weight, dropped, spoilers_ok)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (franchise) DO UPDATE
+                SET weight = EXCLUDED.weight, dropped = EXCLUDED.dropped,
+                    spoilers_ok = EXCLUDED.spoilers_ok
+            """,
+            [pref.franchise, pref.weight, pref.dropped, pref.spoilers_ok],
+        )
 
     async def progress(self, franchise: str) -> list[Progress]:
-        raise _todo("progress")
+        """Valores não numéricos na coluna ``text`` são ignorados."""
+        cur = await self.conn.execute(
+            "SELECT franchise, kind, value, updated_at FROM progress WHERE franchise = %s ORDER BY kind",
+            [franchise],
+        )
+        out: list[Progress] = []
+        for f, k, v, at in await cur.fetchall():
+            try:
+                out.append(Progress(franchise=f, kind=k, value=float(v), updated_at=at))
+            except (TypeError, ValueError):
+                continue
+        return out
 
     async def set_progress(self, progress: Progress) -> None:
-        raise _todo("set_progress")
+        """Upsert por (``franchise``, ``kind``); ``value`` vai como texto (``12``, ``6.25``)."""
+        await self.conn.execute(
+            """
+            INSERT INTO progress (franchise, kind, value, updated_at) VALUES (%s, %s, %s, %s)
+            ON CONFLICT (franchise, kind) DO UPDATE
+                SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+            """,
+            [progress.franchise, progress.kind, f"{progress.value:g}", progress.updated_at],
+        )
+
+    async def progress_updated_at(self) -> datetime | None:
+        """Última sincronização de progresso (fora do contrato; usado pelo intervalo de 6.8)."""
+        cur = await self.conn.execute("SELECT max(updated_at) FROM progress")
+        row = await cur.fetchone()
+        return row[0] if row else None
 
     async def add_feedback(self, item_id: int, signal: int, at: datetime) -> None:
         raise _todo("add_feedback")
