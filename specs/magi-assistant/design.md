@@ -106,7 +106,7 @@ durante `speaking` corta a reprodução (Req. 12.5). Estado `confirming` espera 
 ### 3.3 Atalho de apertar pra falar (Req. 1.3–1.4, 1.7)
 
 - Teclado: atalho global do KDE (KGlobalAccel) registrado pelo satélite; usa os sinais
-  `globalShortcutPressed` e `globalShortcutReleased` do componente. Tecla padrão a definir (aberto no PRD).
+  `globalShortcutPressed` e `globalShortcutReleased` do componente. Tecla padrão: **Pause** (decidida pelo usuário; tecla única, sem modificador, para o jogo não perder o foco). Obs. do S2: argumentos `a(ai)` do KGlobalAccel levam sempre 4 inteiros.
 - DualSense: leitura do evdev do controle (`python-evdev`). Exige o usuário no grupo `input` ou
   uma regra udev `uaccess`; decisão no spike S2.
 
