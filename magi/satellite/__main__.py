@@ -30,6 +30,7 @@ from magi.common.config import Config, ConfigError, ConfigWatcher
 from magi.common.contracts import (
     WYOMING_HOST,
     WYOMING_PORT,
+    AudioEndReason,
     ListenRequest,
     SatelliteHello,
     SatelliteToCore,
@@ -39,6 +40,7 @@ from magi.common.contracts import (
 from magi.common.events import EventDecodeError, from_event, to_event
 from magi.satellite.capture import AudioSource, MicSource, WavSource
 from magi.satellite.discord import DiscordCallMonitor
+from magi.satellite.ptt import PttSettings, PushToTalk, ptt_endpointer, start_sources
 from magi.satellite.stream import PreRoll, UtteranceStream
 from magi.satellite.vad import Endpointer, SpeechDetector, download_vad_model, load_vad
 from magi.satellite.wake import (
@@ -150,15 +152,36 @@ async def wake_loop(
     *,
     vad: SpeechDetector | None = None,
     listens: asyncio.Queue[ListenRequest] | None = None,
+    ptt: PushToTalk | None = None,
 ) -> None:
     """Loop do satélite. Ocioso: wake word em cada bloco de 80 ms (único custo ocioso, §5).
 
     Com ``vad``, cada ativação (ou ``magi-listen`` em ``listens``) vira uma gravação: os blocos
     vão ao núcleo em tempo real até o VAD encerrar; durante ela o wake word não roda.
+    Com ``ptt``, o atalho pressionado manda ``magi-wake`` (source=ptt) e grava até soltar
+    (``ptt_release``), interrompendo outra gravação em curso (R1.3, R1.4).
     """
     preroll = PreRoll()
     stream: UtteranceStream | None = None
+    ptt_held = False  # gravação do atalho em curso (ou já encerrada pelo teto de 15 s)
     async for block in source.blocks():
+        if ptt is not None and ptt.pressed != ptt_held:
+            ptt_held = ptt.pressed
+            if not ptt_held:
+                if stream is not None:
+                    await stream.finish(AudioEndReason.PTT_RELEASE)
+                stream = None
+                continue
+            if stream is not None:
+                await stream.finish(AudioEndReason.CANCELLED)
+            stream = None
+            if not await client.send(WakeEvent(source=WakeSource.PTT, satellite=satellite)):
+                log.warning("atalho descartado: sem conexão com o núcleo")
+                continue
+            stream = UtteranceStream(client.send_event, ptt_endpointer(vad), preroll=preroll.take())
+            if not await stream.start():
+                stream = None
+                continue
         if stream is not None:
             if await stream.feed(block) is not None:
                 stream = None
@@ -211,6 +234,15 @@ def load_settings(config: str | None) -> tuple[WakeSettings, ConfigWatcher | Non
     except (ConfigError, TypeError, ValueError) as e:
         log.warning("%s; usando padrões do satélite sem recarga", e)
         return WakeSettings(), None
+
+
+def load_ptt_settings(watcher: ConfigWatcher | None) -> PttSettings:
+    """``ptt_*`` de ``[satellite]`` (só ao iniciar). Inválido → padrões."""
+    try:
+        return PttSettings.from_raw(watcher.current.raw) if watcher is not None else PttSettings()
+    except ValueError as e:
+        log.error("%s; usando o atalho padrão", e)
+        return PttSettings()
 
 
 def reload_handler(
@@ -273,6 +305,8 @@ async def run(
 
     source: AudioSource
     discord_task: asyncio.Task[None] | None = None
+    ptt: PushToTalk | None = None
+    ptt_tasks: list[asyncio.Task[None]] = []
     if args.wav:
         source = WavSource(args.wav, realtime=True)
     else:
@@ -280,14 +314,20 @@ async def run(
         # call do Discord desliga o wake word (R2.1, R2.2); com --wav não há call a vigiar
         monitor = DiscordCallMonitor(spotter, client.send, settings.satellite)
         discord_task = asyncio.create_task(monitor.run(), name="discord-call")
+        # atalho (teclado/DualSense); com --wav não registra nada na sessão do usuário
+        ptt = PushToTalk()
+        ptt_tasks = start_sources(ptt, load_ptt_settings(watcher))
     try:
-        await wake_loop(source, spotter, client, settings.satellite, vad=vad, listens=listens)
+        await wake_loop(source, spotter, client, settings.satellite, vad=vad, listens=listens, ptt=ptt)
         if args.wav:
             await asyncio.sleep(0.5)  # deixa o último evento sair
     finally:
         stop.set()
         if watch_task is not None:
             watch_task.cancel()
+        for t in ptt_tasks:
+            t.cancel()
+        await asyncio.gather(*ptt_tasks, return_exceptions=True)
         if discord_task is not None:
             discord_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
