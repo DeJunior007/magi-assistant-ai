@@ -205,7 +205,7 @@ Formato de cada tarefa:
   - Orçamento: ~55k
   - Pronto: HUD ocioso sem aumento de CPU medido; boca acompanha a voz.
 
-- [ ] **1.17 Serviços** — units systemd `--user` para satélite e núcleo com reinício automático; `hud/install.sh` instala também a Magui. *(RNF-11)*
+- [x] **1.17 Serviços** — units systemd `--user` para satélite e núcleo com reinício automático; `hud/install.sh` instala também a Magui. *(RNF-11)*
   - Lê: §1 (tabela de processos), `hud/install.sh`
   - Escreve: `deploy/systemd/magi-satellite.service`, `deploy/systemd/magi-core.service`, `hud/install.sh`
   - Depende de: 1.1, 1.4
