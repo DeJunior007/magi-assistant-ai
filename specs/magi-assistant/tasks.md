@@ -242,7 +242,7 @@ Formato de cada tarefa:
   - Orçamento: ~35k
   - Pronto: "toca Linkin Park" toca o artista.
 
-- [ ] **2.3 Importar gosto** — mais ouvidos (3 prazos) e recentes para `taste`. *(R8.2)*
+- [x] **2.3 Importar gosto** — mais ouvidos (3 prazos) e recentes para `taste`. *(R8.2)*
   - Lê: `contracts.py`, §7 (tabelas de música), R8
   - Escreve: `magi/memory/taste_repo.py`, `magi/core/music/import_taste.py`, testes
   - Depende de: 2.2, 0.3
