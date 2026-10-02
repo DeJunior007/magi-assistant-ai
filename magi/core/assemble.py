@@ -171,6 +171,7 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
     """Migra (dimensões dos embeddings da config; ``None`` = padrão) e abre a conexão do núcleo."""
     import psycopg
 
+    from magi.memory.conn import SerialConn
     from magi.memory.corrections_repo import CorrectionsRepo
     from magi.memory.costs_repo import CostsRepo
     from magi.memory.migrate import migrate
@@ -185,7 +186,8 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
     applied = await asyncio.to_thread(_migrate)
     if applied:
         log.info("migrações aplicadas: %s", ", ".join(applied))
-    conn = await psycopg.AsyncConnection.connect(dsn, autocommit=True, connect_timeout=DB_TIMEOUT_S)
+    raw = await psycopg.AsyncConnection.connect(dsn, autocommit=True, connect_timeout=DB_TIMEOUT_S)
+    conn = SerialConn(raw)  # repositórios compartilham a conexão: transações em fila
     return Repos(
         corrections=CorrectionsRepo(conn), costs=CostsRepo(conn), close=conn.close, taste=TasteRepo(conn)
     )
