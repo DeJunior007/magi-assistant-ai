@@ -247,7 +247,7 @@ async def test_pg_repo_fontes_e_cruas(schema):
         assert [(r.id, r.url, r.published_at) for r in got] == [(rid, raw.url, NOW)]
         assert got[0].fetched_at is not None
         with pytest.raises(NotImplementedError):
-            await repo.unclassified()
+            await repo.search_items()
     finally:
         await repo.close()
 

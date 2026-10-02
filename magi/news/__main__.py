@@ -2,8 +2,9 @@
 
 Passos: 1 coleta; depois, no máximo a cada 6 h, o progresso do usuário (AniList e Steam, tarefa
 6.8), que o anti-spoiler usa; 2 agrupamento (``magi.news.cluster``), que usa os embeddings da
-tarefa ``news`` e só roda com provedor ``free_tier`` com chave no keyring (sem isso, é pulado com
-aviso). ``--only`` roda só a coleta. Uso::
+tarefa ``news``; 3 classificação (``magi.news.classify``), com o chat da mesma tarefa. Os passos 2
+e 3 só rodam com provedor ``free_tier`` com chave no keyring
+(sem isso, são pulados com aviso). ``--only`` roda só a coleta. Uso::
 
     magi-news [--config PATH] [--dsn DSN] [--only rss] [--timeout 50] [-v]
 
@@ -20,6 +21,7 @@ import logging
 import os
 import sys
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import psycopg
 
@@ -27,11 +29,13 @@ from magi.common.config import DEFAULT_DSN, Config, ConfigError, load_config
 from magi.common.contracts import (
     BudgetExceeded,
     BudgetStatus,
+    ChatProvider,
     EmbeddingProvider,
     ProviderError,
     ProviderTask,
     Usage,
 )
+from magi.news.classify import classify_pending
 from magi.news.cluster import cluster_pending
 from magi.news.progress import update_if_due
 from magi.news.repo import PgNewsRepo
@@ -45,6 +49,9 @@ from magi.news.sources import (
     make_http_client,
     news_settings,
 )
+
+if TYPE_CHECKING:
+    from magi.providers.registry import Registry
 
 log = logging.getLogger("magi.news")
 
@@ -74,25 +81,45 @@ class _FreeTierOnly:
         raise NotImplementedError
 
 
-def make_embedder(config: Config | None) -> EmbeddingProvider | None:
-    """Embeddings da tarefa ``news`` (R18.3) ou ``None`` com aviso (sem tarefa, pago, sem chave)."""
+def _news_registry(config: Config | None, step: str) -> Registry | None:
+    """Registro para a tarefa ``news`` (R18.6) ou ``None`` com aviso (sem tarefa, pago, sem chave)."""
     if config is None or ProviderTask.NEWS.value not in config.tasks:
-        log.warning("agrupamento pulado: [tasks.news] não configurada")
+        log.warning("%s pulado: [tasks.news] não configurada", step)
         return None
     from magi.providers.registry import Registry
 
     try:
         pcfg = config.provider_for(ProviderTask.NEWS.value)
         if not pcfg.free_tier:
-            log.warning("agrupamento pulado: provedor '%s' da tarefa news não é free_tier", pcfg.name)
+            log.warning("%s pulado: provedor '%s' da tarefa news não é free_tier", step, pcfg.name)
             return None
         registry = Registry(config, _FreeTierOnly())
         if registry.pool(pcfg.name).available() == 0:
-            log.warning("agrupamento pulado: nenhuma chave de '%s' no keyring", pcfg.name)
+            log.warning("%s pulado: nenhuma chave de '%s' no keyring", step, pcfg.name)
             return None
-        return registry.embeddings(ProviderTask.NEWS)
+        return registry
     except (ConfigError, ProviderError) as exc:
+        log.warning("%s pulado: %s", step, exc)
+        return None
+
+
+def make_embedder(config: Config | None) -> EmbeddingProvider | None:
+    """Embeddings da tarefa ``news`` (R18.3) ou ``None`` com aviso."""
+    registry = _news_registry(config, "agrupamento")
+    try:
+        return registry.embeddings(ProviderTask.NEWS) if registry else None
+    except ProviderError as exc:
         log.warning("agrupamento pulado: %s", exc)
+        return None
+
+
+def make_classifier(config: Config | None) -> ChatProvider | None:
+    """Chat da tarefa ``news`` para a classificação (R19.1) ou ``None`` com aviso."""
+    registry = _news_registry(config, "classificação")
+    try:
+        return registry.chat(ProviderTask.NEWS) if registry else None
+    except ProviderError as exc:
+        log.warning("classificação pulada: %s", exc)
         return None
 
 
@@ -123,6 +150,12 @@ async def run_once(
                 log.info("agrupamento: %s", (await cluster_pending(repo, embedder)).summary())
             except ProviderError as exc:
                 log.warning("agrupamento interrompido: %s", exc)
+        classifier = make_classifier(config)
+        if classifier is not None:
+            try:
+                log.info("classificação: %s", (await classify_pending(repo, classifier)).summary())
+            except ProviderError as exc:
+                log.warning("classificação interrompida: %s", exc)
         return report
     finally:
         await repo.close()
