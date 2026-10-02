@@ -249,7 +249,7 @@ Formato de cada tarefa:
   - Orçamento: ~25k
   - Pronto: tabela preenchida na primeira execução.
 
-- [ ] **2.4 Sinais de música** — pulo < 30 s, ouvida inteira, "essa é boa", "nunca mais". *(R8.3–R8.5)*
+- [x] **2.4 Sinais de música** — pulo < 30 s, ouvida inteira, "essa é boa", "nunca mais". *(R8.3–R8.5)*
   - Lê: `contracts.py`, §7 (tabelas de música), R8
   - Escreve: `magi/core/music/signals.py`, testes
   - Depende de: 2.1, 2.3
