@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Fake Games</title>
+  <id>urn:fake:games</id>
+  <updated>2026-09-30T15:00:00Z</updated>
+  <entry>
+    <title>Hollow Knight Silksong DLC dated</title>
+    <link href="https://games.example/silksong-dlc"/>
+    <id>urn:fake:1</id>
+    <updated>2026-09-30T15:00:00Z</updated>
+    <content type="html">&lt;div&gt;Team Cherry dated the DLC.&lt;/div&gt;</content>
+  </entry>
+  <entry>
+    <title>Shared story</title>
+    <link href="https://shared.example/story"/>
+    <id>urn:fake:2</id>
+    <updated>2026-09-30T14:00:00Z</updated>
+    <summary>Same story</summary>
+  </entry>
+</feed>
