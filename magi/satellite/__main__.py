@@ -6,6 +6,10 @@ um ``magi-wake`` a cada ativação, seguido da fala (``audio-start/chunk/stop``,
 cair, reconecta sozinho; ativações sem conexão são descartadas (com log). O limiar do wake
 word é recarregado quando o ``config.toml`` é salvo.
 
+A resposta do núcleo (``audio-start/chunk/stop``) é tocada pelo ``playback.Player``, com
+``magi-mouth``, ``playback-done`` e ducking de Spotify/jogo (``ducking``); wake word ou atalho
+durante a fala cortam o som. Ao iniciar, volumes deixados abaixados por uma queda são restaurados.
+
 Uso::
 
     uv run magi-satellite                      # microfone padrão
@@ -40,6 +44,8 @@ from magi.common.contracts import (
 from magi.common.events import EventDecodeError, from_event, to_event
 from magi.satellite.capture import AudioSource, MicSource, WavSource
 from magi.satellite.discord import DiscordCallMonitor
+from magi.satellite.ducking import Ducker
+from magi.satellite.playback import Player
 from magi.satellite.ptt import PttSettings, PushToTalk, ptt_endpointer, start_sources
 from magi.satellite.stream import PreRoll, UtteranceStream
 from magi.satellite.vad import Endpointer, SpeechDetector, download_vad_model, load_vad
@@ -153,6 +159,7 @@ async def wake_loop(
     vad: SpeechDetector | None = None,
     listens: asyncio.Queue[ListenRequest] | None = None,
     ptt: PushToTalk | None = None,
+    player: Player | None = None,
 ) -> None:
     """Loop do satélite. Ocioso: wake word em cada bloco de 80 ms (único custo ocioso, §5).
 
@@ -160,6 +167,7 @@ async def wake_loop(
     vão ao núcleo em tempo real até o VAD encerrar; durante ela o wake word não roda.
     Com ``ptt``, o atalho pressionado manda ``magi-wake`` (source=ptt) e grava até soltar
     (``ptt_release``), interrompendo outra gravação em curso (R1.3, R1.4).
+    Com ``player``, wake word ou atalho durante a fala da Magui cortam o som na hora (R12.5).
     """
     preroll = PreRoll()
     stream: UtteranceStream | None = None
@@ -175,6 +183,8 @@ async def wake_loop(
             if stream is not None:
                 await stream.finish(AudioEndReason.CANCELLED)
             stream = None
+            if player is not None:
+                player.interrupt()
             if not await client.send(WakeEvent(source=WakeSource.PTT, satellite=satellite)):
                 log.warning("atalho descartado: sem conexão com o núcleo")
                 continue
@@ -200,6 +210,8 @@ async def wake_loop(
         if det is None:
             continue
         log.info("wake word (%.2f)", det.score)
+        if player is not None:
+            player.interrupt()
         ev = WakeEvent(source=WakeSource.WAKE, satellite=satellite, score=round(det.score, 4),
                        timestamp=det.timestamp_ms)
         if not await client.send(ev):
@@ -222,6 +234,20 @@ def listen_handler(listens: asyncio.Queue[ListenRequest]) -> Callable[[Event], N
             return
         if isinstance(msg, ListenRequest):
             listens.put_nowait(msg)
+
+    return on_event
+
+
+def core_handler(
+    listens: asyncio.Queue[ListenRequest], player: Player
+) -> Callable[[Event], Awaitable[None]]:
+    """``on_event`` do ``CoreClient``: áudio/``magi-stop`` vão ao ``player``; o resto, como em
+    ``listen_handler``."""
+    on_listen = listen_handler(listens)
+
+    async def on_event(event: Event) -> None:
+        if not await player.handle(event):
+            on_listen(event)
 
     return on_event
 
@@ -300,7 +326,13 @@ async def run(
     listens: asyncio.Queue[ListenRequest] = asyncio.Queue()
 
     hello = SatelliteHello(satellite=settings.satellite, name="Magui satélite", version=_magi_version)
-    client = CoreClient(hello, args.host, args.port, on_event=listen_handler(listens))
+    client = CoreClient(hello, args.host, args.port)
+    # ducking mexe no volume de apps do usuário: só no modo real (com --wav não)
+    ducker = None if args.wav else Ducker()
+    if ducker is not None:
+        await ducker.recover()  # volume deixado abaixado por uma queda anterior (S1)
+    player = Player(client.send, settings.satellite, ducker=ducker)
+    client.on_event = core_handler(listens, player)
     client.start()
 
     source: AudioSource
@@ -318,7 +350,8 @@ async def run(
         ptt = PushToTalk()
         ptt_tasks = start_sources(ptt, load_ptt_settings(watcher))
     try:
-        await wake_loop(source, spotter, client, settings.satellite, vad=vad, listens=listens, ptt=ptt)
+        await wake_loop(source, spotter, client, settings.satellite, vad=vad, listens=listens, ptt=ptt,
+                        player=player)
         if args.wav:
             await asyncio.sleep(0.5)  # deixa o último evento sair
     finally:
@@ -333,6 +366,9 @@ async def run(
             with contextlib.suppress(asyncio.CancelledError):
                 await discord_task
         await source.close()
+        await player.close()
+        if ducker is not None:
+            await ducker.close()
         await client.stop()
 
 
