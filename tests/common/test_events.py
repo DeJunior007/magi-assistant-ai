@@ -210,6 +210,11 @@ VALID = [
     ("speaking", "sleeping"),
     ("speaking", "listening"),
     ("speaking", "confirming"),
+    ("speaking", "followup"),  # 1.20: janela de continuação
+    ("thinking", "followup"),
+    ("followup", "thinking"),
+    ("followup", "sleeping"),
+    ("followup", "listening"),
 ]
 
 

@@ -80,6 +80,13 @@ dsn = "postgresql://magi:magi@127.0.0.1:54329/magi"
 data_dir  = "~/.local/share/magi"
 cache_dir = "~/.cache/magi"
 
+[conversation]
+# Conversa contínua (1.20): depois de responder, a Magui fica ouvindo sem wake word e sem bip
+# (rosto "ouvindo" no HUD) por followup_s para você começar a falar; silêncio = volta a dormir.
+# "valeu", "só isso", "tchau"... dispensam na hora. Desligada em call no Discord (só PTT).
+followup   = true
+followup_s = 3.0
+
 [alerts]
 # Avisos proativos (R15.1, R15.2): fala curta + card fora de call; em call, só na tela.
 enabled            = true

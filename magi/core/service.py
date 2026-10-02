@@ -41,7 +41,13 @@ from magi.common.contracts import (
 from magi.common.events import EventDecodeError, audio_chunk, audio_start, from_event, to_event
 from magi.core.assemble import Core, assemble
 from magi.core.hud_client import HudServer, NullHud
-from magi.core.turn import CONFIRM_GRACE_MS, TurnDeps, TurnMachine, TurnPipeline
+from magi.core.turn import (
+    CONFIRM_GRACE_MS,
+    TurnDeps,
+    TurnMachine,
+    TurnPipeline,
+    followup_ms_from_config,
+)
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +92,7 @@ class CoreService:
         port: int = WYOMING_PORT,
         confirm_timeout_ms: int = CONFIRM_TIMEOUT_MS,
         confirm_grace_ms: int = CONFIRM_GRACE_MS,
+        followup_ms: int | None = None,
     ) -> None:
         self.pipeline = TurnPipeline(deps)
         self.hud: HudSink = hud if hud is not None else NullHud()
@@ -93,6 +100,7 @@ class CoreService:
         self._port = port
         self.confirm_timeout_ms = confirm_timeout_ms
         self.confirm_grace_ms = confirm_grace_ms
+        self.followup_ms = followup_ms  # janela de continuação (1.20); None = desligada
         self._server: asyncio.Server | None = None
         self._machines: dict[str, TurnMachine] = {}
         self._conns: set[asyncio.Task[None]] = set()
@@ -152,6 +160,7 @@ class CoreService:
                 self.pipeline,
                 confirm_timeout_ms=self.confirm_timeout_ms,
                 confirm_grace_ms=self.confirm_grace_ms,
+                followup_ms=self.followup_ms,
             )
             old = self._machines.get(hello.satellite)
             if old is not None:
@@ -219,7 +228,8 @@ async def run(
     if deps is None:
         core = await assemble(config if config is not None else parse_config({}), hud)
         deps = core.deps
-    service = CoreService(deps, hud, host=host, port=port)
+    followup_ms = followup_ms_from_config(config.raw if config is not None else None)
+    service = CoreService(deps, hud, host=host, port=port, followup_ms=followup_ms)
     hud.on_command = service.on_hud_command
     try:
         await hud.start()
