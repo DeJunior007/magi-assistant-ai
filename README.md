@@ -13,7 +13,7 @@ integrada ao MAGI Gamer, o HUD estilo NERV do segundo monitor. Desenvolvimento g
 
 ## Estado
 
-- HUD: funcionando (FPS, sensores, RGB sync, tela de ociosidade, notícias de jogo via vigia).
+- HUD: funcionando (FPS, sensores, RGB sync, tela de ociosidade, abre sozinho quando um jogo começa).
 - Assistente: especificada; próximo passo é a Fase 0 (base do projeto e spikes).
 
 ## Instalar o HUD
