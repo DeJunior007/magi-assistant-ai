@@ -35,35 +35,35 @@ Formato de cada tarefa:
 
 ## Fase 0 — Base do projeto e spikes
 
-- [ ] **0.1 Projeto Python** — `uv` com Python 3.12, pacote `magi/`, `ruff`, `pytest`, CI no GitHub Actions.
+- [x] **0.1 Projeto Python** — `uv` com Python 3.12, pacote `magi/`, `ruff`, `pytest`, CI no GitHub Actions.
   - Lê: §2, §11
   - Escreve: `pyproject.toml`, `magi/__init__.py`, `tests/test_smoke.py`, `.github/workflows/ci.yml`
   - Depende de: —
   - Orçamento: ~15k
   - Pronto: `uv run pytest` passa localmente e no CI.
 
-- [ ] **0.2 Config e segredos** — leitura do `config.toml` com recarga ao salvar; chaves no keyring; comando `magi-keys add <nome>`. *(R21.1, R21.4)*
+- [x] **0.2 Config e segredos** — leitura do `config.toml` com recarga ao salvar; chaves no keyring; comando `magi-keys add <nome>`. *(R21.1, R21.4)*
   - Lê: §2, §4.7, R21
   - Escreve: `magi/common/config.py`, `magi/common/secrets.py`, `magi/cli/keys.py`, `config.example.toml`, `tests/common/test_config.py`
   - Depende de: 0.1
   - Orçamento: ~25k
   - Pronto: teste carrega o exemplo; nenhuma chave em arquivo.
 
-- [ ] **0.3 Banco** — Compose do `pgvector/pgvector:pg16` em `127.0.0.1` com memória limitada; migração com as tabelas do §7; executor de migrações. *(R11, RNF-02)*
+- [x] **0.3 Banco** — Compose do `pgvector/pgvector:pg16` em `127.0.0.1` com memória limitada; migração com as tabelas do §7; executor de migrações. *(R11, RNF-02)*
   - Lê: §2 (linha do banco), §7
   - Escreve: `deploy/docker-compose.yml`, `magi/memory/migrations/001_init.sql`, `magi/memory/migrate.py`, `tests/memory/test_migrate.py`
   - Depende de: 0.1
   - Orçamento: ~25k
   - Pronto: `docker compose up -d` + migração criam o esquema; container ocioso < 80 MB.
 
-- [ ] **0.4 Spike S1: áudio no PipeWire** — captura com `sounddevice`; listar e mutar o `source-output` do Discord; baixar `sink-input`s com `pulsectl`.
+- [x] **0.4 Spike S1: áudio no PipeWire** — captura com `sounddevice`; listar e mutar o `source-output` do Discord; baixar `sink-input`s com `pulsectl`.
   - Lê: §3.2, §5, §12
   - Escreve: `spikes/s1_audio.py`, `docs/spikes/S1.md` (resultado e decisão)
   - Depende de: 0.1
   - Orçamento: ~25k
   - Pronto: `docs/spikes/S1.md` diz o que funciona e o mecanismo escolhido.
 
-- [ ] **0.5 Spike S2: atalho** — testar `globalShortcutPressed/Released` do KGlobalAccel e o evdev do DualSense.
+- [x] **0.5 Spike S2: atalho** — testar `globalShortcutPressed/Released` do KGlobalAccel e o evdev do DualSense.
   - Lê: §3.3, §12
   - Escreve: `spikes/s2_ptt.py`, `docs/spikes/S2.md`
   - Depende de: 0.1
@@ -86,91 +86,91 @@ Formato de cada tarefa:
 
 ## Fase 1 — Base de voz
 
-- [ ] **1.0 Contratos** — todas as interfaces entre módulos: eventos do protocolo (Wyoming + `magi-*`), estados do turno, `Transcript`, `Intent`/`Slot`, `ActionRequest`/`ActionResult`, protocolos de provedor e de repositório, mensagens do HUD. Serialização dos eventos com testes. *(R22.1)*
+- [x] **1.0 Contratos** — todas as interfaces entre módulos: eventos do protocolo (Wyoming + `magi-*`), estados do turno, `Transcript`, `Intent`/`Slot`, `ActionRequest`/`ActionResult`, protocolos de provedor e de repositório, mensagens do HUD. Serialização dos eventos com testes. *(R22.1)*
   - Lê: §3, §3.1, §4.1, §5, §6, §7
   - Escreve: `magi/common/contracts.py`, `magi/common/events.py`, `tests/common/test_events.py`
   - Depende de: 0.1
   - Orçamento: ~40k
   - Pronto: testes de ida e volta de todos os eventos e mensagens passam; docstring de cada contrato cita o requisito.
 
-- [ ] **1.1 Satélite: captura e wake word** — captura 16 kHz em blocos de 80 ms, openWakeWord por bloco, limiar recarregável, envio de `magi-wake`. *(R1.1, R1.2, R1.6)*
+- [x] **1.1 Satélite: captura e wake word** — captura 16 kHz em blocos de 80 ms, openWakeWord por bloco, limiar recarregável, envio de `magi-wake`. *(R1.1, R1.2, R1.6)*
   - Lê: `contracts.py`, §5, `docs/spikes/S1.md`, `docs/spikes/S4.md`
   - Escreve: `magi/satellite/capture.py`, `magi/satellite/wake.py`, `magi/satellite/__main__.py`, testes com áudio gravado
   - Depende de: 1.0, 0.7
   - Orçamento: ~35k
   - Pronto: ativação em < 300 ms; CPU ociosa ≤ 2% de um núcleo (RNF-01).
 
-- [ ] **1.2 Satélite: VAD e envio** — Silero VAD, 700 ms de silêncio, máximo 15 s; `audio-start/chunk/stop` com metadados de tom (energia, taxa de fala). *(R1.5)*
+- [x] **1.2 Satélite: VAD e envio** — Silero VAD, 700 ms de silêncio, máximo 15 s; `audio-start/chunk/stop` com metadados de tom (energia, taxa de fala). *(R1.5)*
   - Lê: `contracts.py`, §5, R1
   - Escreve: `magi/satellite/vad.py`, `magi/satellite/stream.py`, testes
   - Depende de: 1.1
   - Orçamento: ~30k
   - Pronto: frase falada chega inteira ao núcleo falso de teste.
 
-- [ ] **1.3 Satélite: atalho** — PTT pelo mecanismo do S2 (teclado; DualSense se viável). *(R1.3, R1.4, R1.7)*
+- [x] **1.3 Satélite: atalho** — PTT pelo mecanismo do S2 (teclado; DualSense se viável). *(R1.3, R1.4, R1.7)*
   - Lê: `contracts.py`, §3.3, `docs/spikes/S2.md`
   - Escreve: `magi/satellite/ptt.py`, testes
   - Depende de: 1.2, 0.5
   - Orçamento: ~30k
   - Pronto: grava enquanto o atalho está pressionado.
 
-- [ ] **1.4 Núcleo: esqueleto e estados** — serviço asyncio, servidor Wyoming, máquina de estados do §3.1, interrupção por nova ativação, envio de `state` ao HUD (só o cliente, sem o HUD). *(R12.5)*
+- [x] **1.4 Núcleo: esqueleto e estados** — serviço asyncio, servidor Wyoming, máquina de estados do §3.1, interrupção por nova ativação, envio de `state` ao HUD (só o cliente, sem o HUD). *(R12.5)*
   - Lê: `contracts.py`, §3, §3.1
   - Escreve: `magi/core/service.py`, `magi/core/turn.py`, `magi/core/hud_client.py`, testes com satélite falso
   - Depende de: 1.0
   - Orçamento: ~40k
   - Pronto: teste percorre todos os estados, inclusive a interrupção.
 
-- [ ] **1.5 Transcrição** — provedor da config, vocabulário de dica (≤ 200 tokens), falha → "não peguei, repete?". *(R3.1, R3.2, R3.5, R3.6)*
+- [x] **1.5 Transcrição** — provedor da config, vocabulário de dica (≤ 200 tokens), falha → "não peguei, repete?". *(R3.1, R3.2, R3.5, R3.6)*
   - Lê: `contracts.py`, §4.1 (linha `stt`), R3
   - Escreve: `magi/core/stt.py`, testes com provedor falso
   - Depende de: 1.4, 0.6
   - Orçamento: ~30k
   - Pronto: frase de teste transcrita; nenhum arquivo de áudio criado.
 
-- [ ] **1.6 Correções** — "não, eu falei X" salva o par e refaz o turno; correções aplicadas antes do roteador. *(R3.3, R3.4)*
+- [x] **1.6 Correções** — "não, eu falei X" salva o par e refaz o turno; correções aplicadas antes do roteador. *(R3.3, R3.4)*
   - Lê: `contracts.py`, §4.1 (linha `corrections`), §7 (tabela `corrections`), R3
   - Escreve: `magi/core/corrections.py`, `magi/memory/corrections_repo.py`, testes
   - Depende de: 1.4, 0.3
   - Orçamento: ~25k
   - Pronto: testes unitários e turno corrigido.
 
-- [ ] **1.7 Catálogo de jogos** — leitura dos `appmanifest_*.acf` de todas as bibliotecas da Steam; apelidos aprendidos; busca aproximada por nome.
+- [x] **1.7 Catálogo de jogos** — leitura dos `appmanifest_*.acf` de todas as bibliotecas da Steam; apelidos aprendidos; busca aproximada por nome.
   - Lê: `contracts.py`, §4.2, `hud/gamerhud.py` só a função `steam_game_name` (via `grep -n`)
   - Escreve: `magi/core/catalog.py`, testes com manifests de exemplo
   - Depende de: 1.0
   - Orçamento: ~25k
   - Pronto: "dedi cels" resolve para Dead Cells nos testes.
 
-- [ ] **1.8 Roteador local** — `intents.yaml`, normalização, `rapidfuzz`, slots pelo catálogo, faixa de dúvida "você quis dizer X?", conjunto inicial de frases de ouro. *(R4.1–R4.4)*
+- [x] **1.8 Roteador local** — `intents.yaml`, normalização, `rapidfuzz`, slots pelo catálogo, faixa de dúvida "você quis dizer X?", conjunto inicial de frases de ouro. *(R4.1–R4.4)*
   - Lê: `contracts.py`, §4.2, §10 (linha de frases de ouro), R4
   - Escreve: `magi/core/router.py`, `magi/core/intents.yaml`, `tests/data/utterances.yaml`, `tests/core/test_router.py`
   - Depende de: 1.7
   - Orçamento: ~40k
   - Pronto: acerto ≥ 90% nas frases de ouro iniciais.
 
-- [ ] **1.9 Ações: jogos** — abrir por `steam://rungameid`, sugestões quando não achar, fechar com confirmação (SIGTERM; SIGKILL só com nova confirmação). *(R5.1–R5.5)*
+- [x] **1.9 Ações: jogos** — abrir por `steam://rungameid`, sugestões quando não achar, fechar com confirmação (SIGTERM; SIGKILL só com nova confirmação). *(R5.1–R5.5)*
   - Lê: `contracts.py`, §3.1 (estado `confirming`), R5, `hud/gamerhud-watch.py` só a função `steam_game`
   - Escreve: `magi/core/actions/games.py`, testes
   - Depende de: 1.4, 1.7
   - Orçamento: ~35k
   - Pronto: "abre o dedi cels" abre o jogo; "fecha o jogo" exige "confirma".
 
-- [ ] **1.10 Ações: HUD** — abrir/fechar HUD, tela de ociosidade, RGB Sync, pelos mecanismos existentes. *(R6.1)*
+- [x] **1.10 Ações: HUD** — abrir/fechar HUD, tela de ociosidade, RGB Sync, pelos mecanismos existentes. *(R6.1)*
   - Lê: `contracts.py`, `hud/README.md`, `hud/magi-view.py`, `hud/system/bin/gamerhud`, `hud/gamerhud.py` só `main` (flags de linha de comando)
   - Escreve: `magi/core/actions/hud.py`, testes
   - Depende de: 1.4
   - Orçamento: ~25k
   - Pronto: cada comando funciona por voz. Detalhes de CPU/GPU/memória ficam para 1.15.
 
-- [ ] **1.11 Ações: volume e RGB** — volume e mudo via `pulsectl`; cor e brilho via SDK do OpenRGB (estender `hud/orgb.py` com escrita). *(R6.2–R6.4)*
+- [x] **1.11 Ações: volume e RGB** — volume e mudo via `pulsectl`; cor e brilho via SDK do OpenRGB (estender `hud/orgb.py` com escrita). *(R6.2–R6.4)*
   - Lê: `contracts.py`, `docs/spikes/S1.md`, `hud/orgb.py`, R6
   - Escreve: `magi/core/actions/system.py`, `hud/orgb.py` (escrita de cor), testes
   - Depende de: 1.4, 0.4
   - Orçamento: ~35k
   - Pronto: "volume 30", "muta", "RGB azul" funcionam; OpenRGB fora → aviso.
 
-- [ ] **1.12 Voz no núcleo** — TTS em streaming, cache de frases curtas (gerado no primeiro uso), envio de áudio ao satélite. *(R12.1, R12.2)*
+- [x] **1.12 Voz no núcleo** — TTS em streaming, cache de frases curtas (gerado no primeiro uso), envio de áudio ao satélite. *(R12.1, R12.2)*
   - Lê: `contracts.py`, §4.1 (linha `tts`), §4.7, R12
   - Escreve: `magi/core/tts.py`, `magi/core/phrases.yaml`, testes com provedor falso
   - Depende de: 1.4, 0.6
@@ -184,21 +184,21 @@ Formato de cada tarefa:
   - Orçamento: ~35k
   - Pronto: comando conhecido responde em ≤ 1,5 s (RNF-04).
 
-- [ ] **1.14 HUD: rosto isolado** — módulo de desenho do rosto em caracteres: 7 expressões, boca por nível (<0,15 "—", <0,5 "o", resto "O"), piscar e olhar, legenda em mincho; script de demonstração que salva PNGs. Sem tocar no `gamerhud.py`. *(R17.1–R17.6)*
+- [x] **1.14 HUD: rosto isolado** — módulo de desenho do rosto em caracteres: 7 expressões, boca por nível (<0,15 "—", <0,5 "o", resto "O"), piscar e olhar, legenda em mincho; script de demonstração que salva PNGs. Sem tocar no `gamerhud.py`. *(R17.1–R17.6)*
   - Lê: §6, R17, `hud/gamerhud.py` só a classe `Theme` e a função `alpha` (via `grep -n`)
   - Escreve: `hud/face.py`, `hud/tools/face_demo.py`, `tests/hud/test_face.py`
   - Depende de: —
   - Orçamento: ~40k
   - Pronto: PNG de cada expressão gerado; teste do mapeamento da boca.
 
-- [ ] **1.15 HUD: ponte de mensagens** — cliente do socket Unix que roda numa thread e entrega as mensagens do §6 como sinais Qt; comando `detail` (CPU/GPU/memória). Sem tocar no `gamerhud.py`.
+- [x] **1.15 HUD: ponte de mensagens** — cliente do socket Unix que roda numa thread e entrega as mensagens do §6 como sinais Qt; comando `detail` (CPU/GPU/memória). Sem tocar no `gamerhud.py`.
   - Lê: `contracts.py` (mensagens do HUD), §6
   - Escreve: `hud/hud_bridge.py`, `tests/hud/test_bridge.py`
   - Depende de: 1.0
   - Orçamento: ~30k
   - Pronto: teste com servidor falso entrega todas as mensagens.
 
-- [ ] **1.16 HUD: integração** — ligar `face` e `hud_bridge` ao `gamerhud.py`: rosto na metade direita da tela de ociosidade e pequeno no cabeçalho do painel; 30 fps só na região do rosto acordado, 1 quadro a cada 4 s dormindo; rosto fora do monitor do jogo. *(R17.2–R17.4, R17.7)*
+- [x] **1.16 HUD: integração** — ligar `face` e `hud_bridge` ao `gamerhud.py`: rosto na metade direita da tela de ociosidade e pequeno no cabeçalho do painel; 30 fps só na região do rosto acordado, 1 quadro a cada 4 s dormindo; rosto fora do monitor do jogo. *(R17.2–R17.4, R17.7)*
   - Lê: `hud/face.py` (interface pública), `hud/hud_bridge.py` (interface pública), §6, e do `hud/gamerhud.py` só: `HUD.__init__`, `sample`, `animate`, `render_caches`, `paintEvent`, `build_idle`, `build_background`, `main` (≈ 8–10k)
   - Escreve: `hud/gamerhud.py` (alterações localizadas)
   - Depende de: 1.14, 1.15
@@ -212,7 +212,7 @@ Formato de cada tarefa:
   - Orçamento: ~25k
   - Pronto: `kill -9` em qualquer processo é recuperado em ≤ 5 s.
 
-- [ ] **1.19 Montagem do núcleo** — `magi-core` monta as dependências a partir da config: registro de provedores (3.1), `HintedStt` (1.5), `Corrections` + `CorrectionHandler` (1.6), `SteamCatalog` (1.7), roteador (1.8), `Registry` com as ações (1.9–1.11, 2.1), `Speaker` (1.12), repositórios Postgres e migração com a dimensão da config. Fecha as lacunas achadas na 1.6: `TurnContext.previous_text` (+ horário) preenchido pelo `TurnMachine` por satélite, e "refazer turno" (`ActionResult.redo_text` tratado uma vez pelo `TurnPipeline`). *(R3.3)*
+- [x] **1.19 Montagem do núcleo** — `magi-core` monta as dependências a partir da config: registro de provedores (3.1), `HintedStt` (1.5), `Corrections` + `CorrectionHandler` (1.6), `SteamCatalog` (1.7), roteador (1.8), `Registry` com as ações (1.9–1.11, 2.1), `Speaker` (1.12), repositórios Postgres e migração com a dimensão da config. Fecha as lacunas achadas na 1.6: `TurnContext.previous_text` (+ horário) preenchido pelo `TurnMachine` por satélite, e "refazer turno" (`ActionResult.redo_text` tratado uma vez pelo `TurnPipeline`). *(R3.3)*
   - Lê: `contracts.py` (TurnContext, ActionResult, TurnDeps), APIs públicas de `magi/core/turn.py`, `magi/core/service.py`, `magi/core/stt.py`, `magi/core/corrections.py`, `magi/core/catalog.py`, `magi/core/router.py`, `magi/core/tts.py`, `magi/core/actions/*` (só `handlers`), `magi/providers/registry.py`, `magi/common/config.py`
   - Escreve: `magi/core/assemble.py`, `magi/core/service.py` (main), `magi/common/contracts.py` (campos novos), `magi/core/turn.py` (redo/previous), testes
   - Depende de: 1.5, 1.6, 1.8, 1.9, 1.10, 1.11, 1.12, 2.1, 3.1
@@ -228,14 +228,14 @@ Formato de cada tarefa:
 
 ## Fase 2 — Spotify
 
-- [ ] **2.1 MPRIS** — abrir o flatpak; tocar, pausar, próxima, anterior, volume; esperar o MPRIS até 15 s. *(R7.1, R7.3)*
+- [x] **2.1 MPRIS** — abrir o flatpak; tocar, pausar, próxima, anterior, volume; esperar o MPRIS até 15 s. *(R7.1, R7.3)*
   - Lê: `contracts.py`, §2 (linha Spotify), R7
   - Escreve: `magi/core/actions/spotify_mpris.py`, testes com D-Bus falso
   - Depende de: 1.4
   - Orçamento: ~30k
   - Pronto: comandos funcionam com o Spotify aberto ou fechado.
 
-- [ ] **2.2 Web API** — OAuth PKCE com tokens no keyring; busca por nome e reprodução no app local. **Precisa de mim** para criar o app de desenvolvedor e autorizar. *(R7.2)*
+- [x] **2.2 Web API** — OAuth PKCE com tokens no keyring; busca por nome e reprodução no app local. **Precisa de mim** para criar o app de desenvolvedor e autorizar. *(R7.2)*
   - Lê: `contracts.py`, `magi/common/secrets.py` (interface), R7
   - Escreve: `magi/core/actions/spotify_api.py`, `magi/cli/spotify_login.py`, testes
   - Depende de: 2.1, 0.2
@@ -265,28 +265,28 @@ Formato de cada tarefa:
 
 ## Fase 3 — Agente
 
-- [ ] **3.1 Provedores e KeyPool** — registro por tarefa; rodízio de chaves com espera progressiva; bloqueio de `personal=True` em cota gratuita. *(R21.1–R21.5)*
+- [x] **3.1 Provedores e KeyPool** — registro por tarefa; rodízio de chaves com espera progressiva; bloqueio de `personal=True` em cota gratuita. *(R21.1–R21.5)*
   - Lê: `contracts.py`, §4.7, R21
   - Escreve: `magi/providers/registry.py`, `magi/providers/keypool.py`, testes
   - Depende de: 0.2
   - Orçamento: ~30k
   - Pronto: teste simula 429 e troca de chave; teste do bloqueio.
 
-- [ ] **3.2 Orçamento** — custo por chamada, teto por voz e config, aviso em 80%, bloqueio em 100%, virada do mês. *(R16.1–R16.5)*
+- [x] **3.2 Orçamento** — custo por chamada, teto por voz e config, aviso em 80%, bloqueio em 100%, virada do mês. *(R16.1–R16.5)*
   - Lê: `contracts.py`, §4.6, §7 (tabela `costs`), R16
   - Escreve: `magi/core/budget.py`, `magi/memory/costs_repo.py`, testes
   - Depende de: 3.1, 0.3
   - Orçamento: ~30k
   - Pronto: testes de cada regra.
 
-- [ ] **3.3 Persona** — prompt fixo (~500 tokens) com os 5 traços e o tom por nível de humor; 10 perguntas de avaliação. *(R13.1, R13.2, R13.6)*
+- [x] **3.3 Persona** — prompt fixo (~500 tokens) com os 5 traços e o tom por nível de humor; 10 perguntas de avaliação. *(R13.1, R13.2, R13.6)*
   - Lê: R13, R14, §4.3 (tabela do prompt)
   - Escreve: `magi/agent/persona.md`, `magi/agent/prompt.py`, `tests/agent/eval_persona.yaml`
   - Depende de: 1.0
   - Orçamento: ~20k
   - Pronto: prompt montado ≤ 1.500 tokens com perfil e memórias de exemplo.
 
-- [ ] **3.4 Grafo do agente** — LangGraph (modelo + ferramentas), limite de 4 passos, ferramentas perigosas devolvendo `needs_confirmation`; só as ferramentas `open_game`, `hud` e `volume`, reaproveitando as ações da fase 1. *(R11.3, R5.3)*
+- [x] **3.4 Grafo do agente** — LangGraph (modelo + ferramentas), limite de 4 passos, ferramentas perigosas devolvendo `needs_confirmation`; só as ferramentas `open_game`, `hud` e `volume`, reaproveitando as ações da fase 1. *(R11.3, R5.3)*
   - Lê: `contracts.py`, §4.3, `magi/agent/prompt.py` (interface), interfaces das ações em `magi/core/actions/`
   - Escreve: `magi/agent/graph.py`, `magi/agent/tools/base.py`, `magi/agent/tools/system.py`, testes com modelo falso
   - Depende de: 3.1, 3.2, 3.3, 1.9, 1.10, 1.11
@@ -367,7 +367,7 @@ Formato de cada tarefa:
 
 ## Fase 5 — Proatividade e Discord
 
-- [ ] **5.1 Detecção de call** — `source-output` do Discord a cada 2 s; desliga e religa o "Ei Magui". *(R2.1, R2.2)*
+- [x] **5.1 Detecção de call** — `source-output` do Discord a cada 2 s; desliga e religa o "Ei Magui". *(R2.1, R2.2)*
   - Lê: `contracts.py`, §3.2, `docs/spikes/S1.md`, R2
   - Escreve: `magi/satellite/discord.py`, testes
   - Depende de: 1.1
@@ -397,56 +397,56 @@ Formato de cada tarefa:
 
 ## Fase 6 — Notícias
 
-- [ ] **6.1 Fontes, agendamento e RSS** — tabela de fontes com confiança 1–3, timer systemd a cada 2 h, coletor RSS, deduplicação por URL. *(R18.1, R18.4)*
+- [x] **6.1 Fontes, agendamento e RSS** — tabela de fontes com confiança 1–3, timer systemd a cada 2 h, coletor RSS, deduplicação por URL. *(R18.1, R18.4)*
   - Lê: `contracts.py`, §8 (passo 1), §7 (tabelas de notícias), R18
   - Escreve: `magi/news/sources.py`, `magi/news/collect/rss.py`, `magi/news/__main__.py`, `deploy/systemd/magi-news.{service,timer}`, testes
   - Depende de: 0.3
   - Orçamento: ~40k
   - Pronto: execução coleta itens novos em ≤ 1 min sem duplicar URLs.
 
-- [ ] **6.2 Coletor Steam News** — notícias dos jogos instalados.
+- [x] **6.2 Coletor Steam News** — notícias dos jogos instalados.
   - Lê: `magi/news/sources.py` (interface), `magi/core/catalog.py` (interface)
   - Escreve: `magi/news/collect/steam.py`, testes
   - Depende de: 6.1, 1.7
   - Orçamento: ~25k
   - Pronto: notícias de um jogo instalado coletadas.
 
-- [ ] **6.3 Coletor AniList** — temporadas e sequências das obras da minha lista.
+- [x] **6.3 Coletor AniList** — temporadas e sequências das obras da minha lista.
   - Lê: `magi/news/sources.py` (interface), R19
   - Escreve: `magi/news/collect/anilist.py`, testes
   - Depende de: 6.1
   - Orçamento: ~30k
   - Pronto: sequência anunciada aparece como item.
 
-- [ ] **6.4 Coletor Reddit** — r/anime e r/Games com OAuth, confiança 1.
+- [x] **6.4 Coletor Reddit** — r/anime e r/Games com OAuth, confiança 1.
   - Lê: `magi/news/sources.py` (interface)
   - Escreve: `magi/news/collect/reddit.py`, testes
   - Depende de: 6.1
   - Orçamento: ~25k
   - Pronto: posts entram marcados como fonte de confiança 1.
 
-- [ ] **6.5 Scraping genérico** — `robots.txt`, 1 req/s por domínio, extração por seletor configurado. *(R18.2)*
+- [x] **6.5 Scraping genérico** — `robots.txt`, 1 req/s por domínio, extração por seletor configurado. *(R18.2)*
   - Lê: `magi/news/sources.py` (interface), R18
   - Escreve: `magi/news/collect/scrape.py`, testes
   - Depende de: 6.1
   - Orçamento: ~30k
   - Pronto: site sem feed coletado respeitando `robots.txt`.
 
-- [ ] **6.6 Agrupamento** — embeddings Gemini, cosseno ≥ 0,88 em 72 h. *(R18.3)*
+- [x] **6.6 Agrupamento** — embeddings Gemini, cosseno ≥ 0,88 em 72 h. *(R18.3)*
   - Lê: `contracts.py`, §8 (passo 2), `magi/providers/registry.py` (interface)
   - Escreve: `magi/news/cluster.py`, testes
   - Depende de: 6.1, 3.1
   - Orçamento: ~30k
   - Pronto: a mesma notícia de 3 sites vira 1 item com 3 fontes.
 
-- [ ] **6.7 Classificação** — Gemini em lote, saída JSON (franquia, tipo, spoiler, tamanho, manchete segura), prompt fixo + até 6 exemplos do meu retorno; cota esgotada adia. *(R18.6, R19.1)*
+- [x] **6.7 Classificação** — Gemini em lote, saída JSON (franquia, tipo, spoiler, tamanho, manchete segura), prompt fixo + até 6 exemplos do meu retorno; cota esgotada adia. *(R18.6, R19.1)*
   - Lê: `contracts.py`, §8 (passo 3 e 6), R18, R19
   - Escreve: `magi/news/classify.py`, `magi/news/prompts/classify.md`, testes
   - Depende de: 6.6
   - Orçamento: ~40k
   - Pronto: 20 itens reais classificados e revisados por mim.
 
-- [ ] **6.8 Progresso** — lista de anime (AniList ou MAL, a decidir) e horas/conquistas da Steam em `progress`.
+- [x] **6.8 Progresso** — lista de anime (AniList ou MAL, a decidir) e horas/conquistas da Steam em `progress`.
   - Lê: `contracts.py`, §7 (`progress`), R19
   - Escreve: `magi/news/progress.py`, testes
   - Depende de: 6.3

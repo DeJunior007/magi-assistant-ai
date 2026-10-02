@@ -47,6 +47,7 @@ magi-satellite = "magi.satellite.__main__:main"
 magi-core = "magi.core.service:main"
 magi-news = "magi.news.__main__:main"
 magi-keys = "magi.cli.keys:main"
+magi-spotify-login = "magi.cli.spotify_login:main"
 
 [dependency-groups]
 dev = [
