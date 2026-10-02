@@ -319,10 +319,15 @@ Timer systemd a cada 2 h (`Persistent=true`). Uma execução:
 ```
 magi-assistant-ai/
   docs/PRD.md
+  docs/spikes/             # resultados S1–S4
+  docs/perf/               # medições dos RNF
   specs/magi-assistant/{requirements,design,tasks}.md
   hud/                     # MAGI Gamer (existente) + face e hud_bridge novos
+  spikes/                  # código descartável dos spikes
+  tools/                   # perf.py e utilitários
   magi/
-    common/                # config, keyring, logging, protocolo de eventos
+    cli/                   # magi-keys, login do Spotify
+    common/                # config, keyring, contratos, protocolo de eventos
     satellite/             # captura, wake, VAD, PTT, reprodução, Discord
     core/                  # turno, stt, corrections, router, actions, tts, budget, proactive
     agent/                 # grafo, persona, ferramentas
