@@ -1,0 +1,25 @@
+# Núcleo da Magui (design §1): STT, correções, roteador, agente, ações, TTS e custo.
+# Template: @REPO@ é trocado pelo caminho real do repositório por hud/install.sh, que gera a unit
+# em ~/.config/systemd/user/. Rode o install.sh de novo se mover o repositório.
+#
+# O Postgres roda no Docker do sistema (container magi-pg, restart: unless-stopped); uma unit de
+# usuário não pode depender da docker.service. Se o banco ainda não estiver de pé, o núcleo sai com
+# erro e o Restart=always tenta de novo a cada 2 s, sem limite.
+[Unit]
+Description=Magui: núcleo (magi-core)
+# Ações e segredos usam o D-Bus e o ambiente da sessão (keyring, MPRIS, abrir jogos).
+After=graphical-session.target network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO@
+ExecStart="@REPO@/.venv/bin/magi-core"
+Environment=PYTHONUNBUFFERED=1
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus
+Restart=always
+RestartSec=2
+TimeoutStopSec=5
+
+[Install]
+WantedBy=graphical-session.target

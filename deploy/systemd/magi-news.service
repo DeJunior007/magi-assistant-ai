@@ -1,8 +1,6 @@
 # Uma execução do coletor de notícias (design §8). Unit de usuário, disparada por magi-news.timer.
-# Instalação (manual):
-#   cp deploy/systemd/magi-news.{service,timer} ~/.config/systemd/user/
-#   systemctl --user daemon-reload && systemctl --user enable --now magi-news.timer
-# Ajuste WorkingDirectory se o repositório estiver em outro lugar.
+# Template: @REPO@ é trocado pelo caminho real do repositório por hud/install.sh, que instala esta
+# unit e o timer em ~/.config/systemd/user/. Rode o install.sh de novo se mover o repositório.
 [Unit]
 Description=Magui: coleta de notícias (magi-news)
 After=network-online.target
@@ -10,8 +8,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/projetos/magi-assistant-ai
-ExecStart=%h/.local/bin/uv run --frozen magi-news
+WorkingDirectory=@REPO@
+ExecStart="@REPO@/.venv/bin/magi-news"
 # A coleta tem teto de 50 s; isto só segura travas inesperadas.
 TimeoutStartSec=120
 Nice=10
