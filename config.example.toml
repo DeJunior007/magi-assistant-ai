@@ -1,0 +1,33 @@
+# Exemplo de configuração do Magui. Copie para ~/.config/magi/config.toml
+# (ou aponte a variável MAGI_CONFIG para outro caminho). Recarrega ao salvar.
+#
+# NUNCA coloque chaves de API aqui: em [providers.*].keys vão só os NOMES.
+# Guarde cada valor no chaveiro do sistema com:  magi-keys add openai-1
+
+[providers.openai]
+keys = ["openai-1", "openai-2"]        # nomes no keyring, não as chaves
+
+[providers.gemini]
+keys = ["gemini-1", "gemini-2"]
+free_tier = true                        # proíbe dados pessoais (memória, voz, humor, capturas)
+
+# Provedor e modelo de cada tarefa. Os modelos são escolhidos no spike S3.
+[tasks]
+stt        = { provider = "openai", model = "<definir no S3>" }
+tts        = { provider = "openai", model = "<definir no S3>", voice = "<definir no S3>" }
+agent      = { provider = "openai", model = "<definir no S3>" }
+vision     = { provider = "openai", model = "<definir no S3>" }
+embeddings = { provider = "openai", model = "<definir no S3>" }
+search     = { provider = "gemini", model = "<definir no S3>" }
+news       = { provider = "gemini", model = "<definir no S3>" }
+
+[budget]
+monthly_usd = 5.0
+
+[database]
+# Postgres + pgvector do deploy/docker-compose.yml (só em 127.0.0.1).
+dsn = "postgresql://magi:magi@127.0.0.1:54329/magi"
+
+[paths]
+data_dir  = "~/.local/share/magi"
+cache_dir = "~/.cache/magi"
