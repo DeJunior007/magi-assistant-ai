@@ -22,7 +22,33 @@ search     = { provider = "gemini", model = "<definir no S3>" }
 news       = { provider = "gemini", model = "<definir no S3>" }
 
 [budget]
-monthly_usd = 5.0
+monthly_usd = 5.0                       # teto mensal; "aumenta o teto pra 8 dólares" ajusta por voz
+                                        # (o ajuste fica em <data_dir>/budget_state.json; editar
+                                        # este valor depois descarta o ajuste por voz)
+
+# Preços por provedor e modelo: USD por `per` unidades de entrada (input) e de saída (output).
+# Unidades: tokens (agent, vision, embeddings, search, news), segundos de áudio (stt),
+# caracteres (tts). O modelo "*" vale para qualquer modelo do provedor sem entrada própria.
+# Sem preço, a chamada custa 0 e o log avisa.
+# ATENÇÃO: TODOS os nomes de modelo e valores abaixo são PLACEHOLDERS (0.0), NÃO são preços
+# reais. Confirme modelos e preços oficiais no spike S3 antes de usar.
+[budget.prices.openai."<modelo do agente — S3>"]
+input = 0.0                             # PLACEHOLDER: USD por 1M tokens de entrada
+output = 0.0                            # PLACEHOLDER: USD por 1M tokens de saída
+per = 1000000
+
+[budget.prices.openai."<modelo de STT — S3>"]
+input = 0.0                             # PLACEHOLDER: USD por minuto de áudio
+per = 60                                # input_units = segundos
+
+[budget.prices.openai."<modelo de TTS — S3>"]
+input = 0.0                             # PLACEHOLDER: USD por 1M caracteres
+per = 1000000
+
+[budget.prices.gemini."*"]
+input = 0.0                             # PLACEHOLDER (cota gratuita não passa pelo orçamento)
+output = 0.0
+per = 1000000
 
 [database]
 # Postgres + pgvector do deploy/docker-compose.yml (só em 127.0.0.1).
