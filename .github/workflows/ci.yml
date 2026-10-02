@@ -1,0 +1,17 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Dependências de sistema (áudio, D-Bus)
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 libdbus-1-dev
+      - run: uv sync
+      - run: uv run ruff check magi tests
+      - run: uv run pytest -m "not db and not live"
