@@ -460,7 +460,7 @@ Formato de cada tarefa:
   - Orçamento: ~30k
   - Pronto: notícia com spoiler de obra em andamento nunca aparece com o spoiler.
 
-- [ ] **6.10 Prioridade e entrega** — fórmula do §8, níveis, regra da bomba (2 fontes, uma de confiança 3), envio ao núcleo. *(R18.5, R19.4–R19.6)*
+- [x] **6.10 Prioridade e entrega** — fórmula do §8, níveis, regra da bomba (2 fontes, uma de confiança 3), envio ao núcleo. *(R18.5, R19.4–R19.6)*
   - Lê: `contracts.py`, §8 (passos 4 e 5), R19
   - Escreve: `magi/news/priority.py`, `magi/core/proactive/news.py`, testes
   - Depende de: 6.9, 5.3
