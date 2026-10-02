@@ -22,6 +22,8 @@ Implementa [design.md](design.md) e [requirements.md](requirements.md). Cada tar
    (`docs/spikes/S1.md`, `S2.md`). O KGlobalAccel roda dentro do KWin: um argumento D-Bus mal
    formado derruba a sessão inteira (aconteceu no S2). Valores do tipo `a(ai)` levam sempre 4 inteiros.
    Volume e mudo alterados precisam de arquivo de recuperação, porque o WirePlumber os guarda por app (S1).
+9. **O Postgres de desenvolvimento (`magi-pg`, 127.0.0.1:54329) é compartilhado** por todos os agentes e pelo
+   usuário. Nunca rode `docker compose down`, `docker rm` ou `DROP` fora de um schema temporário seu.
 
 Estimativa usada: 1k tokens ≈ 3,5 KB de texto em português ou 4 KB de código.
 Tamanho dos documentos: `design.md` ~5k · `requirements.md` ~5k · uma seção do design 0,3–1,5k.
