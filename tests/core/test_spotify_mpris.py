@@ -262,7 +262,34 @@ def test_launch_flatpak_detached(monkeypatch):
         seen["cmd"], seen["kw"] = cmd, kw
 
     monkeypatch.setattr(sm.subprocess, "Popen", fake_popen)
+    # nunca carrega script no KWin real nos testes
+    monkeypatch.setattr(sm, "kwin_minimize_next_spotify", lambda: seen.setdefault("armed", True))
     sm.launch_flatpak()
+    assert seen["armed"] is True  # arma o "abrir minimizado" antes de abrir
     assert seen["cmd"] == ("flatpak", "run", "com.spotify.Client")
     assert seen["kw"]["start_new_session"] is True
     assert seen["kw"]["stdout"] is subprocess.DEVNULL
+
+
+def test_kwin_minimize_script_loaded_and_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    calls = []
+
+    def run(*args):
+        calls.append(args)
+        return "i 7\n" if args[2] == "loadScript" else ""
+
+    assert sm.kwin_minimize_next_spotify(run)
+    assert [c[2] for c in calls] == ["unloadScript", "loadScript", "run"]
+    assert calls[2][0] == "/Scripting/Script7"
+    js = (tmp_path / "magi" / f"{sm.KWIN_SCRIPT_NAME}.js").read_text()
+    assert "w.minimized = true" in js and "workspace.activeWindow = prev" in js
+
+
+def test_kwin_minimize_failure_is_soft(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+
+    def run(*args):
+        raise FileNotFoundError("busctl")
+
+    assert not sm.kwin_minimize_next_spotify(run)

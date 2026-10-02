@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import subprocess
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -99,8 +100,60 @@ class PlayerState:
         return self.status == "Playing"
 
 
-def launch_flatpak() -> None:
-    """Abre o Spotify (flatpak) desacoplado do núcleo: nova sessão, sem herdar stdio."""
+# Script do KWin que minimiza a janela do Spotify ao aparecer (sem roubar o foco do jogo) e devolve
+# o foco à janela que estava ativa. Fica escutando 30 s (splash + janela principal) e então se
+# desliga; a próxima abertura descarrega o anterior pelo nome.
+KWIN_SCRIPT_NAME = "magi_spotify_minimized"
+KWIN_MINIMIZE_JS = """(function () {
+  const t0 = Date.now();
+  const prev = workspace.activeWindow;
+  function isSpotify(w) {
+    return /spotify/i.test(String(w.resourceClass)) || /spotify/i.test(String(w.desktopFileName));
+  }
+  function onAdded(w) {
+    if (Date.now() - t0 > 30000) { workspace.windowAdded.disconnect(onAdded); return; }
+    if (!w || !w.normalWindow || !isSpotify(w)) return;
+    w.minimized = true;
+    if (prev && prev !== w && !prev.deleted) workspace.activeWindow = prev;
+  }
+  workspace.windowAdded.connect(onAdded);
+})();
+"""
+
+
+def _busctl(*args: str) -> str:
+    out = subprocess.run(
+        ["busctl", "--user", "call", "org.kde.KWin", *args],
+        capture_output=True, text=True, timeout=2, check=True,
+    )
+    return out.stdout
+
+
+def kwin_minimize_next_spotify(run: Callable[..., str] = _busctl) -> bool:
+    """Arma o script do KWin antes de abrir o Spotify. Fora do KDE (ou com erro) só registra no log."""
+    cache = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "magi")
+    path = os.path.join(cache, f"{KWIN_SCRIPT_NAME}.js")
+    try:
+        os.makedirs(cache, exist_ok=True)
+        with open(path, "w") as f:
+            f.write(KWIN_MINIMIZE_JS)
+        run("/Scripting", "org.kde.kwin.Scripting", "unloadScript", "s", KWIN_SCRIPT_NAME)
+        reply = run("/Scripting", "org.kde.kwin.Scripting", "loadScript", "ss", path, KWIN_SCRIPT_NAME)
+        script_id = int(reply.split()[1])  # "i 3"
+        if script_id < 0:
+            raise RuntimeError("loadScript recusou")
+        run(f"/Scripting/Script{script_id}", "org.kde.kwin.Script", "run")
+        return True
+    except (OSError, ValueError, IndexError, RuntimeError, subprocess.SubprocessError) as e:
+        log.info("Spotify vai abrir sem minimizar (KWin indisponível): %r", e)
+        return False
+
+
+def launch_flatpak(minimized: bool = True) -> None:
+    """Abre o Spotify (flatpak) desacoplado do núcleo: nova sessão, sem herdar stdio. Com
+    ``minimized``, a janela abre minimizada para não cobrir o jogo."""
+    if minimized:
+        kwin_minimize_next_spotify()
     subprocess.Popen(
         FLATPAK_CMD,
         stdin=subprocess.DEVNULL,
