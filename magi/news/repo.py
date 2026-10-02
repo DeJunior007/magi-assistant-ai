@@ -1,6 +1,6 @@
-"""``NewsRepo`` em Postgres (design §7). Tarefa 6.1 cobre fontes e notícias cruas; os métodos de
-itens, preferências, progresso e retorno são das tarefas 6.6+ e ainda levantam
-``NotImplementedError``.
+"""``NewsRepo`` em Postgres (design §7). Tarefa 6.1 cobre fontes e notícias cruas; a 6.6, criar
+itens e juntar cruas a eles (agrupamento). Os demais métodos de itens, preferências, progresso e
+retorno são das tarefas 6.7+ e ainda levantam ``NotImplementedError``.
 
 Usa uma ``psycopg.AsyncConnection`` em modo ``autocommit`` (cada chamada é uma transação). Os
 nomes das tabelas não têm schema: o ``search_path`` da conexão decide (testes usam um schema
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 import psycopg
 
@@ -18,7 +19,36 @@ from magi.common.contracts import FranchisePref, NewsItem, NewsLevel, NewsRaw, N
 
 
 def _todo(name: str) -> NotImplementedError:
-    return NotImplementedError(f"PgNewsRepo.{name}: implementado nas tarefas 6.6+")
+    return NotImplementedError(f"PgNewsRepo.{name}: implementado nas tarefas 6.7+")
+
+
+_ITEM_COLS = (
+    "id, title, summary, first_seen, sources, max_trust, franchise, kind, spoiler, priority, level, "
+    "delivered_at"
+)
+
+
+def _vec(embedding: Sequence[float]) -> str:
+    """Literal de ``vector`` do pgvector (sem depender do adaptador registrado na conexão)."""
+    return "[" + ",".join(repr(float(x)) for x in embedding) + "]"
+
+
+def _item(row: Sequence[Any]) -> NewsItem:
+    i, title, summary, first_seen, sources, max_trust, franchise, kind, spoiler, prio, level, deliv = row
+    return NewsItem(
+        title=title,
+        summary=summary or "",
+        first_seen=first_seen,
+        sources=sources,
+        max_trust=max_trust or 1,
+        franchise=franchise,
+        kind=kind,
+        spoiler=spoiler,
+        priority=prio,
+        level=NewsLevel(level) if level else None,
+        delivered_at=deliv,
+        id=i,
+    )
 
 
 class PgNewsRepo:
@@ -87,18 +117,76 @@ class PgNewsRepo:
             for i, s, u, t, b, p, f in await cur.fetchall()
         ]
 
-    # --- tarefas 6.6+ ------------------------------------------------------------------------
-
     async def add_item(self, item: NewsItem, embedding: Sequence[float], raw_ids: Sequence[int]) -> int:
-        raise _todo("add_item")
+        """Cria o item e liga as cruas. Com ``raw_ids``, ``sources`` e ``max_trust`` são recontados
+        das fontes ligadas (os valores de ``item`` valem só sem cruas)."""
+        async with self.conn.transaction():
+            cur = await self.conn.execute(
+                """
+                INSERT INTO news_items (title, summary, embedding, first_seen, sources, max_trust)
+                VALUES (%s, %s, %s::public.vector, COALESCE(%s, now()), %s, %s)
+                RETURNING id
+                """,
+                [item.title, item.summary, _vec(embedding), item.first_seen, item.sources, item.max_trust],
+            )
+            row = await cur.fetchone()
+            assert row is not None
+            item_id = int(row[0])
+            for raw_id in raw_ids:
+                await self._link(item_id, raw_id)
+            if raw_ids:
+                await self._recount(item_id)
+        return item_id
 
     async def attach_raw(self, item_id: int, raw_id: int) -> None:
-        raise _todo("attach_raw")
+        """Liga a crua ao item e reconta ``sources`` (fontes distintas) e ``max_trust``."""
+        async with self.conn.transaction():
+            await self._link(item_id, raw_id)
+            await self._recount(item_id)
 
     async def similar_items(
         self, embedding: Sequence[float], since: datetime, min_cosine: float, limit: int = 5
     ) -> list[tuple[NewsItem, float]]:
-        raise _todo("similar_items")
+        """Itens com ``first_seen >= since`` e cosseno >= ``min_cosine``, do mais parecido."""
+        cur = await self.conn.execute(
+            f"""
+            SELECT {_ITEM_COLS}, 1 - (embedding OPERATOR(public.<=>) q.v) AS cos
+            FROM news_items, (SELECT %s::public.vector AS v) q
+            WHERE embedding IS NOT NULL AND first_seen >= %s
+              AND 1 - (embedding OPERATOR(public.<=>) q.v) >= %s
+            ORDER BY embedding OPERATOR(public.<=>) q.v
+            LIMIT %s
+            """,
+            [_vec(embedding), since, min_cosine, limit],
+        )
+        return [(_item(r[:-1]), float(r[-1])) for r in await cur.fetchall()]
+
+    async def _link(self, item_id: int, raw_id: int) -> None:
+        await self.conn.execute(
+            "INSERT INTO news_item_sources (item_id, raw_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            [item_id, raw_id],
+        )
+
+    async def _recount(self, item_id: int) -> None:
+        # Crua sem fonte (fonte apagada) conta como fonte própria; confiança desconhecida = 1.
+        await self.conn.execute(
+            """
+            UPDATE news_items i
+            SET sources = GREATEST(c.n, 1), max_trust = c.t
+            FROM (
+                SELECT count(DISTINCT COALESCE(r.source_id::bigint, -r.id)) AS n,
+                       max(COALESCE(s.trust, 1)) AS t
+                FROM news_item_sources l
+                JOIN news_raw r ON r.id = l.raw_id
+                LEFT JOIN news_sources s ON s.id = r.source_id
+                WHERE l.item_id = %s
+            ) c
+            WHERE i.id = %s
+            """,
+            [item_id, item_id],
+        )
+
+    # --- tarefas 6.7+ ------------------------------------------------------------------------
 
     async def update_item(self, item: NewsItem) -> None:
         raise _todo("update_item")

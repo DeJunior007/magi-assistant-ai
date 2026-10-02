@@ -1,6 +1,8 @@
 """``magi-news``: roda uma execução e termina (design §8). Chamado pelo timer systemd a cada 2 h.
 
-Por enquanto só o passo 1 (coleta). Uso::
+Por enquanto os passos 1 (coleta) e 2 (agrupamento, ``magi.news.cluster``). O agrupamento usa
+os embeddings da tarefa ``news`` e só roda com provedor ``free_tier`` com chave no keyring; sem
+isso, é pulado com aviso. Uso::
 
     magi-news [--config PATH] [--dsn DSN] [--only rss] [--timeout 50] [-v]
 
@@ -20,6 +22,15 @@ import sys
 import psycopg
 
 from magi.common.config import DEFAULT_DSN, Config, ConfigError, load_config
+from magi.common.contracts import (
+    BudgetExceeded,
+    BudgetStatus,
+    EmbeddingProvider,
+    ProviderError,
+    ProviderTask,
+    Usage,
+)
+from magi.news.cluster import cluster_pending
 from magi.news.repo import PgNewsRepo
 from magi.news.sources import (
     DEFAULT_TIMEOUT_S,
@@ -43,6 +54,45 @@ def _load_config(path: str | None) -> Config | None:
         return None
 
 
+class _FreeTierOnly:
+    """``Budget`` do ``magi-news``: só provedores em cota gratuita são usados aqui (o orçamento
+    real é do núcleo); um provedor pago é recusado."""
+
+    async def ensure_allowed(self, task: ProviderTask) -> None:
+        raise BudgetExceeded(f"magi-news não usa provedor pago ({task})")
+
+    async def record(self, usage: Usage) -> None:
+        return None
+
+    async def status(self) -> BudgetStatus:
+        raise NotImplementedError
+
+    async def set_cap(self, usd: float) -> None:
+        raise NotImplementedError
+
+
+def make_embedder(config: Config | None) -> EmbeddingProvider | None:
+    """Embeddings da tarefa ``news`` (R18.3) ou ``None`` com aviso (sem tarefa, pago, sem chave)."""
+    if config is None or ProviderTask.NEWS.value not in config.tasks:
+        log.warning("agrupamento pulado: [tasks.news] não configurada")
+        return None
+    from magi.providers.registry import Registry
+
+    try:
+        pcfg = config.provider_for(ProviderTask.NEWS.value)
+        if not pcfg.free_tier:
+            log.warning("agrupamento pulado: provedor '%s' da tarefa news não é free_tier", pcfg.name)
+            return None
+        registry = Registry(config, _FreeTierOnly())
+        if registry.pool(pcfg.name).available() == 0:
+            log.warning("agrupamento pulado: nenhuma chave de '%s' no keyring", pcfg.name)
+            return None
+        return registry.embeddings(ProviderTask.NEWS)
+    except (ConfigError, ProviderError) as exc:
+        log.warning("agrupamento pulado: %s", exc)
+        return None
+
+
 async def run_once(
     config: Config | None, dsn: str, *, only: str | None = None, timeout_s: float | None = None
 ) -> CollectReport:
@@ -54,7 +104,14 @@ async def run_once(
     repo = await PgNewsRepo.connect(dsn)
     try:
         async with make_http_client() as http:
-            return await collect_all(repo, sources, http, config=config, timeout_s=timeout_s)
+            report = await collect_all(repo, sources, http, config=config, timeout_s=timeout_s)
+        embedder = make_embedder(config)
+        if embedder is not None:
+            try:
+                log.info("agrupamento: %s", (await cluster_pending(repo, embedder)).summary())
+            except ProviderError as exc:
+                log.warning("agrupamento interrompido: %s", exc)
+        return report
     finally:
         await repo.close()
 
