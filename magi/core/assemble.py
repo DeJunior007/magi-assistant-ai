@@ -4,7 +4,8 @@
 
 - provedores (``magi.providers.registry.Registry``) sobre um ``SwitchBudget``: começa nulo
   (permissivo) e troca para o ``MonthlyBudget`` (3.2) quando o Postgres responde;
-- Postgres: migração com a dimensão dos embeddings da config, ``CorrectionsRepo`` e ``CostsRepo``;
+- Postgres: migração com a dimensão dos embeddings da config, ``CorrectionsRepo``, ``CostsRepo`` e
+  ``TasteRepo`` (gosto do Spotify importado em segundo plano se a tabela estiver vazia, 2.3);
 - ``SteamCatalog`` → ``LocalRouter``; ``HintedStt`` (dica com jogos e correções);
   ``Corrections`` (corretor + ``correction.fix``); ações de jogos, HUD, sistema e Spotify;
   ``PhraseSpeaker`` com cache em ``[paths].cache_dir/tts``;
@@ -131,6 +132,7 @@ class Repos:
     corrections: CorrectionsRepo
     costs: CostsStore
     close: Callable[[], Awaitable[None]]
+    taste: Any = None  # magi.memory.taste_repo.TasteRepo (tarefa 2.3)
 
 
 class MemoryCorrectionsRepo:
@@ -172,6 +174,7 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
     from magi.memory.corrections_repo import CorrectionsRepo
     from magi.memory.costs_repo import CostsRepo
     from magi.memory.migrate import migrate
+    from magi.memory.taste_repo import TasteRepo
 
     dsn = config.database.dsn
 
@@ -183,7 +186,9 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
     if applied:
         log.info("migrações aplicadas: %s", ", ".join(applied))
     conn = await psycopg.AsyncConnection.connect(dsn, autocommit=True, connect_timeout=DB_TIMEOUT_S)
-    return Repos(corrections=CorrectionsRepo(conn), costs=CostsRepo(conn), close=conn.close)
+    return Repos(
+        corrections=CorrectionsRepo(conn), costs=CostsRepo(conn), close=conn.close, taste=TasteRepo(conn)
+    )
 
 
 # ---------------------------------------------------------------------------------------------
@@ -241,6 +246,7 @@ class Core:
     proactive: ProactiveSink | None = None
     alerts: AlertMonitor | None = None
     warnings: list[str] = field(default_factory=list)
+    tasks: list[asyncio.Task[Any]] = field(default_factory=list)  # tarefas de fundo (gosto, 2.3)
 
     def warn(self, msg: str) -> None:
         if msg not in self.warnings:
@@ -262,6 +268,11 @@ class Core:
         speaker = self.deps.speaker
         if speaker is not None and hasattr(speaker, "aclose"):
             await speaker.aclose()
+        for task in self.tasks:
+            task.cancel()
+        if self.tasks:
+            await asyncio.gather(*self.tasks, return_exceptions=True)
+            self.tasks.clear()
         if self.repos is not None:
             try:
                 await self.repos.close()
@@ -352,6 +363,11 @@ async def assemble(
                 f"Postgres indisponível ({config.database.dsn.rsplit('@', 1)[-1]}): {type(e).__name__}: {e}; "
                 "seguindo com correções só em memória e orçamento sem registro"
             )
+    if core.repos is not None and core.repos.taste is not None:
+        # Gosto do Spotify na primeira configuração (R8.2): só com a tabela vazia, em segundo plano.
+        from magi.core.music.import_taste import import_if_empty
+
+        core.tasks.append(asyncio.create_task(import_if_empty(core.repos.taste)))
     if core.repos is not None:
         from magi.core.budget import MonthlyBudget
 
