@@ -10,6 +10,7 @@ class _Conn:
     def __init__(self):
         self.open = 0
         self.max_open = 0
+        self.log = []
 
     @asynccontextmanager
     async def transaction(self):
@@ -21,6 +22,7 @@ class _Conn:
             self.open -= 1
 
     async def execute(self, q):
+        self.log.append((q, self.open))
         await asyncio.sleep(0.01)
         return q
 
@@ -35,3 +37,16 @@ async def test_transactions_are_serialized():
 
     assert await asyncio.gather(*(work(i) for i in range(5))) == [f"q{i}" for i in range(5)]
     assert raw.max_open == 1
+
+
+async def test_bare_execute_waits_for_other_transaction():
+    raw = _Conn()
+    conn = SerialConn(raw)
+
+    async def tx():
+        async with conn.transaction():
+            await conn.execute("in-tx")
+            await asyncio.sleep(0.02)
+
+    await asyncio.gather(tx(), conn.execute("bare"))
+    assert ("bare", 0) in raw.log  # nunca roda dentro da transação da outra tarefa

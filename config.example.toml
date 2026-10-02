@@ -92,3 +92,13 @@ gpu_clear_c        = 85
 battery_pct        = 15          # controle (power_supply com scope=Device, ex. DualSense)
 battery_clear_pct  = 20          # (ou carregando)
 cost               = true        # 80% e 100% do teto de [budget], uma vez por mês
+
+[news.delivery]
+# Entrega de notícias pelo núcleo (6.10, R19.5, R19.6): bomba = frase + card (voz só fora de
+# call), alta = só card. Precisa do Postgres. "Sugere, não sempre": limites abaixo.
+enabled       = true
+poll_s        = 300          # intervalo entre leituras dos itens não entregues (s)
+max_per_hour  = 2            # entregas por hora (bombas ignoram este limite)
+max_per_day   = 8            # entregas por 24 h (vale para todas)
+max_age_h     = 48           # mais velho que isso: descartado sem aviso
+batch         = 5            # itens lidos por rodada

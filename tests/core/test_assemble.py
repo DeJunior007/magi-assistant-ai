@@ -469,3 +469,26 @@ async def test_agente_padrao_com_chave(tmp: Path) -> None:
 
     assert isinstance(core.deps.agent, GraphAgent)
     await core.aclose()
+
+
+async def test_entrega_de_noticias_ligada_com_banco(tmp: Path) -> None:
+    class NewsDb(FakeDb):
+        async def __call__(self, config, memories_dim, news_dim) -> Repos:
+            repos = await super().__call__(config, memories_dim, news_dim)
+            repos.news = object()
+            return repos
+
+    def no_providers(cfg, budget):
+        raise RuntimeError("sem provedores")
+
+    catalog = make_catalog(tmp)
+    raw = make_config(tmp).raw | {"news": {"delivery": {"max_per_hour": 1, "poll_s": 3600}}}
+    core = await assemble(parse_config(raw), hud_sink=_NullSink(), providers=no_providers, open_db=NewsDb(),
+                          catalog=catalog, agent=None)
+    assert core.news is not None and core.news.cfg.max_per_hour == 1
+    core.start_proactive(lambda: [])
+    await core.aclose()
+    sem_banco = await assemble(make_config(tmp), hud_sink=_NullSink(), providers=no_providers, open_db=None,
+                               catalog=catalog, agent=None)
+    assert sem_banco.news is None
+    await sem_banco.aclose()

@@ -14,14 +14,19 @@ Modos (:class:`Display`):
 - ``HIDDEN``: "Tem notícia de X com spoiler", sem resumo nem links.
 
 Regra de ouro: na dúvida, esconde. Vão para ``HIDDEN``: item não classificado, ``of`` vazio
-ou sem nome de obra, progresso desconhecido (nenhuma linha em ``progress`` com o nome exato
-da obra do spoiler), ``size`` ≥ :data:`BIG`, manchete segura vazia ou igual à original.
+ou sem nome de obra, progresso desconhecido (nenhuma linha em ``progress`` que case com a obra
+do spoiler, ver :func:`match_progress`), ``size`` ≥ :data:`BIG`, manchete segura vazia ou igual
+à original.
 Jogos (só horas) nunca liberam por progresso: horas não dizem onde o spoiler está.
 
 O spoiler é da obra citada em ``of`` ("Silksong, final"), não de ``item.franchise``: liberar
 "Hollow Knight" não libera spoiler de Silksong. Comparação de nomes: igualdade após normalizar
 (minúsculas, sem acento, só letras e dígitos) — nunca "contém", para não confundir obras
-relacionadas.
+relacionadas. Única tolerância (:func:`match_progress`, quando o repositório tem
+``all_progress``): "Frieren" casa com o progresso "Frieren: Beyond Journey's End" se um nome
+for prefixo de palavras inteiras do outro, a sobra não tiver marca de continuação (número,
+"season", "part", "movie"…), o progresso for de episódios (AniList; nomes de jogo da Steam com
+subtítulo costumam ser outro jogo: "Hollow Knight: Silksong") e houver um só candidato.
 
 Liberação por voz ("pode dar spoiler de X", :func:`parse_release`): por obra, gravada em
 ``franchise_prefs.spoilers_ok`` (contrato ``FranchisePref``). R19.3 não fixa validade, então o
@@ -93,6 +98,36 @@ def norm(name: str) -> str:
     s = unicodedata.normalize("NFKD", name.casefold())
     s = "".join(c for c in s if not unicodedata.combining(c))
     return " ".join(re.sub(r"[^a-z0-9]+", " ", s).split())
+
+
+_SEQUEL_RE = re.compile(
+    r"\b(?:\d+(?:st|nd|rd|th)?|ii|iii|iv|vi|vii|viii|ix|season|temporada|part|parte|cour|movie|"
+    r"filme|film|ova|ona|special|specials|final|sequel|shippuden|kai|gaiden|zero|origin|origins)\b"
+)
+PREFIX_KINDS = frozenset({KIND_EPISODE})
+
+
+def match_progress(work: str, index: Mapping[str, Sequence[Progress]]) -> Sequence[Progress]:
+    """Progresso da obra ``work`` em ``index`` (chave = nome normalizado). Igualdade primeiro;
+    senão prefixo tolerante (ver docstring do módulo); ambíguo ou nada → ``()``."""
+    key = norm(work)
+    if not key:
+        return ()
+    if key in index:
+        return index[key]
+    hits: list[str] = []
+    for name, rows in index.items():
+        if not any(p.kind in PREFIX_KINDS for p in rows):
+            continue
+        short, long_ = sorted((key, name), key=len)
+        if not short or not long_.startswith(short + " "):
+            continue
+        if _SEQUEL_RE.search(long_[len(short) + 1 :]):
+            continue
+        hits.append(name)
+    if len(hits) != 1:
+        return ()
+    return [p for p in index[hits[0]] if p.kind in PREFIX_KINDS]
 
 
 def spoiler_work(item: NewsItem) -> str | None:
@@ -276,10 +311,20 @@ async def load_context(
         else:
             released.add(key)
     progress: dict[str, Sequence[Progress]] = {}
+    index: dict[str, list[Progress]] | None = None
+    all_progress = getattr(repo, "all_progress", None)
     for item in items:
         work = spoiler_work(item)
-        if work is not None and norm(work) not in progress:
+        if work is None or norm(work) in progress:
+            continue
+        if all_progress is None:
             progress[norm(work)] = await repo.progress(work)
+            continue
+        if index is None:
+            index = {}
+            for p in await all_progress():
+                index.setdefault(norm(p.franchise), []).append(p)
+        progress[norm(work)] = match_progress(work, index)
     return SpoilerContext(progress, frozenset(released), frozenset(dropped))
 
 
