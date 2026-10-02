@@ -1,0 +1,63 @@
+# Banco local da Magui (design §2 e §7, RNF-02).
+# Subir:   docker compose -f deploy/docker-compose.yml up -d
+# Migrar:  uv run python -m magi.memory.migrate
+# Só escuta em 127.0.0.1; as credenciais magi/magi valem apenas para a máquina local.
+name: magi
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: magi-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: magi
+      POSTGRES_PASSWORD: magi
+      POSTGRES_DB: magi
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - magi-pgdata:/var/lib/postgresql/data
+    # Ajustes para o container ocioso ficar abaixo de 80 MB (RNF-02).
+    command:
+      - postgres
+      - -c
+      - shared_buffers=32MB
+      - -c
+      - max_connections=10
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - effective_cache_size=128MB
+      - -c
+      - wal_buffers=1MB
+      - -c
+      - min_wal_size=32MB
+      - -c
+      - max_wal_size=256MB
+      - -c
+      - max_worker_processes=2
+      - -c
+      - max_parallel_workers=0
+      - -c
+      - max_parallel_workers_per_gather=0
+      - -c
+      - max_parallel_maintenance_workers=0
+      - -c
+      - autovacuum_max_workers=1
+      - -c
+      - jit=off
+      - -c
+      - huge_pages=off
+    shm_size: 64mb
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U magi -d magi"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  magi-pgdata:
