@@ -18,6 +18,7 @@ TABLES = {
     "turns", "corrections", "vocab", "profile", "memories", "help_log", "mood_events", "costs",
     "music_signals", "taste", "news_sources", "news_raw", "news_items", "news_item_sources",
     "franchise_prefs", "progress", "news_feedback", "schema_migrations",
+    "taste_effective",  # view (002, tarefa 2.4)
 }
 
 
@@ -107,7 +108,7 @@ def _dim(conn, schema, table):
 
 @pytest.mark.db
 def test_cria_esquema_e_e_idempotente(schema, conn):
-    assert mig.migrate(conn, schema=schema) == ["001"]
+    assert mig.migrate(conn, schema=schema) == ["001", "002"]
     assert _tables(conn, schema) == TABLES
     assert _dim(conn, schema, "memories") == 1536
     assert _dim(conn, schema, "news_items") == 768
@@ -118,8 +119,9 @@ def test_cria_esquema_e_e_idempotente(schema, conn):
     assert sorted(r[0] for r in hnsw) == ["memories", "news_items"]
 
     assert mig.migrate(conn, schema=schema) == []
-    rows = conn.execute("SELECT version, params FROM schema_migrations").fetchall()
-    assert rows == [("001", {"MEMORIES_DIM": 1536, "NEWS_DIM": 768})]
+    rows = conn.execute("SELECT version, params FROM schema_migrations ORDER BY version").fetchall()
+    assert [r[0] for r in rows] == ["001", "002"]
+    assert rows[0] == ("001", {"MEMORIES_DIM": 1536, "NEWS_DIM": 768})
 
 
 @pytest.mark.db

@@ -133,6 +133,7 @@ class Repos:
     costs: CostsStore
     close: Callable[[], Awaitable[None]]
     taste: Any = None  # magi.memory.taste_repo.TasteRepo (tarefa 2.3)
+    music_signals: Any = None  # magi.memory.music_signals_repo.MusicSignalsRepo (tarefa 2.4)
 
 
 class MemoryCorrectionsRepo:
@@ -174,6 +175,7 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
     from magi.memory.corrections_repo import CorrectionsRepo
     from magi.memory.costs_repo import CostsRepo
     from magi.memory.migrate import migrate
+    from magi.memory.music_signals_repo import MusicSignalsRepo
     from magi.memory.taste_repo import TasteRepo
 
     dsn = config.database.dsn
@@ -187,7 +189,11 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
         log.info("migrações aplicadas: %s", ", ".join(applied))
     conn = await psycopg.AsyncConnection.connect(dsn, autocommit=True, connect_timeout=DB_TIMEOUT_S)
     return Repos(
-        corrections=CorrectionsRepo(conn), costs=CostsRepo(conn), close=conn.close, taste=TasteRepo(conn)
+        corrections=CorrectionsRepo(conn),
+        costs=CostsRepo(conn),
+        close=conn.close,
+        taste=TasteRepo(conn),
+        music_signals=MusicSignalsRepo(conn),
     )
 
 
@@ -201,16 +207,21 @@ HandlerFactory = Callable[[GameCatalog, HudSink, Corrections | None], list[Actio
 def default_handlers(
     catalog: GameCatalog, hud_sink: HudSink, corrections: Corrections | None
 ) -> list[ActionHandler]:
-    """Ações reais: jogos (1.9), HUD (1.10), volume/RGB (1.11), Spotify (2.1) e correção (1.6).
-    Construir não toca em nada: cada módulo só abre D-Bus/Pulse/OpenRGB ao executar."""
+    """Ações reais: jogos (1.9), HUD (1.10), volume/RGB (1.11), Spotify (2.1), sinais de música
+    (2.4) e correção (1.6). Construir não toca em nada: cada módulo só abre D-Bus/Pulse/OpenRGB ao
+    executar. O ``MusicSignals`` (sem banco até o ``assemble`` ligar o repo) marca o que o
+    ``play_query`` toca como escolha da Magui."""
     from magi.core.actions.spotify_api import make_play_query
+    from magi.core.music import signals
 
     mpris = spotify_mpris.SpotifyMpris()
+    music = signals.MusicSignals(mpris)
     found = [
         *games.handlers(catalog),
         *hud.handlers(hud_sink),
         *system.handlers(),
-        *spotify_mpris.handlers(mpris, play_query=make_play_query(mpris)),
+        *spotify_mpris.handlers(mpris, play_query=make_play_query(mpris, on_play=music.mark_picked)),
+        *signals.handlers(music),
     ]
     if corrections is not None:
         found += correction_handlers(corrections)
@@ -247,6 +258,8 @@ class Core:
     alerts: AlertMonitor | None = None
     warnings: list[str] = field(default_factory=list)
     tasks: list[asyncio.Task[Any]] = field(default_factory=list)  # tarefas de fundo (gosto, 2.3)
+    music: Any = None  # magi.core.music.signals.MusicSignals (2.4); observa em ``start_proactive``
+    music_task: asyncio.Task[Any] | None = None
 
     def warn(self, msg: str) -> None:
         if msg not in self.warnings:
@@ -254,11 +267,15 @@ class Core:
             log.warning("%s", msg)
 
     def start_proactive(self, targets: Targets) -> None:
-        """Liga a entrega proativa aos satélites do serviço e inicia os alertas (5.3)."""
+        """Liga a entrega proativa aos satélites do serviço e inicia os alertas (5.3) e a
+        observação do Spotify para os sinais de música (2.4)."""
         if self.proactive is not None:
             self.proactive.targets = targets
         if self.alerts is not None:
             self.alerts.start()
+        if self.music is not None and self.music_task is None:
+            self.music_task = asyncio.create_task(self.music.run())
+            self.tasks.append(self.music_task)
 
     async def aclose(self) -> None:
         if self.alerts is not None:
@@ -364,10 +381,11 @@ async def assemble(
                 "seguindo com correções só em memória e orçamento sem registro"
             )
     if core.repos is not None and core.repos.taste is not None:
-        # Gosto do Spotify na primeira configuração (R8.2): só com a tabela vazia, em segundo plano.
-        from magi.core.music.import_taste import import_if_empty
+        # Gosto do Spotify (R8.2): na primeira configuração e depois 1×/dia, em segundo plano (2.4).
+        from magi.core.music.import_taste import STATE_FILE, refresh_loop
 
-        core.tasks.append(asyncio.create_task(import_if_empty(core.repos.taste)))
+        state = config.paths.data_dir / STATE_FILE
+        core.tasks.append(asyncio.create_task(refresh_loop(core.repos.taste, state)))
     if core.repos is not None:
         from magi.core.budget import MonthlyBudget
 
@@ -387,7 +405,9 @@ async def assemble(
     core.catalog = catalog
     core.deps.router = LocalRouter(catalog)
     core.deps.corrector = core.corrections
-    core.deps.actions = actions.Registry(handlers(catalog, hud_sink, core.corrections))
+    found = handlers(catalog, hud_sink, core.corrections)
+    core.deps.actions = actions.Registry(found)
+    _wire_music(core, found)
 
     # STT e TTS
     if core.providers is not None:
@@ -408,6 +428,19 @@ async def assemble(
     if core.deps.agent is None:
         core.warn("agente indisponível: perguntas respondem 'ainda não sei fazer isso'")
     return core
+
+
+def _wire_music(core: Core, found: list[ActionHandler]) -> None:
+    """Acha o ``MusicSignals`` dos handlers (2.4) e liga o repo do banco, se houver."""
+    from magi.core.music.signals import MusicSignalsHandler
+
+    for h in found:
+        if isinstance(h, MusicSignalsHandler):
+            core.music = h.signals
+            repo = getattr(core.repos, "music_signals", None) if core.repos is not None else None
+            if repo is not None:
+                core.music.repo = repo
+            return
 
 
 def _wire_voice(core: Core, config: Config, catalog: GameCatalog) -> None:

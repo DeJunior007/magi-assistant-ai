@@ -2,9 +2,13 @@
 
 Implementa ``magi.common.contracts.TasteRepo`` sobre uma ``psycopg.AsyncConnection``. A chave é
 ``(artist, genre)``; ``genre`` vazio quando o Spotify não informa (apps novos não recebem gêneros).
-``upsert`` é idempotente: grava o peso dado, substituindo o anterior (rodar a importação de novo
-não duplica nem acumula). ``adjust`` soma um delta a todas as linhas do artista (cria com gênero
-vazio se ele ainda não existir).
+``upsert`` é idempotente: grava o peso base dado, substituindo o anterior (rodar a importação de
+novo não duplica nem acumula). ``adjust`` soma um delta ao ``bonus`` de todas as linhas do artista
+(cria com gênero vazio e base 0 se ele ainda não existir).
+
+``top`` lê a view ``taste_effective`` (migração 002, tarefa 2.4): peso efetivo = base importada +
+``bonus`` + soma dos sinais de ``music_signals`` do artista. Assim a reimportação diária só troca a
+base e nunca apaga os ajustes nem os sinais (R8.3-R8.5).
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ class TasteRepo:
                 )
 
     async def top(self, limit: int = 50, genre: str | None = None) -> list[TasteEntry]:
-        q = "SELECT artist, genre, weight FROM taste"
+        q = "SELECT artist, genre, weight FROM taste_effective"
         params: list[object] = []
         if genre is not None:
             q += " WHERE genre = %s"
@@ -51,12 +55,12 @@ class TasteRepo:
     async def adjust(self, artist: str, delta: float) -> None:
         async with self._conn.transaction():
             cur = await self._conn.execute(
-                "UPDATE taste SET weight = weight + %s WHERE artist = %s", [delta, artist]
+                "UPDATE taste SET bonus = bonus + %s WHERE artist = %s", [delta, artist]
             )
             if cur.rowcount == 0:
                 await self._conn.execute(
-                    "INSERT INTO taste (artist, genre, weight) VALUES (%s, '', %s)"
-                    " ON CONFLICT (artist, genre) DO UPDATE SET weight = taste.weight + EXCLUDED.weight",
+                    "INSERT INTO taste (artist, genre, bonus) VALUES (%s, '', %s)"
+                    " ON CONFLICT (artist, genre) DO UPDATE SET bonus = taste.bonus + EXCLUDED.bonus",
                     [artist, delta],
                 )
 

@@ -16,8 +16,8 @@ pedido quando o nome ``org.mpris.MediaPlayer2.spotify`` aparecer (R7.3). As leit
 (``state``, ``position``, ``get_volume``) não abrem nada: com o Spotify fechado levantam
 ``SpotifyNotRunning``. Erros de D-Bus viram ``MprisError``.
 
-Não há assinatura de sinais: quem precisa acompanhar troca de faixa (2.4) consulta
-``state()`` periodicamente e compara ``PlayerState.track_id``.
+Não há assinatura de sinais aqui: ``magi.core.music.signals`` (2.4) assina ``PropertiesChanged``
+na própria conexão e lê ``state()`` a cada troca.
 
 ``handlers(mpris=None, play_query=None)`` registra os intents ``music.open``, ``music.play``,
 ``music.pause``, ``music.next``, ``music.previous`` e ``music.volume``. ``music.play`` com
