@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Fake Anime News</title>
+    <link>https://anime.example/</link>
+    <item>
+      <title>Frieren &lt;b&gt;Season 3&lt;/b&gt; announced</title>
+      <link>https://anime.example/news/frieren-s3?utm_source=rss&amp;utm_medium=feed</link>
+      <description><![CDATA[<p>The <b>third season</b> of Frieren   was announced.</p>]]></description>
+      <pubDate>Wed, 30 Sep 2026 12:00:00 +0000</pubDate>
+      <guid>frieren-s3</guid>
+    </item>
+    <item>
+      <title>Shared story</title>
+      <link>https://shared.example/story#comments</link>
+      <description>Same URL in both feeds</description>
+      <pubDate>Wed, 30 Sep 2026 13:00:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>No link here</title>
+      <description>should be skipped</description>
+    </item>
+  </channel>
+</rss>
