@@ -1,0 +1,535 @@
+# Intenções locais do roteador (tarefa 1.8, §4.2, R4).
+#
+# id: valor de contracts.IntentId. label: o "X" de "você quis dizer X?" (aceita {slot}).
+# reply: frase de resposta em cache. danger: ação perigosa (pede confirmação, R5.3).
+# required: slots livres obrigatórios (jogo não achado sai com value "" e a ação sugere).
+# phrases: frases-modelo em PT-BR. Slots: {volume} {brightness} {amount} (número por extenso
+# ou dígito; {volume:+} / {volume:-} = relativo), {color}, {detail}; livres no fim da frase:
+# {game} {query} {text} {franchise}. Frase como mapa: say + slots constantes + label próprio.
+# Artigos, "aí", "pra mim", "por favor" e afins são ignorados; "abri"/"bota"/"sobe"/"dá pause"
+# viram a forma canônica no roteador (LEMMA), então não precisam de frase própria.
+
+intents:
+  # -- jogos (R5) ------------------------------------------------------------
+  - id: game.open
+    label: "abrir {game}"
+    reply: "Abrindo {game}."
+    required: [game]
+    phrases:
+      - "abre {game}"
+      - "abre o jogo {game}"
+      - "inicia {game}"
+      - "bora jogar {game}"
+      - "quero jogar {game}"
+      - "vamos jogar {game}"
+
+  - id: game.close
+    label: "fechar o jogo"
+    reply: "Fechar o jogo? Confirma?"
+    danger: true
+    phrases:
+      - "fecha o jogo"
+      - "fecha esse jogo"
+      - "mata o jogo"
+      - "encerra o jogo"
+      - "sai do jogo"
+      - "fecha o jogo aberto"
+      - say: "fecha {game}"
+        label: "fechar {game}"
+      - say: "mata {game}"
+        label: "fechar {game}"
+      - say: "encerra {game}"
+        label: "fechar {game}"
+
+  # -- HUD (R6.1) ------------------------------------------------------------
+  - id: hud.open
+    label: "abrir o HUD"
+    reply: "HUD aberto."
+    phrases:
+      - "abre o hud"
+      - "mostra o hud"
+      - "liga o hud"
+      - "abre a magi"
+      - "mostra a magi"
+      - "abre o painel"
+
+  - id: hud.close
+    label: "fechar o HUD"
+    reply: "HUD fechado."
+    phrases:
+      - "fecha o hud"
+      - "esconde o hud"
+      - "desliga o hud"
+      - "tira o hud"
+      - "fecha a magi"
+      - "fecha o painel"
+
+  - id: hud.idle_toggle
+    # on_off: on = tela de ociosidade, off = painel completo; sem slot alterna (tarefa 1.10)
+    label: "alternar a tela de ociosidade"
+    reply: "Pronto."
+    phrases:
+      - "alterna a tela"
+      - "troca a tela do hud"
+      - say: "tela de ociosidade"
+        slots: {on_off: "on"}
+        label: "mostrar a tela de ociosidade"
+      - say: "liga a tela de ociosidade"
+        slots: {on_off: "on"}
+        label: "mostrar a tela de ociosidade"
+      - say: "modo ocioso"
+        slots: {on_off: "on"}
+        label: "mostrar a tela de ociosidade"
+      - say: "tela de descanso"
+        slots: {on_off: "on"}
+        label: "mostrar a tela de ociosidade"
+      - say: "proteção de tela"
+        slots: {on_off: "on"}
+        label: "mostrar a tela de ociosidade"
+      - say: "desliga a tela de ociosidade"
+        slots: {on_off: "off"}
+        label: "mostrar o painel completo"
+      - say: "painel completo"
+        slots: {on_off: "off"}
+        label: "mostrar o painel completo"
+      - say: "mostra o painel completo"
+        slots: {on_off: "off"}
+        label: "mostrar o painel completo"
+      - say: "mostra tudo"
+        slots: {on_off: "off"}
+        label: "mostrar o painel completo"
+
+  - id: hud.detail
+    label: "mostrar detalhes de {detail}"
+    reply: "Olha aí."
+    phrases:
+      - "mostra a {detail}"
+      - "detalhes da {detail}"
+      - "detalhe da {detail}"
+      - "abre o detalhe da {detail}"
+      - "abre a {detail}"
+      - "como ta a {detail}"
+      - "uso da {detail}"
+      - say: "fecha os detalhes"
+        slots: {detail: none}
+        label: "fechar os detalhes"
+      - say: "tira os detalhes"
+        slots: {detail: none}
+        label: "fechar os detalhes"
+
+  - id: hud.rgb_sync
+    label: "mudar a sincronia do RGB"
+    reply: "Feito."
+    phrases:
+      - say: "liga o rgb sync"
+        slots: {on_off: "on"}
+        label: "ligar o RGB sync"
+      - say: "sincroniza o rgb"
+        slots: {on_off: "on"}
+        label: "ligar o RGB sync"
+      - say: "liga a sincronia do rgb"
+        slots: {on_off: "on"}
+        label: "ligar o RGB sync"
+      - say: "desliga o rgb sync"
+        slots: {on_off: "off"}
+        label: "desligar o RGB sync"
+      - say: "para de sincronizar o rgb"
+        slots: {on_off: "off"}
+        label: "desligar o RGB sync"
+      - say: "desliga a sincronia do rgb"
+        slots: {on_off: "off"}
+        label: "desligar o RGB sync"
+
+  # -- volume do sistema (R6.2) ----------------------------------------------
+  - id: volume.set
+    label: "volume em {volume}"
+    reply: "Volume ajustado."
+    phrases:
+      - say: "aumenta o volume"
+        slots: {volume: "+10"}
+        label: "aumentar o volume"
+      - say: "aumenta o som"
+        slots: {volume: "+10"}
+        label: "aumentar o volume"
+      - say: "mais alto"
+        slots: {volume: "+10"}
+        label: "aumentar o volume"
+      - say: "abaixa o volume"
+        slots: {volume: "-10"}
+        label: "abaixar o volume"
+      - say: "abaixa o som"
+        slots: {volume: "-10"}
+        label: "abaixar o volume"
+      - say: "mais baixo"
+        slots: {volume: "-10"}
+        label: "abaixar o volume"
+      - "volume {volume}"
+      - "volume em {volume}"
+      - "coloca o volume em {volume}"
+      - "deixa o volume em {volume}"
+      - "som em {volume}"
+      - "aumenta o volume pra {volume}"
+      - "abaixa o volume pra {volume}"
+      - say: "aumenta o volume em {volume:+}"
+        label: "aumentar o volume em {volume}"
+      - say: "abaixa o volume em {volume:-}"
+        label: "abaixar o volume em {volume}"
+
+  - id: volume.mute
+    label: "deixar no mudo"
+    reply: "Mudo."
+    phrases:
+      - "muta"
+      - "mudo"
+      - "coloca no mudo"
+      - "muta o som"
+      - "tira o som"
+      - "silencio"
+      - "corta o som"
+
+  - id: volume.unmute
+    label: "tirar do mudo"
+    reply: "Som de volta."
+    phrases:
+      - "desmuta"
+      - "tira do mudo"
+      - "tira o mudo"
+      - "volta o som"
+      - "desmuta o som"
+
+  # -- RGB (R6.3) ------------------------------------------------------------
+  - id: rgb.color
+    label: "deixar o RGB {color}"
+    reply: "Cor trocada."
+    phrases:
+      - "muda o rgb pra {color}"
+      - "deixa o rgb {color}"
+      - "coloca o rgb em {color}"
+      - "rgb {color}"
+      - "luz {color}"
+      - "luzes {color}"
+      - "muda a cor pra {color}"
+      - "muda a cor da luz pra {color}"
+      - "deixa tudo {color}"
+      - "pinta de {color}"
+      - "deixa a luz {color}"
+
+  - id: rgb.brightness
+    label: "brilho em {brightness}"
+    reply: "Brilho ajustado."
+    phrases:
+      - "brilho {brightness}"
+      - "brilho em {brightness}"
+      - "coloca o brilho em {brightness}"
+      - "deixa o brilho em {brightness}"
+      - "luz em {brightness}"
+      - say: "aumenta o brilho"
+        slots: {brightness: "+20"}
+        label: "aumentar o brilho"
+      - say: "abaixa o brilho"
+        slots: {brightness: "-20"}
+        label: "abaixar o brilho"
+      - say: "apaga as luzes"
+        slots: {brightness: "0"}
+        label: "apagar as luzes"
+      - say: "desliga o rgb"
+        slots: {brightness: "0"}
+        label: "apagar as luzes"
+      - say: "liga as luzes"
+        slots: {brightness: "100"}
+        label: "acender as luzes"
+      - say: "liga o rgb"
+        slots: {brightness: "100"}
+        label: "acender as luzes"
+
+  # -- sistema (perigosas, R5.3) ---------------------------------------------
+  - id: system.shutdown
+    label: "desligar o PC"
+    reply: "Desligar o PC? Confirma?"
+    danger: true
+    phrases:
+      - "desliga o pc"
+      - "desliga o computador"
+      - "desliga a maquina"
+
+  - id: system.reboot
+    label: "reiniciar o PC"
+    reply: "Reiniciar o PC? Confirma?"
+    danger: true
+    phrases:
+      - "reinicia o pc"
+      - "reinicia o computador"
+      - "reinicia a maquina"
+
+  # -- Spotify (R7, R8) ------------------------------------------------------
+  - id: music.open
+    label: "abrir o Spotify"
+    reply: "Abrindo o Spotify."
+    phrases:
+      - "abre o spotify"
+      - "liga o spotify"
+      - "abre o spot"
+
+  - id: music.play
+    label: "tocar {query}"
+    reply: "Tocando."
+    phrases:
+      - say: "toca"
+        label: "continuar a música"
+      - say: "da play"
+        label: "continuar a música"
+      - say: "play"
+        label: "continuar a música"
+      - say: "despausa"
+        label: "continuar a música"
+      - say: "continua a musica"
+        label: "continuar a música"
+      - say: "volta a tocar"
+        label: "continuar a música"
+      - say: "solta a musica"
+        label: "continuar a música"
+      - say: "solta o som"
+        label: "continuar a música"
+      - "toca {query}"
+      - "coloca {query}"
+      - "quero ouvir {query}"
+      - "toca a musica {query}"
+      - "toca uma do {query}"
+      - "coloca uma do {query}"
+      - "toca alguma do {query}"
+
+  - id: music.pause
+    label: "pausar a música"
+    reply: "Pausado."
+    phrases:
+      - "pausa"
+      - "pausa a musica"
+      - "da um pause"
+      - "para a musica"
+      - "para de tocar"
+      - "segura a musica"
+      - "pausa o som"
+      - "para o som"
+
+  - id: music.next
+    label: "pular pra próxima"
+    reply: "Próxima."
+    phrases:
+      - "proxima"
+      - "proxima musica"
+      - "passa a musica"
+      - "passa essa"
+      - "pula essa"
+      - "pula a musica"
+      - "pula"
+      - "muda a musica"
+      - "toca a proxima"
+      - "manda a proxima"
+      - "skip"
+
+  - id: music.previous
+    label: "voltar a música anterior"
+    reply: "Voltando."
+    phrases:
+      - "anterior"
+      - "musica anterior"
+      - "volta a musica"
+      - "volta uma musica"
+      - "toca a anterior"
+      - "volta a anterior"
+      - "toca de novo a anterior"
+
+  - id: music.volume
+    label: "volume da música em {volume}"
+    reply: "Feito."
+    phrases:
+      - "volume da musica em {volume}"
+      - "volume da musica {volume}"
+      - "musica em {volume}"
+      - "volume do spotify em {volume}"
+      - say: "aumenta a musica"
+        slots: {volume: "+10"}
+        label: "aumentar a música"
+      - say: "aumenta o volume da musica"
+        slots: {volume: "+10"}
+        label: "aumentar a música"
+      - say: "abaixa a musica"
+        slots: {volume: "-10"}
+        label: "abaixar a música"
+      - say: "abaixa o volume da musica"
+        slots: {volume: "-10"}
+        label: "abaixar a música"
+
+  - id: music.pick
+    label: "escolher uma música"
+    reply: "Deixa comigo."
+    phrases:
+      - "coloca uma boa"
+      - "coloca uma musica boa"
+      - "toca alguma coisa"
+      - "toca qualquer coisa"
+      - "coloca um som"
+      - "escolhe uma musica"
+      - "toca o que voce quiser"
+      - "manda uma boa"
+      - "toca uma boa"
+
+  - id: music.like
+    label: "marcar que você curtiu essa"
+    reply: "Anotado, essa é das boas."
+    phrases:
+      - "essa e boa"
+      - "essa musica e boa"
+      - "curti essa"
+      - "gostei dessa"
+      - "gostei dessa musica"
+      - "essa e braba"
+      - "salva essa"
+      - "que musica boa"
+
+  - id: music.never
+    label: "nunca mais tocar essa"
+    reply: "Beleza, essa não volta."
+    phrases:
+      - "nunca mais toca isso"
+      - "nunca mais toca essa"
+      - "nao toca mais isso"
+      - "nao toca mais essa"
+      - "odeio essa musica"
+      - "tira essa e nunca mais toca"
+
+  # -- correção, memória, humor, orçamento (R3.3, R11.5, R13.5, R16.2) --------
+  - id: correction.fix
+    label: "corrigir para {text}"
+    reply: "Ah, entendi."
+    phrases:
+      - "nao eu falei {text}"
+      - "nao eu disse {text}"
+      - "eu falei {text}"
+      - "eu disse {text}"
+      - "nao era {text}"
+      - "nao e isso e {text}"
+
+  - id: memory.forget
+    label: "esquecer isso"
+    reply: "Esquecido."
+    phrases:
+      - "esquece isso"
+      - "esquece o que eu falei"
+      - "esquece o que eu disse"
+      - "apaga isso da memoria"
+      - "nao lembra disso"
+      - "nao guarda isso"
+
+  - id: mood.softer
+    label: "pegar mais leve"
+    reply: "Tá, vou maneirar."
+    phrases:
+      - "pega leve"
+      - "pega mais leve"
+      - "maneira"
+      - "maneira ai"
+      - "menos zoeira"
+      - "sem zoeira"
+
+  - id: mood.harder
+    label: "pegar pesado"
+    reply: "Ah, agora sim."
+    phrases:
+      - "pode pegar pesado"
+      - "pega pesado"
+      - "pode zoar"
+      - "pode zoar a vontade"
+      - "manda ver na zoeira"
+      - "sem do"
+
+  - id: budget.set_cap
+    label: "mudar o teto pra {amount} dólares"
+    reply: "Teto ajustado."
+    phrases:
+      - "aumenta o teto pra {amount} dolares"
+      - "aumenta o teto pra {amount}"
+      - "muda o teto pra {amount} dolares"
+      - "teto de {amount} dolares"
+      - "coloca o teto em {amount} dolares"
+      - "muda o limite pra {amount} dolares"
+      - "aumenta o limite pra {amount} dolares"
+      - "orcamento de {amount} dolares"
+      - "abaixa o teto pra {amount} dolares"
+
+  # -- notícias (R19, R20) ---------------------------------------------------
+  - id: news.whats_new
+    label: "ver as novidades"
+    reply: null
+    phrases:
+      - "novidade"
+      - "alguma novidade"
+      - "tem novidade"
+      - "quais as novidades"
+      - "o que tem de novo"
+      - "me conta as novidades"
+      - "que que tem de novo"
+
+  - id: news.spoilers_ok
+    label: "liberar spoiler de {franchise}"
+    reply: "Liberado."
+    phrases:
+      - "pode dar spoiler de {franchise}"
+      - "libera spoiler de {franchise}"
+      - "pode falar spoiler de {franchise}"
+
+  - id: news.dislike
+    label: "marcar que não curtiu"
+    reply: "Anotado."
+    phrases:
+      - "nao curti"
+      - "nao gostei dessa noticia"
+      - "nao curti essa noticia"
+      - "esse tipo de noticia nao"
+
+  - id: news.more
+    label: "mais notícias assim"
+    reply: "Anotado."
+    phrases:
+      - "mais disso"
+      - "quero mais disso"
+      - "mais noticias assim"
+
+  - id: news.drop
+    label: "parar de seguir {franchise}"
+    reply: "Beleza, paro de acompanhar."
+    phrases:
+      - "larguei {franchise}"
+      - "parei de jogar {franchise}"
+      - "nao acompanho mais {franchise}"
+
+  # -- confirmação (R5.4) ----------------------------------------------------
+  - id: confirm.yes
+    label: "confirmar"
+    reply: null
+    phrases:
+      - "confirma"
+      - "sim"
+      - "pode"
+      - "pode sim"
+      - "isso"
+      - "isso mesmo"
+      - "manda"
+      - "manda ver"
+      - "bora"
+      - "claro"
+      - "positivo"
+      - "pode ir"
+
+  - id: confirm.no
+    label: "cancelar"
+    reply: null
+    phrases:
+      - "cancela"
+      - "nao"
+      - "deixa"
+      - "deixa pra la"
+      - "esquece"
+      - "nao precisa"
+      - "negativo"
+      - "nao quero"

@@ -1,0 +1,118 @@
+# Frases de ouro do roteador (§10, RNF-07): texto → intenção esperada (+ slots).
+# intent: agent = não é comando (vai ao agente). slots: só os que importam.
+# Jogos pelo catálogo falso de tests/core/test_router.py (appid como texto).
+- {text: "abre o dedi cels", intent: game.open, slots: {game: "588650"}}
+- {text: "abri o dead cells", intent: game.open, slots: {game: "588650"}}
+- {text: "Magui, abre aí o Hollow Knight pra mim", intent: game.open, slots: {game: "367520"}}
+- {text: "bora jogar ólou naite", intent: game.open, slots: {game: "367520"}}
+- {text: "abre o the witcher três", intent: game.open, slots: {game: "292030"}}
+- {text: "quero jogar baldurs gate três", intent: game.open, slots: {game: "1086940"}}
+- {text: "inicia o ciberpunk", intent: game.open, slots: {game: "1091500"}}
+- {text: "abre hades dois por favor", intent: game.open, slots: {game: "1145350"}}
+- {text: "abre o portal dois aí", intent: game.open, slots: {game: "620"}}
+- {text: "ei magui abre o jogo dark souls três", intent: game.open, slots: {game: "374320"}}
+- {text: "fecha o jogo", intent: game.close}
+- {text: "fecha esse jogo aí", intent: game.close}
+- {text: "mata o jogo que travou", intent: game.close}
+- {text: "fecha o dead cells", intent: game.close, slots: {game: "588650"}}
+- {text: "abre o hud", intent: hud.open}
+- {text: "mostra o HUD aí", intent: hud.open}
+- {text: "fecha o hud", intent: hud.close}
+- {text: "esconde o hud por favor", intent: hud.close}
+- {text: "liga a tela de ociosidade", intent: hud.idle_toggle, slots: {on_off: "on"}}
+- {text: "modo ocioso", intent: hud.idle_toggle, slots: {on_off: "on"}}
+- {text: "mostra o painel completo aí", intent: hud.idle_toggle, slots: {on_off: "off"}}
+- {text: "alterna a tela do hud", intent: hud.idle_toggle}
+- {text: "mostra a cpu", intent: hud.detail, slots: {detail: cpu}}
+- {text: "detalhes da placa de vídeo", intent: hud.detail, slots: {detail: gpu}}
+- {text: "como tá a memória?", intent: hud.detail, slots: {detail: memory}}
+- {text: "abre o detalhe da gpu", intent: hud.detail, slots: {detail: gpu}}
+- {text: "fecha os detalhes", intent: hud.detail, slots: {detail: none}}
+- {text: "liga o rgb sync", intent: hud.rgb_sync, slots: {on_off: "on"}}
+- {text: "desliga o rgb sync", intent: hud.rgb_sync, slots: {on_off: "off"}}
+- {text: "aumenta o som", intent: volume.set, slots: {volume: "+10"}}
+- {text: "aumenta o volume aí", intent: volume.set, slots: {volume: "+10"}}
+- {text: "sobe o volume", intent: volume.set, slots: {volume: "+10"}}
+- {text: "abaixa o volume que tá muito alto", intent: volume.set, slots: {volume: "-10"}}
+- {text: "baixa o som", intent: volume.set, slots: {volume: "-10"}}
+- {text: "volume em cinquenta", intent: volume.set, slots: {volume: "50"}}
+- {text: "coloca o volume em 30%", intent: volume.set, slots: {volume: "30"}}
+- {text: "volume no trinta e cinco", intent: volume.set, slots: {volume: "35"}}
+- {text: "deixa o volume em oitenta por cento", intent: volume.set, slots: {volume: "80"}}
+- {text: "volume no talo", intent: volume.set, slots: {volume: "100"}}
+- {text: "coloca no mudo", intent: volume.mute}
+- {text: "muta aí", intent: volume.mute}
+- {text: "tira do mudo", intent: volume.unmute}
+- {text: "desmuta", intent: volume.unmute}
+- {text: "muda o rgb pra azul", intent: rgb.color, slots: {color: "#0000ff"}}
+- {text: "deixa o RGB vermelho", intent: rgb.color, slots: {color: "#ff0000"}}
+- {text: "luz roxa", intent: rgb.color, slots: {color: "#8000ff"}}
+- {text: "muda a cor pra verde", intent: rgb.color, slots: {color: "#00ff00"}}
+- {text: "deixa tudo azul claro", intent: rgb.color, slots: {color: "#66ccff"}}
+- {text: "brilho em setenta", intent: rgb.brightness, slots: {brightness: "70"}}
+- {text: "aumenta o brilho", intent: rgb.brightness, slots: {brightness: "+20"}}
+- {text: "apaga as luzes", intent: rgb.brightness, slots: {brightness: "0"}}
+- {text: "abre o spotify", intent: music.open}
+- {text: "toca linkin park", intent: music.play, slots: {query: "linkin park"}}
+- {text: "bota um daft punk aí", intent: music.play, slots: {query: "daft punk"}}
+- {text: "taca um rock dos anos 80", intent: music.play, slots: {query: "rock dos anos 80"}}
+- {text: "quero ouvir Bohemian Rhapsody", intent: music.play, slots: {query: "bohemian rhapsody"}}
+- {text: "toca uma do Charlie Brown", intent: music.play, slots: {query: "charlie brown"}}
+- {text: "dá play", intent: music.play}
+- {text: "continua a música", intent: music.play}
+- {text: "pausa", intent: music.pause}
+- {text: "dá pause aí", intent: music.pause}
+- {text: "pausa a música", intent: music.pause}
+- {text: "para de tocar", intent: music.pause}
+- {text: "próxima", intent: music.next}
+- {text: "passa a música", intent: music.next}
+- {text: "pula essa aí", intent: music.next}
+- {text: "toca a próxima", intent: music.next}
+- {text: "música anterior", intent: music.previous}
+- {text: "volta a música", intent: music.previous}
+- {text: "volume da música em vinte", intent: music.volume, slots: {volume: "20"}}
+- {text: "abaixa a música", intent: music.volume, slots: {volume: "-10"}}
+- {text: "aumenta a música", intent: music.volume, slots: {volume: "+10"}}
+- {text: "coloca uma boa", intent: music.pick}
+- {text: "bota uma boa aí", intent: music.pick}
+- {text: "toca alguma coisa", intent: music.pick}
+- {text: "essa é boa", intent: music.like}
+- {text: "curti essa", intent: music.like}
+- {text: "nunca mais toca isso", intent: music.never}
+- {text: "nunca mais toca essa porcaria", intent: music.never}
+- {text: "não, eu falei dead cells", intent: correction.fix, slots: {text: "dead cells"}}
+- {text: "não eu disse hollow knight", intent: correction.fix, slots: {text: "hollow knight"}}
+- {text: "esquece isso", intent: memory.forget}
+- {text: "esquece o que eu falei", intent: memory.forget}
+- {text: "pega leve", intent: mood.softer}
+- {text: "maneira aí, magui", intent: mood.softer}
+- {text: "pode pegar pesado", intent: mood.harder}
+- {text: "aumenta o teto pra oito dólares", intent: budget.set_cap, slots: {amount: "8"}}
+- {text: "aumenta o teto pra 10 dólares", intent: budget.set_cap, slots: {amount: "10"}}
+- {text: "novidades?", intent: news.whats_new}
+- {text: "e aí, alguma novidade?", intent: news.whats_new}
+- {text: "o que tem de novo?", intent: news.whats_new}
+- {text: "confirma", intent: confirm.yes}
+- {text: "pode sim", intent: confirm.yes}
+- {text: "cancela", intent: confirm.no}
+- {text: "deixa pra lá", intent: confirm.no}
+- {text: "desliga o pc", intent: system.shutdown}
+- {text: "reinicia o computador", intent: system.reboot}
+# não são comandos: vão ao agente
+- {text: "qual a melhor build de mago no elden ring?", intent: agent}
+- {text: "quanto custa uma rtx 5090?", intent: agent}
+- {text: "me explica como funciona o parry no sekiro", intent: agent}
+- {text: "que horas são?", intent: agent}
+- {text: "quem ganhou o jogo do flamengo ontem?", intent: agent}
+- {text: "o que você acha de hollow knight?", intent: agent}
+- {text: "como eu passo do chefe do segundo mundo?", intent: agent}
+- {text: "tem alguma promoção boa na steam hoje?", intent: agent}
+- {text: "me conta uma piada", intent: agent}
+- {text: "por que meu pc tá esquentando tanto?", intent: agent}
+- {text: "qual a capital da austrália?", intent: agent}
+- {text: "escreve um resumo do lore de dark souls", intent: agent}
+- {text: "você acha que vale a pena comprar o hades dois?", intent: agent}
+- {text: "como abre o console no skyrim?", intent: agent}
+- {text: "manda uma mensagem pro joão", intent: agent}
+- {text: "quero jogar algo novo, o que você recomenda?", intent: agent}
+- {text: "liga pra minha mãe", intent: agent}
