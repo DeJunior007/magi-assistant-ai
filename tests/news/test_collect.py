@@ -165,7 +165,10 @@ def test_registro_de_coletores():
 # --- coleta ----------------------------------------------------------------------------------
 
 
-async def test_coleta_deduplica_e_isola_erros():
+async def test_coleta_deduplica_e_isola_erros(monkeypatch):
+    real_factory = S.collector_factory
+    monkeypatch.setattr(S, "collector_factory",
+                        lambda kind: None if kind == "reddit" else real_factory(kind))
     repo = MemRepo()
     calls: list[str] = []
     reddit = S.SourceConfig("r/x", "reddit", "https://reddit.example/r/x", 1)
@@ -176,7 +179,7 @@ async def test_coleta_deduplica_e_isola_erros():
         assert rep.errors == 1
         by = {s.name: s for s in rep.sources}
         assert "500" in by["Broken"].error
-        assert by["r/x"].skipped  # sem coletor reddit ainda (6.4)
+        assert by["r/x"].skipped  # kind sem coletor é pulado
         assert "https://anime.example/news/frieren-s3" in repo.raw
         assert all(r.fetched_at == NOW for r in repo.raw.values())
         again = await S.collect_all(repo, [ANIME, GAMES], http, now=NOW)
