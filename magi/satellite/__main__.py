@@ -1,14 +1,16 @@
-"""Satélite da Magui (``magi-satellite``): captura, wake word e envio de ``magi-wake`` (§5, R1).
+"""Satélite da Magui (``magi-satellite``): captura, wake word, VAD e envio da fala (§5, R1).
 
 Conecta no núcleo por Wyoming (``WYOMING_HOST:WYOMING_PORT``), manda ``magi-hello`` primeiro e
-um ``magi-wake`` a cada ativação. Se a conexão cair, reconecta sozinho; ativações sem conexão
-são descartadas (com log). O limiar do wake word é recarregado quando o ``config.toml`` é salvo.
+um ``magi-wake`` a cada ativação, seguido da fala (``audio-start/chunk/stop``, ver
+``stream``). ``magi-listen`` do núcleo abre uma escuta curta sem wake word. Se a conexão
+cair, reconecta sozinho; ativações sem conexão são descartadas (com log). O limiar do wake
+word é recarregado quando o ``config.toml`` é salvo.
 
 Uso::
 
     uv run magi-satellite                      # microfone padrão
     uv run magi-satellite --wav frase.wav      # áudio de arquivo, em tempo real (sem microfone)
-    uv run magi-satellite --download-models    # baixa os modelos do openWakeWord e sai
+    uv run magi-satellite --download-models    # baixa os modelos (openWakeWord, Silero VAD) e sai
 """
 
 from __future__ import annotations
@@ -28,13 +30,16 @@ from magi.common.config import Config, ConfigError, ConfigWatcher
 from magi.common.contracts import (
     WYOMING_HOST,
     WYOMING_PORT,
+    ListenRequest,
     SatelliteHello,
     SatelliteToCore,
     WakeEvent,
     WakeSource,
 )
-from magi.common.events import to_event
+from magi.common.events import EventDecodeError, from_event, to_event
 from magi.satellite.capture import AudioSource, MicSource, WavSource
+from magi.satellite.stream import PreRoll, UtteranceStream
+from magi.satellite.vad import Endpointer, SpeechDetector, download_vad_model, load_vad
 from magi.satellite.wake import (
     OpenWakeWordDetector,
     WakeDetector,
@@ -120,21 +125,53 @@ class CoreClient:
 
     async def send(self, msg: SatelliteToCore) -> bool:
         """Envia um evento; ``False`` se não houver conexão (o evento é descartado)."""
+        return await self.send_event(to_event(msg))
+
+    async def send_event(self, event: Event) -> bool:
+        """Envia um ``Event`` cru (ex.: ``audio-chunk``); ``False`` se não houver conexão."""
         w = self._writer
         if w is None:
             return False
         try:
-            await async_write_event(to_event(msg), w)
+            await async_write_event(event, w)
         except (OSError, ConnectionError) as e:
-            log.warning("falha ao enviar %s: %s", type(msg).__name__, e)
+            log.warning("falha ao enviar %s: %s", event.type, e)
             await self._close_writer()
             return False
         return True
 
 
-async def wake_loop(source: AudioSource, spotter: WakeSpotter, client: CoreClient, satellite: str) -> None:
-    """Loop ocioso do satélite: wake word em cada bloco de 80 ms (único custo ocioso, §5)."""
+async def wake_loop(
+    source: AudioSource,
+    spotter: WakeSpotter,
+    client: CoreClient,
+    satellite: str,
+    *,
+    vad: SpeechDetector | None = None,
+    listens: asyncio.Queue[ListenRequest] | None = None,
+) -> None:
+    """Loop do satélite. Ocioso: wake word em cada bloco de 80 ms (único custo ocioso, §5).
+
+    Com ``vad``, cada ativação (ou ``magi-listen`` em ``listens``) vira uma gravação: os blocos
+    vão ao núcleo em tempo real até o VAD encerrar; durante ela o wake word não roda.
+    """
+    preroll = PreRoll()
+    stream: UtteranceStream | None = None
     async for block in source.blocks():
+        if stream is not None:
+            if await stream.feed(block) is not None:
+                stream = None
+            continue
+        if vad is not None and listens is not None and not listens.empty():
+            req = listens.get_nowait()
+            log.info("escuta pedida pelo núcleo (%s, %d ms)", req.reason, req.timeout_ms)
+            stream = UtteranceStream(client.send_event, Endpointer.for_listen(vad, req))
+            preroll.take()
+            if await stream.start() and await stream.feed(block) is None:
+                continue
+            stream = None
+            continue
+        preroll.push(block)
         det = spotter.feed(block)
         if det is None:
             continue
@@ -143,6 +180,26 @@ async def wake_loop(source: AudioSource, spotter: WakeSpotter, client: CoreClien
                        timestamp=det.timestamp_ms)
         if not await client.send(ev):
             log.warning("ativação descartada: sem conexão com o núcleo")
+            continue
+        if vad is not None:
+            stream = UtteranceStream(client.send_event, Endpointer(vad), preroll=preroll.take())
+            if not await stream.start():
+                stream = None
+
+
+def listen_handler(listens: asyncio.Queue[ListenRequest]) -> Callable[[Event], None]:
+    """``on_event`` do ``CoreClient``: enfileira os ``magi-listen`` do núcleo (R5.4)."""
+
+    def on_event(event: Event) -> None:
+        try:
+            msg = from_event(event)
+        except EventDecodeError as e:
+            log.debug("evento do núcleo ignorado: %s", e)
+            return
+        if isinstance(msg, ListenRequest):
+            listens.put_nowait(msg)
+
+    return on_event
 
 
 def load_settings(config: str | None) -> tuple[WakeSettings, ConfigWatcher | None]:
@@ -179,8 +236,10 @@ def reload_handler(
     return on_reload
 
 
-async def run(args: argparse.Namespace, detector: WakeDetector | None = None) -> None:
-    """Roda o satélite. ``detector`` substitui o openWakeWord (testes)."""
+async def run(
+    args: argparse.Namespace, detector: WakeDetector | None = None, vad: SpeechDetector | None = None
+) -> None:
+    """Roda o satélite. ``detector`` e ``vad`` substituem o openWakeWord e o Silero (testes)."""
     settings, watcher = load_settings(args.config)
     if args.id:
         settings = replace(settings, satellite=args.id)
@@ -200,8 +259,15 @@ async def run(args: argparse.Namespace, detector: WakeDetector | None = None) ->
         watcher.on_reload(reload_handler(spotter, settings, args.threshold))
         watch_task = asyncio.create_task(watcher.run(stop), name="config-watch")
 
+    if vad is None:
+        try:
+            vad = load_vad()
+        except FileNotFoundError as e:
+            log.error("%s; sem VAD o satélite só envia magi-wake", e)
+    listens: asyncio.Queue[ListenRequest] = asyncio.Queue()
+
     hello = SatelliteHello(satellite=settings.satellite, name="Magui satélite", version=_magi_version)
-    client = CoreClient(hello, args.host, args.port)
+    client = CoreClient(hello, args.host, args.port, on_event=listen_handler(listens))
     client.start()
 
     source: AudioSource
@@ -210,7 +276,7 @@ async def run(args: argparse.Namespace, detector: WakeDetector | None = None) ->
     else:
         source = MicSource(target=settings.mic_target)
     try:
-        await wake_loop(source, spotter, client, settings.satellite)
+        await wake_loop(source, spotter, client, settings.satellite, vad=vad, listens=listens)
         if args.wav:
             await asyncio.sleep(0.5)  # deixa o último evento sair
     finally:
@@ -243,7 +309,8 @@ def main(argv: list[str] | None = None) -> None:
         settings, _ = load_settings(args.config)
         names = (args.model or settings.model,)
         download_models(settings.models_dir, names)
-        print(f"modelos em {settings.models_dir}")
+        vad_path = download_vad_model()
+        print(f"modelos em {settings.models_dir} e {vad_path.parent}")
         return
     with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(run(args))
