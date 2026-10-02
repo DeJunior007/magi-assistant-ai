@@ -70,7 +70,7 @@ Formato de cada tarefa:
   - Orçamento: ~25k
   - Pronto: mecanismo de PTT decidido; se precisar do grupo `input`, documentado.
 
-- [ ] **0.6 Spike S3: modelos** — medir latência e custo de transcrição PT-BR, TTS feminina, agente e pesquisa; gerar amostras das vozes. **Precisa de mim** para ouvir e escolher a voz.
+- [x] **0.6 Spike S3: modelos** — medir latência e custo de transcrição PT-BR, TTS feminina, agente e pesquisa; gerar amostras das vozes. **Precisa de mim** para ouvir e escolher a voz.
   - Lê: §4.7, §12, `config.example.toml`
   - Escreve: `spikes/s3_models.py`, `docs/spikes/S3.md`, seção `[tasks]` do `config.example.toml`
   - Depende de: 0.2
