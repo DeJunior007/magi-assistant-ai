@@ -17,9 +17,9 @@ stt        = { provider = "openai", model = "<definir no S3>" }
 tts        = { provider = "openai", model = "<definir no S3>", voice = "<definir no S3>" }
 agent      = { provider = "openai", model = "<definir no S3>" }
 vision     = { provider = "openai", model = "<definir no S3>" }
-embeddings = { provider = "openai", model = "<definir no S3>" }
+embeddings = { provider = "openai", model = "<definir no S3>", options = { dimensions = 1536 } }  # = memories.embedding
 search     = { provider = "gemini", model = "<definir no S3>" }
-news       = { provider = "gemini", model = "<definir no S3>" }
+news       = { provider = "gemini", model = "<definir no S3>", embedding_model = "<definir no S3>", options = { dimensions = 768 } }  # = news_items.embedding
 
 [budget]
 monthly_usd = 5.0                       # teto mensal; "aumenta o teto pra 8 dólares" ajusta por voz
