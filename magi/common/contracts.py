@@ -493,7 +493,9 @@ class TurnContext:
     """Contexto do turno corrente, passado a roteador, ações e agente (R13.3, R15.2, R22.3).
 
     ``satellite``: de onde veio o turno; a resposta volta para ele. ``turn_id`` é o id em
-    ``turns`` (``None`` antes de gravar).
+    ``turns`` (``None`` antes de gravar). ``previous_text``/``previous_at``: texto final e início
+    do turno anterior do mesmo satélite (preenchidos pelo ``TurnMachine``; base do "não, eu falei
+    X", R3.3). ``None`` no primeiro turno.
     """
 
     satellite: str
@@ -503,6 +505,8 @@ class TurnContext:
     tone: ToneMetadata | None = None
     mood: int = 2
     in_call: bool = False
+    previous_text: str | None = None
+    previous_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -553,6 +557,9 @@ class ActionResult:
     "confirma" em 8 s, executa ``on_confirm`` (obrigatório nesse caso; normalmente o mesmo
     pedido com ``confirmed=True``). ``cards``: links/cards para o HUD (R10.3).
     ``expression``: expressão sugerida ao falar (ex.: ``confused`` quando não achou).
+    ``redo_text``: refazer o turno com este texto (correção, R3.3). O ``TurnPipeline`` trata uma
+    vez só: roteia e executa o texto e junta a fala desta resposta à do turno refeito; o
+    resultado final mantém ``redo_text`` como o texto efetivo do turno.
     """
 
     ok: bool
@@ -563,6 +570,7 @@ class ActionResult:
     on_confirm: ActionRequest | None = None
     cards: tuple[CardMsg, ...] = ()
     expression: Expression | None = None
+    redo_text: str | None = None
 
     def __post_init__(self) -> None:
         if self.needs_confirmation and self.on_confirm is None:

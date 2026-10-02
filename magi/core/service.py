@@ -26,6 +26,7 @@ from pathlib import Path
 
 from wyoming.event import Event, async_read_event, async_write_event
 
+from magi.common.config import Config, ConfigError, load_config, parse_config
 from magi.common.contracts import (
     CONFIRM_TIMEOUT_MS,
     WYOMING_HOST,
@@ -38,6 +39,7 @@ from magi.common.contracts import (
     SatelliteHello,
 )
 from magi.common.events import EventDecodeError, audio_chunk, audio_start, from_event, to_event
+from magi.core.assemble import Core, assemble
 from magi.core.hud_client import HudServer, NullHud
 from magi.core.turn import CONFIRM_GRACE_MS, TurnDeps, TurnMachine, TurnPipeline
 
@@ -208,9 +210,15 @@ async def run(
     port: int = WYOMING_PORT,
     hud_path: Path | None = None,
     deps: TurnDeps | None = None,
+    config: Config | None = None,
 ) -> None:
-    """Sobe HUD e Wyoming e roda até SIGINT/SIGTERM."""
+    """Sobe HUD e Wyoming e roda até SIGINT/SIGTERM. Sem ``deps``, monta o núcleo a partir de
+    ``config`` (``magi.core.assemble``; sem config, tudo degradado)."""
     hud = HudServer(hud_path)
+    core: Core | None = None
+    if deps is None:
+        core = await assemble(config if config is not None else parse_config({}), hud)
+        deps = core.deps
     service = CoreService(deps, hud, host=host, port=port)
     hud.on_command = service.on_hud_command
     try:
@@ -227,6 +235,8 @@ async def run(
     finally:
         await service.stop()
         await hud.stop()
+        if core is not None:
+            await core.aclose()
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -235,14 +245,21 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--host", default=WYOMING_HOST)
     parser.add_argument("--port", type=int, default=WYOMING_PORT)
     parser.add_argument("--hud-socket", type=Path, default=None, help="padrão: hud_socket_path()")
+    parser.add_argument("--config", type=Path, default=None, help="padrão: ~/.config/magi/config.toml")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    try:
+        config = load_config(args.config)
+        log.info("config: %s", config.source)
+    except ConfigError as e:
+        log.warning("%s; seguindo com os padrões (sem provedores)", e)
+        config = parse_config({})
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(run(host=args.host, port=args.port, hud_path=args.hud_socket))
+        asyncio.run(run(host=args.host, port=args.port, hud_path=args.hud_socket, config=config))
 
 
 if __name__ == "__main__":
