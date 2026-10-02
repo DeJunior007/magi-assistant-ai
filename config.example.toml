@@ -64,3 +64,16 @@ dsn = "postgresql://magi:magi@127.0.0.1:54329/magi"
 [paths]
 data_dir  = "~/.local/share/magi"
 cache_dir = "~/.cache/magi"
+
+[alerts]
+# Avisos proativos (R15.1, R15.2): fala curta + card fora de call; em call, só na tela.
+enabled            = true
+poll_s             = 12          # intervalo de leitura do sysfs (s)
+cooldown_s         = 900         # mínimo entre dois avisos iguais (s)
+cpu_warn_c         = 90          # CPU (hwmon k10temp/coretemp/zenpower, temp1)
+cpu_clear_c        = 82          # histerese: só avisa de novo depois de esfriar abaixo disto
+gpu_warn_c         = 95          # GPU (hwmon amdgpu, temp2 = junção)
+gpu_clear_c        = 85
+battery_pct        = 15          # controle (power_supply com scope=Device, ex. DualSense)
+battery_clear_pct  = 20          # (ou carregando)
+cost               = true        # 80% e 100% do teto de [budget], uma vez por mês
