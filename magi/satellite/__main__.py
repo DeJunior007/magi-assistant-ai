@@ -35,6 +35,7 @@ from magi.common.contracts import (
 )
 from magi.common.events import to_event
 from magi.satellite.capture import AudioSource, MicSource, WavSource
+from magi.satellite.discord import DiscordCallMonitor
 from magi.satellite.wake import (
     OpenWakeWordDetector,
     WakeDetector,
@@ -205,10 +206,14 @@ async def run(args: argparse.Namespace, detector: WakeDetector | None = None) ->
     client.start()
 
     source: AudioSource
+    discord_task: asyncio.Task[None] | None = None
     if args.wav:
         source = WavSource(args.wav, realtime=True)
     else:
         source = MicSource(target=settings.mic_target)
+        # call do Discord desliga o wake word (R2.1, R2.2); com --wav não há call a vigiar
+        monitor = DiscordCallMonitor(spotter, client.send, settings.satellite)
+        discord_task = asyncio.create_task(monitor.run(), name="discord-call")
     try:
         await wake_loop(source, spotter, client, settings.satellite)
         if args.wav:
@@ -217,6 +222,10 @@ async def run(args: argparse.Namespace, detector: WakeDetector | None = None) ->
         stop.set()
         if watch_task is not None:
             watch_task.cancel()
+        if discord_task is not None:
+            discord_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await discord_task
         await source.close()
         await client.stop()
 
