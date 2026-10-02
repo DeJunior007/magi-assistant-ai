@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>MAGI-01 Painel</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;family=Shippori+Mincho:wght@500;700&amp;family=Zen+Kaku+Gothic+New:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#09080d}
+a{color:#b392f0}a:hover{color:#d4c2f7}
+.pn{position:relative;background:#0f0e15;border:1px solid #26232f;clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px));box-sizing:border-box}
+.pn::before{content:"";position:absolute;left:-1px;top:-1px;width:56px;height:3px;background:#3a3646}
+.lb{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.08em;color:#8f89a6;text-transform:uppercase}
+.jp{font-family:'Zen Kaku Gothic New',sans-serif}
+.hd{font-family:'Barlow Condensed',sans-serif;font-weight:600;letter-spacing:.04em;color:#d8d3e6;text-transform:uppercase}
+.scan{position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 3px)}
+.ctl{width:44px;height:44px;border:1px solid #2f2b3a;background:#14121b;color:#d8d3e6;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.ctl:hover{border-color:#e8b04a;color:#e8b04a}
+</style>
+</helmet>
+<div style="width:1920px;height:1080px;box-sizing:border-box;padding:28px;background:#09080d;color:#d8d3e6;font-family:'JetBrains Mono',monospace;display:grid;grid-template-columns:360px minmax(0,1fr) 540px;grid-template-rows:96px minmax(0,1fr) 28px;gap:20px;position:relative;overflow:hidden">
+
+<!-- HEADER -->
+<div style="grid-column:1 / 4;display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid #26232f;padding-bottom:14px">
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="font-family:'Shippori Mincho',serif;font-weight:700;font-size:46px;line-height:1;color:#d8d3e6;letter-spacing:.06em">汎用監視システム</div>
+    <div class="lb" style="font-size:13px">General purpose monitoring system — MAGI-01</div>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding-bottom:4px">
+    <div class="jp" style="font-size:16px;color:#d8d3e6;letter-spacing:.2em">私は、ここにいる。</div>
+    <div class="lb" style="font-size:11px">// i am here · node 01 online</div>
+  </div>
+  <div style="display:flex;align-items:flex-end;gap:20px">
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;padding-bottom:6px">
+      <div class="jp" style="font-size:16px;color:#8f89a6">{{jpDay}}</div>
+      <div class="lb" style="font-size:14px;color:#d8d3e6">{{dateStr}}</div>
+    </div>
+    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:500;font-size:84px;line-height:.82;color:#d8d3e6;letter-spacing:.02em">{{hhmm}}<span style="font-size:32px;color:#8f89a6;margin-left:6px">{{ss}}</span></div>
+  </div>
+</div>
+
+<!-- LEFT COLUMN -->
+<div style="display:flex;flex-direction:column;gap:16px;min-height:0">
+  <div class="pn" style="flex:1.5;padding:18px 20px;display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <span class="hd" style="font-size:24px">FPS</span>
+      <span class="lb jp" style="text-transform:none">毎秒フレーム数</span>
+    </div>
+    <sc-if value="{{gaming}}" hint-placeholder-val="{{true}}">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-weight:500;font-size:96px;line-height:.9;color:#d8d3e6">144</div>
+      <div class="lb" style="display:flex;gap:16px"><span>avg 142</span><span>min 118</span><span>max 165</span></div>
+      <svg viewBox="0 0 300 40" style="width:100%;height:40px" aria-hidden="true"><polyline points="{{fpsPts}}" fill="none" stroke="#d8d3e6" stroke-width="1.2"></polyline></svg>
+    </sc-if>
+    <sc-if value="{{standby}}" hint-placeholder-val="{{false}}">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-weight:500;font-size:96px;line-height:.9;color:#3a3646">– –</div>
+      <div style="display:flex;gap:12px;align-items:baseline"><span class="hd" style="font-size:20px;color:#8f89a6">No signal</span><span class="jp" style="font-size:14px;color:#8f89a6">ゲーム未検出</span></div>
+    </sc-if>
+  </div>
+
+  <div class="pn" style="flex:1;padding:14px 20px;display:flex;flex-direction:column;justify-content:space-between">
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="hd" style="font-size:22px;color:#b392f0">CPU</span><span class="lb">i5-11400F · 6C/12T</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:'Barlow Condensed',sans-serif;font-size:40px;color:#d8d3e6">{{cpuLoad}}%</span><span class="lb" style="color:#d8d3e6">{{cpuTemp}}°C</span></div>
+    <div style="display:flex;gap:2px;height:10px"><sc-for list="{{cpuSegs}}" as="s" hint-placeholder-count="24"><div style="flex:1;background:{{s.c}}"></div></sc-for></div>
+  </div>
+
+  <div class="pn" style="flex:1;padding:14px 20px;display:flex;flex-direction:column;justify-content:space-between">
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="hd" style="font-size:22px;color:#5fd38d">GPU</span><span class="lb">RX 9060 XT · {{gpuW}}W</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:'Barlow Condensed',sans-serif;font-size:40px;color:#d8d3e6">{{gpuLoad}}%</span><span class="lb" style="color:{{gpuTempColor}}">{{gpuTemp}}°C</span></div>
+    <div style="display:flex;gap:2px;height:10px"><sc-for list="{{gpuSegs}}" as="s" hint-placeholder-count="24"><div style="flex:1;background:{{s.c}}"></div></sc-for></div>
+  </div>
+
+  <div class="pn" style="flex:1;padding:14px 20px;display:flex;flex-direction:column;justify-content:space-between">
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="hd" style="font-size:22px">RAM</span><span class="lb">32GB DDR4 3200</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-family:'Barlow Condensed',sans-serif;font-size:40px;color:#d8d3e6">36%</span><span class="lb" style="color:#d8d3e6">11.4 / 32 GB</span></div>
+    <div style="display:flex;gap:2px;height:10px"><sc-for list="{{ramSegs}}" as="s" hint-placeholder-count="24"><div style="flex:1;background:{{s.c}}"></div></sc-for></div>
+  </div>
+
+  <div class="pn" style="flex:1;padding:14px 20px;display:flex;flex-direction:column;justify-content:space-between">
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="hd" style="font-size:22px">Network</span><span class="lb jp" style="text-transform:none">接続中</span></div>
+    <div style="display:flex;gap:20px" class="lb"><span style="color:#d8d3e6">↓ 2.4 MB/s</span><span style="color:#d8d3e6">↑ 812 KB/s</span></div>
+    <svg viewBox="0 0 300 30" style="width:100%;height:30px" aria-hidden="true"><polyline points="{{netPts}}" fill="none" stroke="#8f89a6" stroke-width="1"></polyline></svg>
+  </div>
+</div>
+
+<!-- MIDDLE COLUMN -->
+<div style="display:flex;flex-direction:column;gap:20px;min-height:0">
+  <div class="pn" style="flex:1.45;display:flex;min-height:0">
+    <div style="position:relative;flex:1.4;overflow:hidden;border-right:1px solid #26232f">
+      <svg viewBox="0 0 540 500" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">
+        <rect width="540" height="500" fill="#13111a"></rect>
+        <circle cx="400" cy="150" r="58" fill="#1c1925"></circle>
+        <rect x="0" y="380" width="70" height="120" fill="#1a1823"></rect>
+        <rect x="70" y="350" width="58" height="150" fill="#16141e"></rect>
+        <rect x="140" y="405" width="90" height="95" fill="#1a1823"></rect>
+        <rect x="300" y="330" width="64" height="170" fill="#16141e"></rect>
+        <rect x="364" y="390" width="80" height="110" fill="#1a1823"></rect>
+        <rect x="455" y="300" width="85" height="200" fill="#16141e"></rect>
+        <rect x="84" y="370" width="6" height="8" fill="#e8b04a" opacity=".55"></rect>
+        <rect x="104" y="398" width="6" height="8" fill="#e8b04a" opacity=".35"></rect>
+        <rect x="318" y="356" width="6" height="8" fill="#b392f0" opacity=".5"></rect>
+        <rect x="478" y="330" width="6" height="8" fill="#e8b04a" opacity=".45"></rect>
+        <rect x="500" y="372" width="6" height="8" fill="#e8b04a" opacity=".3"></rect>
+        <rect x="166" y="40" width="8" height="460" fill="#050408"></rect>
+        <rect x="112" y="78" width="116" height="5" fill="#050408"></rect>
+        <rect x="124" y="104" width="92" height="4" fill="#050408"></rect>
+        <rect x="420" y="150" width="5" height="350" fill="#050408"></rect>
+        <rect x="390" y="172" width="66" height="3" fill="#050408"></rect>
+        <rect x="398" y="188" width="50" height="3" fill="#050408"></rect>
+        <path d="M-10 60 Q 60 110 114 80" stroke="#050408" stroke-width="1.6" fill="none"></path>
+        <path d="M-10 92 Q 60 140 126 106" stroke="#050408" stroke-width="1.4" fill="none"></path>
+        <path d="M114 80 Q 260 150 392 173" stroke="#050408" stroke-width="1.5" fill="none"></path>
+        <path d="M228 80 Q 320 140 456 173" stroke="#050408" stroke-width="1.5" fill="none"></path>
+        <path d="M126 106 Q 270 172 400 189" stroke="#050408" stroke-width="1.3" fill="none"></path>
+        <path d="M216 106 Q 330 170 448 189" stroke="#050408" stroke-width="1.3" fill="none"></path>
+        <path d="M456 173 Q 500 200 560 196" stroke="#050408" stroke-width="1.3" fill="none"></path>
+        <path d="M448 189 Q 500 220 560 222" stroke="#050408" stroke-width="1.2" fill="none"></path>
+      </svg>
+      <div class="scan"></div>
+      <div style="position:absolute;left:24px;top:22px;display:flex;flex-direction:column;gap:6px">
+        <span class="lb" style="color:#d8d3e6">cam 01 // 電線</span>
+        <span class="lb">rec ● 19:04</span>
+      </div>
+      <div style="position:absolute;left:24px;bottom:22px;right:24px;display:flex;flex-direction:column;gap:6px">
+        <span class="jp" style="font-size:18px;color:#d8d3e6;letter-spacing:.14em">信号は、まだ届いている。</span>
+        <span class="lb" style="text-transform:none">the signal is still arriving.</span>
+      </div>
+    </div>
+    <div style="flex:1;padding:22px;display:flex;flex-direction:column;gap:14px;min-width:0">
+      <div style="display:flex;justify-content:space-between"><span class="lb">magi-01 // melchior</span><span class="lb jp" style="text-transform:none">人格</span></div>
+      <svg viewBox="0 0 260 150" style="width:100%;height:150px" aria-hidden="true">
+        <path d="M44 18 Q 14 75 44 132" stroke="#5c576b" stroke-width="7" fill="none" stroke-linecap="round"></path>
+        <path d="M216 18 Q 246 75 216 132" stroke="#5c576b" stroke-width="7" fill="none" stroke-linecap="round"></path>
+        <sc-if value="{{standby}}" hint-placeholder-val="{{false}}">
+          <path d="M78 46 Q 92 36 106 46" stroke="#d8d3e6" stroke-width="3" fill="none"></path>
+          <path d="M154 46 Q 168 36 182 46" stroke="#d8d3e6" stroke-width="3" fill="none"></path>
+          <line x1="76" y1="66" x2="108" y2="66" stroke="#d8d3e6" stroke-width="4"></line>
+          <line x1="152" y1="66" x2="184" y2="66" stroke="#d8d3e6" stroke-width="4"></line>
+          <text x="226" y="22" fill="#8f89a6" font-family="JetBrains Mono" font-size="16">z</text>
+          <text x="238" y="10" fill="#8f89a6" font-family="JetBrains Mono" font-size="12">z</text>
+        </sc-if>
+        <sc-if value="{{gaming}}" hint-placeholder-val="{{true}}">
+          <path d="M78 44 Q 92 34 106 44" stroke="#d8d3e6" stroke-width="3" fill="none"></path>
+          <path d="M154 44 Q 168 34 182 44" stroke="#d8d3e6" stroke-width="3" fill="none"></path>
+          <circle cx="92" cy="66" r="8" fill="none" stroke="#d8d3e6" stroke-width="3"></circle>
+          <circle cx="168" cy="66" r="8" fill="none" stroke="#d8d3e6" stroke-width="3"></circle>
+        </sc-if>
+        <line x1="80" y1="94" x2="88" y2="84" stroke="{{blush}}" stroke-width="2.4"></line>
+        <line x1="90" y1="94" x2="98" y2="84" stroke="{{blush}}" stroke-width="2.4"></line>
+        <line x1="162" y1="94" x2="170" y2="84" stroke="{{blush}}" stroke-width="2.4"></line>
+        <line x1="172" y1="94" x2="180" y2="84" stroke="{{blush}}" stroke-width="2.4"></line>
+        <path d="M122 108 Q 130 116 138 108" stroke="#d8d3e6" stroke-width="2.5" fill="none"></path>
+      </svg>
+      <div style="align-self:flex-start;border:1px solid #3a3646;padding:6px 14px" class="hd"><span style="font-size:18px;color:{{stateColor}}">{{stateLabel}}</span></div>
+      <div class="jp" style="font-size:16px;line-height:1.7;color:#d8d3e6">{{lineJp1}}<br>{{lineJp2}}</div>
+      <div class="lb" style="text-transform:none;line-height:1.6">{{lineEn}}</div>
+    </div>
+  </div>
+
+  <div style="flex:1;display:flex;gap:20px;min-height:0">
+    <div class="pn" style="flex:1;padding:16px 20px;display:flex;flex-direction:column;gap:10px;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div style="display:flex;gap:12px;align-items:baseline"><span class="hd" style="font-size:22px">Load history</span><span class="jp lb" style="text-transform:none">負荷履歴</span></div>
+        <div class="lb" style="display:flex;gap:14px"><span style="color:#b392f0">■ cpu</span><span style="color:#5fd38d">■ gpu</span><span style="color:#c9c4d6">■ ram</span></div>
+      </div>
+      <div style="flex:1;position:relative;border-left:1px solid #26232f;border-bottom:1px solid #26232f;min-height:0">
+        <svg viewBox="0 0 600 200" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">
+          <line x1="0" y1="50" x2="600" y2="50" stroke="#1d1b25"></line>
+          <line x1="0" y1="100" x2="600" y2="100" stroke="#1d1b25"></line>
+          <line x1="0" y1="150" x2="600" y2="150" stroke="#1d1b25"></line>
+          <polyline points="{{ramPts}}" fill="none" stroke="#c9c4d6" stroke-width="1" vector-effect="non-scaling-stroke"></polyline>
+          <polyline points="{{gpuPts}}" fill="none" stroke="#5fd38d" stroke-width="1.4" vector-effect="non-scaling-stroke"></polyline>
+          <polyline points="{{cpuPts}}" fill="none" stroke="#b392f0" stroke-width="1.4" vector-effect="non-scaling-stroke"></polyline>
+        </svg>
+      </div>
+      <div class="lb" style="display:flex;justify-content:space-between;font-size:11px"><span>18:00</span><span>18:15</span><span>18:30</span><span>18:45</span><span>19:00</span></div>
+    </div>
+
+    <div class="pn" style="width:360px;flex:none;padding:16px 20px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;gap:12px;align-items:baseline"><span class="hd" style="font-size:22px">Unit spec</span><span class="jp lb" style="text-transform:none">機体情報</span></div>
+      <div style="display:grid;grid-template-columns:56px minmax(0,1fr);row-gap:5px;font-size:12px">
+        <span class="lb" style="font-size:11px">cpu</span><span>Intel Core i5-11400F</span>
+        <span class="lb" style="font-size:11px">gpu</span><span>AMD Radeon RX 9060 XT 16G</span>
+        <span class="lb" style="font-size:11px">m/b</span><span>Gigabyte Z490 Aorus Pro AX</span>
+        <span class="lb" style="font-size:11px">ram</span><span>32 GB DDR4 3200</span>
+        <span class="lb" style="font-size:11px">os</span><span>Nobara Linux 44 · 7.2.6</span>
+        <span class="lb" style="font-size:11px">mesa</span><span>26.2.3</span>
+      </div>
+      <div style="border-top:1px solid #26232f;padding-top:10px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;gap:10px;align-items:baseline"><span class="hd" style="font-size:16px">Pilots</span><span class="jp lb" style="text-transform:none">操縦者</span></div>
+        <div style="display:flex;justify-content:space-between;border:1px solid #3a3646;padding:5px 10px;font-size:12px"><span><span class="lb">01</span>  DualSense <span class="lb">bt</span></span><span style="color:#e8b04a">⚡ 25%</span></div>
+        <div style="display:flex;gap:10px;border:1px dashed #26232f;padding:5px 10px" class="lb"><span>02</span><span class="jp" style="text-transform:none">未接続 — empty</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- RIGHT COLUMN -->
+<div style="display:flex;flex-direction:column;gap:20px;min-height:0">
+  <div class="pn" style="flex:1.25;padding:18px 20px;display:flex;flex-direction:column;gap:12px;min-height:0">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="display:flex;gap:12px;align-items:baseline"><span class="hd" style="font-size:26px">MAGI system</span><span class="jp lb" style="text-transform:none">三体合議制御</span></div>
+      <button type="button" onClick="{{toggleLed}}" aria-pressed="{{ledPressed}}" aria-label="LED sincronizado com o RGB" style="height:44px;padding:0 14px;display:flex;align-items:center;gap:10px;background:#14121b;border:1px solid {{ledBorder}};color:#d8d3e6;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase"><span style="width:10px;height:10px;border-radius:50%;background:{{ledDot}};box-shadow:0 0 10px {{ledGlow}}"></span><span class="jp">{{ledJp}}</span><span>led {{ledEn}}</span></button>
+    </div>
+    <sc-for list="{{units}}" as="u" hint-placeholder-count="3">
+      <div style="flex:1;display:flex;gap:16px;align-items:stretch;border:1px solid {{u.border}};background:{{u.bg}};padding:12px 14px;min-height:0">
+        <div style="width:150px;display:flex;flex-direction:column;justify-content:center;gap:2px">
+          <span class="hd" style="font-size:24px;color:{{u.color}}">{{u.name}}</span>
+          <span class="lb">{{u.sub}}</span>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:10px;min-width:0">
+          <div style="display:grid;grid-template-columns:64px minmax(0,1fr) 72px;gap:10px;align-items:center">
+            <span class="lb jp" style="text-transform:none">{{u.k1}}</span>
+            <div style="display:flex;gap:2px;height:12px"><sc-for list="{{u.s1}}" as="s" hint-placeholder-count="20"><div style="flex:1;background:{{s.c}}"></div></sc-for></div>
+            <span style="text-align:right;font-size:14px">{{u.v1}}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:64px minmax(0,1fr) 72px;gap:10px;align-items:center">
+            <span class="lb jp" style="text-transform:none">{{u.k2}}</span>
+            <div style="display:flex;gap:2px;height:12px"><sc-for list="{{u.s2}}" as="s" hint-placeholder-count="20"><div style="flex:1;background:{{s.c}}"></div></sc-for></div>
+            <span style="text-align:right;font-size:14px">{{u.v2}}</span>
+          </div>
+        </div>
+        <div style="width:70px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-left:1px solid #26232f">
+          <span class="jp" style="font-size:20px;color:{{u.color}}">正常</span>
+          <span class="lb" style="font-size:10px">normal</span>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+
+  <!-- NOW PLAYING -->
+  <div class="pn" style="flex:1;padding:18px 20px;display:flex;flex-direction:column;gap:14px;min-height:0">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div style="display:flex;gap:12px;align-items:baseline"><span class="hd" style="font-size:22px">Now playing</span><span class="jp lb" style="text-transform:none">再生中</span></div>
+      <span class="lb" style="color:#5fd38d">● spotify</span>
+    </div>
+    <div style="display:flex;gap:18px;min-height:0">
+      <div style="position:relative;width:150px;height:150px;flex:none;background:#1a1823;border:1px solid #3a3646;overflow:hidden" role="img" aria-label="Capa do álbum">
+        <svg viewBox="0 0 150 150" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">
+          <circle cx="75" cy="75" r="46" fill="none" stroke="#2f2b3a" stroke-width="18"></circle>
+          <circle cx="75" cy="75" r="10" fill="#e8b04a" opacity=".7"></circle>
+        </svg>
+        <div class="scan"></div>
+        <span class="lb" style="position:absolute;left:8px;bottom:6px;font-size:10px">[capa do álbum]</span>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;min-width:0">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="font-family:'Barlow Condensed',sans-serif;font-weight:500;font-size:28px;line-height:1.05;color:#d8d3e6">[Nome da faixa]</span>
+          <span style="font-size:13px;color:#d8d3e6">[Artista]</span>
+          <span class="lb" style="text-transform:none">[Álbum] · [ano]</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="height:3px;background:#26232f;position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:43%;background:#e8b04a"></div></div>
+          <div class="lb" style="display:flex;justify-content:space-between;font-size:11px"><span>1:42</span><span>3:58</span></div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="ctl" type="button" aria-label="Faixa anterior"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 5 L8 12 L18 19 Z"></path><line x1="6" y1="5" x2="6" y2="19"></line></svg></button>
+          <button class="ctl" type="button" aria-label="{{playLabel}}" onClick="{{togglePlay}}">
+            <sc-if value="{{playing}}" hint-placeholder-val="{{true}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="5" x2="8" y2="19"></line><line x1="16" y1="5" x2="16" y2="19"></line></svg></sc-if>
+            <sc-if value="{{paused}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 5 L19 12 L7 19 Z"></path></svg></sc-if>
+          </button>
+          <button class="ctl" type="button" aria-label="Próxima faixa"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 5 L16 12 L6 19 Z"></path><line x1="18" y1="5" x2="18" y2="19"></line></svg></button>
+          <div style="flex:1;display:flex;align-items:flex-end;justify-content:flex-end;gap:3px;height:44px" aria-hidden="true">
+            <sc-for list="{{eq}}" as="b" hint-placeholder-count="14"><div style="width:4px;height:{{b.h}}px;background:#3a3646"></div></sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="border-top:1px solid #26232f;padding-top:10px;display:flex;flex-direction:column;gap:5px">
+      <span class="lb" style="font-size:11px">a seguir // 次の曲</span>
+      <div style="display:flex;justify-content:space-between;font-size:12px"><span>[Próxima faixa] — [Artista]</span><span class="lb">4:12</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<div style="grid-column:1 / 4;display:flex;justify-content:space-between;align-items:center" class="lb">
+  <span><span class="hd" style="font-size:16px;margin-right:12px">MAGI</span>multi agent guidance interface</span>
+  <span style="text-transform:none">[19:03:24] game.exe launched · [19:03:41] network up 2.4 MB/s · [19:04:10] user active</span>
+  <span>meta+m · painel completo</span>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"mode":{"editor":"enum","options":["standby","gaming"],"default":"standby","section":"Estado"},"led":{"editor":"boolean","default":false,"section":"LED"},"rgbColor":{"editor":"color","default":"#ff3b6b","options":["#ff3b6b","#3bb6ff","#ffb020","#9d5cff"],"section":"LED"},"rgbMode":{"editor":"enum","options":["fixa","ciclo"],"default":"fixa","section":"LED"},"$preview":{"width":1920,"height":1080}}'>
+class Component extends DCLogic {
+  componentDidMount() {
+    this._t = setInterval(() => this.setState({ now: Date.now() }), 1000);
+  }
+  componentWillUnmount() { clearInterval(this._t); }
+  renderVals() {
+    const mode = this.props.mode ?? 'standby';
+    const gaming = mode === 'gaming';
+    const st = this.state || {};
+    const d = new Date(st.now || Date.now());
+    const p2 = (n) => String(n).padStart(2, '0');
+    const days = ['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
+    const months = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+    const jp = ['日曜日','月曜日','火曜日','水曜日','木曜日','金曜日','土曜日'];
+    const off = '#1d1b25';
+    const segs = (n, pct, color, warnFrom) => Array.from({ length: n }, (_, i) => {
+      const on = i < Math.round(pct / 100 * n);
+      let c = color;
+      if (warnFrom != null && i >= warnFrom) c = i >= n - 3 ? '#e5695b' : '#e8b04a';
+      return { c: on ? c : off };
+    });
+    const series = (seed, base, amp, n) => Array.from({ length: n }, (_, i) => {
+      const v = base + amp * (Math.sin(i * 0.37 + seed) * 0.5 + Math.sin(i * 1.13 + seed * 2) * 0.3 + Math.sin(i * 2.9 + seed * 3) * 0.2);
+      return Math.max(2, Math.min(98, v));
+    });
+    const pts = (arr, w, h) => arr.map((v, i) => (i * w / (arr.length - 1)).toFixed(1) + ',' + (h - v / 100 * h).toFixed(1)).join(' ');
+    const cpu = gaming ? 51 : 12, cpuT = gaming ? 50 : 41;
+    const gpu = gaming ? 100 : 6, gpuT = gaming ? 78 : 44, gpuW = gaming ? 161 : 14;
+    const playing = st.paused !== true;
+    const hsl = (hh) => { const f = (n) => { const k2 = (n + hh / 30) % 12; const c = 0.5 - 0.45 * Math.max(-1, Math.min(k2 - 3, 9 - k2, 1)); return Math.round(c * 255).toString(16).padStart(2, '0'); }; return '#' + f(0) + f(8) + f(4); };
+    const led = st.led ?? (this.props.led ?? false);
+    const rgb = (this.props.rgbMode ?? 'fixa') === 'ciclo' ? hsl((d.getTime() / 1000 * 12) % 360) : (this.props.rgbColor ?? '#ff3b6b');
+    const tint = (base, border, bg) => led ? { color: rgb, border: rgb + '88', bg: rgb + '14', seg: rgb } : { color: base, border, bg, seg: base };
+    const tM = tint('#b392f0', '#3b2f55', '#141120');
+    const tB = tint('#5fd38d', '#244a33', '#0f1712');
+    const tC = tint('#c9c4d6', '#2f2b3a', '#121118');
+    return {
+      ledPressed: led ? 'true' : 'false',
+      ledEn: led ? 'on' : 'off', ledJp: led ? '点灯' : '消灯',
+      ledDot: led ? rgb : '#3a3646', ledGlow: led ? rgb : 'transparent', ledBorder: led ? rgb : '#3a3646',
+      toggleLed: () => this.setState({ led: !led }),
+      blush: led ? rgb : '#b392f0',
+      gaming, standby: !gaming,
+      hhmm: p2(d.getHours()) + ':' + p2(d.getMinutes()), ss: p2(d.getSeconds()),
+      dateStr: days[d.getDay()] + ' ' + p2(d.getDate()) + ' ' + months[d.getMonth()] + ' ' + d.getFullYear(),
+      jpDay: jp[d.getDay()],
+      cpuLoad: cpu, cpuTemp: cpuT, gpuLoad: gpu, gpuTemp: gpuT, gpuW,
+      gpuTempColor: gpuT >= 75 ? '#e8b04a' : '#d8d3e6',
+      cpuSegs: segs(24, cpu, '#b392f0'), gpuSegs: segs(24, gpu, '#5fd38d'), ramSegs: segs(24, 36, '#c9c4d6'),
+      fpsPts: pts(series(1, 70, 25, 60), 300, 40),
+      netPts: pts(series(4, 45, 35, 60), 300, 30),
+      cpuPts: pts(series(2, gaming ? 50 : 22, 18, 120), 600, 200),
+      gpuPts: pts(series(5, gaming ? 84 : 30, 14, 120), 600, 200),
+      ramPts: pts(series(9, 36, 3, 120), 600, 200),
+      stateLabel: gaming ? 'Active · 稼働中' : 'Standby · 待機中',
+      stateColor: gaming ? '#5fd38d' : '#d8d3e6',
+      lineJp1: gaming ? '「同期完了。見ているよ。」' : '「システムは正常です。」',
+      lineJp2: gaming ? '「温度、少し上がってる。」' : '「少し眠いです…」',
+      lineEn: gaming ? 'Sync complete. I am watching. Temperature rising a little.' : 'System is normal. A little sleepy…',
+      units: [
+        { name: 'Melchior', sub: 'magi·1 // cpu', color: tM.color, border: tM.border, bg: tM.bg, k1: '負荷 load', k2: '温度 temp', s1: segs(20, cpu, tM.seg), s2: segs(20, cpuT, tM.seg, 15), v1: cpu + '%', v2: cpuT + '°' },
+        { name: 'Balthasar', sub: 'magi·2 // gpu', color: tB.color, border: tB.border, bg: tB.bg, k1: '負荷 load', k2: '温度 temp', s1: segs(20, gpu, tB.seg), s2: segs(20, gpuT, tB.seg, 15), v1: gpu + '%', v2: gpuT + '°' },
+        { name: 'Casper', sub: 'magi·3 // memory', color: tC.color, border: tC.border, bg: tC.bg, k1: '映像 vram', k2: '主記 ram', s1: segs(20, 29, tC.seg), s2: segs(20, 36, tC.seg), v1: '4.7/16G', v2: '11.4/32G' }
+      ],
+      eq: [10, 22, 34, 18, 40, 28, 14, 30, 38, 20, 12, 26, 16, 8].map((h, i) => ({ h: playing ? h : 4 })),
+      playing, paused: !playing,
+      playLabel: playing ? 'Pausar' : 'Tocar',
+      togglePlay: () => this.setState({ paused: playing })
+    };
+  }
+}
+</script>
+</body>
+</html>

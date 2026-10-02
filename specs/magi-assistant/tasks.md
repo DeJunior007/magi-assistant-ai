@@ -481,6 +481,38 @@ Formato de cada tarefa:
   - Orçamento: ~30k
   - Pronto: "o que saiu de novo do Silksong?" responde com links.
 
+## Fase U — Interface "wired" (R23)
+
+Fonte: `docs/design/MAGI-HANDOFF.md`, design §13. U1 e U2 em paralelo; U3 depois das duas; U4 por último. Ninguém edita `hud/gamerhud.py` antes da U4.
+
+- [ ] **U1 Kit visual** — fontes em `hud/fonts/` + carregamento, tokens e tingimento do LED, painel chanfrado, scanlines, barras de segmentos, sparkline, cenário de fios e mascote vetorial com as 7 expressões e boca por nível; script que salva PNGs de cada peça. *(R23.1, R23.4, R23.7)*
+  - Lê: handoff, `docs/design/wired/*.dc.html`, design §13, `hud/face.py` (expressões e API), `hud/gamerhud.py` só `Theme`/`alpha` (grep)
+  - Escreve: `hud/fonts/`, `hud/wired/{__init__,theme,fonts,kit,scene,mascot}.py`, `hud/tools/wired_demo.py`, `tests/hud/test_wired_kit.py`
+  - Depende de: —
+  - Orçamento: ~60k
+  - Pronto: PNGs das peças batem com o canvas; mascote troca expressão e boca.
+
+- [ ] **U2 Dados novos** — rede, histórico de 60 min, FPS mín/méd/máx, Spotify por MPRIS (metadados, capa em cache, posição interpolada, controles) e log de eventos do rodapé. *(R23.2, R23.3, R23.5)*
+  - Lê: design §13, `hud/gamerhud.py` só `Sensors`, `FpsSource`, `ProcStats`, `controllers`, `system_info` (grep), `magi/core/actions/spotify_mpris.py` (nomes MPRIS)
+  - Escreve: `hud/wired/data.py`, `tests/hud/test_wired_data.py`
+  - Depende de: —
+  - Orçamento: ~45k
+  - Pronto: dados reais no console por 1 min; sem Spotify aberto mostra vazio.
+
+- [ ] **U3 Telas** — Painel completo e Tela de espera compondo U1 + U2 + dados existentes; caches por camada; mapa de áreas clicáveis (LED, controles do player, cards CPU/GPU/RAM). *(R23.1–R23.8)*
+  - Lê: handoff, design §13, APIs de U1 e U2
+  - Escreve: `hud/wired/{main_screen,standby_screen}.py`, `hud/tools/wired_demo.py`, testes
+  - Depende de: U1, U2
+  - Orçamento: ~60k
+  - Pronto: PNGs 2560×1440 das duas telas nos estados standby/gaming e LED off/on.
+
+- [ ] **U4 Integração** — `ui = "wired"|"eva"` no `gamerhud.py`, transição do Meta+M, cliques (LED → RGB Sync, player → MPRIS, cards → detalhes por processo), eventos da Magui → mascote/legenda, medição de CPU. *(R23.6, R23.8, R23.9)*
+  - Lê: `hud/gamerhud.py`, APIs de U3, `hud/hud_bridge.py`
+  - Escreve: `hud/gamerhud.py`, `hud/README.md`, testes
+  - Depende de: U3
+  - Orçamento: ~60k
+  - Pronto: HUD real no tema novo, CPU dentro da meta do R23.8.
+
 ## Encerramento do MVP
 
 - [ ] **7.1 Medição final** — todos os RNF medidos e registrados.
