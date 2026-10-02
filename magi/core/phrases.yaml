@@ -1,0 +1,37 @@
+# Frases curtas frequentes do Magui (tarefa 1.12; R12.2).
+#
+# fixed: pré-geradas no primeiro uso do Speaker e guardadas em ~/.cache/magi/tts/.
+# templates: com placeholder {nome}; o texto chega já preenchido e é cacheado por valor
+#            depois da primeira síntese (ex.: "Abrindo Hades." vira entrada própria).
+# A comparação ignora maiúsculas e espaços repetidos.
+
+fixed:
+  - "Beleza."
+  - "Feito."
+  - "Pronto."
+  - "Ok."
+  - "Certo."
+  - "Pode falar."
+  - "Fala."
+  - "Tô ouvindo."
+  - "Confirma?"
+  - "Tem certeza?"
+  - "Cancelado."
+  - "Deixa pra lá, então."
+  - "Não peguei, repete?"
+  - "Não entendi, fala de novo?"
+  - "Tô sem internet."
+  - "Deu ruim aqui, tenta de novo."
+  - "Não consegui fazer isso."
+  - "Música pausada."
+  - "Voltando a música."
+  - "Pulando."
+  - "Volume ajustado."
+  - "Bateu o teto do mês."
+
+templates:
+  - "Abrindo {game}."
+  - "Fechando {game}."
+  - "Tocando {track}."
+  - "Volume em {level} por cento."
+  - "Não achei {name}."
