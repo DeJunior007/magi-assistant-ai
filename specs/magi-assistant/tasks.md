@@ -453,7 +453,7 @@ Formato de cada tarefa:
   - Orçamento: ~35k
   - Pronto: episódio visto e horas jogadas atualizados.
 
-- [ ] **6.9 Anti-spoiler** — manchete reescrita ou escondida; "pode dar spoiler de X". *(R19.1–R19.3)*
+- [x] **6.9 Anti-spoiler** — manchete reescrita ou escondida; "pode dar spoiler de X". *(R19.1–R19.3)*
   - Lê: `contracts.py`, R19, interfaces de 6.7 e 6.8
   - Escreve: `magi/news/spoiler.py`, testes
   - Depende de: 6.7, 6.8
