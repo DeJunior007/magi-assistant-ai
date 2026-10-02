@@ -93,6 +93,18 @@ sequenceDiagram
 durante `speaking` corta a reprodução (Req. 12.5). Estado `confirming` espera "confirma" por 8 s
 (Req. 5.4) com uma nova escuta curta, sem precisar de "Ei Magui".
 
+Conversa contínua (tarefa 1.20): ao fim de uma resposta sem confirmação pendente, `speaking →
+followup`. O núcleo manda `magi-listen` (`reason="followup"`, prazo `[conversation] followup_s`,
+padrão 3 s, só para *começar* a falar), sem bip, com o rosto em `listening`. Fala → `thinking` (turno
+completo, sem wake word) e a janela reabre no fim; silêncio → `sleeping` calado. Dispensa ("valeu",
+"só isso", "tchau"... como frase inteira, em qualquer turno) → rosto `happy` por 0,8 s e `sleeping`,
+sem fala. Sem janela em call no Discord (só PTT), após aviso proativo e após "Cancelado." por silêncio.
+
+| De | Para |
+|---|---|
+| `speaking`/`thinking` (resposta sem fala) | `followup` |
+| `followup` | `thinking` (falou), `sleeping` (silêncio/dispensa), `listening` (wake/PTT) |
+
 ### 3.2 Discord (Req. 2)
 
 - Detecção de call: `pulsectl` lista `source-output`s; call ativa = fluxo de captura cujo

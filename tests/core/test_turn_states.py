@@ -187,7 +187,8 @@ class Sat:
         await self.send(audio_start())
         if text:
             await self.send(audio_chunk(text.encode("utf-8")))
-        await self.send(AudioEnd(reason=reason, tone=ToneMetadata(energy_db=-20.0, speech_rate=4.0)))
+        tone = ToneMetadata(energy_db=-20.0, speech_rate=4.0, duration_ms=1200)
+        await self.send(AudioEnd(reason=reason, tone=tone))
 
     async def recv(self) -> Event | None:
         return await asyncio.wait_for(async_read_event(self.reader), T)
@@ -343,7 +344,7 @@ async def test_turno_local_percorre_estados(make_rig) -> None:
     (req,) = rig.actions.calls
     assert req.intent.id == IntentId.GAME_OPEN and req.text == "abre o jogo"
     assert req.ctx.satellite == "pc" and req.ctx.source is WakeSource.WAKE
-    assert req.ctx.tone == ToneMetadata(energy_db=-20.0, speech_rate=4.0)
+    assert req.ctx.tone == ToneMetadata(energy_db=-20.0, speech_rate=4.0, duration_ms=1200)
 
 
 async def test_pergunta_vai_ao_agente_com_texto_completo(make_rig) -> None:

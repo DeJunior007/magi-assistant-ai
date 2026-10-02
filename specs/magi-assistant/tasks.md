@@ -219,6 +219,13 @@ Formato de cada tarefa:
   - Orçamento: ~55k
   - Pronto: `magi-core` sobe com a config real (provedores sem chave degradam com aviso); turno de ponta a ponta com satélite falso usa todas as peças; "não, eu falei X" refaz o turno.
 
+- [x] **1.20 Conversa contínua** — depois de responder, a Magui fica ouvindo por 3 s sem wake word e sem bip (estado `followup`, rosto `listening`); fala → turno normal que reabre a janela; silêncio → dorme calada. Dispensa por frase inteira ("valeu", "obrigado", "só isso", "pode ir", "dispensa", "tchau", "nada não", "esquece") → rosto `happy` e dorme, sem fala. Ativou e não falou → dorme calada. Sem janela em call no Discord. Config `[conversation] followup`, `followup_s`.
+  - Lê: §3.1, `magi/core/turn.py`, `contracts.py` (ListenRequest, TurnState, AudioEndReason), `magi/satellite/__main__.py`, `magi/satellite/stream.py`
+  - Escreve: `magi/common/contracts.py` (`TurnState.FOLLOWUP`), `magi/core/turn.py`, `magi/core/service.py`, `config.example.toml`, §3.1, testes
+  - Depende de: 1.4, 1.19
+  - Orçamento: ~50k
+  - Pronto: testes com satélite/HUD falsos: continuação sem wake word reabre a janela; silêncio dorme sem falar; dispensa dorme; em call sem janela; nova ativação durante a janela; satélite não toca nada com `reason="followup"`.
+
 - [ ] **1.18 Medição da fase 1** — script de desempenho do §10 (CPU/RAM ociosos por 10 min, latência p90 de 50 turnos).
   - Lê: §10, tabela RNF de `requirements.md`
   - Escreve: `tools/perf.py`, `docs/perf/fase1.md`
