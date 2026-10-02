@@ -1,6 +1,6 @@
 """``NewsRepo`` em Postgres (design §7). Tarefa 6.1 cobre fontes e notícias cruas; a 6.6, criar
-itens e juntar cruas a eles (agrupamento); a 6.8, preferências por obra e progresso. Os demais
-métodos (classificação e retorno) são das tarefas 6.7+ e ainda levantam ``NotImplementedError``.
+itens e juntar cruas a eles (agrupamento); a 6.7, classificação e retorno; a 6.8, preferências
+por obra e progresso. Os demais (entrega e busca) ainda levantam ``NotImplementedError``.
 
 Usa uma ``psycopg.AsyncConnection`` em modo ``autocommit`` (cada chamada é uma transação). Os
 nomes das tabelas não têm schema: o ``search_path`` da conexão decide (testes usam um schema
@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any
 
 import psycopg
+from psycopg.types.json import Jsonb
 
 from magi.common.contracts import FranchisePref, NewsItem, NewsLevel, NewsRaw, NewsSource, Progress
 
@@ -189,10 +190,40 @@ class PgNewsRepo:
     # --- tarefas 6.7+ ------------------------------------------------------------------------
 
     async def update_item(self, item: NewsItem) -> None:
-        raise _todo("update_item")
+        if item.id is None:
+            raise ValueError("update_item exige item.id")
+        await self.conn.execute(
+            "UPDATE news_items SET franchise = %s, kind = %s, spoiler = %s, priority = %s, level = %s"
+            " WHERE id = %s",
+            [
+                item.franchise,
+                item.kind,
+                Jsonb(dict(item.spoiler)) if item.spoiler is not None else None,
+                item.priority,
+                item.level.value if item.level else None,
+                item.id,
+            ],
+        )
 
     async def unclassified(self, limit: int = 50) -> list[NewsItem]:
-        raise _todo("unclassified")
+        """Itens sem ``kind`` (a classificação da 6.7 sempre grava ``kind``), mais antigos antes."""
+        cur = await self.conn.execute(
+            f"SELECT {_ITEM_COLS} FROM news_items WHERE kind IS NULL ORDER BY first_seen, id LIMIT %s",
+            [limit],
+        )
+        return [_item(r) for r in await cur.fetchall()]
+
+    async def recent_feedback(self, limit: int = 6) -> list[tuple[NewsItem, int]]:
+        """Itens já classificados com retorno do usuário, o retorno mais recente de cada um
+        primeiro (exemplos da classificação, design §8 passo 3)."""
+        cols = ", ".join(f"i.{c.strip()}" for c in _ITEM_COLS.split(","))
+        cur = await self.conn.execute(
+            f"SELECT * FROM (SELECT DISTINCT ON (i.id) {cols}, f.signal, f.at FROM news_feedback f"
+            " JOIN news_items i ON i.id = f.item_id WHERE i.kind IS NOT NULL"
+            " ORDER BY i.id, f.at DESC, f.id DESC) t ORDER BY t.at DESC LIMIT %s",
+            [limit],
+        )
+        return [(_item(r[:12]), r[12]) for r in await cur.fetchall()]
 
     async def undelivered(self, levels: Sequence[NewsLevel], limit: int = 5) -> list[NewsItem]:
         raise _todo("undelivered")
@@ -258,4 +289,6 @@ class PgNewsRepo:
         return row[0] if row else None
 
     async def add_feedback(self, item_id: int, signal: int, at: datetime) -> None:
-        raise _todo("add_feedback")
+        await self.conn.execute(
+            "INSERT INTO news_feedback (item_id, signal, at) VALUES (%s, %s, %s)", [item_id, signal, at]
+        )
