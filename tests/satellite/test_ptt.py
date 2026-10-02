@@ -85,8 +85,12 @@ async def test_teclado_registra_com_4_inteiros_e_segue_sinais():
     assert [m.member for m in kga] == ["doRegister", "setShortcutKeys"]
     setk = kga[1]
     assert setk.signature == "asa(ai)u"
-    assert setk.body == [ACTION_ID, [[0x01000008, 0, 0, 0]], 6]
-    assert all(len(k) == 4 for k in setk.body[1])
+    assert setk.body == [ACTION_ID, [[[0x01000008, 0, 0, 0]]], 6]
+    # a(ai) = lista de structs; cada struct (ai) = [lista de 4 ints]. O dbus-next valida ao serializar.
+    Message(destination="org.kde.kglobalaccel", path="/kglobalaccel", interface="org.kde.KGlobalAccel",
+            member="setShortcutKeys",
+            signature="asa(ai)u", body=setk.body)._marshall(False)
+    assert all(len(struct[0]) == 4 for struct in setk.body[1])
     assert ACTION_ID[:2] == ["magi-satellite", "push_to_talk"]
 
     bus.emit("globalShortcutPressed")

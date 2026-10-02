@@ -187,7 +187,7 @@ class KeyboardPtt:
                                     body=[f"type='signal',interface='{COMP_IFACE}',path='{component_path()}'"]))
         await self._call(KGA_PATH, KGA_IFACE, "doRegister", "as", [ACTION_ID])
         (applied,) = await self._call(KGA_PATH, KGA_IFACE, "setShortcutKeys", "asa(ai)u",
-                                      [ACTION_ID, qkeyseq(self.key), SET_PRESENT | NO_AUTOLOADING])
+                                      [ACTION_ID, [qkeyseq(self.key)], SET_PRESENT | NO_AUTOLOADING])
         if not applied:
             log.warning("atalho de PTT não aplicado (tecla ocupada por outro atalho do KDE?)")
         return applied
