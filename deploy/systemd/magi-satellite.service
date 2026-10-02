@@ -1,0 +1,25 @@
+# Satélite local da Magui (design §1): microfone, "Ei Magui", VAD, atalho e voz.
+# Template: @REPO@ é trocado pelo caminho real do repositório por hud/install.sh, que gera a unit
+# em ~/.config/systemd/user/. Rode o install.sh de novo se mover o repositório.
+[Unit]
+Description=Magui: satélite de voz (magi-satellite)
+# Precisa da sessão gráfica (atalho global, D-Bus da sessão) e do PipeWire.
+PartOf=graphical-session.target
+After=graphical-session.target pipewire.service pipewire-pulse.service wireplumber.service
+Wants=pipewire.service pipewire-pulse.service
+# Sem limite de reinícios: kill -9 ou falha volta sempre em ~2 s (RNF-11).
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO@
+ExecStart="@REPO@/.venv/bin/magi-satellite"
+Environment=PYTHONUNBUFFERED=1
+# O gerenciador do usuário já exporta isto; fica explícito caso a sessão não importe o ambiente.
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus
+Restart=always
+RestartSec=2
+TimeoutStopSec=5
+
+[Install]
+WantedBy=graphical-session.target
