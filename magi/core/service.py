@@ -226,6 +226,8 @@ async def run(
     except OSError as e:
         log.warning("HUD indisponível (%s): seguindo sem HUD", e)
     await service.start()
+    if core is not None:
+        core.start_proactive(lambda: list(service.satellites.values()))
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):

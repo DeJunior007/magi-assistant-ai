@@ -305,6 +305,21 @@ class TurnMachine:
         self._started_at = datetime.now(UTC)
         await self._go(TurnState.LISTENING)
 
+    async def announce(self, text: str, expression: Expression | None = None) -> bool:
+        """Fala proativa (R15.1, ``magi.core.proactive``): só começa com o satélite dormindo e
+        livre, nunca corta uma fala ou turno. ``False`` = ocupado agora (tente depois). Uma
+        ativação durante o aviso interrompe como numa resposta comum."""
+        if self._state is not TurnState.SLEEPING or self.busy:
+            return False
+        await self.hud.send(SubtitleMsg(text))
+        speaker = self.pipeline.deps.speaker
+        if speaker is None:
+            return True
+        await self._go(TurnState.SPEAKING, expression)
+        # A volta a ``sleeping`` vem com ``playback-done`` (ou erro, via ``_guard``).
+        self._start(speaker.say(text, self.link, personal=False))
+        return True
+
     async def close(self) -> None:
         """Satélite desconectado: cancela tudo e dorme (§9)."""
         await self._cancel_work()

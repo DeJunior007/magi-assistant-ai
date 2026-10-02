@@ -7,7 +7,10 @@
 - Postgres: migração com a dimensão dos embeddings da config, ``CorrectionsRepo`` e ``CostsRepo``;
 - ``SteamCatalog`` → ``LocalRouter``; ``HintedStt`` (dica com jogos e correções);
   ``Corrections`` (corretor + ``correction.fix``); ações de jogos, HUD, sistema e Spotify;
-  ``PhraseSpeaker`` com cache em ``[paths].cache_dir/tts``.
+  ``PhraseSpeaker`` com cache em ``[paths].cache_dir/tts``;
+- proatividade (5.3): ``ProactiveSink`` + ``AlertMonitor`` (``[alerts]``), ligados aos satélites
+  por ``Core.start_proactive`` depois que o serviço Wyoming sobe; o aviso de 80% do orçamento
+  passa pelo monitor (fala fora de call, só tela em call).
 
 Degradação (nada derruba a partida; cada aviso sai uma vez, no log e em ``Core.warnings``):
 
@@ -32,7 +35,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from magi.common.config import Config
+from magi.common.config import Config, ConfigError
 from magi.common.contracts import (
     ActionHandler,
     ActionRegistry,
@@ -53,6 +56,9 @@ from magi.core import actions
 from magi.core.actions import games, hud, spotify_mpris, system
 from magi.core.corrections import Corrections
 from magi.core.corrections import handlers as correction_handlers
+from magi.core.proactive.alerts import STATE_FILE as ALERTS_STATE_FILE
+from magi.core.proactive.alerts import AlertMonitor, AlertsConfig
+from magi.core.proactive.sink import ProactiveSink, Targets
 from magi.core.turn import TurnDeps
 
 log = logging.getLogger(__name__)
@@ -232,6 +238,8 @@ class Core:
     catalog: GameCatalog | None = None
     corrections: Corrections | None = None
     repos: Repos | None = None
+    proactive: ProactiveSink | None = None
+    alerts: AlertMonitor | None = None
     warnings: list[str] = field(default_factory=list)
 
     def warn(self, msg: str) -> None:
@@ -239,7 +247,18 @@ class Core:
             self.warnings.append(msg)
             log.warning("%s", msg)
 
+    def start_proactive(self, targets: Targets) -> None:
+        """Liga a entrega proativa aos satélites do serviço e inicia os alertas (5.3)."""
+        if self.proactive is not None:
+            self.proactive.targets = targets
+        if self.alerts is not None:
+            self.alerts.start()
+
     async def aclose(self) -> None:
+        if self.alerts is not None:
+            await self.alerts.aclose()
+        if self.proactive is not None:
+            await self.proactive.aclose()
         speaker = self.deps.speaker
         if speaker is not None and hasattr(speaker, "aclose"):
             await speaker.aclose()
@@ -310,6 +329,19 @@ async def assemble(
     except Exception as e:
         core.warn(f"provedores indisponíveis: {e}")
 
+    # Proatividade: fila de avisos e alertas (R15.1, R15.2); o monitor só roda em ``start_proactive``
+    core.proactive = ProactiveSink(hud_sink)
+    try:
+        alerts_cfg = AlertsConfig.from_raw(config.raw.get("alerts"))
+    except ConfigError as e:
+        core.warn(f"{e}; alertas com os padrões")
+        alerts_cfg = AlertsConfig()
+    if alerts_cfg.enabled:
+        core.alerts = AlertMonitor(
+            core.proactive, alerts_cfg, budget=budget, state_path=config.paths.data_dir / ALERTS_STATE_FILE
+        )
+    on_warn = core.alerts.check_cost if core.alerts is not None else _budget_warner(hud_sink)
+
     # Banco: migração, correções, custos e orçamento real
     if open_db is not None:
         memories_dim, news_dim = _dims(core.providers) if core.providers is not None else (None, None)
@@ -324,7 +356,7 @@ async def assemble(
         from magi.core.budget import MonthlyBudget
 
         try:
-            budget.use(MonthlyBudget.from_config(config, core.repos.costs, on_warn=_budget_warner(hud_sink)))
+            budget.use(MonthlyBudget.from_config(config, core.repos.costs, on_warn=on_warn))
         except Exception as e:
             core.warn(f"orçamento real indisponível: {e}; seguindo permissivo")
     core.corrections = Corrections(core.repos.corrections if core.repos else MemoryCorrectionsRepo())
