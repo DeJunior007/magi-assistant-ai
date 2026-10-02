@@ -283,3 +283,22 @@ def test_login_flow_saves_token():
     assert sa.code_challenge(sent["code_verifier"][0]) == sent["challenge"]
     tok = json.loads(secrets.d[sa.TOKEN_KEY])
     assert tok["access_token"] == "A1" and tok["refresh_token"] == "R1"
+
+
+async def test_search_market_and_playlist_fallback_to_artist():
+    secrets = FakeSecrets(**{sa.CLIENT_ID_KEY: "cid", sa.TOKEN_KEY: _token()})
+    seen = []
+
+    def handler(request):
+        p = request.url.params
+        seen.append((p["type"], p["q"]))
+        assert p["market"] == "BR"  # "from_token" exigiria o escopo user-read-private
+        if p["type"] == "playlist":  # playlists do Spotify não aparecem para apps novos
+            return httpx.Response(200, json={"playlists": {"items": [
+                _item("playlist", "The Interview Soundtrack", "spotify:playlist:x")]}})
+        return httpx.Response(200, json={"artists": {"items": [
+            _item("artist", "Evan Call", "spotify:artist:ec")]}})
+
+    m = await _api(secrets, handler).find("a playlist This Is Evan Call")
+    assert m.uri == "spotify:artist:ec"
+    assert seen == [("playlist", "This Is Evan Call"), ("artist", "evan call")]

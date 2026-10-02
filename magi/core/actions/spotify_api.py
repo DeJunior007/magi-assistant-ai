@@ -224,8 +224,11 @@ class SpotifyApi:
         store: TokenStore | None = None,
         client: httpx.AsyncClient | None = None,
         clock: Callable[[], float] = time.time,
+        market: str = "BR",
     ) -> None:
         self.store = store or TokenStore()
+        # País fixo: "from_token" exigiria o escopo user-read-private, que não pedimos.
+        self.market = market
         self._client = client
         self._clock = clock
         self._token: Token | None = None
@@ -279,7 +282,7 @@ class SpotifyApi:
     ) -> dict[str, Any]:
         return await self.get(
             "/search",
-            {"q": query, "type": ",".join(types), "limit": limit, "market": "from_token"},
+            {"q": query, "type": ",".join(types), "limit": limit, "market": self.market},
         )
 
     async def find(self, query: str) -> Match | None:
@@ -288,7 +291,12 @@ class SpotifyApi:
         if not text:
             return None
         types = (kind,) if kind else SEARCH_TYPES
-        return choose(await self.search(text, types), text, kind)
+        m = choose(await self.search(text, types), text, kind)
+        if m is None and kind == "playlist":
+            # Playlists do próprio Spotify ("This Is X") não aparecem para apps novos: vai pelo artista.
+            artist = _norm(text).removeprefix("this is ").strip()
+            m = choose(await self.search(artist, ("artist",)), artist, "artist")
+        return m
 
 
 # --- escolha do resultado ----------------------------------------------------------------------
@@ -385,7 +393,9 @@ def choose(results: Mapping[str, Any], text: str, kind: str | None = None) -> Ma
                 best = (ranked, m)
     if best is None:
         return None
-    if kind or best[1].score >= MIN_SCORE:
+    if kind:  # tipo citado: resultado fraco é "não achei", não uma playlist qualquer
+        return best[1] if best[1].score >= MIN_SCORE else None
+    if best[1].score >= MIN_SCORE:
         return best[1]
     return next((first[k] for k in ("track", "artist", "album", "playlist") if k in first), None)
 
