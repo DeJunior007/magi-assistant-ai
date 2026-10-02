@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime
 
 import pytest
@@ -152,7 +153,6 @@ async def test_nao_eu_falei_refaz_turno():
     fix_intent = Intent(IntentId.CORRECTION, (Slot(SlotName.TEXT, "Valorant"),))
     fix = CorrectionHandler(corr)
     pipe = TurnPipeline(TurnDeps(corrector=corr, router=Router(), actions=Registry([fix, Game()])))
-    fix.redo = pipe.respond
 
     t1 = await corr.apply(Transcript.raw("abre o valoran"))
     await pipe.respond(t1, CTX)
@@ -160,6 +160,7 @@ async def test_nao_eu_falei_refaz_turno():
     res = await pipe.respond(t2, CTX)
 
     assert res.ok and res.speech == "Anotado. Abrindo: abre o Valorant."
+    assert res.redo_text == "abre o Valorant"
     assert seen == ["abre o valoran", "abre o Valorant"]
     assert [(c.heard, c.correct) for c in repo.rows.values()] == [("valoran", "Valorant")]
     # próxima vez já sai corrigido, antes do roteador
@@ -167,12 +168,12 @@ async def test_nao_eu_falei_refaz_turno():
     assert corr.previous().final == "abre o Valorant"
 
 
-async def test_sem_redo_devolve_texto_corrigido():
+async def test_handler_devolve_texto_corrigido_para_refazer():
     corr = Corrections(FakeRepo())
     res = await CorrectionHandler(corr).run(
         fix_req("não, eu falei dota 2", previous_text="abre o dota dois")
     )
-    assert res.ok and res.full_text == "abre o dota 2"
+    assert res.ok and res.full_text == res.redo_text == "abre o dota 2"
     assert (await corr.apply(Transcript.raw("Dota dois"))).final == "Dota 2"
 
 
@@ -185,3 +186,12 @@ async def test_texto_do_req_sem_slot_e_casos_sem_correcao():
     assert (await h.run(fix_req("não, eu disse abre o valorant"))).speech == SAY_SAME
     res = await h.run(fix_req("eu falei abre o Valorant 2."))
     assert res.ok and res.full_text == "abre o valorant 2"
+
+
+async def test_texto_anterior_vem_do_contexto_do_turno():
+    corr = Corrections(FakeRepo())
+    await corr.apply(Transcript.raw("outro satélite"))
+    req = fix_req("não, eu falei Hades")
+    req = dataclasses.replace(req, ctx=dataclasses.replace(req.ctx, previous_text="abre o ades"))
+    res = await CorrectionHandler(corr).run(req)
+    assert res.redo_text == "abre o Hades"

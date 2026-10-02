@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import logging
 import unicodedata
 from collections.abc import Coroutine
@@ -142,7 +143,19 @@ class TurnPipeline:
         return self.deps.router.route(text, ctx)
 
     async def respond(self, transcript: Transcript, ctx: TurnContext) -> ActionResult:
-        """Resposta a uma fala (R3.5, R4.1-R4.3)."""
+        """Resposta a uma fala (R3.5, R4.1-R4.3).
+
+        Resposta com ``redo_text`` (correção, R3.3) refaz o turno uma vez com esse texto, sem
+        passar de novo pelo ``Corrector``; a fala fica "<fala da correção> <fala refeita>".
+        """
+        result = await self._respond(transcript, ctx)
+        if not result.redo_text:
+            return result
+        again = await self._respond(transcript.with_final(result.redo_text), ctx)
+        speech = " ".join(s for s in (result.speech, again.speech) if s)
+        return dataclasses.replace(again, speech=speech, redo_text=result.redo_text)
+
+    async def _respond(self, transcript: Transcript, ctx: TurnContext) -> ActionResult:
         if transcript.is_empty:
             return ActionResult(ok=False, speech=SAY_NOT_HEARD, expression=Expression.CONFUSED)
         text = transcript.final
@@ -225,6 +238,8 @@ class TurnMachine:
         self._ctx: TurnContext | None = None
         self._vote_open = False
         self._in_call = False
+        self._last_text: str | None = None
+        self._last_at: datetime | None = None
 
     # -- consulta ------------------------------------------------------------------------------
 
@@ -310,6 +325,8 @@ class TurnMachine:
             started_at=self._started_at,
             tone=tone,
             in_call=self._in_call,
+            previous_text=self._last_text,
+            previous_at=self._last_at,
         )
 
     async def _audio_end(self, end: AudioEnd) -> None:
@@ -388,6 +405,10 @@ class TurnMachine:
     async def _think(self, audio: bytes, fmt: PcmFormat, ctx: TurnContext) -> None:
         transcript = await self.pipeline.transcribe(audio, fmt, ctx)
         result = await self.pipeline.respond(transcript, ctx)
+        text = result.redo_text or transcript.final
+        if text.strip():
+            # Texto efetivo deste turno: o próximo turno o recebe em ``ctx.previous_text``.
+            self._last_text, self._last_at = text, ctx.started_at
         await self._deliver(result)
 
     async def _confirm(self, audio: bytes, fmt: PcmFormat, pending: ActionRequest, ctx: TurnContext) -> None:

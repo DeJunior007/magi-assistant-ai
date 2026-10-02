@@ -5,15 +5,13 @@
   (≤ ``short_max_words`` palavras) também casa por aproximação (rapidfuzz, limiar alto). Cada par
   usado incrementa ``uses``. Guarda as últimas transcrições para o "não, eu falei X".
 - ``CorrectionHandler``: ``ActionHandler`` de ``correction.fix``. Compara o texto do turno
-  anterior com o X, deduz o trecho ouvido errado, salva o par e refaz o turno com o texto
-  corrigido via ``redo`` (normalmente ``TurnPipeline.respond``), confirmando com "Anotado.".
+  anterior com o X, deduz o trecho ouvido errado, salva o par e pede para refazer o turno com o
+  texto corrigido (``ActionResult.redo_text``, tratado pelo ``TurnPipeline``), dizendo "Anotado.".
 
-Ligação no núcleo (o turno é sem estado e o ``ActionResult`` não tem "refazer turno")::
+Ligação no núcleo (``magi.core.assemble``)::
 
     corrections = Corrections(repo)
-    fix = CorrectionHandler(corrections)
-    pipeline = TurnPipeline(TurnDeps(corrector=corrections, actions=Registry([fix, ...]), ...))
-    fix.redo = pipeline.respond
+    pipeline = TurnPipeline(TurnDeps(corrector=corrections, actions=Registry(handlers(corrections)), ...))
 """
 
 from __future__ import annotations
@@ -24,7 +22,6 @@ import logging
 import re
 import unicodedata
 from collections import deque
-from collections.abc import Awaitable, Callable
 
 from rapidfuzz import fuzz
 
@@ -38,7 +35,6 @@ from magi.common.contracts import (
     IntentId,
     SlotName,
     Transcript,
-    TurnContext,
 )
 
 log = logging.getLogger(__name__)
@@ -51,9 +47,6 @@ SAY_SAME = "Foi isso mesmo que eu entendi."
 #: "não, eu falei X" / "eu disse X" quando o roteador não manda o slot ``text``.
 _FIX_RE = re.compile(r"^\W*(?:n[aã]o\W+)?(?:eu\s+)?(?:falei|disse)\W+(?P<x>.+)$", re.IGNORECASE)
 _WORD_RE = re.compile(r"\w+")
-
-Redo = Callable[[Transcript, TurnContext], Awaitable[ActionResult]]
-
 
 def fold(text: str) -> str:
     """Minúsculas e sem acento (ex.: "Não" → "nao")."""
@@ -251,26 +244,24 @@ def deduce_pair(previous: str, said: str) -> tuple[str, str, str] | None:
 class CorrectionHandler:
     """``ActionHandler`` de ``correction.fix`` ("não, eu falei X", R3.3).
 
-    Texto anterior: ``req.args["previous_text"]`` se o núcleo mandar; senão a transcrição
-    anterior guardada por ``Corrections``. O X vem do slot ``text`` (``value`` ou ``raw``) ou,
-    na falta, do próprio ``req.text``. Sem ``redo`` só salva e confirma, com o texto corrigido
-    em ``full_text``.
+    Texto anterior: ``req.args["previous_text"]``, senão ``req.ctx.previous_text`` (turno anterior
+    do satélite, preenchido pelo ``TurnMachine``), senão a transcrição anterior guardada por
+    ``Corrections``. O X vem do slot ``text`` (``value`` ou ``raw``) ou, na falta, do próprio
+    ``req.text``. Devolve "Anotado." com o texto corrigido em ``full_text`` e ``redo_text``.
     """
 
     intents = frozenset({IntentId.CORRECTION.value})
 
-    def __init__(self, corrections: Corrections, redo: Redo | None = None) -> None:
+    def __init__(self, corrections: Corrections) -> None:
         self.corrections = corrections
-        self.redo = redo
-        self._redoing = False
 
     async def run(self, req: ActionRequest) -> ActionResult:
         said = self._said(req)
         if not said:
             return ActionResult(ok=False, speech=SAY_WHAT, expression=Expression.CONFUSED)
-        prev_text = req.args.get("previous_text")
+        prev_text = req.args.get("previous_text") or req.ctx.previous_text
         prev = Transcript.raw(prev_text) if prev_text else self.corrections.previous()
-        if prev is None or prev.is_empty or self._redoing:
+        if prev is None or prev.is_empty:
             return ActionResult(ok=False, speech=SAY_NOTHING_TO_FIX, expression=Expression.CONFUSED)
         pair = deduce_pair(prev.final, said)
         if pair is None:
@@ -279,14 +270,9 @@ class CorrectionHandler:
         await self.corrections.learn(heard, correct)
         transcript = Transcript(heard=prev.heard, final=fixed, language=prev.language)
         self.corrections.replace_last(transcript)
-        if self.redo is None:
-            return ActionResult(ok=True, speech=SAY_SAVED, full_text=fixed, expression=Expression.HAPPY)
-        self._redoing = True
-        try:
-            result = await self.redo(transcript, req.ctx)
-        finally:
-            self._redoing = False
-        return dataclasses.replace(result, speech=f"{SAY_SAVED} {result.speech}".strip())
+        return ActionResult(
+            ok=True, speech=SAY_SAVED, full_text=fixed, expression=Expression.HAPPY, redo_text=fixed
+        )
 
     @staticmethod
     def _said(req: ActionRequest) -> str:
@@ -297,6 +283,6 @@ class CorrectionHandler:
         return m.group("x").strip(" .!?") if m else ""
 
 
-def handlers(corrections: Corrections, redo: Redo | None = None) -> list[ActionHandler]:
+def handlers(corrections: Corrections) -> list[ActionHandler]:
     """Handlers deste módulo, no formato do ``Registry`` (``magi.core.actions``)."""
-    return [CorrectionHandler(corrections, redo)]
+    return [CorrectionHandler(corrections)]
