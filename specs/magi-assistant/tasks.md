@@ -210,10 +210,17 @@ Formato de cada tarefa:
   - Orçamento: ~25k
   - Pronto: `kill -9` em qualquer processo é recuperado em ≤ 5 s.
 
+- [ ] **1.19 Montagem do núcleo** — `magi-core` monta as dependências a partir da config: registro de provedores (3.1), `HintedStt` (1.5), `Corrections` + `CorrectionHandler` (1.6), `SteamCatalog` (1.7), roteador (1.8), `Registry` com as ações (1.9–1.11, 2.1), `Speaker` (1.12), repositórios Postgres e migração com a dimensão da config. Fecha as lacunas achadas na 1.6: `TurnContext.previous_text` (+ horário) preenchido pelo `TurnMachine` por satélite, e "refazer turno" (`ActionResult.redo_text` tratado uma vez pelo `TurnPipeline`). *(R3.3)*
+  - Lê: `contracts.py` (TurnContext, ActionResult, TurnDeps), APIs públicas de `magi/core/turn.py`, `magi/core/service.py`, `magi/core/stt.py`, `magi/core/corrections.py`, `magi/core/catalog.py`, `magi/core/router.py`, `magi/core/tts.py`, `magi/core/actions/*` (só `handlers`), `magi/providers/registry.py`, `magi/common/config.py`
+  - Escreve: `magi/core/assemble.py`, `magi/core/service.py` (main), `magi/common/contracts.py` (campos novos), `magi/core/turn.py` (redo/previous), testes
+  - Depende de: 1.5, 1.6, 1.8, 1.9, 1.10, 1.11, 1.12, 2.1, 3.1
+  - Orçamento: ~55k
+  - Pronto: `magi-core` sobe com a config real (provedores sem chave degradam com aviso); turno de ponta a ponta com satélite falso usa todas as peças; "não, eu falei X" refaz o turno.
+
 - [ ] **1.18 Medição da fase 1** — script de desempenho do §10 (CPU/RAM ociosos por 10 min, latência p90 de 50 turnos).
   - Lê: §10, tabela RNF de `requirements.md`
   - Escreve: `tools/perf.py`, `docs/perf/fase1.md`
-  - Depende de: 1.13, 1.17
+  - Depende de: 1.13, 1.17, 1.19
   - Orçamento: ~25k
   - Pronto: RNF-01, RNF-02 e RNF-04 medidos e dentro da meta.
 
