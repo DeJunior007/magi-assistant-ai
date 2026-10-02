@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MAGI Gamer: alternar tela de ociosidade
+Comment=Alterna o MAGI entre o painel completo e a tela de ociosidade
+Exec=python3 @HOME@/.local/share/gamerhud/magi-view.py
+Icon=gamerhud
+NoDisplay=true
+StartupNotify=false

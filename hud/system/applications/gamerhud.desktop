@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Name=MAGI Gamer
+GenericName=Painel gamer do segundo monitor
+Comment=HUD estilo NERV/Evangelion no segundo monitor: FPS, CPU, GPU, RGB (abre/fecha)
+Exec=gamerhud
+Icon=gamerhud
+Keywords=magi;gamer;hud;gamerhud;nerv;eva;evangelion;fps;monitor;segundo monitor;
+Categories=Game;Utility;
+StartupNotify=false
+Actions=toggle-view;toggle-rgb;
+
+[Desktop Action toggle-rgb]
+Name=Ligar/desligar RGB Sync
+Exec=python3 @HOME@/.local/share/gamerhud/gamerhud.py --toggle-rgb
+
+[Desktop Action toggle-view]
+Name=Alternar tela de ociosidade (Meta+M)
+Exec=python3 @HOME@/.local/share/gamerhud/magi-view.py

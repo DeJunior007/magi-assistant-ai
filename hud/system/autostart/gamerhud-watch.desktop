@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MAGI Gamer (vigia de jogos)
+Comment=Abre o MAGI Gamer sozinho quando um jogo começa
+Exec=python3 @HOME@/.local/share/gamerhud/gamerhud-watch.py
+Icon=gamerhud
+X-KDE-autostart-after=panel
+NoDisplay=true
