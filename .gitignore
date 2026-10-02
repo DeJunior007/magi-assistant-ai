@@ -7,3 +7,5 @@ __pycache__/
 *.key
 secrets/
 .claude/
+keys.txt
+*.kate-swp
