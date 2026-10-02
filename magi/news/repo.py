@@ -1,6 +1,7 @@
 """``NewsRepo`` em Postgres (design §7). Tarefa 6.1 cobre fontes e notícias cruas; a 6.6, criar
 itens e juntar cruas a eles (agrupamento); a 6.7, classificação e retorno; a 6.8, preferências
-por obra e progresso. Os demais (entrega e busca) ainda levantam ``NotImplementedError``.
+por obra e progresso; a 6.10, pontuação (``unscored``) e entrega. A busca ainda levanta
+``NotImplementedError``.
 
 Usa uma ``psycopg.AsyncConnection`` em modo ``autocommit`` (cada chamada é uma transação). Os
 nomes das tabelas não têm schema: o ``search_path`` da conexão decide (testes usam um schema
@@ -225,11 +226,42 @@ class PgNewsRepo:
         )
         return [(_item(r[:12]), r[12]) for r in await cur.fetchall()]
 
+    async def unscored(self, limit: int = 100) -> list[NewsItem]:
+        """Itens classificados ainda sem nível (passo 4 do §8; fora do contrato)."""
+        cur = await self.conn.execute(
+            f"SELECT {_ITEM_COLS} FROM news_items WHERE kind IS NOT NULL AND level IS NULL"
+            " ORDER BY first_seen, id LIMIT %s",
+            [limit],
+        )
+        return [_item(r) for r in await cur.fetchall()]
+
     async def undelivered(self, levels: Sequence[NewsLevel], limit: int = 5) -> list[NewsItem]:
-        raise _todo("undelivered")
+        """Bombas antes, depois maior prioridade e mais recentes."""
+        cur = await self.conn.execute(
+            f"SELECT {_ITEM_COLS} FROM news_items WHERE delivered_at IS NULL AND level = ANY(%s)"
+            " ORDER BY (level = 'bomba') DESC, priority DESC NULLS LAST, first_seen DESC, id LIMIT %s",
+            [[lv.value for lv in levels], limit],
+        )
+        return [_item(r) for r in await cur.fetchall()]
 
     async def mark_delivered(self, item_id: int, at: datetime) -> None:
-        raise _todo("mark_delivered")
+        """Idempotente: só grava a primeira entrega."""
+        await self.conn.execute(
+            "UPDATE news_items SET delivered_at = %s WHERE id = %s AND delivered_at IS NULL", [at, item_id]
+        )
+
+    async def item_links(self, item_ids: Sequence[int]) -> dict[int, list[str]]:
+        """URLs das notícias cruas de cada item (fora do contrato; cards da entrega)."""
+        cur = await self.conn.execute(
+            "SELECT l.item_id, r.url FROM news_item_sources l JOIN news_raw r ON r.id = l.raw_id"
+            " LEFT JOIN news_sources s ON s.id = r.source_id"
+            " WHERE l.item_id = ANY(%s) ORDER BY l.item_id, s.trust DESC NULLS LAST, r.id",
+            [list(item_ids)],
+        )
+        out: dict[int, list[str]] = {}
+        for item_id, url in await cur.fetchall():
+            out.setdefault(item_id, []).append(url)
+        return out
 
     async def search_items(
         self, *, franchise: str | None = None, embedding: Sequence[float] | None = None, limit: int = 5
@@ -263,8 +295,19 @@ class PgNewsRepo:
             "SELECT franchise, kind, value, updated_at FROM progress WHERE franchise = %s ORDER BY kind",
             [franchise],
         )
+        return self._progress_rows(await cur.fetchall())
+
+    async def all_progress(self) -> list[Progress]:
+        """Todo o progresso (fora do contrato): casamento tolerante de nomes no anti-spoiler."""
+        cur = await self.conn.execute(
+            "SELECT franchise, kind, value, updated_at FROM progress ORDER BY franchise, kind"
+        )
+        return self._progress_rows(await cur.fetchall())
+
+    @staticmethod
+    def _progress_rows(rows: Sequence[Sequence[Any]]) -> list[Progress]:
         out: list[Progress] = []
-        for f, k, v, at in await cur.fetchall():
+        for f, k, v, at in rows:
             try:
                 out.append(Progress(franchise=f, kind=k, value=float(v), updated_at=at))
             except (TypeError, ValueError):

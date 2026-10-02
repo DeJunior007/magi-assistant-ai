@@ -4,7 +4,8 @@ Passos: 1 coleta; depois, no máximo a cada 6 h, o progresso do usuário (AniLis
 6.8), que o anti-spoiler usa; 2 agrupamento (``magi.news.cluster``), que usa os embeddings da
 tarefa ``news``; 3 classificação (``magi.news.classify``), com o chat da mesma tarefa. Os passos 2
 e 3 só rodam com provedor ``free_tier`` com chave no keyring
-(sem isso, são pulados com aviso). ``--only`` roda só a coleta. Uso::
+(sem isso, são pulados com aviso); 4 pontuação (``magi.news.priority``, local). A entrega (passo 5)
+é do núcleo (``magi.core.proactive.news``). ``--only`` roda só a coleta. Uso::
 
     magi-news [--config PATH] [--dsn DSN] [--only rss] [--timeout 50] [-v]
 
@@ -37,6 +38,7 @@ from magi.common.contracts import (
 )
 from magi.news.classify import classify_pending
 from magi.news.cluster import cluster_pending
+from magi.news.priority import score_pending
 from magi.news.progress import update_if_due
 from magi.news.repo import PgNewsRepo
 from magi.news.sources import (
@@ -156,6 +158,10 @@ async def run_once(
                 log.info("classificação: %s", (await classify_pending(repo, classifier)).summary())
             except ProviderError as exc:
                 log.warning("classificação interrompida: %s", exc)
+        try:
+            log.info("pontuação: %s", (await score_pending(repo, datetime.now(UTC))).summary())
+        except psycopg.Error as exc:
+            log.warning("pontuação: %s", exc)
         return report
     finally:
         await repo.close()

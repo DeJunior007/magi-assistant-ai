@@ -171,3 +171,38 @@ def test_spoiler_work():
     assert S.spoiler_work(item(of="Silksong final")) == "Silksong"
     assert S.spoiler_work(item(of="Frieren episódio 3")) == "Frieren"
     assert S.spoiler_work(item(of="  ")) is None
+
+
+class IndexRepo(MemRepo):
+    """Repositório com ``all_progress`` (casamento tolerante de nomes)."""
+
+    async def all_progress(self):
+        return list(self.rows)
+
+
+async def test_progresso_casa_nome_longo_da_anilist(store):
+    repo = IndexRepo([ep("Frieren: Beyond Journey's End", 10)])
+    shown = await show(repo, item(size=0.1), store)
+    assert shown.mode is Display.SAFE
+    no_leak(shown)
+    repo.rows = [ep("Frieren: Beyond Journey's End", 28)]
+    assert (await show(repo, item(), store)).mode is Display.ORIGINAL
+    # sem all_progress, só nome exato (comportamento antigo)
+    assert (await show(MemRepo(repo.rows), item(), store)).mode is Display.HIDDEN
+
+
+async def test_progresso_nao_casa_obra_irma_nem_ambiguo(store):
+    it = NewsItem(
+        title="Hollow Knight: segredo do final revelado", franchise="Hollow Knight", id=4,
+        spoiler={"has": True, "of": "Hollow Knight, final", "safe_title": "Novidade de Hollow Knight",
+                 "size": 0.3},
+    )
+    # jogo da Steam com subtítulo é outro jogo
+    sibling = IndexRepo([Progress("Hollow Knight: Silksong", "hours", 40.0, NOW)])
+    assert (await show(sibling, it, store)).mode is Display.HIDDEN
+    # anime: continuação (temporada/parte) não casa; dois candidatos = ambíguo → esconde
+    sequel = IndexRepo([ep("Frieren Season 2", 3)])
+    assert (await show(sequel, item(size=0.1), store)).mode is Display.HIDDEN
+    two = IndexRepo([ep("Frieren: Beyond Journey's End", 28), ep("Frieren: Mahou Tsukai", 28)])
+    assert (await show(two, item(), store)).mode is Display.HIDDEN
+    assert S.match_progress("Frieren", {}) == ()

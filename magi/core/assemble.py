@@ -8,7 +8,8 @@
 - ``SteamCatalog`` → ``LocalRouter``; ``HintedStt`` (dica com jogos e correções);
   ``Corrections`` (corretor + ``correction.fix``); ações de jogos, HUD, sistema e Spotify;
   ``PhraseSpeaker`` com cache em ``[paths].cache_dir/tts``;
-- proatividade (5.3): ``ProactiveSink`` + ``AlertMonitor`` (``[alerts]``), ligados aos satélites
+- proatividade (5.3, 6.10): ``ProactiveSink`` + ``AlertMonitor`` (``[alerts]``) + ``NewsDelivery``
+  (``[news.delivery]``, só com Postgres), ligados aos satélites
   por ``Core.start_proactive`` depois que o serviço Wyoming sobe; o aviso de 80% do orçamento
   passa pelo monitor (fala fora de call, só tela em call).
 
@@ -58,6 +59,7 @@ from magi.core.corrections import Corrections
 from magi.core.corrections import handlers as correction_handlers
 from magi.core.proactive.alerts import STATE_FILE as ALERTS_STATE_FILE
 from magi.core.proactive.alerts import AlertMonitor, AlertsConfig
+from magi.core.proactive.news import DeliveryConfig, NewsDelivery
 from magi.core.proactive.sink import ProactiveSink, Targets
 from magi.core.turn import TurnDeps
 
@@ -131,6 +133,7 @@ class Repos:
     corrections: CorrectionsRepo
     costs: CostsStore
     close: Callable[[], Awaitable[None]]
+    news: Any = None  # ``NewsRepo`` (``PgNewsRepo``) para a entrega de notícias (6.10)
 
 
 class MemoryCorrectionsRepo:
@@ -182,8 +185,11 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
     applied = await asyncio.to_thread(_migrate)
     if applied:
         log.info("migrações aplicadas: %s", ", ".join(applied))
+    from magi.news.repo import PgNewsRepo
+
     conn = await psycopg.AsyncConnection.connect(dsn, autocommit=True, connect_timeout=DB_TIMEOUT_S)
-    return Repos(corrections=CorrectionsRepo(conn), costs=CostsRepo(conn), close=conn.close)
+    return Repos(corrections=CorrectionsRepo(conn), costs=CostsRepo(conn), close=conn.close,
+                 news=PgNewsRepo(conn))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -240,6 +246,7 @@ class Core:
     repos: Repos | None = None
     proactive: ProactiveSink | None = None
     alerts: AlertMonitor | None = None
+    news: NewsDelivery | None = None
     warnings: list[str] = field(default_factory=list)
 
     def warn(self, msg: str) -> None:
@@ -248,13 +255,17 @@ class Core:
             log.warning("%s", msg)
 
     def start_proactive(self, targets: Targets) -> None:
-        """Liga a entrega proativa aos satélites do serviço e inicia os alertas (5.3)."""
+        """Liga a entrega proativa aos satélites do serviço e inicia alertas (5.3) e notícias (6.10)."""
         if self.proactive is not None:
             self.proactive.targets = targets
         if self.alerts is not None:
             self.alerts.start()
+        if self.news is not None:
+            self.news.start()
 
     async def aclose(self) -> None:
+        if self.news is not None:
+            await self.news.aclose()
         if self.alerts is not None:
             await self.alerts.aclose()
         if self.proactive is not None:
@@ -359,6 +370,7 @@ async def assemble(
             budget.use(MonthlyBudget.from_config(config, core.repos.costs, on_warn=on_warn))
         except Exception as e:
             core.warn(f"orçamento real indisponível: {e}; seguindo permissivo")
+    _wire_news(core, config)
     core.corrections = Corrections(core.repos.corrections if core.repos else MemoryCorrectionsRepo())
 
     # Catálogo, roteador e ações
@@ -392,6 +404,23 @@ async def assemble(
     if core.deps.agent is None:
         core.warn("agente indisponível: perguntas respondem 'ainda não sei fazer isso'")
     return core
+
+
+def _wire_news(core: Core, config: Config) -> None:
+    """Entrega de notícias (6.10, ``[news.delivery]``): precisa do Postgres; roda em ``start_proactive``."""
+    news_raw = config.raw.get("news")
+    try:
+        cfg = DeliveryConfig.from_raw(news_raw.get("delivery") if isinstance(news_raw, dict) else None)
+    except ConfigError as e:
+        core.warn(f"{e}; entrega de notícias com os padrões")
+        cfg = DeliveryConfig()
+    if not cfg.enabled or core.proactive is None:
+        return
+    repo = core.repos.news if core.repos is not None else None
+    if repo is None:
+        log.info("notícias: sem Postgres, nada é entregue")
+        return
+    core.news = NewsDelivery(core.proactive, repo, cfg)
 
 
 def _wire_voice(core: Core, config: Config, catalog: GameCatalog) -> None:
