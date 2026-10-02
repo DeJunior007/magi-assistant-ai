@@ -33,6 +33,8 @@ from PySide6.QtWidgets import QApplication, QWidget
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import orgb  # noqa: E402
+import hud_bridge  # noqa: E402
+from face import Face  # noqa: E402
 
 TARGET_SCREEN = os.environ.get("GAMERHUD_SCREEN", "DP-1")
 CACHE = os.path.expanduser("~/.cache/gamerhud")
@@ -857,7 +859,7 @@ def en_time(h, m):
 # ---------------------------------------------------------------------- HUD
 
 class HUD(QWidget):
-    def __init__(self, fonts):
+    def __init__(self, fonts, bridge=None):
         super().__init__()
         self.fonts = fonts
         self.sensors = Sensors()
@@ -901,6 +903,106 @@ class HUD(QWidget):
         self.anim_timer.start(ANIM_MS)
         self.rgb_timer = QTimer(self, timeout=self.poll_rgb)
         self.rgb_timer.start(RGB_MS)
+        self.init_magui(bridge)
+
+    # ---------- Magui: rosto e ponte com o núcleo (tarefa 1.16) ----------
+    # O rosto não entra no cache (frame): o paintEvent o desenha por cima, e só a região dele
+    # é invalidada, no ritmo que Face.tick pede (até 30 fps acordada, 1 quadro a cada 4 s
+    # dormindo). Timer de disparo único reprogramado pelo prazo do tick: dormindo, o HUD não
+    # acorda à toa. O HUD só existe no monitor secundário, então o rosto nunca vai pro do jogo.
+    DETAIL_FROM_BRIDGE = {"cpu": "cpu", "gpu": "gpu", "memory": "mem"}
+
+    def init_magui(self, bridge):
+        self.face = Face("sleeping")
+        self.magui_mood = None        # TODO(4.4): termômetro de humor no HUD
+        self.magui_vote = None        # TODO: votação dos MAGI (veredito, rótulo) no painel
+        self.magui_cards = deque(maxlen=8)   # TODO: cards de notícia/links no HUD
+        self.detail_return = None     # view a restaurar quando o detalhe pedido pela voz fechar
+        self.face_timer = QTimer(self, timeout=self.face_tick)
+        self.face_timer.setSingleShot(True)
+        self.face_timer.setTimerType(Qt.PreciseTimer)
+        self.bridge = bridge if bridge is not None else hud_bridge.HudBridge(parent=self)
+        b = self.bridge
+        b.stateChanged.connect(self.on_face_state)
+        b.mouth.connect(self.on_face_mouth)
+        b.subtitle.connect(self.on_face_subtitle)
+        b.detail.connect(self.on_bridge_detail)
+        b.mood.connect(self.on_bridge_mood)
+        b.vote.connect(self.on_bridge_vote)
+        b.card.connect(self.magui_cards.append)
+        b.connectedChanged.connect(self.on_bridge_connected)
+        b.start()
+        self.face_tick()
+
+    def r_face(self):
+        if self.view == "idle":
+            return self.R(1400, 380, 1000, 680)   # metade direita, com legenda embaixo
+        return self.R(1560, 62, 190, 116)         # cabeçalho: entre o título e o relógio
+
+    def face_tick(self):
+        now = time.monotonic()
+        redraw, deadline = self.face.tick(now)
+        if redraw and self.frame is not None and not self.trans:
+            self.update(self.r_face().toAlignedRect())
+        self.face_timer.start(max(1, math.ceil((deadline - now) * 1000)))
+
+    def on_face_state(self, expr):
+        try:
+            self.face.set_state(expr)
+        except ValueError:
+            return
+        self.face_tick()
+
+    def on_face_mouth(self, level):
+        self.face.set_mouth_level(level)
+        self.face_tick()
+
+    def on_face_subtitle(self, text, full=""):
+        self.face.set_subtitle(text)
+        self.face_tick()
+
+    def on_bridge_connected(self, up):
+        if not up:   # núcleo fora do ar: a Magui dorme e a legenda some
+            self.face.set_state("sleeping")
+            self.face.set_subtitle("")
+            self.face_tick()
+
+    def on_bridge_mood(self, v):
+        self.magui_mood = v
+
+    def on_bridge_vote(self, verdict, label):
+        self.magui_vote = (verdict, label)
+
+    def on_bridge_detail(self, target):
+        """Painel de detalhes pedido pelo núcleo: cpu, gpu, memory; `none` fecha."""
+        kind = self.DETAIL_FROM_BRIDGE.get(target)
+        if kind is None:
+            if self.detail:
+                self.open_detail(self.detail)   # mesmo tipo de novo = fecha
+            return
+        if self.detail == kind:
+            self.detail_until = time.monotonic() + 45
+        else:
+            self.open_detail(kind)
+        if self.view == "idle":   # o painel só existe na view completa: vai e volta depois
+            self.detail_return = "idle"
+            self.switch_view("full")
+
+    def switch_view(self, new_view):
+        if new_view == self.view:
+            return
+        if self.isVisible() and load_settings().get("transition", True):
+            self.start_transition(new_view)
+        else:
+            self.view = new_view
+            self.idle_key = None
+            self.render_caches()
+            self.update()
+
+    def detail_closed(self):
+        if self.detail is None and self.detail_return:
+            back, self.detail_return = self.detail_return, None
+            self.switch_view(back)
 
     # ---------- dados / animação ----------
     def poll_rgb(self, instant=False):
@@ -911,6 +1013,7 @@ class HUD(QWidget):
             cfg = load_settings()
             self.rgb_sync = cfg.get("rgb_sync", True)
             new_view = cfg.get("view", "full")
+            self.detail_return = None   # Meta+M manda mais que o detalhe pedido pela voz
             if not instant and new_view != self.view and cfg.get("transition", True) and self.isVisible():
                 self.start_transition(new_view)
             else:
@@ -956,6 +1059,9 @@ class HUD(QWidget):
         if self.detail:
             if time.monotonic() > self.detail_until:
                 self.detail = None    # fecha sozinho e volta pro FPS
+                if self.detail_return:
+                    self.detail_closed()
+                    return
             elif self.sample_count % 2 == 0:
                 self.detail_rows = self.procs.poll(self.detail) or self.detail_rows
         d = self.sensors.data
@@ -1072,11 +1178,16 @@ class HUD(QWidget):
             self.procs.reset()
             self.detail_rows = self.procs.poll(kind)   # cpu/gpu precisam de 2 leituras
         self.detail_until = time.monotonic() + 45
+        if self.detail is None and self.detail_return:
+            self.detail_closed()
+            return
         self.render_caches()
         self.update()
 
     def clickable(self, pos):
-        """Clique simples tem ação aqui (botão de sync, linhas do MAGI, painel aberto)."""
+        """Clique simples tem ação aqui (rosto, botão de sync, linhas do MAGI, painel aberto)."""
+        if self.r_face().contains(pos):
+            return "face"
         if self.view == "idle":
             return None
         if self.r_sync().contains(pos):
@@ -1092,7 +1203,9 @@ class HUD(QWidget):
         if e.button() != Qt.LeftButton:
             return
         target = self.clickable(e.position())
-        if target == "sync":
+        if target == "face":
+            self.bridge.send_cmd("push_to_talk")   # falso se o núcleo não estiver no ar
+        elif target == "sync":
             self.toggle_rgb_sync()
         elif target == "close":
             self.open_detail(self.detail)
@@ -1193,11 +1306,12 @@ class HUD(QWidget):
             self.paint_transition(p)
             p.end()
             return
+        region = ev.region()
         if self.view == "idle":
             p.drawPixmap(0, 0, self.frame)
+            self.paint_face(p, region)
             p.end()
             return
-        region = ev.region()
         s = self.height() / 1440
         plot = self.r_plot()
         plot_i = plot.toAlignedRect()
@@ -1219,7 +1333,13 @@ class HUD(QWidget):
         for rect, key, col, heat in self.bar_specs():
             if region.intersects(rect.toAlignedRect()):
                 self.seg_bar(p, rect, self.bars[key], col, heat)
+        self.paint_face(p, region)
         p.end()
+
+    def paint_face(self, p, region):
+        r = self.r_face()
+        if region.intersects(r.toAlignedRect()):
+            self.face.paint(p, r, T.accent)
 
     def paint_transition(self, p):
         """Cortina diagonal estilo NERV: a tela nova entra pela esquerda atrás de uma faixa preta."""
