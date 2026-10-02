@@ -11,15 +11,16 @@ keys = ["openai-1", "openai-2"]        # nomes no keyring, não as chaves
 keys = ["gemini-1", "gemini-2"]
 free_tier = true                        # proíbe dados pessoais (memória, voz, humor, capturas)
 
-# Provedor e modelo de cada tarefa. Os modelos são escolhidos no spike S3.
+# Provedor e modelo de cada tarefa (medidos no spike S3, docs/spikes/S3.md, 2026-10-02).
+# A voz do TTS NÃO foi escolhida: ouça as amostras em ~/Music/magi-vozes/ (modelo-voz.wav).
 [tasks]
-stt        = { provider = "openai", model = "<definir no S3>" }
-tts        = { provider = "openai", model = "<definir no S3>", voice = "<definir no S3>" }
-agent      = { provider = "openai", model = "<definir no S3>" }
-vision     = { provider = "openai", model = "<definir no S3>" }
-embeddings = { provider = "openai", model = "<definir no S3>", dimensions = 1536 }  # = memories.embedding
-search     = { provider = "gemini", model = "<definir no S3>" }
-news       = { provider = "gemini", model = "<definir no S3>", embedding_model = "<definir no S3>", dimensions = 768 }  # = news_items.embedding
+stt        = { provider = "openai", model = "gpt-transcribe" }
+tts        = { provider = "openai", model = "gpt-4o-mini-tts", voice = "<escolher ouvindo ~/Music/magi-vozes>", instructions = "Fale em português do Brasil com sotaque brasileiro natural. Voz feminina jovem, animada e brincalhona, como uma amiga gamer conversando no Discord." }
+agent      = { provider = "openai", model = "gpt-5.4-mini" }
+vision     = { provider = "openai", model = "gpt-5.4-mini" }  # não medido no S3 (mesmo modelo do agente)
+embeddings = { provider = "openai", model = "text-embedding-3-small", dimensions = 1536 }  # = memories.embedding
+search     = { provider = "gemini", model = "gemini-2.5-flash" }  # único com Google Search na cota gratuita
+news       = { provider = "gemini", model = "gemini-3.5-flash-lite", embedding_model = "gemini-embedding-001", dimensions = 768 }  # = news_items.embedding
 
 [budget]
 monthly_usd = 5.0                       # teto mensal; "aumenta o teto pra 8 dólares" ajusta por voz
@@ -30,23 +31,29 @@ monthly_usd = 5.0                       # teto mensal; "aumenta o teto pra 8 dó
 # Unidades: tokens (agent, vision, embeddings, search, news), segundos de áudio (stt),
 # caracteres (tts). O modelo "*" vale para qualquer modelo do provedor sem entrada própria.
 # Sem preço, a chamada custa 0 e o log avisa.
-# ATENÇÃO: TODOS os nomes de modelo e valores abaixo são PLACEHOLDERS (0.0), NÃO são preços
-# reais. Confirme modelos e preços oficiais no spike S3 antes de usar.
-[budget.prices.openai."<modelo do agente — S3>"]
-input = 0.0                             # PLACEHOLDER: USD por 1M tokens de entrada
-output = 0.0                            # PLACEHOLDER: USD por 1M tokens de saída
+# Fonte: https://developers.openai.com/api/docs/pricing (acessada em 2026-10-02, tier standard).
+[budget.prices.openai."gpt-5.4-mini"]
+input = 0.75                            # USD por 1M tokens de entrada
+output = 4.50                           # USD por 1M tokens de saída
 per = 1000000
 
-[budget.prices.openai."<modelo de STT — S3>"]
-input = 0.0                             # PLACEHOLDER: USD por minuto de áudio
+[budget.prices.openai."gpt-transcribe"]
+input = 0.0045                          # USD por minuto de áudio
 per = 60                                # input_units = segundos
 
-[budget.prices.openai."<modelo de TTS — S3>"]
-input = 0.0                             # PLACEHOLDER: USD por 1M caracteres
+[budget.prices.openai."gpt-4o-mini-tts"]
+# ESTIMATIVA, não é preço de tabela: a OpenAI cobra US$ 0,60/1M tokens de texto + US$ 12/1M tokens
+# de áudio (≈ US$ 0,015/min, estimativa oficial). Convertido pela fala medida no S3 (~12,6 caracteres
+# por segundo de áudio) ≈ US$ 20 por 1M caracteres.
+input = 20.0                            # ESTIMATIVA: USD por 1M caracteres
+per = 1000000
+
+[budget.prices.openai."text-embedding-3-small"]
+input = 0.02                            # USD por 1M tokens
 per = 1000000
 
 [budget.prices.gemini."*"]
-input = 0.0                             # PLACEHOLDER (cota gratuita não passa pelo orçamento)
+input = 0.0                             # cota gratuita (free_tier = true) não passa pelo orçamento
 output = 0.0
 per = 1000000
 
