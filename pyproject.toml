@@ -18,6 +18,8 @@ dependencies = [
     "numpy>=1.26",
     "onnxruntime>=1.18",
     "pulsectl>=24.4",
+    # wake word (tarefa 1.1): backend ONNX; tflite-runtime anulado em [tool.uv] (sem wheel p/ 3.12)
+    "openwakeword>=0.6",
     "evdev>=1.7",
     "dbus-next>=0.2.3",
     # núcleo
@@ -52,6 +54,11 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.6",
 ]
+
+[tool.uv]
+# openWakeWord declara tflite-runtime no Linux, mas não há wheel para Python 3.12. Usamos só o
+# backend ONNX (onnxruntime já está acima), então a dependência é anulada aqui (tarefa 1.1).
+override-dependencies = ["tflite-runtime; python_version < '3.12'"]
 
 [build-system]
 requires = ["hatchling"]
