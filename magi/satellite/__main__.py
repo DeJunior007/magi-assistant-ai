@@ -43,7 +43,7 @@ from magi.common.contracts import (
 )
 from magi.common.events import EventDecodeError, from_event, to_event
 from magi.satellite.capture import AudioSource, MicSource, WavSource
-from magi.satellite.discord import DiscordCallMonitor
+from magi.satellite.discord import DiscordCallMonitor, DiscordPttMuter
 from magi.satellite.ducking import Ducker
 from magi.satellite.playback import Player
 from magi.satellite.ptt import PttSettings, PushToTalk, ptt_endpointer, start_sources
@@ -337,6 +337,7 @@ async def run(
 
     source: AudioSource
     discord_task: asyncio.Task[None] | None = None
+    mute_task: asyncio.Task[None] | None = None
     ptt: PushToTalk | None = None
     ptt_tasks: list[asyncio.Task[None]] = []
     if args.wav:
@@ -346,8 +347,13 @@ async def run(
         # call do Discord desliga o wake word (R2.1, R2.2); com --wav não há call a vigiar
         monitor = DiscordCallMonitor(spotter, client.send, settings.satellite)
         discord_task = asyncio.create_task(monitor.run(), name="discord-call")
+        # atalho em call muta só o Discord (R2.3); antes, desfaz o mudo de uma queda (R2.4)
+        muter = DiscordPttMuter(lambda: monitor.in_call)
+        await muter.recover()
+        mute_task = asyncio.create_task(muter.run(), name="discord-mute")
         # atalho (teclado/DualSense); com --wav não registra nada na sessão do usuário
         ptt = PushToTalk()
+        ptt.subscribe(muter.on_ptt)
         ptt_tasks = start_sources(ptt, load_ptt_settings(watcher))
     try:
         await wake_loop(source, spotter, client, settings.satellite, vad=vad, listens=listens, ptt=ptt,
@@ -361,6 +367,10 @@ async def run(
         for t in ptt_tasks:
             t.cancel()
         await asyncio.gather(*ptt_tasks, return_exceptions=True)
+        if mute_task is not None:  # desmuta o Discord se ainda estiver mutado
+            mute_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await mute_task
         if discord_task is not None:
             discord_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
