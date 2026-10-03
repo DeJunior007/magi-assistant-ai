@@ -39,7 +39,8 @@ def agent_with(mem: MemoryStore, script) -> tuple[GraphAgent, FakeChat]:
     return agent, chat
 
 
-def system_text(chat: FakeChat, i: int = 0) -> str:
+def system_text(chat: FakeChat, i: int = -1) -> str:
+    """Prompt de sistema da chamada que valeu (com memórias, a 1.23 refaz a primeira chamada)."""
     msgs, _, _ = chat.calls[i]
     return "\n".join(m.content for m in msgs if m.role == "system")
 

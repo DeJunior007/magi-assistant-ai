@@ -651,3 +651,44 @@ async def test_pergunta_proativa_silencio_dorme_calado(make_rig) -> None:
     await _until(lambda: rig.state is TurnState.SLEEPING)
     assert calls == []
     assert len(rig.speaker.said) == 1
+
+
+# ---------------------------------------------------------------------------------------------
+# 1.23: pré-aquecimento dos provedores a cada ativação
+# ---------------------------------------------------------------------------------------------
+
+
+async def test_wake_dispara_pre_aquecimento(make_rig) -> None:
+    rig = await make_rig()
+    calls: list[int] = []
+
+    async def warm() -> int:
+        calls.append(1)
+        return 1
+
+    rig.service.deps.prewarm = warm
+    await rig.sat.wake()
+    assert await rig.hud.state() == L
+    await _until(lambda: calls == [1])
+
+
+async def test_pre_aquecimento_nao_bloqueia_nem_levanta() -> None:
+    from magi.core.turn import TurnPipeline
+
+    gate = asyncio.Event()
+    calls: list[str] = []
+
+    async def warm() -> None:
+        calls.append("in")
+        await gate.wait()
+        raise RuntimeError("sem rede")
+
+    pipeline = TurnPipeline(TurnDeps(prewarm=warm))
+    pipeline.prewarm()
+    pipeline.prewarm()  # já em curso: não duplica
+    await asyncio.sleep(0)
+    assert calls == ["in"]
+    gate.set()
+    for task in list(pipeline._tasks):
+        await task  # erro engolido
+    TurnPipeline().prewarm()  # sem prewarm: nada

@@ -210,3 +210,71 @@ async def test_live_tts_registry() -> None:  # pragma: no cover - precisa de cha
     from magi.providers.registry import Registry  # noqa: F401
 
     pytest.skip("rodar manualmente com config real: PhraseSpeaker(registry.tts)")
+
+
+# -- 1.23: frases fixas do núcleo no cache -----------------------------------------------------
+
+
+def _say_constants() -> list[tuple[str, str]]:
+    """Toda string de constante ``SAY_*`` (e valores de dicionários ``SAY_*``) em ``magi/``."""
+    import ast
+
+    root = Path(__file__).resolve().parents[2] / "magi"
+    out: list[tuple[str, str]] = []
+    for f in sorted(root.rglob("*.py")):
+        for node in ast.parse(f.read_text(encoding="utf-8")).body:
+            if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
+                continue
+            target = node.targets[0]
+            if not (isinstance(target, ast.Name) and target.id.lstrip("_").startswith("SAY_")):
+                continue
+            v = node.value
+            values = [v] if isinstance(v, ast.Constant) else list(v.values) if isinstance(v, ast.Dict) else []
+            out += [
+                (f"{f.name}:{target.id}", c.value)
+                for c in values
+                if isinstance(c, ast.Constant) and isinstance(c.value, str)
+            ]
+    return out
+
+
+def test_every_fixed_core_phrase_is_cacheable() -> None:
+    import re
+
+    phrases = Phrases.load()
+    consts = _say_constants()
+    assert len(consts) > 50
+    missing = [
+        (where, text) for where, text in consts if not phrases.cacheable(re.sub(r"\{\w+\}", "X", text))
+    ]
+    assert missing == [], "ponha estas frases em magi/core/phrases.yaml (fixed/lazy/templates)"
+
+
+async def test_lazy_and_core_phrases_hit_cache_second_time(tmp_path: Path) -> None:
+    from magi.core.turn import SAY_UNAVAILABLE
+
+    tts = FakeTts()
+    sp = PhraseSpeaker(
+        tts,
+        phrases=Phrases.load(),
+        cache=PhraseCache(tmp_path / "tts", max_bytes=10_000_000),
+        auto_warm=False,
+    )
+    link = FakeLink()
+    for text in (SAY_UNAVAILABLE, "HUD fechado.", "Não tenho nada guardado sobre Zelda."):
+        await sp.say(text, link, personal=False)
+    first = len(tts.calls)
+    assert first == 3
+    for text in (SAY_UNAVAILABLE, "HUD fechado.", "Não tenho nada guardado sobre Zelda."):
+        await sp.say(text, link, personal=False)
+    assert len(tts.calls) == first  # zero chamadas ao TTS na segunda vez
+    assert b"".join(link.plays[0][0]) == b"".join(link.plays[3][0])
+
+
+async def test_lazy_phrases_are_not_pre_generated(tmp_path: Path) -> None:
+    tts = FakeTts()
+    phrases = Phrases.build(["Cancelado."], lazy=["HUD fechado."])
+    sp = PhraseSpeaker(tts, phrases=phrases, cache=PhraseCache(tmp_path / "tts"), auto_warm=False)
+    assert await sp.warm() == 1
+    assert [c[0] for c in tts.calls] == ["Cancelado."]
+    assert phrases.cacheable("hud fechado.")

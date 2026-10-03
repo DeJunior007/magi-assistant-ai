@@ -16,6 +16,7 @@ estado de espera das chaves cujos nomes não mudaram.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -138,6 +139,19 @@ class _Guarded:
             if self.free_tier:
                 raise FreeQuotaExhausted(str(e)) from e
             raise
+
+    async def warm(self) -> bool:
+        """Abre a conexão HTTP do backend com uma chave do pool, sem custo (1.23). ``False`` se o
+        backend não sabe aquecer ou se falhou (nunca levanta)."""
+        warm = getattr(self._backend, "warm", None)
+        if warm is None:
+            return False
+        try:
+            await warm(self._acquire(), self._ctx)
+        except Exception as e:  # noqa: BLE001 - aquecimento é só otimização
+            log.debug("%s: aquecimento falhou: %s", self.name, e)
+            return False
+        return True
 
     def _no_key(self, last: KeyRejected | None) -> NoKeyAvailable:
         msg = f"{self.name}: todas as chaves recusadas"
@@ -358,6 +372,20 @@ class Registry:
 
     def search(self) -> GuardedSearch:
         return self._get(GuardedSearch, ProviderTask.SEARCH)
+
+    async def warm(self) -> int:
+        """Pré-aquece as conexões do caminho de voz (STT, TTS, agente) em paralelo (1.23).
+        Chamado a cada ativação: o TLS fica pronto enquanto o usuário fala. Backends repetidos
+        (mesmo provedor) são aquecidos uma vez. Devolve quantos aqueceram; nunca levanta."""
+        picks: dict[int, _Guarded] = {}
+        for get in (self.stt, self.tts, self.chat):
+            try:
+                g = get()
+            except Exception:  # noqa: BLE001 - tarefa sem provedor/chave: nada a aquecer
+                continue
+            picks.setdefault(id(g._backend), g)
+        done = await asyncio.gather(*(g.warm() for g in picks.values()))
+        return sum(done)
 
     def search_fallback(self) -> GuardedSearch | None:
         """Pesquisa reserva de ``[tasks.search_fallback]`` (S3: OpenAI + ``web_search``, paga, para

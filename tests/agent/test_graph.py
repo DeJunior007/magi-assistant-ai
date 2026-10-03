@@ -213,3 +213,67 @@ async def test_bad_tool_args_become_failed_result():
     res = await agent.answer("faz o hud dançar", CTX)
     assert res.speech == "Ops."
     assert '"ok": false' in chat.calls[1][0][-1].content
+
+
+# -- 1.23: memórias em paralelo com a primeira chamada ----------------------------------------
+
+
+class SlowMemory:
+    """``MemoryStore`` falso: devolve ``found`` depois de ``delay`` segundos."""
+
+    def __init__(self, found: Sequence[object], delay: float = 0.0) -> None:
+        self.found = list(found)
+        self.delay = delay
+        self.cancelled = False
+
+    async def relevant(self, text: str) -> list[object]:
+        import asyncio
+
+        try:
+            await asyncio.sleep(self.delay)
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+        return self.found
+
+
+def _system(msgs: Sequence[ChatMessage]) -> str:
+    return "\n".join(m.content for m in msgs if m.role == "system")
+
+
+async def test_slow_memory_does_not_block_chat_beyond_grace() -> None:
+    import time
+
+    from magi.agent.graph import MEMORY_GRACE_S
+    from magi.common.contracts import Memory
+
+    chat = FakeChat([ChatReply(text="Oito patas.")])
+    mem = SlowMemory([Memory(kind="fact", body="Pedro gosta de aranhas")], delay=10.0)
+    agent = GraphAgent(FakeProviders(chat), memory=mem)
+    t0 = time.monotonic()
+    res = await agent.answer("quantas patas tem uma aranha", CTX)
+    elapsed = time.monotonic() - t0
+    assert res.ok and res.speech == "Oito patas."
+    assert elapsed < MEMORY_GRACE_S + 0.25
+    assert mem.cancelled
+    assert len(chat.calls) == 1 and "aranhas" not in _system(chat.calls[0][0])
+
+
+async def test_empty_memory_keeps_the_first_reply() -> None:
+    chat = FakeChat([ChatReply(text="Oito.")])
+    agent = GraphAgent(FakeProviders(chat), memory=SlowMemory([], delay=0.05))
+    res = await agent.answer("quantas patas tem uma aranha", CTX)
+    assert res.speech == "Oito." and len(chat.calls) == 1
+
+
+async def test_found_memories_redo_first_call_with_them() -> None:
+    from magi.common.contracts import Memory
+
+    chat = FakeChat([ChatReply(text="sem memória"), ChatReply(text="Elden Ring, né?")])
+    mem = SlowMemory([Memory(kind="game", body="Pedro está jogando Elden Ring")], delay=0.05)
+    agent = GraphAgent(FakeProviders(chat), memory=mem)
+    res = await agent.answer("qual jogo eu tava jogando?", CTX)
+    assert res.speech == "Elden Ring, né?"
+    assert len(chat.calls) == 2
+    assert "Elden Ring" not in _system(chat.calls[0][0])
+    assert "Pedro está jogando Elden Ring" in _system(chat.calls[1][0])

@@ -311,3 +311,64 @@ async def test_kind_permite_api_compativel(make_config, budget, get_secret):
         Registry(bad, budget, backends={}).chat()
     with pytest.raises(ConfigError):
         Registry(bad, budget, backends={}).stt()
+
+
+# -- 1.23: pré-aquecimento ---------------------------------------------------------------------
+
+
+async def test_warm_opens_each_voice_backend_once(env) -> None:
+    warmed: list[str] = []
+
+    async def warm(key, ctx):
+        warmed.append(key.name)
+
+    env.reg.stt()  # cria o backend da OpenAI
+    env.fakes["openai"].warm = warm
+    assert await env.reg.warm() == 1  # STT, TTS e agente usam o mesmo backend: 1 aquecimento
+    assert len(warmed) == 1 and warmed[0].startswith("openai-")
+    assert not any(e.startswith("record") for e in env.log)  # sem gasto registrado
+
+
+async def test_warm_never_raises(env) -> None:
+    async def boom(key, ctx):
+        raise RuntimeError("sem rede")
+
+    env.reg.stt()
+    env.fakes["openai"].warm = boom
+    assert await env.reg.warm() == 0
+
+
+async def test_openai_backend_warm_hits_models_endpoint() -> None:
+    import httpx
+    import openai
+
+    from magi.common.config import ProviderConfig
+    from magi.common.contracts import ApiKey, ProviderTask
+    from magi.providers.openai_provider import OpenAIBackend
+
+    paths: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        paths.append(req.url.path)
+        return httpx.Response(200, json={"object": "list", "data": []})
+
+    def factory(key: ApiKey):
+        transport = httpx.MockTransport(handler)
+        http = httpx.AsyncClient(transport=transport)
+        return openai.AsyncOpenAI(api_key=key.secret, max_retries=0, http_client=http)
+
+    backend = OpenAIBackend(ProviderConfig(name="openai", keys=("k",)), client_factory=factory)
+    ctx = CallCtx(provider="openai", task=ProviderTask.STT, model="m")
+    await backend.warm(ApiKey(provider="openai", name="k", secret="s"), ctx)
+    assert paths == ["/v1/models"]
+
+
+def test_openai_default_client_keeps_connections_alive() -> None:
+    from magi.common.config import ProviderConfig
+    from magi.common.contracts import ApiKey
+    from magi.providers.openai_provider import KEEPALIVE_S, OpenAIBackend
+
+    backend = OpenAIBackend(ProviderConfig(name="openai", keys=("k",)))
+    client = backend._client(ApiKey(provider="openai", name="k", secret="s"))
+    pool = client._client._transport._pool
+    assert pool._keepalive_expiry == KEEPALIVE_S > 5

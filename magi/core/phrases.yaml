@@ -1,8 +1,10 @@
 # Frases curtas frequentes do Magui (tarefa 1.12; R12.2).
 #
 # fixed: pré-geradas no primeiro uso do Speaker e guardadas em ~/.cache/magi/tts/.
+# lazy: fixas raras (1.23); não são pré-geradas, vão para o cache na primeira vez que são faladas.
 # templates: com placeholder {nome}; o texto chega já preenchido e é cacheado por valor
 #            depois da primeira síntese (ex.: "Abrindo Hades." vira entrada própria).
+# Toda constante SAY_* do código precisa estar aqui (tests/core/test_tts.py confere).
 # A comparação ignora maiúsculas e espaços repetidos.
 
 fixed:
@@ -28,6 +30,83 @@ fixed:
   - "Pulando."
   - "Volume ajustado."
   - "Bateu o teto do mês."
+  # Respostas fixas do núcleo mais comuns (1.23; RNF-04).
+  - "Ainda não sei fazer isso."
+  - "Isso eu ainda não sei fazer."
+  - "Deu ruim aqui, não consegui."
+  - "Você quis dizer isso?"
+  - "Tem certeza? Diz confirma."
+  - "Anotado."
+  - "Deixei na tela."
+  - "Guardei."
+  - "Não consegui falar com a nuvem agora, tenta de novo daqui a pouco."
+  - "Bati o teto do mês, só comandos locais agora."
+
+lazy:
+  # agente
+  - "Me enrolei aqui, tenta pedir de outro jeito."
+  - "Ferramenta desconhecida."
+  - "Esquecido."
+  - "Não tinha nada guardado sobre isso."
+  - "Guardar o quê?"
+  - "Não vi jogo aberto. Qual jogo e em que parte você está?"
+  - "Ajuda com qual parte do jogo?"
+  - "Não consegui pesquisar agora; vou no que eu sei, sem confirmar."
+  - "Não achei guia que confirme isso; vou no que eu sei, sem confirmar."
+  - "Bati no teto de gasto do mês, então não pesquisei; vou no que eu sei."
+  - "Sem o banco de notícias, não tenho novidades guardadas."
+  - "Nada de novo por enquanto."
+  - "Pesquisar o quê?"
+  - "Pesquisei, mas não achei fonte que confirme isso."
+  - "Bati no teto de gasto do mês, então não pesquisei."
+  - "A pesquisa não respondeu agora. Tenta de novo daqui a pouco."
+  - "Só olho a tela quando você pede."
+  - "Não consegui capturar a tela agora."
+  - "Não consegui ver a imagem agora, tenta de novo."
+  # ações do núcleo
+  - "Abrindo o HUD."
+  - "O HUD já está aberto."
+  - "HUD fechado."
+  - "O HUD já está fechado."
+  - "Não consegui mexer no HUD."
+  - "Tela de ociosidade."
+  - "Painel completo."
+  - "RGB Sync ligado."
+  - "RGB Sync desligado."
+  - "Não consegui salvar a configuração do HUD."
+  - "O HUD está fechado."
+  - "Detalhe de quê? CPU, GPU ou memória."
+  - "Detalhes da CPU."
+  - "Detalhes da GPU."
+  - "Detalhes da memória."
+  - "Fechei os detalhes."
+  - "Abrindo o Spotify."
+  - "O Spotify já está aberto."
+  - "O Spotify não abriu a tempo."
+  - "Não consegui falar com o Spotify."
+  - "Ainda não sei tocar música pelo nome."
+  - "Não entendi o volume."
+  - "Preciso que você conecte o Spotify primeiro (magi-spotify-login)."
+  - "RGB indisponível."
+  - "Não achei a saída de som."
+  - "Não tenho o que corrigir agora."
+  - "Falou o quê? Repete a frase certa."
+  - "Foi isso mesmo que eu entendi."
+  # música, humor e notícias
+  - "Ainda não conheço seu gosto; me deixa importar do Spotify primeiro."
+  - "Não achei nada bom pra tocar agora."
+  - "Anotado, essa é das boas."
+  - "Beleza, essa não volta."
+  - "Não tem nada tocando agora."
+  - "Não consegui ver o que está tocando."
+  - "Tá, vou maneirar."
+  - "Ah, agora sim."
+  - "Anotado, menos disso."
+  - "Anotado, mais disso."
+  - "Já tinha anotado."
+  - "Não te mostrei notícia nenhuma agora há pouco."
+  - "Tô sem o banco das notícias agora."
+  - "Não entendi qual obra."
 
 templates:
   - "Abrindo {game}."
@@ -35,3 +114,5 @@ templates:
   - "Tocando {track}."
   - "Volume em {level} por cento."
   - "Não achei {name}."
+  - "Não tenho nada guardado sobre {topic}."
+  - "Beleza, paro de acompanhar {franchise}."

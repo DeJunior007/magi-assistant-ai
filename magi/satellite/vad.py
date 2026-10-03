@@ -87,11 +87,11 @@ class SileroVad:
             raise FileNotFoundError(
                 f"modelo do Silero VAD não está em {path}; rode `uv run magi-satellite --download-models`"
             )
-        opts = ort.SessionOptions()
-        opts.intra_op_num_threads = 1
-        opts.inter_op_num_threads = 1
-        self._session = ort.InferenceSession(str(path), sess_options=opts,
-                                             providers=["CPUExecutionProvider"])
+        from magi.satellite.onnx import session_options
+
+        self._session = ort.InferenceSession(
+            str(path), sess_options=session_options(ort), providers=["CPUExecutionProvider"]
+        )
         self._sr = np.array(AUDIO_RATE, dtype=np.int64)
         self.reset()
 

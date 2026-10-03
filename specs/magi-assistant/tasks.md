@@ -240,6 +240,13 @@ Formato de cada tarefa:
   - Orçamento: ~45k
   - Pronto: testes com arquivo temporário e debounce falso: trocar a voz muda a próxima fala e invalida o cache; teto do orçamento vale na hora; config inválida mantém a anterior; seção que exige reinício só loga.
 
+- [x] **1.23 Otimização de latência e RAM** — fecha o que a 1.18 deixou fora (RNF-02, RNF-04, RNF-05). Satélite: sessões onnxruntime do wake word e do VAD com 1 thread, sem arena de CPU e sem memory pattern (`magi/satellite/onnx.py`, imposto às sessões internas do openWakeWord), e `import openwakeword` sem puxar scipy/scikit-learn (stub do treinador de verificadores). Núcleo: todas as constantes `SAY_*` no cache de frases (`fixed` pré-geradas, nova seção `lazy` cacheada no primeiro uso, moldes novos; teste confere que nenhuma fica de fora); cliente HTTP da OpenAI com keep-alive de 120 s e pré-aquecimento sem custo (`GET /models`) na subida e a cada ativação (`TurnDeps.prewarm` → `Registry.warm`), enquanto o usuário fala; no agente, a busca de memórias corre em paralelo com a primeira chamada do modelo (refeita só se houver memória relevante; depois da resposta a busca tem 300 ms). Medições em `docs/perf/fase1.md` ("Otimizações 1.23"). *(RNF-02, RNF-04, RNF-05)*
+  - Lê: `docs/perf/fase1.md`, `magi/core/tts.py`, `magi/core/phrases.yaml`, `magi/core/turn.py`, `magi/agent/graph.py`, `magi/memory/memories_repo.py`, `magi/satellite/wake.py`, `magi/satellite/vad.py`, `magi/providers/registry.py`, `magi/providers/openai_provider.py`
+  - Escreve: `magi/satellite/onnx.py`, `magi/satellite/wake.py`, `magi/satellite/vad.py`, `magi/core/tts.py`, `magi/core/phrases.yaml`, `magi/core/turn.py`, `magi/core/assemble.py`, `magi/agent/graph.py`, `magi/providers/registry.py`, `magi/providers/openai_provider.py`, `tests/satellite/test_onnx.py`, `tests/core/test_tts.py`, `tests/core/test_turn_states.py`, `tests/agent/test_graph.py`, `tests/providers/test_registry.py`, `tests/memory/test_memories.py`, `docs/perf/fase1.md`
+  - Depende de: 1.18
+  - Orçamento: ~60k
+  - Pronto: frases fixas usam o cache (zero chamadas ao TTS na segunda vez); memória lenta não segura a resposta além de 300 ms; sessões onnx criadas com as opções de memória; suíte verde; re-medição ao vivo com `tools.perf` pelo usuário.
+
 - [ ] **1.18 Medição da fase 1** — script de desempenho do §10 (CPU/RAM ociosos por 10 min, latência p90 de 50 turnos).
   - Lê: §10, tabela RNF de `requirements.md`
   - Escreve: `tools/perf.py`, `docs/perf/fase1.md`
