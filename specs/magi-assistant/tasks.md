@@ -263,7 +263,7 @@ Formato de cada tarefa:
   - Orçamento: ~30k
   - Pronto: sinais aparecem ao pular ou terminar faixas escolhidas pela Magui.
 
-- [ ] **2.5 "Coloca uma boa"** — escolha por gosto + contexto (horário, gênero do jogo, pedido). *(R8.1)*
+- [x] **2.5 "Coloca uma boa"** — escolha por gosto + contexto (horário, gênero do jogo, pedido). *(R8.1)*
   - Lê: `contracts.py`, R8, R15.5 (gênero pelas tags), interfaces de 2.2–2.4
   - Escreve: `magi/core/music/pick.py`, testes
   - Depende de: 2.4

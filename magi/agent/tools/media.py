@@ -240,13 +240,18 @@ def map_spotify_control(args: Mapping[str, Any]) -> Mapped:
 
 SPOTIFY_PICK_SPEC = ToolSpec(
     name="spotify_pick",
-    description="Escolhe e toca uma música pelo gosto do usuário ('coloca uma boa').",
-    parameters={"type": "object", "properties": {}},
+    description=(
+        "Escolhe e toca uma música pelo gosto do usuário ('coloca uma boa'). 'pedido': clima ou "
+        "estilo pedido, se houver (ex.: 'pra focar', 'algo animado', 'anime opening')."
+    ),
+    parameters={"type": "object", "properties": {"pedido": {"type": "string"}}},
 )
 
 
 def map_spotify_pick(args: Mapping[str, Any]) -> Mapped:
-    return Mapped(IntentId.MUSIC_PICK.value)
+    pedido = str(args.get("pedido") or "").strip()
+    slots = (Slot(SlotName.QUERY.value, pedido),) if pedido else ()
+    return Mapped(IntentId.MUSIC_PICK.value, slots)
 
 
 def media_tools(registry: ActionRegistry) -> list[ActionTool]:

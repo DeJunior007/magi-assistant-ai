@@ -216,8 +216,8 @@ def default_handlers(
     (2.4) e correção (1.6). Construir não toca em nada: cada módulo só abre D-Bus/Pulse/OpenRGB ao
     executar. O ``MusicSignals`` (sem banco até o ``assemble`` ligar o repo) marca o que o
     ``play_query`` toca como escolha da Magui."""
-    from magi.core.actions.spotify_api import make_play_query
-    from magi.core.music import signals
+    from magi.core.actions.spotify_api import SpotifyApi, make_play_query
+    from magi.core.music import pick, signals
     from magi.news import feedback as news_feedback
 
     mpris = spotify_mpris.SpotifyMpris()
@@ -228,6 +228,7 @@ def default_handlers(
         *system.handlers(),
         *spotify_mpris.handlers(mpris, play_query=make_play_query(mpris, on_play=music.mark_picked)),
         *signals.handlers(music),
+        *pick.handlers(pick.MusicPicker(mpris, SpotifyApi(), music)),
         *news_feedback.handlers(),
     ]
     if corrections is not None:
@@ -437,6 +438,7 @@ async def assemble(
     core.deps.actions = actions.Registry(found)
     core.self_model.registry = core.deps.actions
     _wire_music(core, found)
+    _wire_pick(core, config, found)
     _wire_news_feedback(core, config, found)
 
     # STT e TTS
@@ -542,6 +544,29 @@ def _wire_music(core: Core, found: list[ActionHandler]) -> None:
             if repo is not None:
                 core.music.repo = repo
             return
+
+
+def _wire_pick(core: Core, config: Config, found: list[ActionHandler]) -> None:
+    """"Coloca uma boa" (2.5): liga o gosto do banco e o cache de gêneros ao ``MusicPicker`` e,
+    havendo chave da tarefa ``news`` (cota gratuita), classifica os gêneros em segundo plano."""
+    from magi.core.music import pick
+
+    picker = next((h.picker for h in found if isinstance(h, pick.MusicPickHandler)), None)
+    if picker is None:
+        return
+    picker.genres = pick.GenreCache(config.paths.data_dir / pick.GENRE_FILE)
+    taste = core.repos.taste if core.repos is not None else None
+    if taste is None:
+        return
+    picker.taste = taste
+    if core.providers is None:
+        return
+    why = _has_key(core.providers, ProviderTask.NEWS.value)
+    if why is not None:
+        core.warn(f"gêneros musicais: {why}")
+        return
+    chat = core.providers.chat(ProviderTask.NEWS)
+    core.tasks.append(asyncio.create_task(pick.genre_loop(taste, picker.genres, chat)))
 
 
 def _wire_voice(core: Core, config: Config, catalog: GameCatalog) -> None:
