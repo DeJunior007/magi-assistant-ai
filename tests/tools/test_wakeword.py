@@ -258,3 +258,135 @@ def test_pastas_por_palavra(monkeypatch, tmp_path):
     assert common.data_dir("outra") == root / "outra"
     assert common.train_dir() == tmp_path / "magi" / "wakeword-train"
     assert train.TEXTS == ["Condessa", "Hey Condessa", "Oi Condessa", "Oh Condessa"]
+
+
+# --- 0.8: medição como o WakeSpotter, negativos difíceis, ACAV100M ---------------------------
+
+
+def test_activations_patience_and_cooldown():
+    s = np.zeros(200)
+    s[10] = 0.9  # nota isolada: só conta com patience 1
+    s[[50, 51]] = 0.9  # 2 seguidas
+    s[[100, 101, 102, 103, 104]] = 0.9  # 5 seguidas: 1 ativação (recarga de 2 s)
+    assert common.activations(s, 0.5, 1) == 3
+    assert common.activations(s, 0.5, 2) == 2
+    assert common.activations(s, 0.5, 3) == 1
+    assert common.activations(s, 0.95, 1) == 0
+    assert evaluate.count_activations(s, 0.5, patience=3) == 1
+    # depois da recarga a sequência recomeça do zero, como no WakeSpotter
+    t = np.full(58, 0.9)
+    assert common.activations(t, 0.5, 3, cooldown=25) == 2  # disparos em 2 e 30 (não em 28)
+    assert common.detected(s, 0.5, 5) and not common.detected(s, 0.5, 6)
+
+
+def test_activations_matches_wake_spotter():
+    from magi.satellite.wake import WakeSpotter
+
+    scores = iter([0.0, 0.7, 0.2, 0.7, 0.8, 0.9, 0.1] + [0.9] * 40)
+    seq = [0.0, 0.7, 0.2, 0.7, 0.8, 0.9, 0.1] + [0.9] * 40
+
+    class Det:
+        def process(self, block):
+            return next(scores)
+
+        def reset(self):
+            pass
+
+    sp = WakeSpotter(Det(), threshold=0.5, patience=3, cooldown_ms=2000, gate_dbfs=None)
+    block = np.zeros(1280, np.int16)
+    fired = sum(sp.feed(block, now=i * 0.08 + 1e-6) is not None for i in range(len(seq)))
+    assert fired == common.activations(np.array(seq), 0.5, 3) == 2
+
+
+def test_suggest_prefers_fewer_false_alarms_then_lower_patience():
+    rows = [evaluate.Row(0.5, 1.0, 0.4, 1), evaluate.Row(0.5, 1.0, 0.0, 3), evaluate.Row(0.7, 1.0, 0.0, 2)]
+    best = evaluate.suggest(rows)
+    assert (best.threshold, best.patience) == (0.7, 2)
+
+
+def test_evaluate_with_patience_and_feature_scores(tmp_path):
+    common.write_wav(tmp_path / "p1.wav", tone(0.5))
+    lines = []
+    extra = np.zeros(45_000)  # 1 h de notas
+    extra[[100, 5000, 5001, 5002]] = 0.9  # 1 isolada + 1 sequência de 3
+    best = evaluate.evaluate(FakeDetector(), [tmp_path / "p1.wav"], [], out=lines.append,
+                             patiences=(1, 3), extra_scores=extra)
+    assert best is None  # 2/h com patience 1 e 1/h com patience 3: ambos acima de 0,5/h
+    assert any("60.0 min de atributos" in s for s in lines)
+    assert any("patience 3" in s for s in lines)
+    pos = [np.full(10, 0.9)]
+    p1 = evaluate.table(pos, [extra], 1.0, 1)[0]
+    p3 = evaluate.table(pos, [extra], 1.0, 3)[0]
+    assert (p1.fp_per_hour, p3.fp_per_hour, p3.recall) == (2.0, 1.0, 1.0)
+    assert evaluate.table([np.array([0.9, 0.9, 0.0])], [extra], 1.0, 3)[0].recall == 0.0
+
+
+def test_hard_negatives_and_refit():
+    rng = np.random.default_rng(0)
+    pos = rng.normal(1.0, 1.0, (200, 16, 96)).astype(np.float32)
+    neg = rng.normal(-1.0, 1.0, (400, 16, 96)).astype(np.float32)
+    x = np.concatenate([pos, neg])
+    y = np.r_[np.ones(200), np.zeros(400)]
+    mlp = train.MLP(seed=0).fit(x, y, epochs=3, log=lambda s: None)
+    # fluxo "parecido com positivas": vira negativo difícil
+    stream = rng.normal(1.0, 1.0, (40, 96)).astype(np.float32)
+    loose = rng.normal(1.0, 1.0, (5, 16, 96)).astype(np.float32)
+    hard = train.hard_negatives(mlp, [stream, loose], 0.5)
+    assert hard.shape[1:] == (16, 96) and 0 < len(hard) <= 25 + 5
+    assert len(train.hard_negatives(mlp, [stream], 0.5, limit=3)) == 3
+    logs = []
+    mlp2, x2, y2 = train.fit_with_hard_negatives(x, y, [stream], epochs=3, rounds=1, hard_threshold=0.5,
+                                                 log=logs.append)
+    assert len(x2) > len(x) and len(x2) == len(y2) and y2[len(x):].sum() == 0
+    assert any("negativos difíceis" in s for s in logs)
+    assert mlp2.predict(x2[len(x):]).mean() < mlp.predict(x2[len(x):]).mean()
+
+
+def test_load_extra_splits_stream_and_windows(tmp_path):
+    stream = np.arange(100 * 96, dtype=np.float32).reshape(100, 96)
+    np.save(tmp_path / "s.npy", stream)
+    xe, tr, held = train.load_extra(tmp_path / "s.npy", stride=4)
+    assert len(tr) == common.extra_split(100) == 85 and len(held) == 15
+    assert xe.shape == (18, 16, 96)
+    np.save(tmp_path / "w.npy", np.ones((7, 16, 96), np.float16))
+    xe, tr, held = train.load_extra(tmp_path / "w.npy", stride=4)
+    assert xe.shape == (7, 16, 96) and xe.dtype == np.float32 and tr is None and held is None
+
+
+def test_fetch_acav_uses_byte_ranges(tmp_path):
+    row = 16 * 96 * 2
+    seen = []
+
+    class Resp:
+        def __init__(self, n):
+            self.n = n
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return np.ones(self.n // 2, "<f2").tobytes()
+
+    def opener(req):
+        a, b = map(int, req.headers["Range"].removeprefix("bytes=").split("-"))
+        seen.append(a)
+        return Resp(b - a + 1)
+
+    out = train.fetch_acav(tmp_path, 6, chunks=3, opener=opener)
+    x = np.load(out)
+    assert x.shape == (6, 16, 96) and x.dtype == np.float16
+    assert seen[0] == train.ACAV_HEADER and seen[1] == train.ACAV_HEADER + (train.ACAV_TOTAL // 3) * row
+
+
+def test_feature_scores_matches_numpy(tmp_path):
+    pytest.importorskip("onnx")
+    rng = np.random.default_rng(2)
+    mlp = train.MLP(seed=2)
+    path = tmp_path / "m.onnx"
+    train.export_onnx(mlp, path)
+    stream = rng.normal(0, 1, (60, 96)).astype(np.float32)
+    got = evaluate.feature_scores(path, stream, chunk=7)
+    assert got.shape == (45,) and np.allclose(got, train.stream_scores(mlp, stream), atol=1e-4)

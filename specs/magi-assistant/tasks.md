@@ -82,6 +82,11 @@ Formato de cada tarefa:
   - Escreve: `spikes/s4_wake/` (roteiro, treino, medição), `docs/spikes/S4.md`, `~/.local/share/magi/models/wakeword/condessa.onnx` (kit em `tools/wakeword/`, `--word condessa`)
   - Depende de: 0.4
   - Orçamento: ~35k
+
+- [ ] **0.8 Modelo "Condessa" dentro da meta** — re-treino com `neg-weight 50`, l2 0,003, 1 rodada de negativos difíceis e 400 mil janelas do ACAV100M; `train`/`evaluate` medem como o `WakeSpotter` (`patience` + recarga de 2 s) e o `evaluate` inclui as 1,6 h reservadas do openWakeWord. Resultado: **0,00 falso/h** (p=3, limiar 0,6–0,8) mas **90,9% de acerto** (10/11 reservadas; perde 1 com música alta) → falta acerto. Sugestão: `wake_threshold = 0.6`, `wake_patience = 3`. Pendente: 1 h de jogo em `eval/` e ~10 positivas "com jogo alto".
+  - Lê: `docs/spikes/S4.md`, `tools/wakeword/`, `magi/satellite/wake.py`
+  - Escreve: `tools/wakeword/{common,train,evaluate}.py`, `tests/tools/test_wakeword.py`, `docs/spikes/S4.md`, `~/.local/share/magi/models/wakeword/condessa.onnx`
+  - Depende de: 0.7
   - Pronto: modelo com ≤ 1 falso disparo/h (RNF-06).
 
 ## Fase 1 — Base de voz

@@ -35,11 +35,16 @@ from tools.wakeword.common import (
     AUDIO_RATE,
     DEFAULT_WORD,
     EMB_DIM,
+    EXTRA_FILE,
+    EXTRA_HOLDOUT,
+    FRAME_S,
     N_FRAMES,
     WINDOW_SAMPLES,
+    activations,
     augment,
     data_dir,
     dither,
+    extra_split,
     list_wavs,
     place_in_window,
     read_wav,
@@ -50,10 +55,20 @@ from tools.wakeword.common import (
 )
 
 MODEL_NAME = DEFAULT_WORD  # padrão; o nome real vem de --word
+REPORT_THRESHOLDS = (0.5, 0.6, 0.7, 0.8, 0.9)
 EXTRA_URL = (
     "https://huggingface.co/datasets/davidscripka/openwakeword_features/resolve/main/"
     "validation_set_features.npy"
 )
+#: Negativos de treino do openWakeWord oficial: 5,6 milhões de janelas ``(16, 96)`` em float16
+#: (2000 h, 17 GB). O ``fetch --acav N`` baixa só N janelas, em trechos espalhados pelo arquivo.
+ACAV_URL = (
+    "https://huggingface.co/datasets/davidscripka/openwakeword_features/resolve/main/"
+    "openwakeword_features_ACAV100M_2000_hrs_16bit.npy"
+)
+ACAV_FILE = "acav100m_part.npy"
+ACAV_HEADER = 128
+ACAV_TOTAL = 5_625_000
 
 # ---------------------------------------------------------------------------------------------
 # Amostras sintéticas (TTS)
@@ -191,15 +206,17 @@ def windows(stream: np.ndarray, stride: int = 1) -> np.ndarray:
     return np.stack([stream[i : i + N_FRAMES] for i in idx]).astype(np.float32)
 
 
-def load_extra(path: Path, stride: int, holdout: float = 0.15) -> tuple[np.ndarray, np.ndarray | None]:
-    """Atributos pré-computados do openWakeWord. Fluxo ``(N, 96)``: devolve janelas de treino
-    (com ``stride``) dos primeiros 85% e o fluxo reservado do fim, para estimar falsos disparos.
-    Janelas ``(N, 16, 96)`` (ex.: ACAV100M): só treino."""
+def load_extra(path: Path, stride: int, holdout: float = EXTRA_HOLDOUT):
+    """Atributos pré-computados do openWakeWord. Fluxo ``(N, 96)``: devolve as janelas de treino
+    (com ``stride``) dos primeiros 85%, esse mesmo trecho como fluxo (para garimpar negativos
+    difíceis) e o fluxo reservado do fim, para estimar falsos disparos.
+    Janelas ``(N, 16, 96)`` (ex.: ACAV100M): todas, só treino."""
     x = np.load(path, mmap_mode="r")
     if x.ndim == 2:
-        cut = int(len(x) * (1 - holdout))
-        return windows(np.asarray(x[:cut], np.float32), stride), np.asarray(x[cut:], np.float32)
-    return np.asarray(x[::stride], np.float32), None
+        cut = extra_split(len(x), holdout)
+        train_stream = np.asarray(x[:cut], np.float32)
+        return windows(train_stream, stride), train_stream, np.asarray(x[cut:], np.float32)
+    return np.asarray(x, np.float32), None, None
 
 
 def stream_scores(mlp: MLP, stream: np.ndarray, chunk: int = 20_000) -> np.ndarray:
@@ -208,6 +225,36 @@ def stream_scores(mlp: MLP, stream: np.ndarray, chunk: int = 20_000) -> np.ndarr
     for s in range(0, max(0, len(stream) - N_FRAMES + 1), chunk):
         out.append(mlp.predict(windows(stream[s : s + chunk + N_FRAMES - 1])))
     return np.concatenate(out) if out else np.zeros(0)
+
+
+def hard_negatives(mlp: MLP, streams: list[np.ndarray], threshold: float,
+                   limit: int = 20_000) -> np.ndarray:
+    """Janelas (passo 1) dos fluxos (ou das pilhas de janelas) de negativos de treino em que
+    ``mlp`` dá nota >= ``threshold``: os quase-disparos que o próximo treino aprende a recusar.
+    Fica com as ``limit`` de nota maior."""
+    found: list[tuple[float, np.ndarray]] = []
+    for st in streams:
+        if st.ndim == 3:  # janelas soltas
+            sc = np.concatenate([mlp.predict(st[i : i + 20_000]) for i in range(0, len(st), 20_000)]
+                                or [np.zeros(0)])
+            found += [(float(sc[i]), st[i]) for i in np.flatnonzero(sc >= threshold)]
+            continue
+        sc = stream_scores(mlp, st)
+        found += [(float(sc[i]), st[i : i + N_FRAMES]) for i in np.flatnonzero(sc >= threshold)]
+    if not found:
+        return np.zeros((0, N_FRAMES, EMB_DIM), np.float32)
+    found.sort(key=lambda t: -t[0])
+    return np.stack([w for _, w in found[:limit]]).astype(np.float32)
+
+
+def fp_report(mlp: MLP, val_fp: np.ndarray, out=print) -> None:
+    """Falsos disparos/h no fluxo reservado, por limiar e ``patience`` (recarga de 2 s)."""
+    hours = len(val_fp) * FRAME_S / 3600
+    s = stream_scores(mlp, val_fp)
+    out(f"falsos disparos/h em {hours:.1f} h de negativos reservados (linhas: patience)")
+    out("        " + "  ".join(f"{t:>5.2f}" for t in REPORT_THRESHOLDS))
+    for pat in (1, 2, 3):
+        out(f"  p={pat}  " + "  ".join(f"{activations(s, t, pat) / hours:5.1f}" for t in REPORT_THRESHOLDS))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -318,22 +365,12 @@ def export_onnx(mlp: MLP, path: Path, name: str = MODEL_NAME) -> None:
     onnx.save(model, str(path))
 
 
-def activations(scores: np.ndarray, threshold: float, cooldown: int = 25) -> int:
-    """Ativações num fluxo de notas (uma por 80 ms), com recarga de ``cooldown`` passos (2 s)."""
-    n, mute = 0, -1
-    for i, s in enumerate(scores):
-        if i > mute and s >= threshold:
-            n += 1
-            mute = i + cooldown
-    return n
-
-
 # ---------------------------------------------------------------------------------------------
 # Treino
 # ---------------------------------------------------------------------------------------------
 
 
-def build_dataset(base: Path, feat: Featurizer, *, n_aug: int, extra: Path | None, extra_stride: int,
+def build_dataset(base: Path, feat: Featurizer, *, n_aug: int, extra: list[Path], extra_stride: int,
                   seed: int, log=print):
     rng = np.random.default_rng(seed)
     real = list_wavs(base / "positive")
@@ -355,13 +392,14 @@ def build_dataset(base: Path, feat: Featurizer, *, n_aug: int, extra: Path | Non
         pos_clips += [augment(clip, rng, bg) for _ in range(n_aug)]
     xp = feat.clips(np.stack(pos_clips))
 
-    short_neg, xn_parts = [], []
+    short_neg, xn_parts, mine = [], [], []
     for a in neg_audio + noises:
         if len(a) <= 3 * AUDIO_RATE:  # frase curta: posições como as positivas
             short_neg.append(dither(place_in_window(a, rng), rng))
             short_neg += [augment(a, rng, noises) for _ in range(max(1, n_aug // 2))]
         else:  # fala livre / ruído: janelas deslizantes, limpas e com aumento
-            xn_parts.append(windows(feat.stream(a), stride=2))
+            mine.append(feat.stream(a))
+            xn_parts.append(windows(mine[-1], stride=2))
             xn_parts.append(windows(feat.stream(augment(a, rng, noises, window=None, speed=(1, 1))), 3))
     # silêncio digital e ruído bem fraco: nunca são o wake word
     short_neg += [np.zeros(WINDOW_SAMPLES, np.int16)] * 4
@@ -371,16 +409,20 @@ def build_dataset(base: Path, feat: Featurizer, *, n_aug: int, extra: Path | Non
     xn = np.concatenate(xn_parts) if xn_parts else np.zeros((0, N_FRAMES, EMB_DIM), np.float32)
 
     val_fp = None
-    if extra is not None:
-        xe, val_fp = load_extra(extra, extra_stride)
+    for path in extra:
+        # fluxo (validation_set_features): passo ``extra_stride``; janelas soltas (ACAV100M): todas
+        xe, extra_stream, held = load_extra(path, extra_stride)
         xn = np.concatenate([xn, xe])
-        log(f"negativos extras: {len(xe)} janelas de treino"
-            + (f", {len(val_fp) * 0.08 / 3600:.1f} h reservadas" if val_fp is not None else ""))
+        mine.append(extra_stream if extra_stream is not None else xe)
+        if held is not None:
+            val_fp = held if val_fp is None else np.concatenate([val_fp, held])
+        log(f"negativos extras ({path.name}): {len(xe)} janelas de treino"
+            + (f", {len(held) * FRAME_S / 3600:.1f} h reservadas" if held is not None else ""))
     if len(xn) == 0:
         raise SystemExit("sem negativos: grave negative/ e noise/ ou rode `fetch`")
     x = np.concatenate([xp, xn])
     y = np.concatenate([np.ones(len(xp)), np.zeros(len(xn))])
-    return x, y, val_fp
+    return x, y, val_fp, mine
 
 
 def heldout_recall(mlp: MLP, base: Path, feat: Featurizer, threshold: float = 0.5) -> tuple[int, int]:
@@ -396,28 +438,50 @@ def heldout_recall(mlp: MLP, base: Path, feat: Featurizer, threshold: float = 0.
     return int((best >= threshold).sum()), len(clips)
 
 
+def fit_with_hard_negatives(x: np.ndarray, y: np.ndarray, mine: list[np.ndarray], *, hidden: int = 64,
+                            epochs: int = 40, neg_weight: float = 50.0, l2: float = 3e-3, rounds: int = 1,
+                            hard_threshold: float = 0.05, seed: int = 0, log=print):
+    """Treina; depois, ``rounds`` vezes, junta ao treino as janelas negativas em que o modelo
+    quase disparou (nota >= ``hard_threshold`` em ``mine``) e treina de novo do zero.
+
+    Medido no S4 (0.8): sem isso o modelo decora os negativos de treino (0,04% das janelas acima de
+    0,5) e erra 10x mais nos reservados; 1 rodada corta os falsos/h reservados de ~70 para ~5 a 0,5."""
+    def fit() -> MLP:
+        return MLP(hidden=hidden, seed=seed).fit(x, y, epochs=epochs, neg_weight=neg_weight, l2=l2,
+                                                 seed=seed, log=log)
+
+    mlp = fit()
+    for r in range(rounds):
+        xh = hard_negatives(mlp, mine, hard_threshold)
+        log(f"negativos difíceis (rodada {r + 1}/{rounds}): {len(xh)} janelas com nota >= {hard_threshold}")
+        if not len(xh):
+            break
+        x = np.concatenate([x, xh])
+        y = np.concatenate([y, np.zeros(len(xh))])
+        mlp = fit()
+    return mlp, x, y
+
+
 def train(args) -> Path:
     t0 = time.monotonic()
     base: Path = args.data_dir or data_dir(args.word)
     models_dir: Path = args.models_dir or default_models_dir()
     extra = args.extra
-    if extra is None and (train_dir() / "validation_set_features.npy").exists():
-        extra = train_dir() / "validation_set_features.npy"
+    if extra is None:
+        extra = [f for f in (train_dir() / EXTRA_FILE, train_dir() / ACAV_FILE) if f.exists()]
     feat = Featurizer(models_dir)
-    x, y, val_fp = build_dataset(base, feat, n_aug=args.aug, extra=extra, extra_stride=args.extra_stride,
-                                 seed=args.seed)
+    x, y, val_fp, mine = build_dataset(base, feat, n_aug=args.aug, extra=extra,
+                                       extra_stride=args.extra_stride, seed=args.seed)
     print(f"dataset: {int(y.sum())} positivas, {int(len(y) - y.sum())} negativas "
           f"({time.monotonic() - t0:.0f} s de atributos)")
-    mlp = MLP(seed=args.seed).fit(x, y, epochs=args.epochs, neg_weight=args.neg_weight, seed=args.seed)
+    mlp, x, y = fit_with_hard_negatives(
+        x, y, mine, hidden=args.hidden, epochs=args.epochs, neg_weight=args.neg_weight, l2=args.l2,
+        rounds=args.hard_rounds, hard_threshold=args.hard_threshold, seed=args.seed)
     hit, tot = heldout_recall(mlp, base, feat)
     if tot:
         print(f"positivas reservadas: {hit}/{tot} acima de 0,5 (avaliação completa: tools.wakeword.evaluate)")
     if val_fp is not None and len(val_fp):
-        hours = len(val_fp) * 0.08 / 3600
-        s = stream_scores(mlp, val_fp)
-        for thr in (0.3, 0.5, 0.7, 0.9):
-            print(f"  limiar {thr:.1f}: {activations(s, thr) / hours:.2f} falsos disparos/h "
-                  f"em {hours:.1f} h de negativos reservados")
+        fp_report(mlp, val_fp)
     out = args.output or models_dir / f"{args.word}.onnx"
     if out.exists():
         shutil.copy2(out, out.with_suffix(".onnx.bak"))
@@ -448,6 +512,38 @@ def fetch(dest: Path) -> Path:
     return out
 
 
+def acav_ranges(n: int, chunks: int, total: int = ACAV_TOTAL) -> list[tuple[int, int]]:
+    """``chunks`` trechos ``(início, quantidade)`` de janelas, igualmente espaçados no arquivo."""
+    per = n // chunks
+    return [(int(i * total / chunks), per) for i in range(chunks)]
+
+
+def fetch_acav(dest: Path, n: int, chunks: int = 8, opener=None) -> Path:
+    """Baixa ``n`` janelas do ACAV100M (``n * 3 KB``) por requisições de faixa (HTTP Range) e grava
+    ``acav100m_part.npy`` ``(n, 16, 96)`` float16. Mais variedade de negativos = menos falsos."""
+    import urllib.request
+
+    dest.mkdir(parents=True, exist_ok=True)
+    out = dest / ACAV_FILE
+    row = N_FRAMES * EMB_DIM * 2
+    opener = opener or urllib.request.urlopen
+    parts = []
+    for start, count in acav_ranges(n, chunks):
+        a = ACAV_HEADER + start * row
+        req = urllib.request.Request(ACAV_URL, headers={"Range": f"bytes={a}-{a + count * row - 1}"})
+        with opener(req) as r:
+            buf = r.read()
+        if len(buf) != count * row:
+            raise SystemExit(f"faixa incompleta do ACAV100M: {len(buf)} de {count * row} bytes")
+        parts.append(np.frombuffer(buf, "<f2").reshape(count, N_FRAMES, EMB_DIM))
+        print(f"  {sum(len(p) for p in parts)}/{n} janelas")
+    tmp = out.with_suffix(".part.npy")
+    np.save(tmp, np.concatenate(parts))
+    tmp.rename(out)
+    print(f"ok: {out}")
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--word", default=DEFAULT_WORD, help="palavra: pasta dos dados e nome do .onnx")
@@ -457,12 +553,20 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("-n", type=int, default=150)
     s.add_argument("--budget", type=float, default=0.20, help="teto acumulado em US$")
     s.add_argument("--text", action="append", help="frase (repetível); padrão: Condessa com e sem hey/oi/oh")
-    sub.add_parser("fetch", help="baixa negativos pré-computados do openWakeWord (~11 h, 185 MB)")
+    f = sub.add_parser("fetch", help="baixa negativos pré-computados do openWakeWord (~11 h, 185 MB)")
+    f.add_argument("--acav", type=int, default=0,
+                   help="também N janelas de 2 s do ACAV100M (3 KB cada; 500000 = 1,5 GB)")
     t = sub.add_parser("train", help="treina e exporta o ONNX")
     t.add_argument("--aug", type=int, default=10, help="variações aumentadas por positiva")
     t.add_argument("--epochs", type=int, default=40)
-    t.add_argument("--neg-weight", type=float, default=2.0)
-    t.add_argument("--extra", type=Path, default=None, help="atributos .npy extras de negativos")
+    t.add_argument("--neg-weight", type=float, default=50.0,
+                   help="peso total dos negativos em relação às positivas (maior = menos falsos)")
+    t.add_argument("--l2", type=float, default=3e-3, help="regularização (maior = generaliza mais)")
+    t.add_argument("--hidden", type=int, default=64, help="neurônios por camada oculta")
+    t.add_argument("--hard-rounds", type=int, default=1, help="rodadas de negativos difíceis (0 = sem)")
+    t.add_argument("--hard-threshold", type=float, default=0.05)
+    t.add_argument("--extra", type=Path, action="append",
+                   help=f"atributos .npy de negativos (repetível); padrão: {EXTRA_FILE} e {ACAV_FILE}")
     t.add_argument("--extra-stride", type=int, default=4)
     t.add_argument("--models-dir", type=Path, default=None)
     t.add_argument("--output", type=Path, default=None)
@@ -473,6 +577,8 @@ def main(argv: list[str] | None = None) -> int:
         synthesize(base / "synthetic", args.n, args.budget, openai_speaker(), texts=args.text)
     elif args.cmd == "fetch":
         fetch(train_dir())
+        if args.acav:
+            fetch_acav(train_dir(), args.acav)
     else:
         train(args)
     return 0

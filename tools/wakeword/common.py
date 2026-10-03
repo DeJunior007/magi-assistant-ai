@@ -24,6 +24,40 @@ EMB_DIM = 96
 #: Palavra de ativação padrão do kit: nome do modelo (``condessa.onnx``) e da pasta de dados.
 DEFAULT_WORD = "condessa"
 
+#: Um embedding (e uma nota do detector) a cada 80 ms.
+FRAME_S = 0.08
+#: Recarga depois de uma ativação, em passos de 80 ms (2 s, o ``wake_cooldown_ms`` padrão).
+COOLDOWN_FRAMES = 25
+#: Fração final de ``validation_set_features.npy`` que nunca entra no treino (mede falsos/h).
+EXTRA_HOLDOUT = 0.15
+EXTRA_FILE = "validation_set_features.npy"
+
+
+def activations(scores: np.ndarray, threshold: float, patience: int = 1,
+                cooldown: int = COOLDOWN_FRAMES) -> int:
+    """Ativações num fluxo de notas (uma por 80 ms), como o ``WakeSpotter`` do satélite:
+    ``patience`` notas seguidas >= ``threshold`` disparam; depois, ``cooldown`` passos mudos e a
+    sequência recomeça do zero. Notas isoladas acima do limiar não contam com ``patience`` > 1."""
+    n, mute, streak = 0, -1, 0
+    for i, s in enumerate(np.asarray(scores)):
+        if i <= mute:
+            continue
+        streak = streak + 1 if s >= threshold else 0
+        if streak >= max(1, patience):
+            n += 1
+            mute, streak = i + cooldown, 0
+    return n
+
+
+def detected(scores: np.ndarray, threshold: float, patience: int = 1) -> bool:
+    """Se uma positiva ativaria: ``patience`` notas seguidas >= ``threshold``."""
+    return activations(scores, threshold, patience) > 0
+
+
+def extra_split(n: int, holdout: float = EXTRA_HOLDOUT) -> int:
+    """Índice do corte no fluxo de atributos extra: ``[:cut]`` treina, ``[cut:]`` fica reservado."""
+    return int(n * (1 - holdout))
+
 
 def data_root() -> Path:
     """``$XDG_DATA_HOME/magi/wakeword-data`` (padrão ``~/.local/share``)."""
