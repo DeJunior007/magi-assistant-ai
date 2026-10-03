@@ -311,6 +311,7 @@ class Core:
     profile: Any = None  # magi.memory.profile.ProfileUpdater (4.2): perfil 1×/dia + vocab do STT
     game: Any = None  # magi.core.game_context.GameWatcher (1.21): jogo aberto; varre em ``start_proactive``
     game_task: asyncio.Task[Any] | None = None
+    news_feedback: Any = None  # magi.news.feedback.NewsFeedback (6.11): ``cfg`` trocada na recarga (1.22)
 
     def warn(self, msg: str) -> None:
         if msg not in self.warnings:
@@ -576,6 +577,7 @@ def _wire_news_feedback(core: Core, config: Config, found: list[ActionHandler]) 
             except ConfigError as e:
                 core.warn(f"{e}; retorno de notícias com os padrões")
             h.feedback.repo = repo
+            core.news_feedback = h.feedback
             return
 
 
@@ -805,10 +807,8 @@ def _wire_voice(core: Core, config: Config, catalog: GameCatalog) -> None:
         core.warn(f"STT: {why}")
     why = _check(p, "tts")
     if why is None:
-        voice = config.tasks["tts"].options.get("voice")
-        core.deps.speaker = PhraseSpeaker(
-            p.tts, voice=str(voice) if voice else None, cache=PhraseCache(config.paths.cache_dir / "tts")
-        )
+        # A voz vem de ``GuardedTts.voice`` a cada fala: recarga da config troca a voz a quente (1.22).
+        core.deps.speaker = PhraseSpeaker(p.tts, cache=PhraseCache(config.paths.cache_dir / "tts"))
     else:
         core.warn(f"TTS: {why}")
 

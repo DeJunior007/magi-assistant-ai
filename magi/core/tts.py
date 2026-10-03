@@ -242,6 +242,14 @@ class PhraseSpeaker:
             return
         self._warm_task = asyncio.get_running_loop().create_task(self.warm(), name="tts-warm")
 
+    def invalidate(self) -> None:
+        """Voz/modelo do TTS mudou (recarga a quente, 1.22): as chaves antigas deixam de casar (a
+        voz entra na chave) e a pré-geração roda de novo no próximo ``say``, com a voz nova. As
+        frases da voz anterior ficam no disco até o LRU tirá-las (voltar a ela não gasta de novo)."""
+        task, self._warm_task = self._warm_task, None
+        if task is not None and not task.done():
+            task.cancel()
+
     async def aclose(self) -> None:
         task, self._warm_task = self._warm_task, None
         if task is not None and not task.done():

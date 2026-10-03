@@ -239,16 +239,34 @@ async def run(
     if core is not None:
         core.start_proactive(lambda: list(service.satellites.values()))
     stop = asyncio.Event()
+    watch = _watch_config(core, config, hud, service, stop)
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
     try:
         await stop.wait()
     finally:
+        if watch is not None:
+            watch.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watch
         await service.stop()
         await hud.stop()
         if core is not None:
             await core.aclose()
+
+
+def _watch_config(
+    core: Core | None, config: Config | None, hud: HudServer, service: CoreService, stop: asyncio.Event
+) -> asyncio.Task[None] | None:
+    """Recarga do config a quente (1.22); só com núcleo montado e config lido de um arquivo."""
+    if core is None or config is None or config.source is None:
+        return None
+    from magi.core.reload import ConfigReloader
+
+    reloader = ConfigReloader(core, config, hud, service=service)
+    log.info("observando %s (recarga a quente)", reloader.path)
+    return asyncio.create_task(reloader.watch(stop), name="config-watch")
 
 
 def main(argv: list[str] | None = None) -> None:

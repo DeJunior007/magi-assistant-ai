@@ -177,6 +177,8 @@ class GuardedTts(_Guarded):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.output_format = self._backend.tts_format(self._ctx)
+        #: Voz de ``[tasks].tts.voice`` ("" = padrão do backend); entra na chave do cache de frases.
+        self.voice = str(self._ctx.options.get("voice") or "")
 
     def synthesize(self, text: str | AsyncIterable[str], *, personal: bool) -> AsyncIterator[bytes]:
         self._check_personal(personal)  # recusa já na chamada, antes de consumir o texto
@@ -290,16 +292,36 @@ class Registry:
     def config(self) -> Config:
         return self._config
 
-    def reload(self, config: Config) -> None:
-        """Troca a config (callback do ``ConfigWatcher``). Pools com os mesmos nomes de chave são
-        mantidos, com o estado de espera."""
-        self._config = config
-        self._backends.clear()
-        self._cache.clear()
+    def reload(self, config: Config) -> set[str]:
+        """Troca a config (recarga a quente, 1.22). Só os backends e provedores afetados são
+        refeitos: backend cujo ``[providers.<p>]`` mudou e objeto de tarefa cuja ``[tasks.<t>]``
+        (ou provedor) mudou. Pools com os mesmos nomes de chave são mantidos, com o estado de
+        espera. Devolve as tarefas refeitas."""
+        old, self._config = self._config, config
+        changed_providers = {
+            n for n in set(old.providers) | set(config.providers)
+            if old.providers.get(n) != config.providers.get(n)
+        }
+        for name in changed_providers:
+            self._backends.pop(name, None)
+        rebuilt: set[str] = set()
+        for ck in list(self._cache):
+            cls, task = ck
+            tname = task.value if isinstance(task, ProviderTask) else str(task)
+            deps = [tname]
+            if cls is GuardedEmbeddings and tname == ProviderTask.NEWS.value:
+                deps.append(ProviderTask.EMBEDDINGS.value)
+            stale = self._cache[ck].name in changed_providers or any(
+                old.tasks.get(d) != config.tasks.get(d) for d in deps
+            )
+            if stale:
+                del self._cache[ck]
+                rebuilt.add(tname)
         for name in list(self._pools):
             p = config.providers.get(name)
             if p is None or p.keys != self._pools[name][0]:
                 del self._pools[name]
+        return rebuilt
 
     def pool(self, provider: str) -> KeyPool:
         """KeyPool do provedor (criado na primeira vez, lendo o keyring)."""
