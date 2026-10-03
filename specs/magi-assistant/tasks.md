@@ -226,6 +226,13 @@ Formato de cada tarefa:
   - Orçamento: ~50k
   - Pronto: testes com satélite/HUD falsos: continuação sem wake word reabre a janela; silêncio dorme sem falar; dispensa dorme; em call sem janela; nova ativação durante a janela; satélite não toca nada com `reason="followup"`.
 
+- [x] **1.21 Contexto de jogo** — `GameWatcher` varre `/proc` a cada 5 s (só leitura, só processos do usuário, environ lido uma vez por pid) e acha o jogo por `SteamAppId` ≠ 0, ignorando Steam/`steamwebhelper`; jogos fora da Steam por `[game] known_processes`. Nome pelo catálogo (ou Store), início pelo `starttime` do processo, gêneros/categorias da Steam Store e tags de usuário do SteamSpy com cache em `~/.cache/magi/steam-tags.json`. Expõe `current()` (`GameInfo` do picker), `game_context()` (`GameContext` do agente), `running()` e eventos `opened`/`closed` (`subscribe`). Ligado no `assemble` (agente e "coloca uma boa") e iniciado em `start_proactive`. *(R8.1, R14, R15.5)*
+  - Lê: `magi/core/catalog.py`, `hud/gamerhud.py` (`steam_game`, `readb`), `magi/agent/prompt.py` (`GameContext`), `magi/core/music/pick.py` (`GameInfo`), `magi/core/actions/games.py`, `magi/core/assemble.py`
+  - Escreve: `magi/core/game_context.py`, `magi/core/steam_tags.py`, `magi/core/assemble.py`, testes
+  - Depende de: 1.7, 2.5, 3.4
+  - Orçamento: ~45k
+  - Pronto: testes com `/proc` falso, catálogo falso e Store via `MockTransport`: detecta o jogo, ignora a Steam, fecha o jogo, cache de tags persiste e vence, adaptadores, e o agente recebe o `GameContext`.
+
 - [ ] **1.18 Medição da fase 1** — script de desempenho do §10 (CPU/RAM ociosos por 10 min, latência p90 de 50 turnos).
   - Lê: §10, tabela RNF de `requirements.md`
   - Escreve: `tools/perf.py`, `docs/perf/fase1.md`

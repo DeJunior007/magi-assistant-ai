@@ -242,14 +242,16 @@ def default_handlers(
     return found
 
 
-AgentFactory = Callable[[Any, ActionRegistry, Any], Agent]
+AgentFactory = Callable[..., Agent]  # (providers, registry, self_model, *, game=None)
 
 
-def default_agent(providers: Any, registry: ActionRegistry, self_model: Any = None) -> Agent:
+def default_agent(
+    providers: Any, registry: ActionRegistry, self_model: Any = None, *, game: Callable[[], Any] | None = None
+) -> Agent:
     """``GraphAgent`` (3.4) com as ferramentas de sistema e de mídia (3.5) sobre o registro de
     ações, a pesquisa (3.8, se ``[tasks.search]`` existir), a visão (3.7, ``screenshot`` sobre
     ``providers.vision()``) e, com a ficha (3.9, ``SelfModel``), a ferramenta ``self_info`` e a
-    seção "Sobre você" no prompt."""
+    seção "Sobre você" no prompt. ``game``: jogo aberto como ``GameContext`` (1.21)."""
     from magi.agent.graph import GraphAgent
     from magi.agent.self_model import SelfInfoTool
     from magi.agent.tools.media import media_tools
@@ -266,10 +268,10 @@ def default_agent(providers: Any, registry: ActionRegistry, self_model: Any = No
         *vision_tools(providers),
     ]
     if self_model is None:
-        return GraphAgent(providers, tools, game=lambda: None)
+        return GraphAgent(providers, tools, game=game)
     tools.append(SelfInfoTool(self_model))
     self_model.tools = tuple(t.spec for t in tools)
-    return GraphAgent(providers, tools, game=lambda: None, about=self_model.about_section)
+    return GraphAgent(providers, tools, game=game, about=self_model.about_section)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -297,6 +299,8 @@ class Core:
     self_model: Any = None  # magi.agent.self_model.SelfModel (3.9): ficha viva da Magui
     memory: Any = None  # magi.memory.memories_repo.MemoryStore (4.1)
     mood: Any = None  # magi.memory.mood.MoodTracker (4.3)
+    game: Any = None  # magi.core.game_context.GameWatcher (1.21): jogo aberto; varre em ``start_proactive``
+    game_task: asyncio.Task[Any] | None = None
 
     def warn(self, msg: str) -> None:
         if msg not in self.warnings:
@@ -305,7 +309,7 @@ class Core:
 
     def start_proactive(self, targets: Targets) -> None:
         """Liga a entrega proativa aos satélites do serviço e inicia alertas (5.3), notícias (6.10)
-        e a observação do Spotify para os sinais de música (2.4)."""
+        a observação do Spotify para os sinais de música (2.4) e a do jogo aberto (1.21)."""
         if self.proactive is not None:
             self.proactive.targets = targets
         if self.alerts is not None:
@@ -315,6 +319,9 @@ class Core:
         if self.music is not None and self.music_task is None:
             self.music_task = asyncio.create_task(self.music.run())
             self.tasks.append(self.music_task)
+        if self.game is not None and self.game_task is None:
+            self.game_task = asyncio.create_task(self.game.run())
+            self.tasks.append(self.game_task)
 
     async def aclose(self) -> None:
         if self.news is not None:
@@ -445,6 +452,7 @@ async def assemble(
 
         catalog = SteamCatalog()
     core.catalog = catalog
+    core.game = _game_watcher(config, catalog)
     core.deps.router = LocalRouter(catalog)
     core.deps.corrector = core.corrections
     found = handlers(catalog, hud_sink, core.corrections)
@@ -472,7 +480,8 @@ async def assemble(
         why = _has_key_safe(core.providers, "agent")
         if why is None:
             try:
-                core.deps.agent = agent(core.providers, core.deps.actions, core.self_model)
+                game = core.game.game_context if core.game is not None else None
+                core.deps.agent = agent(core.providers, core.deps.actions, core.self_model, game=game)
             except Exception as e:
                 why = f"{type(e).__name__}: {e}"
         if why is not None:
@@ -607,6 +616,17 @@ def _wire_memory_agent(core: Core) -> None:
         core.self_model.tools = agent.tool_specs
 
 
+def _game_watcher(config: Config, catalog: GameCatalog) -> Any:
+    """Contexto de jogo (1.21): ``[game] known_processes`` = nome do processo → jogo fora da Steam."""
+    from magi.core.game_context import GameWatcher
+    from magi.core.steam_tags import CACHE_FILE, SteamTags
+
+    raw = config.raw.get("game") if isinstance(config.raw, dict) else None
+    known = (raw or {}).get("known_processes") if isinstance(raw, dict) else None
+    known = {str(k): str(v) for k, v in known.items()} if isinstance(known, dict) else {}
+    return GameWatcher(catalog, SteamTags(config.paths.cache_dir / CACHE_FILE), known_processes=known)
+
+
 def _wire_music(core: Core, found: list[ActionHandler]) -> None:
     """Acha o ``MusicSignals`` dos handlers (2.4) e liga o repo do banco, se houver."""
     from magi.core.music.signals import MusicSignalsHandler
@@ -628,6 +648,8 @@ def _wire_pick(core: Core, config: Config, found: list[ActionHandler]) -> None:
     picker = next((h.picker for h in found if isinstance(h, pick.MusicPickHandler)), None)
     if picker is None:
         return
+    if core.game is not None:
+        picker.game = core.game.current
     picker.genres = pick.GenreCache(config.paths.data_dir / pick.GENRE_FILE)
     taste = core.repos.taste if core.repos is not None else None
     if taste is None:
