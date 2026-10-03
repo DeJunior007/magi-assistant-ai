@@ -9,7 +9,7 @@
   os monitores e restaura a configuração ao fechar.
 Fica abaixo das outras janelas (regra do KWin), então dá pra usar o monitor
 normalmente por cima dele. Duplo clique fecha.
-`gamerhud.py --restore` só restaura o wallpaper; `--install-icons` gera os ícones.
+`gamerhud.py --restore` só restaura o wallpaper (mesmo sem wallpaper_state.json); `--install-icons` gera os ícones.
 """
 import datetime
 import glob
@@ -259,8 +259,19 @@ def install_icons():
 # Modo "still" (padrão): troca cada cena por um print dela mesma, o plugin do
 # Wallpaper Engine é descarregado e solta a VRAM; ao fechar, volta pra cena.
 # Modo "pause" (reserva, ou settings.json "wallpaper": "pause"): só pausa as cenas.
+# A volta não depende do wallpaper_state.json: toda tela em `org.kde.image` com
+# imagem em ~/.cache/gamerhud/stills/ volta pro plugin do WE (as configs dele
+# ficam intactas no appletsrc). O estado só é apagado se o Plasma confirmar.
+
+def wallpaper_disabled():
+    """Testes e ferramentas offscreen nunca tocam no papel de parede real."""
+    return (os.environ.get("GAMERHUD_NO_WALLPAPER", "") not in ("", "0")
+            or os.environ.get("QT_QPA_PLATFORM", "") == "offscreen")
+
 
 def plasma_eval(script):
+    if wallpaper_disabled():
+        return None
     iface = QDBusInterface("org.kde.plasmashell", "/PlasmaShell", "org.kde.PlasmaShell",
                            QDBusConnection.sessionBus())
     if not iface.isValid():
@@ -271,6 +282,8 @@ def plasma_eval(script):
 
 def kwin_script(js, name):
     """Roda um script curto no KWin (carrega, executa, descarrega)."""
+    if wallpaper_disabled():
+        return False
     bus = QDBusConnection.sessionBus()
     scripting = QDBusInterface("org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting", bus)
     if not scripting.isValid():
@@ -296,11 +309,17 @@ SHOW_JS = ("workspace.windowList().forEach(function(w){"
            "if(!w.desktopWindow&&w.opacity>0&&w.opacity<=0.0011)w.opacity=w.opacity*1000;});")
 
 
+def stills_dir():
+    return os.path.join(CACHE, "stills")
+
+
 def _read_state():
     try:
         with open(WP_STATE) as f:
             state = json.load(f)
     except (OSError, ValueError):
+        return None
+    if not isinstance(state, dict):
         return None
     if "mode" not in state:   # formato antigo: {id: [PauseMode, filtro]}
         state = {"mode": "pause", "desktops": state}
@@ -308,9 +327,17 @@ def _read_state():
 
 
 def _write_state(state):
+    """Atômico (tmp + rename) e nunca por cima de um estado existente: o original é o 1º."""
+    if _read_state() is not None:
+        return False
     os.makedirs(CACHE, exist_ok=True)
-    with open(WP_STATE, "w") as f:
+    tmp = f"{WP_STATE}.{os.getpid()}.tmp"
+    with open(tmp, "w") as f:
         json.dump(state, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, WP_STATE)
+    return True
 
 
 def _desktops():
@@ -328,30 +355,44 @@ def _desktops():
 
 
 def _apply_wp(values):
-    """values: {desktop_id: (PauseMode, PauseFilterByScreen)}"""
+    """values: {desktop_id: (PauseMode, PauseFilterByScreen)}. True se o Plasma confirmou."""
     js = json.dumps({str(k): [int(m), bool(f)] for k, (m, f) in values.items()})
-    plasma_eval(
+    out = plasma_eval(
         f"var s={js};desktops().forEach(function(d){{var v=s[String(d.id)];"
         f"if(!v||d.wallpaperPlugin!='{WE_PLUGIN}')return;"
         f"d.currentConfigGroup=['Wallpaper','{WE_PLUGIN}','General'];"
-        f"d.writeConfig('PauseMode',v[0]);d.writeConfig('PauseFilterByScreen',v[1]);}});")
+        f"d.writeConfig('PauseMode',v[0]);d.writeConfig('PauseFilterByScreen',v[1]);}});"
+        f"print('ok');")
+    return bool(out) and "ok" in str(out)
+
+
+def _unstill():
+    """Toda tela em org.kde.image com foto do cache volta pro WE. None se o Plasma não respondeu."""
+    out = plasma_eval(
+        f"var st={json.dumps(stills_dir())},n=0;desktops().forEach(function(d){{"
+        f"if(d.wallpaperPlugin!='org.kde.image')return;"
+        f"d.currentConfigGroup=['Wallpaper','org.kde.image','General'];"
+        f"if(String(d.readConfig('Image')||'').indexOf(st)<0)return;"
+        f"d.wallpaperPlugin='{WE_PLUGIN}';n++;}});print('ok '+n);")
+    m = re.search(r"ok (\d+)", str(out or ""))
+    return int(m.group(1)) if m else None
 
 
 def still_wallpapers():
     """Troca as cenas por um print do wallpaper (sem janelas) e descarrega o plugin.
     O print fica em cache por cena: só captura de novo se a cena mudar."""
     state = _read_state()
-    if state:
-        if state["mode"] == "still":
-            return True        # sobrou de uma sessão que caiu: os prints já estão aplicados
-        restore_wallpapers()
+    if state and state["mode"] == "still":
+        return True            # sobrou de uma sessão que caiu: os prints já estão aplicados
+    # sobras (estado de pausa, ou prints presos sem estado) voltam antes: senão o "original" vira a foto
+    if not restore_wallpapers():
+        return False
     desks = _desktops()
     we = {k: v[1:] for k, v in desks.items() if v[0] == WE_PLUGIN}
     if not we:
         return False
-    stills_dir = os.path.join(CACHE, "stills")
-    os.makedirs(stills_dir, exist_ok=True)
-    paths = {did: os.path.join(stills_dir, f"{scene or did}_{w}x{h}.jpg")
+    os.makedirs(stills_dir(), exist_ok=True)
+    paths = {did: os.path.join(stills_dir(), f"{scene or did}_{w}x{h}.jpg")
              for did, (scene, x, y, w, h) in we.items()}
     if not all(os.path.exists(p) for p in paths.values()):
         full = os.path.join(CACHE, "capture.png")
@@ -386,6 +427,7 @@ def pause_wallpapers():
     """PauseMode=FullScreen sem filtro de tela: a tela cheia do HUD pausa todos."""
     state = _read_state()
     if not state:
+        restore_wallpapers()   # prints presos sem estado voltam pro WE antes de ler o "original"
         out = plasma_eval(
             f"var o=[];desktops().forEach(function(d){{if(d.wallpaperPlugin!='{WE_PLUGIN}')return;"
             f"d.currentConfigGroup=['Wallpaper','{WE_PLUGIN}','General'];"
@@ -398,13 +440,15 @@ def pause_wallpapers():
             saved[did] = [int(mode or 0), flt.strip().lower() == "true"]
         if not saved:
             return
-        state = {"mode": "pause", "desktops": saved}
-        _write_state(state)
-    if state["mode"] == "pause":
+        _write_state({"mode": "pause", "desktops": saved})
+        state = _read_state()
+    if state and state["mode"] == "pause":
         _apply_wp({k: (5, False) for k in state["desktops"]})
 
 
 def prepare_wallpapers():
+    if wallpaper_disabled():
+        return
     mode = load_settings().get("wallpaper", "still")
     if mode == "off":
         return
@@ -414,17 +458,74 @@ def prepare_wallpapers():
 
 
 def restore_wallpapers():
+    """Sempre tira os prints do cache (com ou sem estado) e, no modo pausa, devolve
+    PauseMode/filtro originais. True se ficou tudo restaurado (estado apagado)."""
     kwin_script(SHOW_JS, "gamerhud_show")   # garantia: nenhuma janela fica invisível
     state = _read_state()
-    if not state:
-        return
-    if state["mode"] == "still":
-        plasma_eval(
-            f"var s={json.dumps(state['desktops'])};desktops().forEach(function(d){{"
-            f"if(s.indexOf(String(d.id))<0)return;d.wallpaperPlugin='{WE_PLUGIN}';}});")
-    else:
-        _apply_wp({k: tuple(v) for k, v in state["desktops"].items()})
-    os.remove(WP_STATE)
+    ok = _unstill() is not None
+    if state and state["mode"] == "pause":
+        ok = _apply_wp({k: tuple(v) for k, v in state["desktops"].items()}) and ok
+    if not ok:
+        return state is None   # Plasma fora do ar (logout, offscreen): o estado fica pra próxima
+    try:
+        os.remove(WP_STATE)
+    except OSError:
+        pass
+    return True
+
+
+class WallpaperGuard:
+    """Restauração única e garantida: SIGTERM/SIGINT/SIGHUP, aboutToQuit, closeEvent e atexit."""
+
+    def __init__(self, app=None, window=None):
+        self.app, self.window, self.done, self.in_loop = app, window, False, False
+
+    def finish(self):
+        if self.done:
+            return
+        self.done = True
+        try:
+            if self.window is not None:
+                self.window.hide()   # some da tela na hora; a restauração vem depois
+                if self.app is not None:
+                    self.app.processEvents()
+        except RuntimeError:         # janela já destruída (atexit): restaura assim mesmo
+            pass
+        restore_wallpapers()
+
+    def on_signal(self, *_):
+        self.finish()
+        if self.in_loop:
+            self.app.quit()
+        else:
+            raise SystemExit(0)   # sinal antes do app.exec() (ex.: no meio do prepare): sai já
+
+    def install(self):
+        import atexit
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            signal.signal(sig, self.on_signal)
+        if self.app is not None:
+            self.app.aboutToQuit.connect(self.finish)
+            QTimer.singleShot(0, self._loop_started)
+        atexit.register(self.finish)
+
+    def _loop_started(self):
+        self.in_loop = True
+
+
+def single_instance():
+    """Trava do HUD: dois HUDs não disputam o mesmo estado do wallpaper. None = já tem um."""
+    import fcntl
+    os.makedirs(CACHE, exist_ok=True)
+    lock = open(os.path.join(CACHE, "hud.lock"), "w")
+    for _ in range(20):
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return lock
+        except OSError:
+            time.sleep(0.05)
+    lock.close()
+    return None
 
 
 # ------------------------------------------------------------ sistema / dados
@@ -1354,6 +1455,13 @@ class HUD(QWidget):
         elif self.wired.player(target):
             self.wired_refresh()
 
+    on_close = None   # main() liga a restauração do wallpaper aqui
+
+    def closeEvent(self, e):
+        if self.on_close:
+            self.on_close()
+        super().closeEvent(e)
+
     def mouseDoubleClickEvent(self, e):
         if self.clickable(e.position()):
             return   # o 1º clique já agiu; duplo clique em área clicável não fecha o HUD
@@ -2068,9 +2176,13 @@ def main():
     if fid >= 0:
         fonts["seg"] = QFontDatabase.applicationFontFamilies(fid)[0]
 
-    # fecha limpo no pkill (SIGTERM) pra restaurar o wallpaper
-    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-        signal.signal(sig, lambda *_: app.quit())
+    lock = single_instance()
+    if lock is None:
+        print("gamerhud: já tem um HUD aberto", file=sys.stderr)
+        return
+    # sinais, aboutToQuit, closeEvent e atexit: todos restauram o wallpaper (uma vez só)
+    guard = WallpaperGuard(app)
+    guard.install()
     wake = QTimer(timeout=lambda: None)
     wake.start(250)   # deixa o Python processar sinais durante o loop do Qt
 
@@ -2080,12 +2192,8 @@ def main():
         screen = next((sc for sc in screens if sc != app.primaryScreen()), app.primaryScreen())
 
     w = HUD(fonts)
-
-    def on_quit():
-        w.hide()              # some da tela na hora; a restauração vem depois
-        app.processEvents()
-        restore_wallpapers()
-    app.aboutToQuit.connect(on_quit)
+    guard.window = w
+    w.on_close = guard.finish
     prepare_wallpapers()   # antes de mostrar o HUD, pro print pegar o wallpaper limpo
     w.setScreen(screen)
     w.setGeometry(screen.geometry())

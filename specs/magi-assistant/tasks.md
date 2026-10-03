@@ -575,6 +575,13 @@ Fonte: `docs/design/MAGI-HANDOFF.md`, design §13. U1 e U2 em paralelo; U3 depoi
   - Orçamento: ~60k
   - Pronto: HUD real no tema novo, CPU dentro da meta do R23.8.
 
+- [x] **U5 Papel de parede sempre volta** — a restauração não depende mais do `wallpaper_state.json`: toda tela em `org.kde.image` com foto de `~/.cache/gamerhud/stills/` volta pro plugin do WE; o estado só é apagado se o Plasma confirmar, é gravado de forma atômica e uma vez por sessão; HUD com trava de instância única e restauração em SIGTERM/SIGINT/SIGHUP, aboutToQuit, closeEvent e atexit; vigia (login + a cada 30 s) e `gamerhud` bin chamam `--restore` quando o HUD não está rodando; `GAMERHUD_NO_WALLPAPER=1`/offscreen deixam plasma/kwin mudos em testes e em `wired_hud.py`.
+  - Lê: `hud/gamerhud.py` (wallpaper, `main`), `hud/gamerhud-watch.py`, `hud/tools/wired_hud.py`, `hud/system/bin/gamerhud`
+  - Escreve: esses arquivos, `tests/hud/conftest.py`, `tests/hud/test_wallpaper.py`
+  - Depende de: U4
+  - Orçamento: ~60k
+  - Pronto: testes com plasma/kwin/appletsrc falsos (sem estado + prints → restaura; abrir 2× não sobrescreve; offscreen não chama plasma; vigia restaura; SIGTERM restaura).
+
 ## Encerramento do MVP
 
 - [ ] **7.1 Medição final** — todos os RNF medidos e registrados.
