@@ -75,6 +75,7 @@ from magi.common.contracts import (
 )
 from magi.core.compose import compose, subtitle
 from magi.core.early import EARLY_SPEECH, EarlySpeech
+from magi.core.utterance import UtteranceSaver, normalize_pcm16
 
 if TYPE_CHECKING:
     from magi.core.proactive.sink import Offer
@@ -133,6 +134,7 @@ class TurnDeps:
     - ``mood`` (4.3): ``magi.memory.mood.MoodTracker``; sem ele, ``ctx.mood`` fica no padrão.
     - ``prewarm`` (1.23): disparado em segundo plano a cada ativação, abre as conexões HTTP dos
       provedores (STT/TTS/agente) enquanto o usuário ainda fala; erro é ignorado.
+    - ``save_audio`` (1.26): ``[debug] save_audio``; grava cada fala enviada ao STT em WAV.
     """
 
     stt: SttProvider | None = None
@@ -144,6 +146,12 @@ class TurnDeps:
     turns: TurnsRepo | None = None
     mood: Any = None
     prewarm: Callable[[], Awaitable[Any]] | None = None
+    save_audio: UtteranceSaver | None = None
+
+
+def _short(text: str, limit: int = 120) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _normalize(text: str) -> str:
@@ -217,14 +225,22 @@ class TurnPipeline:
                 await stream.cancel()
             return Transcript.raw("")
         transcript = await stream.finish() if stream is not None else None
+        sent, gain_db = (audio, 0.0) if transcript is not None else normalize_pcm16(audio, fmt)
+        if self.deps.save_audio is not None:
+            self.deps.save_audio.save(sent, fmt)
+        seconds = len(audio) / max(1, fmt.rate * fmt.width * fmt.channels)
         if transcript is None:
             try:
-                transcript = await stt.transcribe(audio, fmt, personal=True)
+                transcript = await stt.transcribe(sent, fmt, personal=True)
             except ProviderError as e:
                 log.warning("transcrição falhou (%s): %s", ctx.satellite, e)
                 return Transcript.raw("")
+        log.info('%s: ouvi "%s" (%.1f s de áudio%s)', ctx.satellite, transcript.heard, seconds,
+                 f", ganho +{gain_db:.1f} dB" if gain_db else "")
         if self.deps.corrector is not None and not transcript.is_empty:
             transcript = await self.deps.corrector.apply(transcript)
+            if transcript.final != transcript.heard:
+                log.info('%s: corrigido para "%s"', ctx.satellite, transcript.final)
         return transcript
 
     def route(self, text: str, ctx: TurnContext) -> RouteResult:
@@ -246,8 +262,20 @@ class TurnPipeline:
             again, route = await self._respond(redo, ctx)
             speech = " ".join(s for s in (result.speech, again.speech) if s)
             result, transcript = dataclasses.replace(again, speech=speech, redo_text=result.redo_text), redo
+        self._log_turn(ctx, route, result)
         self._record(transcript, ctx, result, route)
         return result
+
+    @staticmethod
+    def _log_turn(ctx: TurnContext, route: RouteResult | None, result: ActionResult) -> None:
+        """Uma linha por turno no INFO: rota/intenção e a fala da resposta (1.26)."""
+        if route is None:
+            where = "nenhuma (sem texto)"
+        elif route.intent is not None:
+            where = f"{route.kind.value}:{route.intent.id} ({route.score:.0f})"
+        else:
+            where = route.kind.value
+        log.info('%s: rota %s -> "%s"', ctx.satellite, where, _short(result.speech))
 
     async def _observe_mood(self, transcript: Transcript, ctx: TurnContext) -> TurnContext:
         """Atualiza o termômetro com os sinais do turno e põe o nível no contexto (R13.3-R13.4)."""

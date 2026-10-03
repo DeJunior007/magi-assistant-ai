@@ -266,6 +266,13 @@ Formato de cada tarefa:
   - Orçamento: ~60k
   - Pronto: texto final chega após o stop sem reenviar o áudio; falha/estouro cai no caminho antigo; uso contabilizado; `no_speech`/interrupção fecham a sessão; suíte verde; validação real (`-m live`) medindo fim da fala → texto contra o caminho antigo.
 
+- [x] **1.26 Diagnóstico do reconhecimento de fala** — queixa "reconhece muito mal". Diagnóstico: captura correta (fluxo `magi` ligado ao source padrão, sem mudo/cork; PipeWire entrega s16le 16 kHz reamostrado do 48 kHz s24, LSBs usados, sem atenuação; ruído de fundo ~−60 dBFS, fala ~−35 dBFS). O `energy_db=-120` das escutas `magi-listen` é a sentinela do `ToneMeter` para "nenhum bloco com voz", não áudio zerado (teste com captura e saída falsas confirma que a escuta após o playback recebe o microfone). Mudanças: (a) núcleo loga em INFO `ouvi "<texto>"` (+ ganho), `corrigido para "..."` e `rota <tipo>:<intenção> (nota) -> "<fala>"`; `[debug] save_audio = true` grava cada fala do STT em `~/.cache/magi/utterances/` (50 últimas); (b) satélite loga rms/pico de todo o áudio gravado e avisa em caso de silêncio digital; (c) fim de fala 700 → 1000 ms, fala mínima de 240 ms seguidos (o fim do "Condessa"/estalos não armam o corte), `no_speech` espera a voz que começa no limite, pré-rolo 320 → 400 ms; tudo configurável em `[satellite]` (`end_silence_ms`, `min_speech_ms`, `vad_threshold`, `wake_no_speech_ms`, `preroll_ms`); (d) ganho automático leve antes do STT (fala até −20 dBFS, máx. +12 dB, pico ≤ −1 dBFS, só no caminho sem streaming).
+  - Lê: `magi/satellite/{capture,stream,vad,__main__,playback}.py`, `magi/core/turn.py`, logs do `journalctl`
+  - Escreve: `magi/satellite/{vad,stream,__main__}.py`, `magi/common/contracts.py` (`VAD_SILENCE_MS`), `magi/core/utterance.py`, `magi/core/turn.py`, `magi/core/assemble.py`, `config.example.toml`, `tests/satellite/{test_vad,test_stream,test_listen_after_playback}.py`, `tests/core/test_utterance.py`
+  - Depende de: 1.25
+  - Orçamento: ~80k
+  - Pronto: log do texto/rota/resposta no `journalctl --user -u magi-core`; escuta após playback recebe o microfone (teste); pausa de 900 ms não corta; ganho limitado sem clipar; suíte verde.
+
 - [x] **1.18 Medição da fase 1** — script de desempenho do §10 (CPU/RAM ociosos por 10 min, latência p90 de 50 turnos).
   - Lê: §10, tabela RNF de `requirements.md`
   - Escreve: `tools/perf.py`, `docs/perf/fase1.md`

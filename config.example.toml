@@ -99,6 +99,18 @@ cache_dir = "~/.cache/magi"
 followup   = true
 followup_s = 3.0
 
+[satellite]
+# Fim de fala (1.26), lido ao iniciar o satélite. Corta cedo demais? Aumente end_silence_ms.
+end_silence_ms    = 1000   # silêncio que encerra a frase
+min_speech_ms     = 240    # voz seguida mínima para contar como fala (estalos não contam)
+vad_threshold     = 0.5    # nota do Silero para "tem voz"; voz baixa/longe: 0.4
+wake_no_speech_ms = 5000   # após o "Condessa", desiste se ninguém falar
+preroll_ms        = 400    # áudio anterior à ativação enviado junto
+
+[debug]
+# save_audio = true grava cada fala enviada ao STT em ~/.cache/magi/utterances/ (as 50 últimas).
+save_audio = false
+
 [alerts]
 # Avisos proativos (R15.1, R15.2): fala curta + card fora de call; em call, só na tela.
 enabled            = true

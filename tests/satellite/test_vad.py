@@ -1,4 +1,4 @@
-"""VAD do satélite: fim de fala (700 ms), máximo de 15 s, escuta sem fala e Silero real."""
+"""VAD do satélite: fim de fala (1 s, fala mínima), máximo de 15 s, escuta sem fala e Silero real."""
 
 from pathlib import Path
 
@@ -13,7 +13,14 @@ from magi.common.contracts import (
     ListenRequest,
 )
 from magi.satellite.capture import iter_blocks, read_wav
-from magi.satellite.vad import VAD_MODEL_NAME, Endpointer, default_vad_dir, download_vad_model, load_vad
+from magi.satellite.vad import (
+    VAD_MODEL_NAME,
+    Endpointer,
+    VadSettings,
+    default_vad_dir,
+    download_vad_model,
+    load_vad,
+)
 
 DATA = Path(__file__).parent / "data"
 SILENT = np.zeros(CHUNK_SAMPLES, np.int16)
@@ -50,11 +57,11 @@ def silero():
         pytest.skip("Silero VAD não baixado (uv run magi-satellite --download-models)")
 
 
-def test_corta_apos_700ms_de_silencio():
+def test_corta_apos_o_silencio_de_fim():
     ep = Endpointer(ScriptedVad([0.9] * 10 + [0.0]))
     reason, n = run_until_end(ep)
     assert reason is AudioEndReason.VAD
-    assert n == 10 + -(-VAD_SILENCE_MS // 80)  # 9 blocos de silêncio = 720 ms
+    assert n == 10 + -(-VAD_SILENCE_MS // 80)  # 13 blocos de silêncio = 1040 ms
 
 
 def test_pausa_curta_nao_corta_e_histerese():
@@ -62,7 +69,50 @@ def test_pausa_curta_nao_corta_e_histerese():
     probs = [0.9] * 5 + [0.4] * 5 + [0.0] * 7 + [0.9] * 5 + [0.0]
     ep = Endpointer(ScriptedVad(probs))
     reason, n = run_until_end(ep)
-    assert reason is AudioEndReason.VAD and n == 22 + 9
+    assert reason is AudioEndReason.VAD and n == 22 + -(-VAD_SILENCE_MS // 80)
+
+
+def test_fim_padrao_tolera_pausa_de_900ms():
+    # 1.26: 700 ms cortava frases com pausa natural; agora o padrão é 1 s
+    assert VAD_SILENCE_MS >= 900
+    probs = [0.9] * 5 + [0.0] * 11 + [0.9] * 5 + [0.0]
+    reason, n = run_until_end(Endpointer(ScriptedVad(probs)))
+    assert reason is AudioEndReason.VAD and n == 21 + -(-VAD_SILENCE_MS // 80)
+
+
+def test_rabo_do_wake_word_nao_arma_o_fim():
+    # 2 blocos de voz (fim do "Condessa"), pausa de 1,6 s, depois o comando: nada é cortado na pausa
+    probs = [0.9] * 2 + [0.0] * 20 + [0.9] * 8 + [0.0]
+    ep = Endpointer(ScriptedVad(probs), min_speech_ms=240)
+    reason, n = run_until_end(ep)
+    assert reason is AudioEndReason.VAD and n == 30 + -(-VAD_SILENCE_MS // 80)
+
+
+def test_estalo_isolado_nao_conta_como_fala():
+    ep = Endpointer(ScriptedVad([0.0] * 3 + [0.9] + [0.0]), no_speech_ms=1000)
+    reason, n = run_until_end(ep)
+    assert reason is AudioEndReason.NO_SPEECH and not ep.heard_speech and n * 80 >= 1000
+
+
+def test_voz_comecando_no_limite_do_no_speech_espera_confirmar():
+    # prazo de 800 ms (10 blocos); a voz começa no 10º bloco: não desiste, grava a fala
+    probs = [0.0] * 9 + [0.9] * 6 + [0.0]
+    ep = Endpointer(ScriptedVad(probs), no_speech_ms=800)
+    reason, n = run_until_end(ep)
+    assert reason is AudioEndReason.VAD and ep.heard_speech
+
+
+def test_vad_settings_do_config():
+    s = VadSettings.from_raw({"satellite": {"end_silence_ms": 1200, "min_speech_ms": 160,
+                                            "vad_threshold": 0.4, "preroll_ms": 480}})
+    assert (s.end_silence_ms, s.min_speech_ms, s.threshold, s.preroll_ms) == (1200, 160, 0.4, 480)
+    assert VadSettings.from_raw({}) == VadSettings()
+    ep = s.endpointer(ScriptedVad([0.0]))
+    assert (ep.silence_ms, ep.min_speech_ms, ep.threshold, ep.neg_threshold) == (1200, 160, 0.4, 0.35)
+    assert s.listen_endpointer(ScriptedVad([0.0]), ListenRequest(timeout_ms=3000)).no_speech_ms == 3000
+    for bad in ({"end_silence_ms": 50}, {"vad_threshold": 1.5}, {"min_speech_ms": -1}):
+        with pytest.raises(ValueError):
+            VadSettings.from_raw({"satellite": bad})
 
 
 def test_0_4_nao_inicia_fala():
@@ -88,7 +138,7 @@ def test_listen_com_fala_depois_do_prazo_inicial_nao_conta_como_no_speech():
     # fala começa aos 800 ms (antes do prazo de 2 s) e passa do prazo: termina por silêncio
     ep = Endpointer.for_listen(ScriptedVad([0.0] * 10 + [0.9] * 30 + [0.0]), ListenRequest(timeout_ms=2000))
     reason, n = run_until_end(ep)
-    assert reason is AudioEndReason.VAD and n == 40 + 9
+    assert reason is AudioEndReason.VAD and n == 40 + -(-VAD_SILENCE_MS // 80)
 
 
 def test_endpointer_reinicia_o_vad():

@@ -394,6 +394,18 @@ def _dims(providers: Any) -> tuple[int | None, int | None]:
     return out[0], out[1]
 
 
+def utterance_saver(config: Config) -> Any:
+    """``[debug] save_audio = true`` (1.26): WAV de cada fala do STT em ``<cache>/utterances``."""
+    debug = config.raw.get("debug") or {}
+    if not isinstance(debug, dict) or debug.get("save_audio") is not True:
+        return None
+    from magi.core.utterance import UtteranceSaver
+
+    saver = UtteranceSaver(config.paths.cache_dir / "utterances", max_files=int(debug.get("max_files", 50)))
+    log.info("[debug] save_audio ligado: falas em %s", saver.directory)
+    return saver
+
+
 async def assemble(
     config: Config,
     hud_sink: HudSink,
@@ -406,7 +418,7 @@ async def assemble(
 ) -> Core:
     """Monta o núcleo. Nunca levanta por peça faltando: avisa e degrada."""
     budget = SwitchBudget(NullBudget(config.budget.monthly_usd))
-    core = Core(deps=TurnDeps(), budget=budget)
+    core = Core(deps=TurnDeps(save_audio=utterance_saver(config)), budget=budget)
 
     # Provedores
     try:

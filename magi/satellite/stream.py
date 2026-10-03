@@ -1,8 +1,11 @@
 """Envio da fala ao núcleo após a ativação (§5, R1.5, R13.3).
 
-Sequência: ``audio-start``, os ~300 ms anteriores à ativação (``PreRoll``), um ``audio-chunk``
+Sequência: ``audio-start``, os ~400 ms anteriores à ativação (``PreRoll``), um ``audio-chunk``
 por bloco de 80 ms assim que é capturado, e ``audio-stop`` (``AudioEnd``) com ``reason`` e
 ``ToneMetadata`` (energia em dBFS e taxa de fala estimada nos blocos com voz).
+
+Atenção ao ler o log: ``energy_db=-120`` é só "nenhum bloco com voz" (o tom mede os blocos com
+voz), não áudio zerado. O nível de TODO o áudio gravado (rms/pico) sai à parte no log (1.26).
 """
 
 from __future__ import annotations
@@ -25,13 +28,13 @@ from magi.common.contracts import (
     ToneMetadata,
 )
 from magi.common.events import audio_chunk, audio_start, to_event
-from magi.satellite.vad import Endpointer
+from magi.satellite.vad import DEFAULT_PREROLL_MS, Endpointer
 
 log = logging.getLogger("magi.satellite.stream")
 
 #: Áudio anterior à ativação incluído no envio, para não cortar o começo da fala.
-PREROLL_MS = 300
-PREROLL_BLOCKS = math.ceil(PREROLL_MS / CHUNK_MS)  # 4 blocos = 320 ms
+PREROLL_MS = DEFAULT_PREROLL_MS
+PREROLL_BLOCKS = math.ceil(PREROLL_MS / CHUNK_MS)  # 5 blocos = 400 ms
 
 #: Envelope para a taxa de fala: quadros de 10 ms, picos (núcleos silábicos) a ≥ 120 ms.
 _FRAME = AUDIO_RATE // 100
@@ -42,7 +45,11 @@ SendEvent = Callable[[Event], Awaitable[bool]]
 
 
 class PreRoll:
-    """Guarda os últimos blocos antes da ativação (custo: um ``deque`` de 4 referências)."""
+    """Guarda os últimos blocos antes da ativação (custo: um ``deque`` de poucas referências)."""
+
+    @classmethod
+    def from_ms(cls, ms: int) -> PreRoll:
+        return cls(max(0, math.ceil(ms / CHUNK_MS)))
 
     def __init__(self, blocks: int = PREROLL_BLOCKS) -> None:
         self._buf: deque[bytes] = deque(maxlen=blocks)
@@ -129,6 +136,11 @@ class UtteranceStream:
         self._preroll = list(preroll)
         self._sent_ms = 0
         self.end: AudioEnd | None = None
+        # nível de todo o áudio gravado (não só dos blocos com voz): distingue "ninguém falou"
+        # de "microfone mandando zeros"
+        self._sumsq = 0.0
+        self._samples = 0
+        self._peak = 0
 
     @property
     def done(self) -> bool:
@@ -163,6 +175,12 @@ class UtteranceStream:
         """Envia o bloco e consulta o VAD; devolve o ``AudioEnd`` (já enviado) quando acaba."""
         if self.end is not None:
             return self.end
+        pcm = np.frombuffer(block, dtype="<i2")
+        if len(pcm):
+            x = pcm.astype(np.float32)
+            self._sumsq += float(np.dot(x, x))
+            self._samples += len(pcm)
+            self._peak = max(self._peak, int(np.abs(pcm.astype(np.int32)).max()))
         reason = self.endpointer.feed(block)
         self.tone.feed(block, self.endpointer.voiced)
         if not await self._chunk(block):
@@ -178,5 +196,17 @@ class UtteranceStream:
         self.end = AudioEnd(timestamp=self._sent_ms, reason=reason, tone=self.tone.result())
         if not await self.send(to_event(self.end)):
             log.warning("audio-stop não enviado: sem conexão com o núcleo")
-        log.info("fim da gravação: %s (%d ms, %s)", reason.value, self._sent_ms, self.end.tone)
+        rms_db, peak_db = self.level()
+        log.info("fim da gravação: %s (%d ms, %s, áudio: rms %.1f dBFS, pico %.1f dBFS)",
+                 reason.value, self._sent_ms, self.end.tone, rms_db, peak_db)
+        if self._samples and self._peak == 0:
+            log.warning("áudio gravado é silêncio digital (só zeros): microfone mudo ou fluxo errado?")
         return self.end
+
+    def level(self) -> tuple[float, float]:
+        """(rms, pico) em dBFS de todo o áudio gravado após o pré-rolo; -120 sem áudio/zeros."""
+        if not self._samples:
+            return -120.0, -120.0
+        rms = _dbfs(self._sumsq / self._samples / 32768.0**2)
+        peak = 20 * math.log10(self._peak / 32768.0) if self._peak else -120.0
+        return round(rms, 1), round(peak, 1)

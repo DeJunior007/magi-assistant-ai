@@ -11,6 +11,7 @@ from wyoming.event import async_read_event, async_write_event
 from magi.common.contracts import (
     CHUNK_BYTES,
     CHUNK_SAMPLES,
+    VAD_SILENCE_MS,
     AudioEnd,
     AudioEndReason,
     ListenRequest,
@@ -136,7 +137,7 @@ async def test_frase_falada_chega_inteira_com_pre_rolo(vad):
 
     assert isinstance(before[0], SatelliteHello) and isinstance(before[1], WakeEvent)
     assert (start.rate, start.width, start.channels) == (16000, 2, 1)
-    # o envio começa 300 ms (4 blocos) antes da ativação e é o áudio original, sem buracos
+    # o envio começa 400 ms (5 blocos) antes da ativação e é o áudio original, sem buracos
     first = lead - PREROLL_BLOCKS
     assert pcm == raw[first * CHUNK_BYTES : first * CHUNK_BYTES + len(pcm)]
     fala_end = lead * CHUNK_BYTES + FALA.nbytes
@@ -150,8 +151,8 @@ async def test_corte_por_silencio_e_tom(vad):
     sent_ms = len(pcm) // 32
     assert end.reason is AudioEndReason.VAD
     assert end.timestamp == sent_ms
-    # termina ~700 ms depois da última voz, bem antes do fim dos 3 s de silêncio
-    assert sent_ms <= 320 + len(FALA) // 16 + 800
+    # termina ~1 s depois da última voz, bem antes do fim dos 3 s de silêncio
+    assert sent_ms <= PREROLL_BLOCKS * 80 + len(FALA) // 16 + VAD_SILENCE_MS + 100
     tone = end.tone
     assert -40 < tone.energy_db < -10
     assert 2.0 < tone.speech_rate < 9.0

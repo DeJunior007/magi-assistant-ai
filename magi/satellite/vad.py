@@ -3,10 +3,15 @@
 O VAD só roda depois da ativação (wake word, atalho ou ``magi-listen``); no ocioso o custo é
 zero. ``Endpointer`` decide quando a gravação acaba:
 
-- fala seguida de ``VAD_SILENCE_MS`` (700 ms) de silêncio -> ``vad``;
+- fala (pelo menos ``min_speech_ms`` seguidos de voz) e depois ``silence_ms`` de silêncio
+  (``VAD_SILENCE_MS``, 1 s; ``[satellite] end_silence_ms``) -> ``vad``. O mínimo de fala evita
+  que o rabo do "Condessa" (ou um estalo) arme o fim e corte a frase na primeira pausa (1.26);
 - ``MAX_RECORDING_MS`` (15 s) de gravação -> ``max_length``;
 - ninguém falou em ``no_speech_ms`` -> ``no_speech`` (``magi-listen`` usa o ``timeout_ms`` do
-  pedido; após o wake word, ``WAKE_NO_SPEECH_MS``).
+  pedido; após o wake word, ``WAKE_NO_SPEECH_MS``). Se a voz está começando bem no fim do
+  prazo, espera ela se confirmar (no máximo ``min_speech_ms`` a mais).
+
+``VadSettings`` lê os ajustes de ``[satellite]`` (1.26).
 
 O tempo é contado em áudio (blocos recebidos), não no relógio: o resultado é o mesmo em tempo
 real e nos testes com arquivo.
@@ -16,8 +21,10 @@ from __future__ import annotations
 
 import os
 import urllib.request
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -43,6 +50,69 @@ DEFAULT_THRESHOLD = 0.5
 DEFAULT_NEG_THRESHOLD = 0.35
 #: Após o "Condessa", se ninguém falar neste prazo a gravação termina com ``no_speech``.
 WAKE_NO_SPEECH_MS = 5_000
+#: Voz seguida mínima para contar como fala (3 blocos de 80 ms): estalos e o fim do "Condessa"
+#: não armam o fim por silêncio.
+MIN_SPEECH_MS = 240
+#: Pré-rolo padrão (áudio anterior à ativação enviado junto), ver ``stream.PreRoll``.
+DEFAULT_PREROLL_MS = 400
+
+
+@dataclass(frozen=True, slots=True)
+class VadSettings:
+    """Fim de fala, da seção ``[satellite]`` (tudo opcional, lido ao iniciar)::
+
+        [satellite]
+        end_silence_ms = 1000      # silêncio que encerra a frase
+        min_speech_ms = 240        # voz seguida mínima para contar como fala
+        vad_threshold = 0.5        # nota do Silero para "tem voz" (0..1)
+        wake_no_speech_ms = 5000   # após o "Condessa", desiste se ninguém falar
+        preroll_ms = 400           # áudio anterior à ativação enviado junto
+    """
+
+    end_silence_ms: int = VAD_SILENCE_MS
+    min_speech_ms: int = MIN_SPEECH_MS
+    threshold: float = DEFAULT_THRESHOLD
+    wake_no_speech_ms: int = WAKE_NO_SPEECH_MS
+    preroll_ms: int = DEFAULT_PREROLL_MS
+
+    @classmethod
+    def from_raw(cls, raw: Mapping[str, Any]) -> VadSettings:
+        sec = raw.get("satellite") or {}
+        if not isinstance(sec, Mapping):
+            raise ValueError("[satellite] deve ser uma tabela")
+        d = cls()
+        out = cls(
+            end_silence_ms=int(sec.get("end_silence_ms", d.end_silence_ms)),
+            min_speech_ms=int(sec.get("min_speech_ms", d.min_speech_ms)),
+            threshold=float(sec.get("vad_threshold", d.threshold)),
+            wake_no_speech_ms=int(sec.get("wake_no_speech_ms", d.wake_no_speech_ms)),
+            preroll_ms=int(sec.get("preroll_ms", d.preroll_ms)),
+        )
+        if not 0.0 < out.threshold < 1.0:
+            raise ValueError(f"[satellite] vad_threshold fora de (0, 1): {out.threshold}")
+        if not 200 <= out.end_silence_ms <= 5000:
+            raise ValueError(f"[satellite] end_silence_ms fora de 200..5000: {out.end_silence_ms}")
+        if not 0 <= out.min_speech_ms <= 2000 or not 0 <= out.preroll_ms <= 2000:
+            raise ValueError("[satellite] min_speech_ms/preroll_ms fora de 0..2000")
+        if out.wake_no_speech_ms < 500:
+            raise ValueError(f"[satellite] wake_no_speech_ms abaixo de 500: {out.wake_no_speech_ms}")
+        return out
+
+    def endpointer(self, vad: SpeechDetector, **kw: Any) -> Endpointer:
+        """Endpointer da gravação após o wake word com estes ajustes (``kw`` sobrepõe)."""
+        args: dict[str, Any] = {
+            "threshold": self.threshold,
+            "neg_threshold": min(DEFAULT_NEG_THRESHOLD, self.threshold),
+            "silence_ms": self.end_silence_ms,
+            "min_speech_ms": self.min_speech_ms,
+            "no_speech_ms": self.wake_no_speech_ms,
+        }
+        args.update(kw)
+        return Endpointer(vad, **args)
+
+    def listen_endpointer(self, vad: SpeechDetector, req: ListenRequest) -> Endpointer:
+        """Escuta do ``magi-listen``: ``no_speech`` no ``timeout_ms`` do pedido."""
+        return self.endpointer(vad, no_speech_ms=req.timeout_ms)
 
 
 def default_vad_dir() -> Path:
@@ -138,6 +208,7 @@ class Endpointer:
         threshold: float = DEFAULT_THRESHOLD,
         neg_threshold: float = DEFAULT_NEG_THRESHOLD,
         silence_ms: int = VAD_SILENCE_MS,
+        min_speech_ms: int = MIN_SPEECH_MS,
         max_ms: int = MAX_RECORDING_MS,
         no_speech_ms: int | None = WAKE_NO_SPEECH_MS,
         block_ms: int = CHUNK_MS,
@@ -146,11 +217,13 @@ class Endpointer:
         self.threshold = threshold
         self.neg_threshold = min(neg_threshold, threshold)
         self.silence_ms = silence_ms
+        self.min_speech_ms = min_speech_ms
         self.max_ms = max_ms
         self.no_speech_ms = no_speech_ms
         self.block_ms = block_ms
         self.elapsed_ms = 0
         self.silence_run_ms = 0
+        self.speech_run_ms = 0  # voz seguida até aqui (zera no 1º bloco sem voz)
         self.heard_speech = False
         self.voiced = False
         self.last_prob = 0.0
@@ -172,14 +245,23 @@ class Endpointer:
         self.elapsed_ms += self.block_ms
         self.voiced = prob >= (self.neg_threshold if self.heard_speech else self.threshold)
         if self.voiced:
-            self.heard_speech = True
+            self.speech_run_ms += self.block_ms
             self.silence_run_ms = 0
-        elif self.heard_speech:
-            self.silence_run_ms += self.block_ms
+            if self.speech_run_ms >= self.min_speech_ms:
+                self.heard_speech = True
+        else:
+            self.speech_run_ms = 0
+            if self.heard_speech:
+                self.silence_run_ms += self.block_ms
         if self.heard_speech and self.silence_run_ms >= self.silence_ms:
             self.reason = AudioEndReason.VAD
         elif self.elapsed_ms >= self.max_ms:
             self.reason = AudioEndReason.MAX_LENGTH
-        elif not self.heard_speech and self.no_speech_ms is not None and self.elapsed_ms >= self.no_speech_ms:
+        elif (
+            not self.heard_speech
+            and self.no_speech_ms is not None
+            and self.elapsed_ms >= self.no_speech_ms
+            and self.speech_run_ms == 0  # voz começando no limite: espera ela se confirmar
+        ):
             self.reason = AudioEndReason.NO_SPEECH
         return self.reason
