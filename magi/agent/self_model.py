@@ -21,7 +21,7 @@ from typing import Any
 
 import yaml
 
-from magi.agent.prompt import SELF_MAX_TOKENS, truncate_to_tokens
+from magi.agent.prompt import SELF_MAX_TOKENS, estimate_tokens, truncate_to_tokens
 from magi.common.contracts import (
     ActionRegistry,
     ActionRequest,
@@ -272,11 +272,13 @@ class SelfModel:
         if s.spotify_connected is not None:
             spot = "conectado." if s.spotify_connected else "desconectado: não toca busca por nome."
             lines.append(f"Spotify {spot}")
+        last = "Detalhes de comandos, estado, gasto e limites: self_info. Fora disso, não ofereça."
         if gaps:
-            lines.append("Ainda não sabe: " + "; ".join(gaps) + ".")
-        lines.append("Detalhes de comandos, estado, gasto e limites: self_info. Fora disso, não ofereça.")
-        body = "\n".join(lines)
-        return truncate_to_tokens(body, SELF_MAX_TOKENS)
+            # Os limites ficam com o que sobrar do teto; a linha final nunca é cortada.
+            room = SELF_MAX_TOKENS - estimate_tokens("\n".join([*lines, last])) - 2
+            lines.append(truncate_to_tokens("Ainda não sabe: " + "; ".join(gaps) + ".", room))
+        lines.append(last)
+        return truncate_to_tokens("\n".join(x for x in lines if x), SELF_MAX_TOKENS)
 
     def commands_text(self, *, examples: bool = True) -> str:
         out = []
@@ -356,7 +358,10 @@ def _join(items: Sequence[str]) -> str:
 
 def _budget_line(b: BudgetStatus) -> str:
     pct = round(b.fraction * 100)
-    return f"Gastei US$ {b.spent_usd:.2f} de US$ {b.cap_usd:.2f} este mês ({pct}% do teto)."
+    def brl(v: float) -> str:  # vírgula decimal: a frase vai para a voz
+        return f"{v:.2f}".replace(".", ",")
+
+    return f"Gastei US$ {brl(b.spent_usd)} de US$ {brl(b.cap_usd)} este mês, {pct}% do teto."
 
 
 _TOPIC_ALIASES = {"ativação": "ativacao", "capacidade": "capacidades", "comando": "comandos",

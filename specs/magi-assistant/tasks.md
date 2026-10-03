@@ -328,6 +328,13 @@ Formato de cada tarefa:
   - Orçamento: ~30k
   - Pronto: pergunta sobre algo recente vem com fonte.
 
+- [x] **3.9 Autoconhecimento** — ficha viva da Magui (`SelfModel`): comandos do `intents.yaml` agrupados por área e filtrados pelo registro de ações, ferramentas do agente, estado (Spotify, call, wake word, atalhos, voz, alertas/notícias, gasto x teto, chaves faltando) e "o que ainda não sei"; seção "Sobre você" (≤ 300 tokens) no prompt; ferramenta `self_info(topic)`; intent local `magi.help` sem LLM; regra na persona de nunca afirmar capacidade sem ferramenta.
+  - Lê: `magi/agent/prompt.py`, `persona.md`, `graph.py`, `tools/base.py`, `tools/system.py`, `magi/core/intents.yaml`, `router.py` (só `load_intents`), `actions/__init__.py`, `assemble.py`, `budget.py`
+  - Escreve: `magi/agent/self_model.py`, `prompt.py` (teto 1500 → 1800), `persona.md`, `graph.py`, `assemble.py`, `contracts.py` (`IntentId.HELP`), `intents.yaml`, testes
+  - Depende de: 3.3, 3.4
+  - Orçamento: ~60k
+  - Pronto: "o que você sabe fazer?" responde local com lista no HUD; intent novo no YAML aparece na ficha; Spotify desconectado aparece como tal; prompt dentro do teto.
+
 ## Fase 4 — Memória e personalidade
 
 - [ ] **4.1 Memórias** — gravação por turno, busca de até 5 por similaridade, "esquece isso", histórico local. *(R11.2, R11.5, R11.6)*

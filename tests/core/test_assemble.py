@@ -468,6 +468,10 @@ async def test_agente_padrao_com_chave(tmp: Path) -> None:
     from magi.agent.graph import GraphAgent
 
     assert isinstance(core.deps.agent, GraphAgent)
+    # 3.9: ficha ligada ao registro e ao agente; magi.help responde local.
+    assert core.deps.actions.handles(IntentId.HELP)
+    assert "self_info" in core.self_model.tool_names() and core.self_model.agent_ready
+    assert core.self_model.registry is core.deps.actions
     await core.aclose()
 
 
