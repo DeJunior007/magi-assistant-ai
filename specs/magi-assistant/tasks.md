@@ -246,6 +246,7 @@ Formato de cada tarefa:
   - Depende de: 1.13, 1.17, 1.19
   - Orçamento: ~25k
   - Pronto: RNF-01, RNF-02 e RNF-04 medidos e dentro da meta.
+  - Medido (`docs/perf/fase1.md`): RNF-01 dentro; RNF-02 (402 MB), RNF-04 (p90 1,78 s) e RNF-05 (p90 4,1 s) fora — falta otimizar.
 
 ## Fase 2 — Spotify
 
