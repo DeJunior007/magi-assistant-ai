@@ -506,7 +506,7 @@ Fonte: `docs/design/MAGI-HANDOFF.md`, design §13. U1 e U2 em paralelo; U3 depoi
   - Orçamento: ~60k
   - Pronto: PNGs das peças batem com o canvas; mascote troca expressão e boca.
 
-- [ ] **U2 Dados novos** — rede, histórico de 60 min, FPS mín/méd/máx, Spotify por MPRIS (metadados, capa em cache, posição interpolada, controles) e log de eventos do rodapé. *(R23.2, R23.3, R23.5)*
+- [x] **U2 Dados novos** — rede, histórico de 60 min, FPS mín/méd/máx, Spotify por MPRIS (metadados, capa em cache, posição interpolada, controles) e log de eventos do rodapé. *(R23.2, R23.3, R23.5)*
   - Lê: design §13, `hud/gamerhud.py` só `Sensors`, `FpsSource`, `ProcStats`, `controllers`, `system_info` (grep), `magi/core/actions/spotify_mpris.py` (nomes MPRIS)
   - Escreve: `hud/wired/data.py`, `tests/hud/test_wired_data.py`
   - Depende de: —
