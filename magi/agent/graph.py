@@ -73,6 +73,7 @@ class GraphAgent:
     turno. ``tools``: ferramentas oferecidas ao modelo. ``game``: devolve o jogo em foco (ou
     ``None``). ``profile``: perfil compacto (ou ``None``). ``persona``: substitui ``persona.md``.
     ``about``: seção "Sobre você" (3.9, ``SelfModel.about_section``), lida a cada turno.
+    ``memory``: ``MemoryStore`` (4.1); antes de cada turno busca até 5 memórias para o prompt.
     """
 
     def __init__(
@@ -84,6 +85,7 @@ class GraphAgent:
         profile: Callable[[], str | None] | None = None,
         persona: str | None = None,
         about: Callable[[], str | None] | None = None,
+        memory: Any = None,
         max_steps: int = MAX_STEPS,
     ) -> None:
         self._providers = providers
@@ -93,9 +95,16 @@ class GraphAgent:
         self._profile = profile
         self._persona = persona
         self._about = about
+        self.memory = memory
         self.max_steps = max_steps
         self._history: deque[ChatMessage] = deque(maxlen=2 * HISTORY_TURNS)
         self._graph = self._build()
+
+    def add_tools(self, tools: Sequence[Tool]) -> None:
+        """Acrescenta ferramentas depois de montado (memória, 4.1)."""
+        for t in tools:
+            self._tools[t.name] = t
+        self._specs = tuple(t.spec for t in self._tools.values())
 
     # -- grafo --------------------------------------------------------------------------------
 
@@ -145,12 +154,13 @@ class GraphAgent:
     # -- protocolo Agent ----------------------------------------------------------------------
 
     async def answer(self, text: str, ctx: TurnContext) -> ActionResult:
+        memories = await self.memory.relevant(text) if self.memory is not None else []
         try:
             prompt = build_prompt(
                 mood=ctx.mood,
                 profile=self._profile() if self._profile else None,
                 game=self._game() if self._game else None,
-                memories=(),
+                memories=memories,
                 history=tuple(self._history),
                 persona=self._persona,
                 about=self._about_text(),

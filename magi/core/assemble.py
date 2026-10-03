@@ -138,6 +138,8 @@ class Repos:
     taste: Any = None  # magi.memory.taste_repo.TasteRepo (tarefa 2.3)
     news: Any = None  # ``NewsRepo`` (``PgNewsRepo``) para a entrega de notícias (6.10)
     music_signals: Any = None  # magi.memory.music_signals_repo.MusicSignalsRepo (tarefa 2.4)
+    memories: Any = None  # magi.memory.memories_repo.PgMemoriesRepo (tarefa 4.1)
+    turns: Any = None  # magi.memory.memories_repo.PgTurnsRepo (histórico local, 4.1)
 
 
 class MemoryCorrectionsRepo:
@@ -179,6 +181,7 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
     from magi.memory.conn import SerialConn
     from magi.memory.corrections_repo import CorrectionsRepo
     from magi.memory.costs_repo import CostsRepo
+    from magi.memory.memories_repo import PgMemoriesRepo, PgTurnsRepo
     from magi.memory.migrate import migrate
     from magi.memory.music_signals_repo import MusicSignalsRepo
     from magi.memory.taste_repo import TasteRepo
@@ -199,6 +202,7 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
     return Repos(
         corrections=CorrectionsRepo(conn), costs=CostsRepo(conn), close=conn.close,
         taste=TasteRepo(conn), news=PgNewsRepo(conn), music_signals=MusicSignalsRepo(conn),
+        memories=PgMemoriesRepo(conn), turns=PgTurnsRepo(conn),
     )
 
 
@@ -286,6 +290,7 @@ class Core:
     music: Any = None  # magi.core.music.signals.MusicSignals (2.4); observa em ``start_proactive``
     music_task: asyncio.Task[Any] | None = None
     self_model: Any = None  # magi.agent.self_model.SelfModel (3.9): ficha viva da Magui
+    memory: Any = None  # magi.memory.memories_repo.MemoryStore (4.1)
 
     def warn(self, msg: str) -> None:
         if msg not in self.warnings:
@@ -437,6 +442,7 @@ async def assemble(
     core.deps.router = LocalRouter(catalog)
     core.deps.corrector = core.corrections
     found = handlers(catalog, hud_sink, core.corrections)
+    found = _wire_memory_store(core, found)
     core.self_model = _self_model(core, config)
     if not any(IntentId.HELP.value in h.intents for h in found):
         from magi.agent.self_model import HelpHandler
@@ -466,6 +472,7 @@ async def assemble(
             core.warn(f"agente: {why}")
     if core.deps.agent is None:
         core.warn("agente indisponível: perguntas respondem 'ainda não sei fazer isso'")
+    _wire_memory_agent(core)
     core.self_model.agent_ready = core.deps.agent is not None
     return core
 
@@ -538,6 +545,44 @@ def _wire_news_feedback(core: Core, config: Config, found: list[ActionHandler]) 
                 core.warn(f"{e}; retorno de notícias com os padrões")
             h.feedback.repo = repo
             return
+
+
+def _wire_memory_store(core: Core, found: list[ActionHandler]) -> list[ActionHandler]:
+    """Histórico de turnos e ``MemoryStore`` (4.1): repo do banco (ou em memória, sem persistir) e
+    embeddings da tarefa ``embeddings``. Liga o "esquece isso" local."""
+    from magi.agent.tools.memory import ForgetHandler
+    from magi.memory.memories_repo import InMemoryMemoriesRepo, MemoryStore, provider_embed
+
+    if core.repos is not None and core.repos.turns is not None:
+        core.deps.turns = core.repos.turns
+    if core.providers is None:
+        return found
+    why = _has_key_safe(core.providers, "embeddings")
+    if why is not None:
+        core.warn(f"memórias: {why}")
+        return found
+    repo = core.repos.memories if core.repos is not None and core.repos.memories is not None else None
+    if repo is None:
+        core.warn("memórias sem banco: valem só até reiniciar")
+        repo = InMemoryMemoriesRepo()
+    core.memory = MemoryStore(repo, provider_embed(core.providers))
+    if not any(IntentId.MEMORY_FORGET.value in h.intents for h in found):
+        found = [*found, ForgetHandler(core.memory)]
+    return found
+
+
+def _wire_memory_agent(core: Core) -> None:
+    """Dá ao ``GraphAgent`` a busca de memórias e as ferramentas ``remember``/``forget``."""
+    from magi.agent.graph import GraphAgent
+    from magi.agent.tools.memory import memory_tools
+
+    agent = core.deps.agent
+    if core.memory is None or not isinstance(agent, GraphAgent):
+        return
+    agent.memory = core.memory
+    agent.add_tools(memory_tools(core.memory))
+    if core.self_model is not None:
+        core.self_model.tools = agent.tool_specs
 
 
 def _wire_music(core: Core, found: list[ActionHandler]) -> None:

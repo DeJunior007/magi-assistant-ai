@@ -337,7 +337,7 @@ Formato de cada tarefa:
 
 ## Fase 4 — Memória e personalidade
 
-- [ ] **4.1 Memórias** — gravação por turno, busca de até 5 por similaridade, "esquece isso", histórico local. *(R11.2, R11.5, R11.6)*
+- [x] **4.1 Memórias** — gravação por turno, busca de até 5 por similaridade, "esquece isso", histórico local. *(R11.2, R11.5, R11.6)*
   - Lê: `contracts.py`, §7 (tabelas de conversa), R11
   - Escreve: `magi/memory/memories_repo.py`, `magi/agent/tools/memory.py`, testes
   - Depende de: 3.4, 0.3
