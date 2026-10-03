@@ -503,6 +503,22 @@ intents:
       - "parei de jogar {franchise}"
       - "nao acompanho mais {franchise}"
 
+  # -- autoconhecimento (3.9) -----------------------------------------------
+  - id: magi.help
+    label: "ver o que eu sei fazer"
+    reply: null
+    phrases:
+      - "o que voce sabe fazer"
+      - "o que voce faz"
+      - "quais sao seus comandos"
+      - "quais comandos voce tem"
+      - "me ajuda com os comandos"
+      - "lista os comandos"
+      - "quem e voce"
+      - "como eu te chamo"
+      - "como eu chamo voce"
+      - "qual e o seu nome"
+
   # -- confirmação (R5.4) ----------------------------------------------------
   - id: confirm.yes
     label: "confirmar"
