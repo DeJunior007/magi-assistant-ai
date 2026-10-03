@@ -230,3 +230,10 @@ byte do TTS. Somado ao corte de 0,2–0,5 s de silêncio, a expectativa é −0,
 ```
 uv run python -m tools.perf latency --turns 10 --phrase "quantas patas tem uma aranha" --gap 3
 ```
+
+### Medição ao vivo depois da 1.24 (2026-10-03 11:18)
+
+`latency --turns 10 --phrase "quantas patas tem uma aranha" --gap 3`: média 2,81 s · **p90 3,39 s** · máx 3,44 s, 0 falhas.
+Ganho pequeno sobre a 1.23 (p90 3,45 s): as respostas medidas têm uma frase só (1,5–2 s de áudio), então a
+fala por frase quase não antecipa nada. O tempo é STT (~0,7 s, depois do fim da fala) + modelo (~1–1,5 s) +
+primeiro byte do TTS (~0,6–0,9 s). Próximo passo: transcrever enquanto o usuário fala (tarefa 1.25).
