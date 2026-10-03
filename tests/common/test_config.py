@@ -60,7 +60,7 @@ def test_loads_example():
     assert cfg.providers["openai"].keys == ("openai-1", "openai-2")
     assert cfg.providers["gemini"].free_tier is True
     assert cfg.providers["openai"].free_tier is False
-    assert set(cfg.tasks) == set(TASK_NAMES)
+    assert set(cfg.tasks) == {*TASK_NAMES, "search_fallback"}  # reserva opcional da pesquisa (3.8)
     assert cfg.task("tts").options["voice"]
     assert cfg.provider_for("search").name == "gemini"
     assert cfg.budget.monthly_usd == 5.0

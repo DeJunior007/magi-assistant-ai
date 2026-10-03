@@ -321,7 +321,7 @@ Formato de cada tarefa:
   - Orçamento: ~30k
   - Pronto: "que bicho é esse?" responde sobre a janela ativa em ≤ 5 s.
 
-- [ ] **3.8 Pesquisa** — Gemini com busca do Google; só a pergunta reescrita; links no HUD. *(R10.1–R10.3)*
+- [x] **3.8 Pesquisa** — Gemini com busca do Google; só a pergunta reescrita; links no HUD. *(R10.1–R10.3)*
   - Lê: `contracts.py`, R10, §4.7, `magi/agent/tools/base.py`
   - Escreve: `magi/agent/tools/search.py`, testes
   - Depende de: 3.4

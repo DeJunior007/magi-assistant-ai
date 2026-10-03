@@ -255,6 +255,9 @@ class GuardedSearch(_Guarded):
         return res
 
 
+#: Tarefa opcional em ``[tasks]`` com a pesquisa reserva (3.8).
+SEARCH_FALLBACK_TASK = "search_fallback"
+
 G = TypeVar("G", bound=_Guarded)
 
 
@@ -281,7 +284,7 @@ class Registry:
         self._pools: dict[str, tuple[tuple[str, ...], KeyPool]] = {}
         self._config = config
         self._backends: dict[str, Backend] = {}
-        self._cache: dict[tuple[type, ProviderTask], _Guarded] = {}
+        self._cache: dict[tuple[type, str], _Guarded] = {}
 
     @property
     def config(self) -> Config:
@@ -333,6 +336,23 @@ class Registry:
 
     def search(self) -> GuardedSearch:
         return self._get(GuardedSearch, ProviderTask.SEARCH)
+
+    def search_fallback(self) -> GuardedSearch | None:
+        """Pesquisa reserva de ``[tasks.search_fallback]`` (S3: OpenAI + ``web_search``, paga, para
+        quando o Gemini estoura o prazo ou a cota); ``None`` se não configurada. Conta e é bloqueada
+        no orçamento como ``search`` (R16.4)."""
+        tcfg = self._config.tasks.get(SEARCH_FALLBACK_TASK)
+        if tcfg is None:
+            return None
+        ck = (GuardedSearch, SEARCH_FALLBACK_TASK)
+        if ck not in self._cache:
+            ctx = CallCtx(provider=tcfg.provider, task=ProviderTask.SEARCH, model=tcfg.model,
+                          options=dict(tcfg.options))
+            pcfg = self._config.providers[tcfg.provider]
+            self._cache[ck] = GuardedSearch(
+                self._backend(pcfg), ctx, self.pool(pcfg.name), self._budget, pcfg.free_tier
+            )
+        return self._cache[ck]  # type: ignore[return-value]
 
     # -- montagem --------------------------------------------------------------------------
 
