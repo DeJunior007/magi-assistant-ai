@@ -218,6 +218,7 @@ def default_handlers(
     ``play_query`` toca como escolha da Magui."""
     from magi.core.actions.spotify_api import make_play_query
     from magi.core.music import signals
+    from magi.news import feedback as news_feedback
 
     mpris = spotify_mpris.SpotifyMpris()
     music = signals.MusicSignals(mpris)
@@ -227,6 +228,7 @@ def default_handlers(
         *system.handlers(),
         *spotify_mpris.handlers(mpris, play_query=make_play_query(mpris, on_play=music.mark_picked)),
         *signals.handlers(music),
+        *news_feedback.handlers(),
     ]
     if corrections is not None:
         found += correction_handlers(corrections)
@@ -435,6 +437,7 @@ async def assemble(
     core.deps.actions = actions.Registry(found)
     core.self_model.registry = core.deps.actions
     _wire_music(core, found)
+    _wire_news_feedback(core, config, found)
 
     # STT e TTS
     if core.providers is not None:
@@ -509,6 +512,23 @@ def _wire_news(core: Core, config: Config) -> None:
         log.info("notícias: sem Postgres, nada é entregue")
         return
     core.news = NewsDelivery(core.proactive, repo, cfg)
+
+
+def _wire_news_feedback(core: Core, config: Config, found: list[ActionHandler]) -> None:
+    """Liga o repo de notícias ao retorno por voz (6.11); sem Postgres o handler recusa."""
+    from magi.news.feedback import FeedbackConfig, NewsFeedbackHandler
+
+    repo = core.repos.news if core.repos is not None else None
+    news_raw = config.raw.get("news")
+    raw = news_raw.get("feedback") if isinstance(news_raw, dict) else None
+    for h in found:
+        if isinstance(h, NewsFeedbackHandler):
+            try:
+                h.feedback.cfg = FeedbackConfig.from_raw(raw if isinstance(raw, dict) else None)
+            except ConfigError as e:
+                core.warn(f"{e}; retorno de notícias com os padrões")
+            h.feedback.repo = repo
+            return
 
 
 def _wire_music(core: Core, found: list[ActionHandler]) -> None:

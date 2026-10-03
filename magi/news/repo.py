@@ -1,6 +1,7 @@
 """``NewsRepo`` em Postgres (design §7). Tarefa 6.1 cobre fontes e notícias cruas; a 6.6, criar
 itens e juntar cruas a eles (agrupamento); a 6.7, classificação e retorno; a 6.8, preferências
-por obra e progresso; a 6.10, pontuação (``unscored``) e entrega. A busca ainda levanta
+por obra e progresso; a 6.10, pontuação (``unscored``) e entrega; a 6.11, retorno
+(``delivered_recent``, ``feedback_signals``). A busca ainda levanta
 ``NotImplementedError``.
 
 Usa uma ``psycopg.AsyncConnection`` em modo ``autocommit`` (cada chamada é uma transação). Os
@@ -335,3 +336,25 @@ class PgNewsRepo:
         await self.conn.execute(
             "INSERT INTO news_feedback (item_id, signal, at) VALUES (%s, %s, %s)", [item_id, signal, at]
         )
+
+    # --- retorno (6.11; fora do contrato) ----------------------------------------------------
+
+    async def delivered_recent(self, limit: int = 50) -> list[NewsItem]:
+        """Itens já entregues, a entrega mais recente primeiro."""
+        cur = await self.conn.execute(
+            f"SELECT {_ITEM_COLS} FROM news_items WHERE delivered_at IS NOT NULL"
+            " ORDER BY delivered_at DESC, id DESC LIMIT %s",
+            [limit],
+        )
+        return [_item(r) for r in await cur.fetchall()]
+
+    async def feedback_signals(self, item_ids: Sequence[int]) -> dict[int, list[int]]:
+        """Sinais de retorno de cada item, do mais antigo ao mais recente."""
+        cur = await self.conn.execute(
+            "SELECT item_id, signal FROM news_feedback WHERE item_id = ANY(%s) ORDER BY item_id, at, id",
+            [list(item_ids)],
+        )
+        out: dict[int, list[int]] = {}
+        for item_id, signal in await cur.fetchall():
+            out.setdefault(item_id, []).append(int(signal))
+        return out

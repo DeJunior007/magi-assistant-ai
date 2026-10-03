@@ -38,6 +38,7 @@ from magi.common.contracts import (
 )
 from magi.news.classify import classify_pending
 from magi.news.cluster import cluster_pending
+from magi.news.feedback import FeedbackConfig, NewsFeedback
 from magi.news.priority import score_pending
 from magi.news.progress import update_if_due
 from magi.news.repo import PgNewsRepo
@@ -158,6 +159,14 @@ async def run_once(
                 log.info("classificação: %s", (await classify_pending(repo, classifier)).summary())
             except ProviderError as exc:
                 log.warning("classificação interrompida: %s", exc)
+        try:
+            fb = news_settings(config).get("feedback")
+            ignored = await NewsFeedback(repo, FeedbackConfig.from_raw(fb if isinstance(fb, dict) else None)
+                                         ).apply_ignored()
+            if ignored:
+                log.info("ignoradas seguidas (peso caiu): %s", ", ".join(ignored))
+        except (psycopg.Error, ConfigError) as exc:
+            log.warning("retorno: %s", exc)
         try:
             log.info("pontuação: %s", (await score_pending(repo, datetime.now(UTC))).summary())
         except psycopg.Error as exc:

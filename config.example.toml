@@ -112,3 +112,12 @@ max_per_hour  = 2            # entregas por hora (bombas ignoram este limite)
 max_per_day   = 8            # entregas por 24 h (vale para todas)
 max_age_h     = 48           # mais velho que isso: descartado sem aviso
 batch         = 5            # itens lidos por rodada
+
+[news.feedback]
+# Retorno das notícias (6.11, R19.7, R19.8): mexe no peso da obra (franchise_prefs.weight, 0..1).
+step          = 0.25         # "não curti" / "mais disso" (sobre a última notícia entregue)
+ignored_step  = 0.1          # queda quando a obra é ignorada ignored_after vezes seguidas
+ignored_after = 3
+grace_h       = 2            # entrega mais nova que isso ainda não conta como ignorada
+recent_h      = 6            # "não curti" vale para a notícia entregue até essas horas atrás
+max_age_h     = 48           # igual a [news.delivery] max_age_h
