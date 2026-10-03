@@ -64,6 +64,7 @@ class _State(TypedDict, total=False):
     chat: ChatProvider
     ctx: TurnContext
     text: str
+    final: bool
 
 
 class GraphAgent:
@@ -135,21 +136,27 @@ class GraphAgent:
         assert reply is not None
         messages = list(state["messages"])
         results = list(state.get("results", []))
+        final = True
         for call in reply.tool_calls:
             tool = self._tools.get(call.name)
             if tool is None:
+                final = False
                 content = result_payload(ActionResult(ok=False, speech=SAY_UNKNOWN_TOOL))
             else:
                 result = await tool.run(call.arguments, state["ctx"], state.get("text", ""))
                 if result.needs_confirmation:
                     return {"pending": result}
                 results.append(result)
+                final = final and result.ok and getattr(tool, "final", False)
                 content = result_payload(result)
             messages.append(ChatMessage(role="tool", content=content, tool_call_id=call.id))
-        return {"messages": messages, "results": results}
+        return {"messages": messages, "results": results, "final": final}
 
     def _after_tools(self, state: _State) -> Literal["model", "__end__"]:
-        return END if state.get("pending") is not None else "model"
+        # Ferramenta "final" (ex.: screenshot, 3.7) já traz a resposta pronta: poupa uma volta.
+        if state.get("pending") is not None or state.get("final"):
+            return END
+        return "model"
 
     # -- protocolo Agent ----------------------------------------------------------------------
 
@@ -174,6 +181,7 @@ class GraphAgent:
             "reply": None,
             "results": [],
             "pending": None,
+            "final": False,
             "chat": self._providers.chat(ProviderTask.AGENT),
             "ctx": ctx,
             "text": text,
@@ -215,7 +223,7 @@ class GraphAgent:
         reply = state.get("reply")
         results = state.get("results", [])
         last = results[-1] if results else None
-        full = (reply.text if reply else "").strip()
+        full = "" if state.get("final") else (reply.text if reply else "").strip()
         # Cards e listas completas das ferramentas (ex.: self_info) seguem para o HUD.
         cards = tuple(c for r in results for c in r.cards)
         if full:
