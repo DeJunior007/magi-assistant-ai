@@ -18,6 +18,7 @@ redesenhar (até 30 fps acordada, 1 vez a cada 4 s dormindo). No `paintEvent`, p
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -34,6 +35,7 @@ from .theme import (
     BUTTON_LINE,
     CPU,
     GPU,
+    HOT,
     LINE,
     LINE_STRONG,
     RAM,
@@ -118,6 +120,7 @@ class Snapshot:
     magui_state: str = "sleeping"  # uma das 7 expressões do R17
     mouth_level: float = 0.0
     caption: str | None = None  # legenda da fala da Magui
+    mood: int | None = None  # termômetro de humor 0 (pega leve) .. 4 (pode zoar), R13.7; None = sem dado
 
 
 def led_lit(snap: Snapshot) -> bool:
@@ -319,6 +322,49 @@ def led_dot(p: QPainter, c: QPointF, r: float, snap: Snapshot) -> None:
     p.restore()
 
 
+# ====================================================================== termômetro (R13.7)
+
+MOOD_LEVELS = 5  # 0 pega leve .. 4 pode zoar pesado
+
+
+def mood_color(snap: Snapshot) -> QColor | None:
+    """Cor do termômetro: 0 hot, 1 warn, 2 text-dim, 3–4 verde (ou a cor do LED ligado)."""
+    m = snap.mood
+    if m is None:
+        return None
+    m = max(0, min(MOOD_LEVELS - 1, int(m)))
+    if m <= 1:
+        return color(HOT if m == 0 else WARN)
+    if m == 2:
+        return color(TEXT_DIM)
+    return color(snap.led_rgb) if led_lit(snap) else color(GPU)
+
+
+def mood_key(snap: Snapshot) -> tuple:
+    c = mood_color(snap)
+    return (snap.mood, c.rgb() if c is not None else None)
+
+
+def draw_mood(p: QPainter, r: QRectF, snap: Snapshot, *, legend: bool = True, bar_w: float = 8.0) -> None:
+    """Termômetro vertical fino: `mood + 1` segmentos acesos de baixo pra cima. A quantidade de
+    segmentos (e o número, com `legend`) carrega a informação, não só a cor (R23.7)."""
+    col = mood_color(snap)
+    lit = 0 if col is None else max(0, min(MOOD_LEVELS - 1, int(snap.mood))) + 1
+    top, bottom = r.top(), r.bottom()
+    cx = r.center().x()
+    if legend:
+        text(p, cx, top + 12, "気", key="jp", px=12, color_=TEXT_DIM, align=C)
+        text(p, cx, bottom - 3, "–" if snap.mood is None else str(lit - 1), px=12,
+             color_=TEXT if col is not None else TEXT_DIM, align=C)
+        top, bottom = top + 20, bottom - 20
+    gap = 3.0
+    h = (bottom - top - gap * (MOOD_LEVELS - 1)) / MOOD_LEVELS
+    off = color(SEG_OFF)
+    for i in range(MOOD_LEVELS):  # i = 0 é o de baixo
+        y = bottom - (i + 1) * h - i * gap
+        p.fillRect(QRectF(cx - bar_w / 2, y, bar_w, h), col if i < lit else off)
+
+
 # ====================================================================== base
 
 
@@ -461,19 +507,37 @@ NP = QRectF(X3, MAGI.bottom() + 20, 540, _RR)
 _SY = Y2 + 23
 MASCOT_MAIN = QRectF(SIDE_X, _SY + 15.8 + 14, SIDE_R - SIDE_X, 150)
 CHIP_TOP = MASCOT_MAIN.bottom() + 14
+MOOD_MAIN = QRectF(SIDE_R - 24, MASCOT_MAIN.top() + 4, 24, MASCOT_MAIN.height() - 8)  # à direita do mascote
 TALK = QRectF(SIDE_X - 2, CHIP_TOP - 2, SIDE_R - SIDE_X + 4, MID_TOP.bottom() - CHIP_TOP - 20)
 
 # MAGI system
 LED_BTN = QRectF(MAGI.right() - 21 - 150, MAGI.top() + 19, 150, 44)
 _UNIT_H = (MAGI.height() - 38 - 44 - 36) / 3
 UNITS = [QRectF(MAGI.left() + 21, LED_BTN.bottom() + 12 + i * (_UNIT_H + 12), 498, _UNIT_H) for i in range(3)]
+UNIT_NAMES = (("Melchior", "magi·1 // cpu"), ("Balthasar", "magi·2 // gpu"), ("Casper", "magi·3 // memory"))
+UNIT_KEYS = ("負荷 load", "温度 temp", "映像 vram", "主記 ram")
+UNIT_GAP = 12.0  # entre nome | barras | selo
+ROW_GAP = 8.0  # entre rótulo | barra | valor
+
+
+@lru_cache(maxsize=1)
+def unit_columns() -> tuple[float, float, float]:
+    """(nome, rótulo, valor) em px lógicos, medidos com as fontes reais. A barra fica com o resto
+    (a coluna `1fr` do canvas): ~100 px em vez dos ~60 do layout com o nome em 150 px fixos."""
+    name = max(max(width(n.upper(), "cond", 24, 600, 0.04), width(sub.upper(), "mono", 12, None, 0.08))
+               for n, sub in UNIT_NAMES)
+    key = max(width(k, "jp", 12, None, 0.08) for k in UNIT_KEYS)
+    val = width("00.0/00G", "mono", 14)
+    return math.ceil(name), math.ceil(key) + 2, math.ceil(val) + 2
 
 # Now playing
-NP_ROW = NP.top() + 19 + 26.4 + 14
-COVER = QRectF(NP.left() + 21, NP_ROW, 150, 150)
+COVER_S = 170.0  # sem "a seguir": capa maior e bloco centrado no espaço abaixo do título
+_NP_TOP = NP.top() + 19 + 26.4 + 14
+NP_ROW = _NP_TOP + max(0.0, (NP.bottom() - 21 - _NP_TOP - COVER_S) / 2)
+COVER = QRectF(NP.left() + 21, NP_ROW, COVER_S, COVER_S)
 NP_X = COVER.right() + 18
 NP_R = NP.right() - 21
-BTN_Y = NP_ROW + 150 - 44
+BTN_Y = NP_ROW + COVER_S - 44
 BTNS = {k: QRectF(NP_X + i * 52, BTN_Y, 44, 44) for i, k in enumerate(("prev", "playpause", "next"))}
 EQ = (10, 22, 34, 18, 40, 28, 14, 30, 38, 20, 12, 26, 16, 8)  # alturas decorativas do canvas
 
@@ -630,6 +694,7 @@ class MainScreen(Screen):
             "ram": [QRectF(X1 + 2, CARD["ram"].top() + 2, 356, CARD["ram"].height() - 4)],
             "net": [QRectF(X1 + 2, CARD["net"].top() + 2, 356, CARD["net"].height() - 4)],
             "mascot": [MASCOT_MAIN],
+            "mood": [MOOD_MAIN],
             "talk": [TALK],
             "history": [QRectF(HIST.left() + 2, HIST.top() + 50, HIST.width() - 4, HIST.height() - 52)],
             "spec": [QRectF(SPEC.left() + 2, SPEC.top() + 50, SPEC.width() - 4, 128),
@@ -655,6 +720,8 @@ class MainScreen(Screen):
             return (sn.net_down, sn.net_up, tuple(sn.net_series))
         if name == "mascot":
             return (accent(sn).rgb(), sn.magui_state)
+        if name == "mood":
+            return mood_key(sn)
         if name == "talk":
             return (sn.gaming, sn.caption, *talk_lines(sn)[0])
         if name == "history":
@@ -762,6 +829,9 @@ class MainScreen(Screen):
 
     # ---------------------------------------------------------------- centro
 
+    def _g_mood(self, p, snap, now, s):
+        draw_mood(p, MOOD_MAIN, snap)
+
     def _g_talk(self, p, snap, now, s):
         gaming = snap.gaming
         lbl = "Active · 稼働中" if gaming else "Standby · 待機中"
@@ -865,15 +935,15 @@ class MainScreen(Screen):
         w = text(p, b.left() + 35, yb, "点灯" if lit else "消灯", key="jp", px=12, spacing=0.08).width()
         label(p, b.left() + 35 + w + 10, yb, f"led {'on' if lit else 'off'}", color_=TEXT)
         units = (
-            ("Melchior", "magi·1 // cpu", CPU, ("負荷 load", snap.cpu, None, num(snap.cpu, suffix="%")),
+            (CPU, ("負荷 load", snap.cpu, None, num(snap.cpu, suffix="%")),
              ("温度 temp", snap.cpu_temp, 15, num(snap.cpu_temp, suffix="°"))),
-            ("Balthasar", "magi·2 // gpu", GPU, ("負荷 load", snap.gpu, None, num(snap.gpu, suffix="%")),
+            (GPU, ("負荷 load", snap.gpu, None, num(snap.gpu, suffix="%")),
              ("温度 temp", snap.gpu_temp, 15, num(snap.gpu_temp, suffix="°"))),
-            ("Casper", "magi·3 // memory", RAM,
-             ("映像 vram", snap.vram, None, (snap.vram_txt or NA).replace("--", NA)),
+            (RAM, ("映像 vram", snap.vram, None, (snap.vram_txt or NA).replace("--", NA)),
              ("主記 ram", snap.ram, None, snap.ram_txt or NA)),
         )
-        for r, (name, sub, base, row1, row2) in zip(UNITS, units, strict=True):
+        name_w, key_w, val_w = unit_columns()
+        for r, (name, sub), (base, row1, row2) in zip(UNITS, UNIT_NAMES, units, strict=True):
             t = tint(base, snap.led_rgb, lit)
             p.fillRect(r, t.bg)
             p.setPen(t.border)
@@ -883,14 +953,16 @@ class MainScreen(Screen):
             x = r.left() + 15
             heading(p, x, baseline("cond", 24, r.top() + 13 + off, None, 600), name, px=24, color_=t.color)
             label(p, x, baseline("mono", 12, r.top() + 13 + off + 28.8 + 2), sub)
-            bx = x + 150 + 16
+            bx = x + name_w + UNIT_GAP
             seal_x = r.right() - 15 - 70
+            vx = seal_x - UNIT_GAP  # borda direita do valor
+            seg_x = bx + key_w + ROW_GAP
+            seg_w = vx - val_w - ROW_GAP - seg_x
             for j, (k, v, wf, val) in enumerate((row1, row2)):
                 cy = r.top() + 13 + (ih - 47) / 2 + 9.25 + j * 28.5
                 text(p, bx, cy + 4.5, k, key="jp", px=12, color_=TEXT_DIM, spacing=0.08)
-                kit.segments(p, QRectF(bx + 74, cy - 6, seal_x - 16 - 72 - 10 - bx - 74, 12), 20,
-                             v or 0.0, t.seg, warn_from=wf)
-                text(p, seal_x - 16, cy + 5, val, px=14, align=R, color_=TEXT if v is not None else TEXT_DIM)
+                kit.segments(p, QRectF(seg_x, cy - 6, seg_w, 12), 20, v or 0.0, t.seg, warn_from=wf)
+                text(p, vx, cy + 5, val, px=14, align=R, color_=TEXT if v is not None else TEXT_DIM)
             kit.seal(p, QRectF(seal_x, r.top() + 1, 70, r.height() - 2), t.color)
 
     def _g_player(self, p, snap, now, s):
@@ -946,4 +1018,5 @@ class MainScreen(Screen):
                 "card:ram": CARD["ram"]}
 
 
-__all__ = ["MainScreen", "NA", "Pilot", "Screen", "Snapshot", "Track", "accent", "led_lit"]
+__all__ = ["MainScreen", "NA", "Pilot", "Screen", "Snapshot", "Track", "accent", "draw_mood", "led_lit",
+           "mood_color"]

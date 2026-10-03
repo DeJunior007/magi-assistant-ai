@@ -42,5 +42,33 @@ assistente Magui vai morar (ver `specs/magi-assistant/`).
 
 ## Configuração
 
-`~/.config/gamerhud/settings.json`: `rgb_sync`, `view` (`full` | `idle`), `transition`,
-`wallpaper` (`still` | `pause` | `off`), `auto_open`, `auto_close`.
+`~/.config/gamerhud/settings.json`: `ui` (`wired` | `eva`), `rgb_sync`, `view` (`full` | `idle`),
+`transition`, `wallpaper` (`still` | `pause` | `off`), `auto_open`, `auto_close`.
+
+## Tema "wired" (padrão) e tema eva
+
+`"ui": "wired"` (ou ausente) desenha o redesign do `docs/design/MAGI-HANDOFF.md` (módulos em
+`hud/wired/`); `"ui": "eva"` volta ao painel NERV antigo. A troca vale na hora (o HUD relê o
+settings.json pelo mtime). Meta+M alterna Painel completo ↔ Tela de espera nos dois temas, com a
+mesma cortina.
+
+No wired o HUD não tem quadros de animação: um batimento por segundo coleta os dados e redesenha
+só as regiões que mudaram, e o mascote pede quadros sozinho (até 30/s acordada, 1 a cada 4 s
+dormindo). Medido offscreen por 60 s: ~1,5% de um núcleo no painel completo e ~0,3% na espera
+(~2,6% / ~1,0% com a Magui falando); meta do R23.8: 10% / 3%.
+
+Cliques no Painel completo:
+
+- **LED** (消灯 OFF / 点灯 ON): liga/desliga o RGB Sync (`rgb_sync`, persistido). Ligado, as
+  unidades MAGI, o rubor do mascote e o trilho da espera usam a cor atual do OpenRGB; sem resposta
+  do OpenRGB volta ao visual off e avisa no rodapé.
+- **Anterior / tocar-pausar / próxima** no Now playing: Spotify por MPRIS.
+- **Cards CPU / GPU / RAM**: painel de consumo por processo sobre o "cam 01"; clique nele fecha.
+- **Mascote**: push-to-talk da Magui.
+
+A Magui (socket do HUD) muda a expressão, a boca, a legenda e o termômetro de humor (0–4, ao
+lado do mascote; discreto na tela de espera). O rodapé mostra jogo detectado/fechado, troca de
+faixa, Magui ativada e alertas.
+
+`hud/tools/wired_hud.py shots|bench` monta o HUD real offscreen (sem gravar settings) para gerar
+PNGs em `~/.cache/gamerhud/wired-demo/` e medir a CPU.

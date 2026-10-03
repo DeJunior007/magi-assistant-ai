@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication
 
 @pytest.fixture
 def hud(tmp_path, monkeypatch):
-    monkeypatch.setattr(gamerhud, "load_settings", lambda: {"view": "full", "transition": False})
+    monkeypatch.setattr(gamerhud, "load_settings", lambda: {"view": "full", "transition": False, "ui": "eva"})
     bridge = hud_bridge.HudBridge(tmp_path / "hud.sock")  # ninguém escuta: só tenta reconectar
     w = gamerhud.HUD({"seg": "Hack"}, bridge=bridge)
     w.resize(2560, 1440)

@@ -365,7 +365,7 @@ Formato de cada tarefa:
   - Orçamento: ~35k
   - Pronto: testes da nota e dos comandos.
 
-- [ ] **4.4 Termômetro no HUD** — desenhar o termômetro ao lado do rosto a partir de `mood`. *(R13.7)*
+- [x] **4.4 Termômetro no HUD** — desenhar o termômetro ao lado do rosto a partir de `mood`. *(R13.7)*
   - Lê: `hud/face.py` (interface), `hud/hud_bridge.py` (interface), do `hud/gamerhud.py` só `build_idle` e o trecho do rosto adicionado em 1.16
   - Escreve: `hud/face.py`, `hud/gamerhud.py` (alteração localizada)
   - Depende de: 1.16, 4.3
@@ -527,7 +527,7 @@ Fonte: `docs/design/MAGI-HANDOFF.md`, design §13. U1 e U2 em paralelo; U3 depoi
   - Orçamento: ~60k
   - Pronto: PNGs 2560×1440 das duas telas nos estados standby/gaming e LED off/on.
 
-- [ ] **U4 Integração** — `ui = "wired"|"eva"` no `gamerhud.py`, transição do Meta+M, cliques (LED → RGB Sync, player → MPRIS, cards → detalhes por processo), eventos da Magui → mascote/legenda, medição de CPU. *(R23.6, R23.8, R23.9)*
+- [x] **U4 Integração** — `ui = "wired"|"eva"` no `gamerhud.py`, transição do Meta+M, cliques (LED → RGB Sync, player → MPRIS, cards → detalhes por processo), eventos da Magui → mascote/legenda, medição de CPU. *(R23.6, R23.8, R23.9)*
   - Lê: `hud/gamerhud.py`, APIs de U3, `hud/hud_bridge.py`
   - Escreve: `hud/gamerhud.py`, `hud/README.md`, testes
   - Depende de: U3
