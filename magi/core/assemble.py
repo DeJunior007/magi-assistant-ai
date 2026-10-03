@@ -143,6 +143,8 @@ class Repos:
     turns: Any = None  # magi.memory.memories_repo.PgTurnsRepo (histórico local, 4.1)
     mood_events: Any = None  # magi.memory.mood.PgMoodEventsRepo (humor, 4.3)
     help: Any = None  # magi.memory.help.PgHelpLogRepo (ajuda no jogo, 4.5)
+    profile: Any = None  # magi.memory.profile.PgProfileRepo (perfil e estilo, 4.2)
+    vocab: Any = None  # magi.memory.profile.PgVocabRepo (gírias/nomes para a dica do STT, 4.2)
 
 
 class MemoryCorrectionsRepo:
@@ -188,6 +190,7 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
     from magi.memory.memories_repo import PgMemoriesRepo, PgTurnsRepo
     from magi.memory.migrate import migrate
     from magi.memory.music_signals_repo import MusicSignalsRepo
+    from magi.memory.profile import PgProfileRepo, PgVocabRepo
     from magi.memory.taste_repo import TasteRepo
 
     dsn = config.database.dsn
@@ -208,7 +211,7 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
         corrections=CorrectionsRepo(conn), costs=CostsRepo(conn), close=conn.close,
         taste=TasteRepo(conn), news=PgNewsRepo(conn), music_signals=MusicSignalsRepo(conn),
         memories=PgMemoriesRepo(conn), turns=PgTurnsRepo(conn), mood_events=PgMoodEventsRepo(conn),
-        help=PgHelpLogRepo(conn),
+        help=PgHelpLogRepo(conn), profile=PgProfileRepo(conn), vocab=PgVocabRepo(conn),
     )
 
 
@@ -305,6 +308,7 @@ class Core:
     news_query: Any = None  # magi.agent.tools.news.NewsQuery (6.12): "novidades?" e news_query
     mood: Any = None  # magi.memory.mood.MoodTracker (4.3)
     help: Any = None  # magi.memory.help.HelpTracker (4.5): degrau da ajuda no jogo
+    profile: Any = None  # magi.memory.profile.ProfileUpdater (4.2): perfil 1×/dia + vocab do STT
     game: Any = None  # magi.core.game_context.GameWatcher (1.21): jogo aberto; varre em ``start_proactive``
     game_task: asyncio.Task[Any] | None = None
 
@@ -476,6 +480,8 @@ async def assemble(
     _wire_pick(core, config, found)
     _wire_news_feedback(core, config, found)
 
+    core.profile = _profile_updater(core, catalog)
+
     # STT e TTS
     if core.providers is not None:
         _wire_voice(core, config, catalog)
@@ -496,6 +502,7 @@ async def assemble(
     if core.deps.agent is None:
         core.warn("agente indisponível: perguntas respondem 'ainda não sei fazer isso'")
     _wire_memory_agent(core)
+    _wire_profile(core)
     _wire_help(core)
     _wire_news_agent(core)
     core.self_model.agent_ready = core.deps.agent is not None
@@ -645,6 +652,28 @@ def _wire_news_agent(core: Core) -> None:
         core.self_model.tools = agent.tool_specs
 
 
+def _profile_updater(core: Core, catalog: GameCatalog) -> Any:
+    """Perfil e estilo (4.2): só com o histórico de turnos no banco (sem banco não há fonte)."""
+    from magi.memory.profile import ProfileUpdater, agent_chat
+
+    repos = core.repos
+    if repos is None or repos.turns is None or repos.profile is None:
+        return None
+    chat = agent_chat(core.providers) if core.providers is not None else None
+    return ProfileUpdater(repos.turns, repos.profile, vocab=repos.vocab, chat=chat, catalog=catalog)
+
+
+def _wire_profile(core: Core) -> None:
+    """Liga o perfil ao prompt do ``GraphAgent`` e inicia a conferência diária em segundo plano."""
+    from magi.agent.graph import GraphAgent
+
+    if core.profile is None:
+        return
+    if isinstance(core.deps.agent, GraphAgent):
+        core.deps.agent.profile = core.profile.current
+    core.tasks.append(asyncio.create_task(core.profile.run()))
+
+
 def _wire_memory_agent(core: Core) -> None:
     """Dá ao ``GraphAgent`` a busca de memórias e as ferramentas ``remember``/``forget``."""
     from magi.agent.graph import GraphAgent
@@ -770,7 +799,8 @@ def _wire_voice(core: Core, config: Config, catalog: GameCatalog) -> None:
     why = _check(p, "stt")
     if why is None:
         repo = core.corrections.repo if core.corrections else None
-        core.deps.stt = HintedStt(p.stt, catalog=catalog, corrections=repo)
+        vocab = core.profile.vocab if core.profile is not None else None
+        core.deps.stt = HintedStt(p.stt, catalog=catalog, corrections=repo, vocab=vocab)
     else:
         core.warn(f"STT: {why}")
     why = _check(p, "tts")
