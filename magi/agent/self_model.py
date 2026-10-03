@@ -263,7 +263,7 @@ class SelfModel:
         gaps = self.gaps()
         lines = [
             "## Sobre você",
-            'Você é a MAGI (fala-se "Magui"), roda no PC dele (Linux/KDE): satélite de voz, núcleo e '
+            'Você é a MAGI (fala-se "Magui"), roda no PC do usuário (Linux/KDE): satélite de voz, núcleo e '
             "o HUD MAGI Gamer no 2º monitor.",
             f"Ativação: {self._activation(s)}.",
             f"Comandos locais: {areas or 'nenhum'}. "
