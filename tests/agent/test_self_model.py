@@ -57,7 +57,23 @@ def _model(**kw) -> SelfModel:
 def test_wake_word_pelo_arquivo_do_modelo() -> None:
     assert wake_word_name("hey_jarvis") == ("hey Jarvis", True)
     assert wake_word_name("/x/hey_jarvis_v0.1.onnx") == ("hey Jarvis", True)
-    assert wake_word_name("~/m/ei_magui.onnx") == ("ei Magui", False)
+    assert wake_word_name("condessa") == ("Condessa", False)
+    assert wake_word_name("~/m/condessa.onnx") == ("Condessa", False)
+    assert wake_word_name("~/m/ei_magui.onnx") == ("ei Magui", True)
+
+
+def test_ativacao_condessa_e_provisoria() -> None:
+    prov = _model().state()
+    assert SelfModel._activation(prov).startswith(
+        'palavra "hey Jarvis" (provisória, até treinar o "Condessa")')
+    raw = {**RAW, "satellite": {**RAW["satellite"], "wake_model": "condessa"}}
+    m = _model(raw=raw)
+    s = m.state()
+    assert (s.wake_word, s.wake_provisional) == ("Condessa", False)
+    act = SelfModel._activation(s)
+    assert act.startswith('fale "Condessa" (ou "hey/oi/oh Condessa")') and "provisória" not in act
+    assert 'Me chama de "Condessa"' in m.help_result().speech
+    assert 'Me chama com "hey Jarvis"' in _model().help_result().speech
 
 
 def test_ficha_vem_do_intents_yaml_e_do_registro() -> None:

@@ -3,8 +3,8 @@
 Uso::
 
     uv run python -m tools.wakeword.evaluate
-    uv run python -m tools.wakeword.evaluate --model ~/.local/share/magi/models/wakeword/ei_magui.onnx \\
-        --negatives ~/.local/share/magi/wakeword-data/eval
+    uv run python -m tools.wakeword.evaluate --model ~/.local/share/magi/models/wakeword/condessa.onnx \\
+        --negatives ~/.local/share/magi/wakeword-data/condessa/eval
 
 Passa o áudio em blocos de 80 ms pelo mesmo detector do satélite (``OpenWakeWordDetector``),
 sem o portão de energia (mais rigoroso que em produção).
@@ -30,7 +30,7 @@ import numpy as np
 
 from magi.satellite.capture import iter_blocks
 from magi.satellite.wake import DEFAULT_COOLDOWN_MS, WakeDetector, default_models_dir
-from tools.wakeword.common import AUDIO_RATE, data_dir, list_wavs, read_wav
+from tools.wakeword.common import AUDIO_RATE, DEFAULT_WORD, data_dir, list_wavs, read_wav
 
 TARGET_RECALL = 0.95
 TARGET_FP_PER_HOUR = 0.5
@@ -133,7 +133,8 @@ def evaluate(detector: WakeDetector, positives: list[Path], negatives: list[Path
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", default=None, help="nome ou .onnx; padrão: ei_magui em models_dir")
+    ap.add_argument("--word", default=DEFAULT_WORD, help="palavra: pasta dos dados e <word>.onnx")
+    ap.add_argument("--model", default=None, help="nome ou .onnx; padrão: <word>.onnx em models_dir")
     ap.add_argument("--models-dir", type=Path, default=None)
     ap.add_argument("--data-dir", type=Path, default=None)
     ap.add_argument("--positives", type=Path, action="append", help="pasta(s) de positivas")
@@ -141,9 +142,9 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     from magi.satellite.wake import OpenWakeWordDetector
 
-    base = args.data_dir or data_dir()
+    base = args.data_dir or data_dir(args.word)
     models_dir = args.models_dir or default_models_dir()
-    detector = OpenWakeWordDetector(args.model or str(models_dir / "ei_magui.onnx"), models_dir)
+    detector = OpenWakeWordDetector(args.model or str(models_dir / f"{args.word}.onnx"), models_dir)
     positives = list_wavs(*args.positives) if args.positives else heldout_files(base)
     if args.negatives:
         negatives = list_wavs(*args.negatives)

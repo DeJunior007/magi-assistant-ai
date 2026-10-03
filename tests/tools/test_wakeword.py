@@ -94,7 +94,14 @@ def test_build_takes_counts():
     takes = record.build_takes()
     pos = [t for t in takes if t.section == "positive"]
     neg = [t for t in takes if t.section == "negative"]
-    assert 50 <= len(pos) <= 60 and all(t.say == "Ei Magui" for t in pos)
+    assert 50 <= len(pos) <= 60 and all(t.say.endswith("Condessa") for t in pos)
+    forms = {t.say for t in pos}
+    assert forms == {"Condessa", "Hey Condessa", "Oi Condessa", "Oh Condessa"}
+    counts = [sum(t.say == f for t in pos) for f in forms]
+    assert max(counts) - min(counts) <= 1  # distribuídas por igual
+    for label, _how, n in record.POSITIVE_STYLES:  # cada jeito de falar pega formas variadas
+        assert len({t.say for t in pos if t.label == label}) == min(n, 4), label
+    assert not any("condessa" in t.say.lower() for t in neg)  # ensinaria a ignorá-la
     assert 150 <= sum(t.seconds for t in neg) <= 240  # ~3 min de fala negativa
     assert [t.seconds for t in takes if t.section == "noise"] == [60.0]
 
@@ -117,7 +124,7 @@ def scripted(answers):
 
 
 def test_run_records_trims_and_rerecords(tmp_path):
-    takes = [record.Take("positive", "normal", "Ei Magui", "x", 2.5)] * 3
+    takes = [record.Take("positive", "normal", "Condessa", "x", 2.5)] * 3
     mic = FakeMic(silent_first=True)
     # 1ª: silêncio (repete), grava, regrava a última, grava as duas que faltam, fim
     saved = record.run(takes, tmp_path, mic, ask=scripted(["", "", "r", "", "", ""]), out=lambda s: None)
@@ -242,3 +249,12 @@ def test_evaluate_with_fake_detector(tmp_path):
     best = evaluate.evaluate(FakeDetector(), [tmp_path / "p1.wav"], negs, out=lines.append)
     assert best is None  # 1 falso em 20 s = 180/h
     assert any("180.00" in s for s in lines) and any("100.0%" in s for s in lines)
+
+
+def test_pastas_por_palavra(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    root = tmp_path / "magi" / "wakeword-data"
+    assert common.data_dir() == root / "condessa"
+    assert common.data_dir("outra") == root / "outra"
+    assert common.train_dir() == tmp_path / "magi" / "wakeword-train"
+    assert train.TEXTS == ["Condessa", "Hey Condessa", "Oi Condessa", "Oh Condessa"]

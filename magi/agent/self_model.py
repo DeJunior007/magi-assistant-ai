@@ -113,12 +113,18 @@ def _plain_label(label: str) -> str:
     return " ".join(_SLOT_RE.sub("", label).split())
 
 
+#: Palavra de ativação definitiva (modelo ``condessa.onnx``, spike S4).
+WAKE_WORD = "Condessa"
+
+
 def wake_word_name(model: str) -> tuple[str, bool]:
-    """Nome falável do wake word pelo arquivo do modelo e se é provisório (sem "magui")."""
+    """Nome falável do wake word pelo arquivo do modelo e se é provisório (não é o "Condessa")."""
     words = Path(model).stem.replace("-", "_").split("_")
     words = [w for w in words if w and not re.fullmatch(r"v\d+(\.\d+)*", w)]
+    if WAKE_WORD.lower() in (w.lower() for w in words):
+        return WAKE_WORD, False
     name = " ".join(w if i == 0 else w.capitalize() for i, w in enumerate(words)) or model
-    return name, "magui" not in name.lower()
+    return name, True
 
 
 def _read_intents(path: Path) -> list[dict[str, Any]]:
@@ -236,8 +242,10 @@ class SelfModel:
 
     @staticmethod
     def _activation(s: SelfState) -> str:
-        tail = ' (provisória, até treinar o "Ei Magui")' if s.wake_provisional else ""
-        wake = f'palavra "{s.wake_word}"{tail}'
+        if s.wake_provisional:
+            wake = f'palavra "{s.wake_word}" (provisória, até treinar o "{WAKE_WORD}")'
+        else:
+            wake = f'fale "{s.wake_word}" (ou "hey/oi/oh {s.wake_word}")'
         return wake + (f", ou segurar {' ou '.join(s.ptt)} e falar" if s.ptt else "")
 
     @staticmethod
@@ -339,7 +347,8 @@ class SelfModel:
         ptt = f" ou segurando {s.ptt[0]}" if s.ptt else ""
         speech = (
             'Sou a MAGI, fala "Magui", sua parceira gamer aqui no PC. '
-            f'Me chama com "{s.wake_word}"{ptt}, e o que eu sei fazer tá na tela.'
+            f'Me chama {"com" if s.wake_provisional else "de"} "{s.wake_word}"{ptt}, '
+            "e o que eu sei fazer tá na tela."
         )
         full = f"Ativação: {self._activation(s)}.\n{self.commands_text()}"
         gaps = self.gaps()

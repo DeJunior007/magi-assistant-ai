@@ -36,6 +36,9 @@ HINT_END = "."
 CORRECTION_BASE = 1.0
 GAME_WEIGHT = 1.0
 ALIAS_WEIGHT = 0.8
+#: Termos fixos da dica: como o Pedro chama a assistente para ativar e no meio da fala.
+BASE_TERMS: tuple[str, ...] = ("Condessa",)
+BASE_WEIGHT = 2.0
 
 
 def estimate_tokens(text: str) -> int:
@@ -83,8 +86,10 @@ class HintedStt:
         vocab: VocabRepo | None = None,
         corrections: CorrectionsRepo | None = None,
         max_hint_tokens: int = STT_HINT_MAX_TOKENS,
+        base_terms: tuple[str, ...] = BASE_TERMS,
     ) -> None:
         self._provider = provider
+        self.base_terms = base_terms
         self.catalog = catalog
         self.vocab = vocab
         self.corrections = corrections
@@ -109,7 +114,7 @@ class HintedStt:
 
     async def hint_terms(self) -> list[HintTerm]:
         """Termos candidatos de todas as fontes. Fonte que falha é ignorada."""
-        terms: list[HintTerm] = []
+        terms = [HintTerm(t, BASE_WEIGHT) for t in self.base_terms]
         if self.corrections is not None:
             try:
                 for c in await self.corrections.all():
