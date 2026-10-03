@@ -103,6 +103,9 @@ def _cards(res: SearchResult) -> tuple[CardMsg, ...]:
     return tuple(out)
 
 
+source_cards = _cards
+
+
 def _timeout(providers: Any, task: str) -> float:
     """``timeout_s`` de ``[tasks.<task>]`` (padrão 8 s, como no adaptador)."""
     tasks = getattr(getattr(providers, "config", None), "tasks", None)
@@ -158,6 +161,10 @@ class SearchTool:
                 return res, budget_hit
             log.warning("pesquisa (%s): resposta vazia", task)
         return None, budget_hit
+
+    async def lookup(self, prompt: str) -> tuple[SearchResult | None, bool]:
+        """Pesquisa com um prompt pronto (sem dados pessoais); usado pela ajuda no jogo (4.5)."""
+        return await self._search(prompt)
 
     async def run(self, args: Mapping[str, Any], ctx: TurnContext, text: str = "") -> ActionResult:
         question = clean_question(arg_str(args, "question"), self._private)

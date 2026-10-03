@@ -372,7 +372,7 @@ Formato de cada tarefa:
   - Orçamento: ~30k
   - Pronto: nível visível e atualizado.
 
-- [ ] **4.5 Ajuda no jogo** — `help_log`, tópico canônico, degraus, "manda a solução", travado por pedidos repetidos e conquistas. *(R14.1–R14.5)*
+- [x] **4.5 Ajuda no jogo** — `help_log`, tópico canônico, degraus, "manda a solução", travado por pedidos repetidos e conquistas. *(R14.1–R14.5)*
   - Lê: `contracts.py`, §4.5, §7 (`help_log`), R14
   - Escreve: `magi/memory/help.py`, `magi/agent/tools/help.py`, testes
   - Depende de: 4.1

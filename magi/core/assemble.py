@@ -141,6 +141,7 @@ class Repos:
     memories: Any = None  # magi.memory.memories_repo.PgMemoriesRepo (tarefa 4.1)
     turns: Any = None  # magi.memory.memories_repo.PgTurnsRepo (histórico local, 4.1)
     mood_events: Any = None  # magi.memory.mood.PgMoodEventsRepo (humor, 4.3)
+    help: Any = None  # magi.memory.help.PgHelpLogRepo (ajuda no jogo, 4.5)
 
 
 class MemoryCorrectionsRepo:
@@ -182,6 +183,7 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
     from magi.memory.conn import SerialConn
     from magi.memory.corrections_repo import CorrectionsRepo
     from magi.memory.costs_repo import CostsRepo
+    from magi.memory.help import PgHelpLogRepo
     from magi.memory.memories_repo import PgMemoriesRepo, PgTurnsRepo
     from magi.memory.migrate import migrate
     from magi.memory.music_signals_repo import MusicSignalsRepo
@@ -205,6 +207,7 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
         corrections=CorrectionsRepo(conn), costs=CostsRepo(conn), close=conn.close,
         taste=TasteRepo(conn), news=PgNewsRepo(conn), music_signals=MusicSignalsRepo(conn),
         memories=PgMemoriesRepo(conn), turns=PgTurnsRepo(conn), mood_events=PgMoodEventsRepo(conn),
+        help=PgHelpLogRepo(conn),
     )
 
 
@@ -299,6 +302,7 @@ class Core:
     self_model: Any = None  # magi.agent.self_model.SelfModel (3.9): ficha viva da Magui
     memory: Any = None  # magi.memory.memories_repo.MemoryStore (4.1)
     mood: Any = None  # magi.memory.mood.MoodTracker (4.3)
+    help: Any = None  # magi.memory.help.HelpTracker (4.5): degrau da ajuda no jogo
     game: Any = None  # magi.core.game_context.GameWatcher (1.21): jogo aberto; varre em ``start_proactive``
     game_task: asyncio.Task[Any] | None = None
 
@@ -480,7 +484,7 @@ async def assemble(
         why = _has_key_safe(core.providers, "agent")
         if why is None:
             try:
-                game = core.game.game_context if core.game is not None else None
+                game = _game_for_prompt(core) if core.game is not None else None
                 core.deps.agent = agent(core.providers, core.deps.actions, core.self_model, game=game)
             except Exception as e:
                 why = f"{type(e).__name__}: {e}"
@@ -489,6 +493,7 @@ async def assemble(
     if core.deps.agent is None:
         core.warn("agente indisponível: perguntas respondem 'ainda não sei fazer isso'")
     _wire_memory_agent(core)
+    _wire_help(core)
     core.self_model.agent_ready = core.deps.agent is not None
     return core
 
@@ -612,6 +617,47 @@ def _wire_memory_agent(core: Core) -> None:
         return
     agent.memory = core.memory
     agent.add_tools(memory_tools(core.memory))
+    if core.self_model is not None:
+        core.self_model.tools = agent.tool_specs
+
+
+def _game_for_prompt(core: Core) -> Callable[[], Any]:
+    """``GameContext`` do jogo aberto com a linha de ajuda (último trecho e degrau, 4.5)."""
+
+    def game() -> Any:
+        ctx = core.game.game_context()
+        running = core.game.running()
+        if core.help is None or ctx is None or running is None:
+            return ctx
+        from magi.memory.help import game_key
+
+        return core.help.annotate(ctx, game_key(running.appid, running.name))
+
+    return game
+
+
+def _wire_help(core: Core) -> None:
+    """Ajuda no jogo (4.5): ``HelpTracker`` sobre ``help_log`` (ou memória) e a ferramenta
+    ``game_help`` com a pesquisa com fontes. Tópicos casados por embeddings, se houver chave."""
+    from magi.agent.graph import GraphAgent
+    from magi.agent.tools.help import help_tools
+    from magi.agent.tools.search import search_tools
+    from magi.memory.help import HelpTracker, InMemoryHelpLogRepo
+    from magi.memory.memories_repo import provider_embed
+
+    agent = core.deps.agent
+    if core.game is None or not isinstance(agent, GraphAgent):
+        return
+    repo = core.repos.help if core.repos is not None and core.repos.help is not None else None
+    if repo is None:
+        repo = InMemoryHelpLogRepo()
+    embeds = core.providers is not None and _has_key_safe(core.providers, "embeddings") is None
+    core.help = HelpTracker(repo, provider_embed(core.providers) if embeds else None)
+    raw = getattr(getattr(core.providers, "config", None), "raw", None) or {}
+    name = str((raw.get("user") or {}).get("name") or "") if isinstance(raw, dict) else ""
+    private = (name,) if name else ()
+    search = next(iter(search_tools(core.providers, private_terms=private)), None)
+    agent.add_tools(help_tools(core.help, core.game.running, search, private_terms=private))
     if core.self_model is not None:
         core.self_model.tools = agent.tool_specs
 
