@@ -240,14 +240,16 @@ AgentFactory = Callable[[Any, ActionRegistry, Any], Agent]
 
 def default_agent(providers: Any, registry: ActionRegistry, self_model: Any = None) -> Agent:
     """``GraphAgent`` (3.4) com as ferramentas de sistema e de mídia (3.5) sobre o registro de
-    ações e, com a ficha (3.9, ``SelfModel``), a ferramenta ``self_info`` e a seção "Sobre você"
+    ações, a de visão (3.7, ``screenshot`` sobre ``providers.vision()``) e, com a ficha (3.9,
+    ``SelfModel``), a ferramenta ``self_info`` e a seção "Sobre você"
     no prompt."""
     from magi.agent.graph import GraphAgent
     from magi.agent.self_model import SelfInfoTool
     from magi.agent.tools.media import media_tools
     from magi.agent.tools.system import system_tools
+    from magi.agent.tools.vision import vision_tools
 
-    tools: list[Any] = [*system_tools(registry), *media_tools(registry)]
+    tools: list[Any] = [*system_tools(registry), *media_tools(registry), *vision_tools(providers)]
     if self_model is None:
         return GraphAgent(providers, tools, game=lambda: None)
     tools.append(SelfInfoTool(self_model))

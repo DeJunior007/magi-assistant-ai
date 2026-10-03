@@ -314,7 +314,7 @@ Formato de cada tarefa:
   - Orçamento: ~25k
   - Pronto: card com links aparece no HUD.
 
-- [ ] **3.7 Visão** — `screenshot(window|screen)` só sob pedido; apaga após envio. *(R9.1–R9.4)*
+- [x] **3.7 Visão** — `screenshot(window|screen)` só sob pedido; apaga após envio. *(R9.1–R9.4)*
   - Lê: `contracts.py`, R9, `magi/agent/tools/base.py`
   - Escreve: `magi/agent/tools/vision.py`, testes
   - Depende de: 3.4
