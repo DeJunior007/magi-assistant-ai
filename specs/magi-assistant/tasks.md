@@ -388,7 +388,7 @@ Formato de cada tarefa:
   - Orçamento: ~25k
   - Pronto: entrar e sair de call alterna a detecção em ≤ 5 s.
 
-- [ ] **5.2 Mudo só para o Discord** — PTT em call muta e restaura; recuperação após queda. *(R2.3, R2.4)*
+- [x] **5.2 Mudo só para o Discord** — PTT em call muta e restaura; recuperação após queda. *(R2.3, R2.4)*
   - Lê: `contracts.py`, §3.2, R2, `magi/satellite/discord.py`
   - Escreve: `magi/satellite/discord.py`, `magi/satellite/ptt.py` (ligação), testes
   - Depende de: 5.1, 1.3

@@ -115,6 +115,11 @@ class PushToTalk:
 
     def __init__(self) -> None:
         self._held: set[PttSource] = set()
+        self._listeners: list[Callable[[bool], None]] = []
+
+    def subscribe(self, listener: Callable[[bool], None]) -> None:
+        """Chama ``listener(pressed)`` a cada mudança (ex.: mudo do Discord, tarefa 5.2)."""
+        self._listeners.append(listener)
 
     @property
     def pressed(self) -> bool:
@@ -128,6 +133,11 @@ class PushToTalk:
             self._held.discard(source)
         if was != self.pressed:
             log.info("atalho %s (%s)", "pressionado" if self.pressed else "solto", source.value)
+            for listener in self._listeners:
+                try:
+                    listener(self.pressed)
+                except Exception:  # noqa: BLE001 - ouvinte com erro não trava o atalho
+                    log.exception("ouvinte do atalho falhou")
 
 
 class _AlwaysVoiced:
