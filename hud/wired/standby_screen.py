@@ -24,9 +24,11 @@ from .main_screen import (
     accent,
     baseline,
     draw_cover,
+    draw_mood,
     label,
     led_dot,
     led_lit,
+    mood_key,
     text,
     width,
     wrapped,
@@ -94,6 +96,7 @@ class StandbyScreen(Screen):
         self.mid = TOP + h1 + 1 + gap
         self.y_rule2 = BOTTOM - h3
         self.MASCOT_RECT = QRectF(COL.left(), self.mid, 200, 115)
+        self.mood = QRectF(COL.left() + 205, self.mid + 10, 12, 95)  # discreto, entre mascote e fala
         self.talk = QRectF(COL.left() + 222, self.mid, COL.right() - COL.left() - 222, 115)
         self.cover = QRectF(COL.left(), BOTTOM - 72, 72, 72)
 
@@ -116,6 +119,7 @@ class StandbyScreen(Screen):
             "clock": [QRectF(TX - 4, self.y_kanji - 4, 1160 - TX, BOTTOM + 6 - self.y_kanji)],
             "led": [RAIL, QRectF(COL.right() - 130, TOP - 4, 132, self.y_rule1 - TOP)],
             "mascot": [self.MASCOT_RECT],
+            "mood": [self.mood],
             "talk": [self.talk],
             "player": [QRectF(COL.left() - 2, self.y_rule2 + 2, COL.width() + 4, BOTTOM - self.y_rule2 + 2)],
         }
@@ -127,6 +131,8 @@ class StandbyScreen(Screen):
             return (led_lit(snap), accent(snap).rgb())
         if name == "mascot":
             return (accent(snap).rgb(), snap.magui_state)
+        if name == "mood":
+            return mood_key(snap)
         if name == "talk":
             return (snap.caption, snap.magui_state == "sleeping")
         if name == "player":
@@ -158,6 +164,9 @@ class StandbyScreen(Screen):
         tw = width(txt.upper(), "mono", 13, None, 0.08)
         label(p, COL.right(), self.y_status, txt, px=13, color_=TEXT, align=Qt.AlignmentFlag.AlignRight)
         led_dot(p, QPointF(COL.right() - tw - 8 - 4, self.y_status - 4.5), 4, snap)
+
+    def _g_mood(self, p, snap, now, s):
+        draw_mood(p, self.mood, snap, legend=False, bar_w=4.0)
 
     def _g_talk(self, p, snap, now, s):
         r = self.talk

@@ -35,6 +35,7 @@ sys.path.insert(0, HERE)
 import orgb  # noqa: E402
 import hud_bridge  # noqa: E402
 from face import Face  # noqa: E402
+from wired.integration import CARD_DETAIL, WiredUI, rgb_hex  # noqa: E402
 
 TARGET_SCREEN = os.environ.get("GAMERHUD_SCREEN", "DP-1")
 CACHE = os.path.expanduser("~/.cache/gamerhud")
@@ -70,6 +71,7 @@ RGB_MS = 300          # consulta ao OpenRGB (~0,5 ms cada)
 HISTORY = 240          # 2 min de histórico
 IDLE_AVG_S = 300       # tela de ociosidade: média de FPS atualizada a cada 5 min
 TRANSITION_S = 0.55    # cortina ao trocar de tela (Meta+M)
+UI_DEFAULT = "wired"   # settings.json "ui": "wired" (R23) | "eva" (tema antigo, R23.9)
 DEFAULT_RGB = (255, 140, 26, 1.0)   # laranja NERV quando o OpenRGB não responde
 
 DIAS = ["SEG", "TER", "QUA", "QUI", "SEX", "SÁB", "DOM"]
@@ -877,7 +879,10 @@ class HUD(QWidget):
         self.rgb_online = False
         self.rgb_sync = True
         self.settings_mtime = -1.0
-        self.view = load_settings().get("view", "full")   # 'full' | 'idle' (Meta+M alterna)
+        cfg = load_settings()
+        self.view = cfg.get("view", "full")   # 'full' | 'idle' (Meta+M alterna)
+        self.ui = "eva" if cfg.get("ui", UI_DEFAULT) == "eva" else "wired"
+        self.wired = WiredUI() if self.ui == "wired" else None   # tema wired (U4)
         # tela de ociosidade: média de FPS que só muda a cada IDLE_AVG_S, e tempo de sessão
         self.idle_avg = None
         self.idle_acc = []
@@ -894,16 +899,86 @@ class HUD(QWidget):
         self.setWindowTitle("MAGI Gamer")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_OpaquePaintEvent)
-        self.poll_rgb(instant=True)
-        self.sample()
         self.data_timer = QTimer(self, timeout=self.sample)
-        self.data_timer.start(SAMPLE_MS)
         self.anim_timer = QTimer(self, timeout=self.animate)
         self.anim_timer.setTimerType(Qt.PreciseTimer)
-        self.anim_timer.start(ANIM_MS)
+        # wired: um batimento por segundo de relógio (dados + regiões sujas), sem quadros de animação
+        self.wired_timer = QTimer(self, timeout=self.wired_beat)
+        self.wired_timer.setSingleShot(True)
+        self.wired_timer.setTimerType(Qt.PreciseTimer)
+        self.poll_rgb(instant=True)
+        self.sample()
+        self.start_timers()
         self.rgb_timer = QTimer(self, timeout=self.poll_rgb)
         self.rgb_timer.start(RGB_MS)
         self.init_magui(bridge)
+
+    # ---------- tema: wired (R23) ou eva (R23.9) ----------
+    def start_timers(self):
+        if self.wired:
+            self.data_timer.stop()
+            self.anim_timer.stop()
+            self.wired_beat(sample=False)
+        else:
+            self.wired_timer.stop()
+            self.data_timer.start(SAMPLE_MS)
+            self.anim_timer.start(ANIM_MS)
+
+    def apply_ui(self, ui):
+        """Troca de tema em execução (settings.json "ui")."""
+        ui = "eva" if ui == "eva" else "wired"
+        if ui == self.ui:
+            return
+        self.ui = ui
+        self.trans = None
+        if ui == "wired":
+            self.wired = self.wired_keep if getattr(self, "wired_keep", None) else WiredUI()
+            self.frame = None
+            self.wired.set_state(self.face.state if self.face.state in self.FACE_STATES else "sleeping")
+            self.wired.set_mood(self.magui_mood)
+        else:
+            self.wired_keep, self.wired = self.wired, None
+            self.bg = None
+            self.render_caches()
+        self.start_timers()
+        self.update()
+        self.face_tick()
+
+    FACE_STATES = ("sleeping", "listening", "thinking", "speaking", "happy", "confused", "alert")
+
+    def wired_beat(self, sample=True):
+        """1 Hz alinhado ao segundo do relógio: coleta, dados novos e redesenho só do que mudou."""
+        if sample:
+            self.sample()
+        if self.wired:
+            self.wired_timer.start(1000 - int(time.time() * 1000) % 1000 + 3)
+
+    def wired_poll(self):
+        d = self.sensors.data
+        self.wired.poll(d, self.fpsrc.fps, self.steam_game or self.fpsrc.name)
+        self.wired_refresh()
+
+    def wired_refresh(self, detail=False):
+        """Remonta o Snapshot e invalida só as regiões que mudaram (dirty_regions)."""
+        w = self.wired
+        if not w:
+            return
+        snap = w.build(self.sensors.data, spec=self.spec, pads=self.pads,
+                       gaming=(self.steam_game or self.fpsrc.name) is not None)
+        if not (self.isVisible() and self.width() > 1) or self.trans:
+            return
+        for r in w.screen(self.view).dirty_regions(snap, size=self.size()):
+            self.update(r)
+        if detail and self.detail and self.view != "idle":
+            self.update(w.detail_rect(self.size()))
+
+    def paint_wired(self, p, region):
+        w, size = self.wired, self.size()
+        scr = w.screen(self.view)
+        for r in region:   # retângulos separados: relógio + rodapé não viram a tela inteira
+            scr.paint(p, size, w.snap, region=r)
+            if self.detail and self.view != "idle":
+                w.paint_detail(p, size, r, self.detail, self.detail_rows)
 
     # ---------- Magui: rosto e ponte com o núcleo (tarefa 1.16) ----------
     # O rosto não entra no cache (frame): o paintEvent o desenha por cima, e só a região dele
@@ -914,7 +989,7 @@ class HUD(QWidget):
 
     def init_magui(self, bridge):
         self.face = Face("sleeping")
-        self.magui_mood = None        # TODO(4.4): termômetro de humor no HUD
+        self.magui_mood = None        # termômetro de humor (4.4): desenhado pelo tema wired
         self.magui_vote = None        # TODO: votação dos MAGI (veredito, rótulo) no painel
         self.magui_cards = deque(maxlen=8)   # TODO: cards de notícia/links no HUD
         self.detail_return = None     # view a restaurar quando o detalhe pedido pela voz fechar
@@ -929,7 +1004,7 @@ class HUD(QWidget):
         b.detail.connect(self.on_bridge_detail)
         b.mood.connect(self.on_bridge_mood)
         b.vote.connect(self.on_bridge_vote)
-        b.card.connect(self.magui_cards.append)
+        b.card.connect(self.on_bridge_card)
         b.connectedChanged.connect(self.on_bridge_connected)
         b.start()
         self.face_tick()
@@ -941,6 +1016,12 @@ class HUD(QWidget):
 
     def face_tick(self):
         now = time.monotonic()
+        if self.wired:
+            rect, deadline = self.wired.screen(self.view).mascot_tick(now, self.size())
+            if rect is not None and not self.trans and self.isVisible():
+                self.update(rect)
+            self.face_timer.start(max(1, math.ceil((deadline - now) * 1000)))
+            return
         redraw, deadline = self.face.tick(now)
         if redraw and self.frame is not None and not self.trans:
             self.update(self.r_face().toAlignedRect())
@@ -951,24 +1032,44 @@ class HUD(QWidget):
             self.face.set_state(expr)
         except ValueError:
             return
+        if self.wired:
+            self.wired.set_state(expr)
+            self.wired_refresh()
         self.face_tick()
 
     def on_face_mouth(self, level):
         self.face.set_mouth_level(level)
+        if self.wired:
+            self.wired.set_mouth(level)
         self.face_tick()
 
     def on_face_subtitle(self, text, full=""):
         self.face.set_subtitle(text)
+        if self.wired:
+            self.wired.set_caption(text)
+            self.wired_refresh()
         self.face_tick()
 
     def on_bridge_connected(self, up):
         if not up:   # núcleo fora do ar: a Magui dorme e a legenda some
             self.face.set_state("sleeping")
             self.face.set_subtitle("")
+            if self.wired:
+                self.wired.on_connected(False)
+                self.wired_refresh()
             self.face_tick()
 
     def on_bridge_mood(self, v):
         self.magui_mood = v
+        if self.wired:
+            self.wired.set_mood(v)
+            self.wired_refresh()
+
+    def on_bridge_card(self, card):
+        self.magui_cards.append(card)
+        if self.wired:
+            self.wired.on_card(card)
+            self.wired_refresh()
 
     def on_bridge_vote(self, verdict, label):
         self.magui_vote = (verdict, label)
@@ -1012,6 +1113,8 @@ class HUD(QWidget):
             self.settings_mtime = mtime
             cfg = load_settings()
             self.rgb_sync = cfg.get("rgb_sync", True)
+            if not instant:
+                self.apply_ui(cfg.get("ui", UI_DEFAULT))
             new_view = cfg.get("view", "full")
             self.detail_return = None   # Meta+M manda mais que o detalhe pedido pela voz
             if not instant and new_view != self.view and cfg.get("transition", True) and self.isVisible():
@@ -1025,6 +1128,10 @@ class HUD(QWidget):
         res = resolve_rgb(orgb.board_color()) if self.rgb_sync else None
         self.rgb_online = res is not None
         self.rgb_tgt = list(res if res else DEFAULT_RGB)
+        if self.wired:   # LED ligado sem OpenRGB → visual off + aviso no rodapé (R23.6)
+            self.wired.set_led(self.rgb_sync, rgb_hex(res) if res else None)
+            if self.wired.snap.led_rgb != self.wired.led_rgb or self.wired.snap.led_on != self.wired.led_on:
+                self.wired_refresh()
         if not instant and self.rgb_tgt != self.rgb_cur:
             self.theme_frame = 1   # começa a transição no próximo frame
         if instant:
@@ -1034,9 +1141,11 @@ class HUD(QWidget):
 
     def toggle_rgb_sync(self):
         settings = load_settings()
-        settings["rgb_sync"] = not self.rgb_sync
+        settings["rgb_sync"] = self.rgb_sync = not self.rgb_sync   # vale já, sem esperar o mtime
         save_settings(settings)
         self.poll_rgb()
+        if self.wired:
+            self.wired_refresh()
 
     def update_icon(self):
         icon = QIcon()
@@ -1062,7 +1171,7 @@ class HUD(QWidget):
                 if self.detail_return:
                     self.detail_closed()
                     return
-            elif self.sample_count % 2 == 0:
+            elif self.wired or self.sample_count % 2 == 0:
                 self.detail_rows = self.procs.poll(self.detail) or self.detail_rows
         d = self.sensors.data
         self.hist["fps"].append(self.fpsrc.fps or 0.0)
@@ -1079,6 +1188,11 @@ class HUD(QWidget):
         peak = max(max(self.hist["fps"]), 1.0)
         self.fps_scale += (max(60.0, peak * 1.15) - self.fps_scale) * 0.5
         self.track_session()
+        if self.wired:
+            self.wired_poll()
+            if self.detail:
+                self.wired_refresh(detail=True)
+            return
         if not (self.isVisible() and self.width() > 1):
             return
         if self.view == "idle":
@@ -1122,18 +1236,25 @@ class HUD(QWidget):
         self.render_caches()
         new = self.grab()
         self.trans = {"old": old, "new": new, "t0": time.monotonic()}
-        self.anim_timer.setInterval(16)   # 60 fps só durante a cortina
+        self.anim_timer.start(16)   # 60 fps só durante a cortina
         self.update()
 
     def animate(self):
         global T
-        if self.frame is None:
+        if self.frame is None and not self.trans:
             return
         if self.trans:
             if time.monotonic() - self.trans["t0"] >= TRANSITION_S:
                 self.trans = None
-                self.anim_timer.setInterval(ANIM_MS)
+                if self.wired:
+                    self.anim_timer.stop()   # wired não tem quadros de animação fora da cortina
+                    self.face_tick()
+                else:
+                    self.anim_timer.setInterval(ANIM_MS)
             self.update()
+            return
+        if self.wired:
+            self.anim_timer.stop()
             return
         # transição de cor do tema (~0,4 s), re-renderizando o cache a 15 fps
         if self.rgb_cur != self.rgb_tgt:
@@ -1181,11 +1302,16 @@ class HUD(QWidget):
         if self.detail is None and self.detail_return:
             self.detail_closed()
             return
+        if self.wired:
+            self.update(self.wired.detail_rect(self.size()))
+            return
         self.render_caches()
         self.update()
 
     def clickable(self, pos):
         """Clique simples tem ação aqui (rosto, botão de sync, linhas do MAGI, painel aberto)."""
+        if self.wired:
+            return self.wired.hit(pos, self.size(), self.view, self.detail)
         if self.r_face().contains(pos):
             return "face"
         if self.view == "idle":
@@ -1203,6 +1329,9 @@ class HUD(QWidget):
         if e.button() != Qt.LeftButton:
             return
         target = self.clickable(e.position())
+        if self.wired and target:
+            self.wired_click(target)
+            return
         if target == "face":
             self.bridge.send_cmd("push_to_talk")   # falso se o núcleo não estiver no ar
         elif target == "sync":
@@ -1212,6 +1341,19 @@ class HUD(QWidget):
         elif target:
             self.open_detail(target)
 
+    def wired_click(self, target):
+        """Cliques do tema wired: LED → RGB Sync, player → MPRIS, cards → detalhes por processo."""
+        if target == "face":
+            self.bridge.send_cmd("push_to_talk")
+        elif target == "led":
+            self.toggle_rgb_sync()
+        elif target == "detail":
+            self.open_detail(self.detail)   # mesmo tipo de novo = fecha
+        elif target in CARD_DETAIL:
+            self.open_detail(CARD_DETAIL[target])
+        elif self.wired.player(target):
+            self.wired_refresh()
+
     def mouseDoubleClickEvent(self, e):
         if self.clickable(e.position()):
             return   # o 1º clique já agiu; duplo clique em área clicável não fecha o HUD
@@ -1219,6 +1361,8 @@ class HUD(QWidget):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
+        if self.wired:
+            return   # as telas wired guardam a camada estática por tamanho sozinhas
         self.bg = None
         self.render_caches()
 
@@ -1277,6 +1421,9 @@ class HUD(QWidget):
 
     # ---------- desenho ----------
     def render_caches(self):
+        if self.wired:
+            self.frame = None   # o tema wired pinta direto (camadas em cache dentro das telas)
+            return
         if self.view == "idle":
             self.frame = self.build_idle()
             return
@@ -1299,6 +1446,14 @@ class HUD(QWidget):
         self.plot_pm = self.render_plot()
 
     def paintEvent(self, ev):
+        if self.wired:
+            p = QPainter(self)
+            if self.trans:
+                self.paint_transition(p)
+            else:
+                self.paint_wired(p, ev.region())
+            p.end()
+            return
         if self.frame is None or self.frame.size() != self.size():
             self.render_caches()
         p = QPainter(self)
