@@ -499,7 +499,7 @@ Formato de cada tarefa:
 
 Fonte: `docs/design/MAGI-HANDOFF.md`, design §13. U1 e U2 em paralelo; U3 depois das duas; U4 por último. Ninguém edita `hud/gamerhud.py` antes da U4.
 
-- [ ] **U1 Kit visual** — fontes em `hud/fonts/` + carregamento, tokens e tingimento do LED, painel chanfrado, scanlines, barras de segmentos, sparkline, cenário de fios e mascote vetorial com as 7 expressões e boca por nível; script que salva PNGs de cada peça. *(R23.1, R23.4, R23.7)*
+- [x] **U1 Kit visual** — fontes em `hud/fonts/` + carregamento, tokens e tingimento do LED, painel chanfrado, scanlines, barras de segmentos, sparkline, cenário de fios e mascote vetorial com as 7 expressões e boca por nível; script que salva PNGs de cada peça. *(R23.1, R23.4, R23.7)*
   - Lê: handoff, `docs/design/wired/*.dc.html`, design §13, `hud/face.py` (expressões e API), `hud/gamerhud.py` só `Theme`/`alpha` (grep)
   - Escreve: `hud/fonts/`, `hud/wired/{__init__,theme,fonts,kit,scene,mascot}.py`, `hud/tools/wired_demo.py`, `tests/hud/test_wired_kit.py`
   - Depende de: —
