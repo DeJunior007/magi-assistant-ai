@@ -69,8 +69,9 @@ MOUTH_INTERVAL_MS = 50
 MOUTH_CLOSED_BELOW = 0.15
 MOUTH_HALF_BELOW = 0.5
 
-#: Fim de fala por VAD e duração máxima da gravação por "Condessa" (R1.5).
-VAD_SILENCE_MS = 700
+#: Fim de fala por VAD e duração máxima da gravação por "Condessa" (R1.5). 700 ms cortava frases
+#: com pausa natural (1.26); o satélite permite mudar em ``[satellite] end_silence_ms``.
+VAD_SILENCE_MS = 1000
 MAX_RECORDING_MS = 15_000
 #: Janela para dizer "confirma" (R5.4).
 CONFIRM_TIMEOUT_MS = 8_000

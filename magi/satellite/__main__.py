@@ -48,7 +48,7 @@ from magi.satellite.ducking import Ducker
 from magi.satellite.playback import Player
 from magi.satellite.ptt import PttSettings, PushToTalk, ptt_endpointer, start_sources
 from magi.satellite.stream import PreRoll, UtteranceStream
-from magi.satellite.vad import Endpointer, SpeechDetector, download_vad_model, load_vad
+from magi.satellite.vad import SpeechDetector, VadSettings, download_vad_model, load_vad
 from magi.satellite.wake import (
     OpenWakeWordDetector,
     WakeDetector,
@@ -160,6 +160,7 @@ async def wake_loop(
     listens: asyncio.Queue[ListenRequest] | None = None,
     ptt: PushToTalk | None = None,
     player: Player | None = None,
+    vad_settings: VadSettings | None = None,
 ) -> None:
     """Loop do satélite. Ocioso: wake word em cada bloco de 80 ms (único custo ocioso, §5).
 
@@ -168,8 +169,10 @@ async def wake_loop(
     Com ``ptt``, o atalho pressionado manda ``magi-wake`` (source=ptt) e grava até soltar
     (``ptt_release``), interrompendo outra gravação em curso (R1.3, R1.4).
     Com ``player``, wake word ou atalho durante a fala da Magui cortam o som na hora (R12.5).
+    ``vad_settings``: fim de fala e pré-rolo de ``[satellite]`` (1.26); ``None`` = padrões.
     """
-    preroll = PreRoll()
+    vs = vad_settings or VadSettings()
+    preroll = PreRoll.from_ms(vs.preroll_ms)
     stream: UtteranceStream | None = None
     ptt_held = False  # gravação do atalho em curso (ou já encerrada pelo teto de 15 s)
     async for block in source.blocks():
@@ -199,7 +202,8 @@ async def wake_loop(
         if vad is not None and listens is not None and not listens.empty():
             req = listens.get_nowait()
             log.info("escuta pedida pelo núcleo (%s, %d ms)", req.reason, req.timeout_ms)
-            stream = UtteranceStream(client.send_event, Endpointer.for_listen(vad, req))
+            # sem pré-rolo: antes do pedido o microfone pode ter ouvido a própria Magui (caixa de som)
+            stream = UtteranceStream(client.send_event, vs.listen_endpointer(vad, req))
             preroll.take()
             if await stream.start() and await stream.feed(block) is None:
                 continue
@@ -218,7 +222,7 @@ async def wake_loop(
             log.warning("ativação descartada: sem conexão com o núcleo")
             continue
         if vad is not None:
-            stream = UtteranceStream(client.send_event, Endpointer(vad), preroll=preroll.take())
+            stream = UtteranceStream(client.send_event, vs.endpointer(vad), preroll=preroll.take())
             if not await stream.start():
                 stream = None
 
@@ -269,6 +273,15 @@ def load_ptt_settings(watcher: ConfigWatcher | None) -> PttSettings:
     except ValueError as e:
         log.error("%s; usando o atalho padrão", e)
         return PttSettings()
+
+
+def load_vad_settings(watcher: ConfigWatcher | None) -> VadSettings:
+    """Fim de fala de ``[satellite]`` (só ao iniciar). Inválido → padrões."""
+    try:
+        return VadSettings.from_raw(watcher.current.raw) if watcher is not None else VadSettings()
+    except (TypeError, ValueError) as e:
+        log.error("%s; usando o fim de fala padrão", e)
+        return VadSettings()
 
 
 def reload_handler(
@@ -356,8 +369,11 @@ async def run(
         ptt.subscribe(muter.on_ptt)
         ptt_tasks = start_sources(ptt, load_ptt_settings(watcher))
     try:
+        vad_settings = load_vad_settings(watcher)
+        log.info("fim de fala: %d ms de silêncio, fala mínima %d ms, pré-rolo %d ms",
+                 vad_settings.end_silence_ms, vad_settings.min_speech_ms, vad_settings.preroll_ms)
         await wake_loop(source, spotter, client, settings.satellite, vad=vad, listens=listens, ptt=ptt,
-                        player=player)
+                        player=player, vad_settings=vad_settings)
         if args.wav:
             await asyncio.sleep(0.5)  # deixa o último evento sair
     finally:
