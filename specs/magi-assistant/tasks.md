@@ -351,7 +351,7 @@ Formato de cada tarefa:
   - Orçamento: ~40k
   - Pronto: fato contado num dia é lembrado no outro; "esquece isso" remove.
 
-- [ ] **4.2 Perfil e estilo** — perfil ≤ 300 tokens atualizado 1×/dia com gírias, formalidade e tamanho de resposta. *(R11.1, R11.4)*
+- [x] **4.2 Perfil e estilo** — perfil ≤ 300 tokens atualizado 1×/dia com gírias, formalidade e tamanho de resposta. *(R11.1, R11.4)*
   - Lê: `contracts.py`, §7 (`profile`, `vocab`), R11
   - Escreve: `magi/memory/profile.py`, testes
   - Depende de: 4.1

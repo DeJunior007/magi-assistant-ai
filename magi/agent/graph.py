@@ -87,7 +87,7 @@ class GraphAgent:
         self._tools = {t.name: t for t in tools}
         self._specs = tuple(t.spec for t in tools)
         self._game = game
-        self._profile = profile
+        self.profile = profile  # público: o núcleo liga o perfil (4.2) depois de criar o agente
         self._persona = persona
         self._about = about
         self.memory = memory
@@ -163,7 +163,7 @@ class GraphAgent:
         try:
             prompt = build_prompt(
                 mood=ctx.mood,
-                profile=self._profile() if self._profile else None,
+                profile=self.profile() if self.profile else None,
                 game=self._game() if self._game else None,
                 memories=memories,
                 history=tuple(self._history),
