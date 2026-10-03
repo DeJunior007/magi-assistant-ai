@@ -314,7 +314,7 @@ Formato de cada tarefa:
   - Orçamento: ~35k
   - Pronto: cada ferramenta chamada corretamente pelo modelo falso.
 
-- [ ] **3.6 Resposta curta e completa** — até 2 frases faladas; resposta completa e links como `subtitle`/`card` no HUD. *(R12.3)*
+- [x] **3.6 Resposta curta e completa** — até 2 frases faladas; resposta completa e links como `subtitle`/`card` no HUD. *(R12.3)*
   - Lê: `contracts.py` (mensagens do HUD), §6, R12
   - Escreve: `magi/core/compose.py`, testes
   - Depende de: 3.4

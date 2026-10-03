@@ -61,7 +61,6 @@ from magi.common.contracts import (
     StateMsg,
     StopPlayback,
     SttProvider,
-    SubtitleMsg,
     ToneMetadata,
     Transcript,
     TurnContext,
@@ -74,6 +73,7 @@ from magi.common.contracts import (
     WakeSource,
     check_transition,
 )
+from magi.core.compose import compose, subtitle
 
 if TYPE_CHECKING:
     from magi.core.proactive.sink import Offer
@@ -439,15 +439,19 @@ class TurnMachine:
         escuta curta da resposta (5.4)."""
         if self._state is not TurnState.SLEEPING or self.busy:
             return False
-        await self.hud.send(SubtitleMsg(text))
+        said = compose(ActionResult(ok=True, speech=text))
+        for card in said.cards:
+            await self.hud.send(card)
+        if (sub := subtitle(said)) is not None:
+            await self.hud.send(sub)
         speaker = self.pipeline.deps.speaker
-        if speaker is None:
+        if speaker is None or not said.speech:
             return True
         self._followup = False  # aviso não abre janela de continuação
         self._offer = offer
         await self._go(TurnState.SPEAKING, expression)
         # A volta a ``sleeping`` vem com ``playback-done`` (ou erro, via ``_guard``).
-        self._start(speaker.say(text, self.link, personal=False))
+        self._start(speaker.say(said.speech, self.link, personal=False))
         return True
 
     async def close(self) -> None:
@@ -646,8 +650,10 @@ class TurnMachine:
 
     async def _deliver(self, result: ActionResult, *, followup: bool = True) -> None:
         """Mostra e fala a resposta. Estado de partida: ``thinking`` ou ``confirming``.
-        ``followup``: ao terminar, abre a janela de continuação (1.20)."""
+        ``followup``: ao terminar, abre a janela de continuação (1.20). A resposta passa por
+        ``compose`` (3.6): fala ≤ 2 frases sem URL, legenda completa e cards de links."""
         self._followup = followup
+        result = compose(result)
         if result.needs_confirmation:
             self._pending = result.on_confirm
             if result.dangerous:
@@ -655,8 +661,8 @@ class TurnMachine:
                 await self.hud.send(VoteMsg(Verdict.PENDING))
         for card in result.cards:
             await self.hud.send(card)
-        if result.speech or result.full_text:
-            await self.hud.send(SubtitleMsg(result.speech, result.full_text))
+        if (sub := subtitle(result)) is not None:
+            await self.hud.send(sub)
         speaker = self.pipeline.deps.speaker
         if result.speech and speaker is not None:
             await self._go(TurnState.SPEAKING, result.expression)
