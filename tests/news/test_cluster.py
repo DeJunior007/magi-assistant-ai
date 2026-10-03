@@ -194,3 +194,27 @@ async def test_magi_news_agrupa_depois_da_coleta(schema, monkeypatch):
         assert len(await _links(repo)) == 1
     finally:
         await repo.close()
+
+
+@pytest.mark.db
+async def test_search_items_por_obra(repo):
+    """6.12: casamento tolerante (acento, pontuação, palavra inteira), só classificados, ordenado."""
+    from dataclasses import replace
+
+    now = datetime.now(UTC)
+    ids = []
+    for title, franchise, prio in [
+        ("Silksong: patch 1.1", "Hollow Knight: Silksong", 0.4),
+        ("Trailer novo", "Hollow Knight: Silksong", 0.9),
+        ("Pokémon Z-A ganha data", "Pokémon", 0.5),
+        ("Silksongs falsos", None, 1.0),
+    ]:
+        it = NewsItem(title=title, franchise=franchise, first_seen=now)
+        iid = await repo.add_item(it, vector(title), [])
+        await repo.update_item(replace(it, id=iid, kind="anuncio", priority=prio))
+        ids.append(iid)
+    await repo.add_item(NewsItem(title="Silksong sem classificar", first_seen=now), vector("x"), [])
+    got = await repo.search_items(franchise="silksong", limit=5)
+    assert [i.id for i in got] == [ids[1], ids[0]]
+    assert [i.id for i in await repo.search_items(franchise="POKEMON")] == [ids[2]]
+    assert len(await repo.search_items(limit=10)) == 4

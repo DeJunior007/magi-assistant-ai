@@ -495,7 +495,7 @@ Formato de cada tarefa:
   - Orçamento: ~25k
   - Pronto: tema rejeitado cai de nível na execução seguinte.
 
-- [ ] **6.12 Perguntas sobre novidades** — ferramenta `news_query`, "novidades?" com até 5 itens, fallback para pesquisa. *(R20.1–R20.3)*
+- [x] **6.12 Perguntas sobre novidades** — ferramenta `news_query`, "novidades?" com até 5 itens, fallback para pesquisa. *(R20.1–R20.3)*
   - Lê: `contracts.py`, R20, `magi/agent/tools/base.py`, interface de 6.9
   - Escreve: `magi/agent/tools/news.py`, testes
   - Depende de: 6.10, 3.8

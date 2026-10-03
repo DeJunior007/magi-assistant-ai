@@ -302,6 +302,7 @@ class Core:
     music_task: asyncio.Task[Any] | None = None
     self_model: Any = None  # magi.agent.self_model.SelfModel (3.9): ficha viva da Magui
     memory: Any = None  # magi.memory.memories_repo.MemoryStore (4.1)
+    news_query: Any = None  # magi.agent.tools.news.NewsQuery (6.12): "novidades?" e news_query
     mood: Any = None  # magi.memory.mood.MoodTracker (4.3)
     help: Any = None  # magi.memory.help.HelpTracker (4.5): degrau da ajuda no jogo
     game: Any = None  # magi.core.game_context.GameWatcher (1.21): jogo aberto; varre em ``start_proactive``
@@ -463,6 +464,7 @@ async def assemble(
     found = handlers(catalog, hud_sink, core.corrections)
     found = _wire_memory_store(core, found)
     found = _wire_mood(core, config, hud_sink, found)
+    found = _wire_news_query(core, found)
     core.self_model = _self_model(core, config)
     if not any(IntentId.HELP.value in h.intents for h in found):
         from magi.agent.self_model import HelpHandler
@@ -495,6 +497,7 @@ async def assemble(
         core.warn("agente indisponível: perguntas respondem 'ainda não sei fazer isso'")
     _wire_memory_agent(core)
     _wire_help(core)
+    _wire_news_agent(core)
     core.self_model.agent_ready = core.deps.agent is not None
     return core
 
@@ -606,6 +609,40 @@ def _wire_memory_store(core: Core, found: list[ActionHandler]) -> list[ActionHan
     if not any(IntentId.MEMORY_FORGET.value in h.intents for h in found):
         found = [*found, ForgetHandler(core.memory)]
     return found
+
+
+def _wire_news_query(core: Core, found: list[ActionHandler]) -> list[ActionHandler]:
+    """"Novidades?" local (6.12): usa o ``WhatsNewHandler`` dos handlers ou acrescenta um; liga o
+    repo de notícias (sem Postgres, responde que não tem banco)."""
+    from magi.agent.tools.news import NewsQuery, WhatsNewHandler
+
+    repo = core.repos.news if core.repos is not None else None
+    for h in found:
+        if isinstance(h, WhatsNewHandler):
+            h.query.repo = h.query.repo or repo
+            core.news_query = h.query
+            return found
+    core.news_query = NewsQuery(repo)
+    if any(IntentId.NEWS_WHATS_NEW.value in h.intents for h in found):
+        return found
+    return [*found, WhatsNewHandler(core.news_query)]
+
+
+def _wire_news_agent(core: Core) -> None:
+    """Dá ao ``GraphAgent`` a ferramenta ``news_query`` (6.12), com a ``search`` (3.8) de fallback."""
+    from magi.agent.graph import GraphAgent
+    from magi.agent.tools.news import news_tools
+
+    agent = core.deps.agent
+    if core.news_query is None or not isinstance(agent, GraphAgent):
+        return
+    core.news_query.search = agent.tool("search")
+    tools = news_tools(core.news_query)
+    if not tools:
+        return
+    agent.add_tools(tools)
+    if core.self_model is not None:
+        core.self_model.tools = agent.tool_specs
 
 
 def _wire_memory_agent(core: Core) -> None:
