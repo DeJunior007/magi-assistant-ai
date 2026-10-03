@@ -124,6 +124,7 @@ class TurnDeps:
     - ``actions`` (1.9-1.11) e ``agent`` (3.x): sem eles, responde ``SAY_UNAVAILABLE``.
     - ``speaker`` (1.12): sem ele, a resposta só aparece na legenda do HUD.
     - ``turns`` (4.1): histórico local de turnos (R11.6), gravado em segundo plano.
+    - ``mood`` (4.3): ``magi.memory.mood.MoodTracker``; sem ele, ``ctx.mood`` fica no padrão.
     """
 
     stt: SttProvider | None = None
@@ -133,6 +134,7 @@ class TurnDeps:
     agent: Agent | None = None
     speaker: Speaker | None = None
     turns: TurnsRepo | None = None
+    mood: Any = None
 
 
 def _normalize(text: str) -> str:
@@ -193,6 +195,7 @@ class TurnPipeline:
         Resposta com ``redo_text`` (correção, R3.3) refaz o turno uma vez com esse texto, sem
         passar de novo pelo ``Corrector``; a fala fica "<fala da correção> <fala refeita>".
         """
+        ctx = await self._observe_mood(transcript, ctx)
         result, route = await self._respond(transcript, ctx)
         if result.redo_text:
             redo = transcript.with_final(result.redo_text)
@@ -201,6 +204,18 @@ class TurnPipeline:
             result, transcript = dataclasses.replace(again, speech=speech, redo_text=result.redo_text), redo
         self._record(transcript, ctx, result, route)
         return result
+
+    async def _observe_mood(self, transcript: Transcript, ctx: TurnContext) -> TurnContext:
+        """Atualiza o termômetro com os sinais do turno e põe o nível no contexto (R13.3-R13.4)."""
+        mood = self.deps.mood
+        if mood is None or transcript.is_empty:
+            return ctx
+        try:
+            level = await mood.observe(transcript.final, ctx)
+        except Exception:
+            log.exception("falha ao atualizar o humor")
+            return ctx
+        return dataclasses.replace(ctx, mood=level)
 
     def _record(
         self, transcript: Transcript, ctx: TurnContext, result: ActionResult, route: RouteResult | None

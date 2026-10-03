@@ -140,6 +140,7 @@ class Repos:
     music_signals: Any = None  # magi.memory.music_signals_repo.MusicSignalsRepo (tarefa 2.4)
     memories: Any = None  # magi.memory.memories_repo.PgMemoriesRepo (tarefa 4.1)
     turns: Any = None  # magi.memory.memories_repo.PgTurnsRepo (histórico local, 4.1)
+    mood_events: Any = None  # magi.memory.mood.PgMoodEventsRepo (humor, 4.3)
 
 
 class MemoryCorrectionsRepo:
@@ -195,6 +196,7 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
     applied = await asyncio.to_thread(_migrate)
     if applied:
         log.info("migrações aplicadas: %s", ", ".join(applied))
+    from magi.memory.mood import PgMoodEventsRepo
     from magi.news.repo import PgNewsRepo
 
     raw = await psycopg.AsyncConnection.connect(dsn, autocommit=True, connect_timeout=DB_TIMEOUT_S)
@@ -202,7 +204,7 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
     return Repos(
         corrections=CorrectionsRepo(conn), costs=CostsRepo(conn), close=conn.close,
         taste=TasteRepo(conn), news=PgNewsRepo(conn), music_signals=MusicSignalsRepo(conn),
-        memories=PgMemoriesRepo(conn), turns=PgTurnsRepo(conn),
+        memories=PgMemoriesRepo(conn), turns=PgTurnsRepo(conn), mood_events=PgMoodEventsRepo(conn),
     )
 
 
@@ -291,6 +293,7 @@ class Core:
     music_task: asyncio.Task[Any] | None = None
     self_model: Any = None  # magi.agent.self_model.SelfModel (3.9): ficha viva da Magui
     memory: Any = None  # magi.memory.memories_repo.MemoryStore (4.1)
+    mood: Any = None  # magi.memory.mood.MoodTracker (4.3)
 
     def warn(self, msg: str) -> None:
         if msg not in self.warnings:
@@ -443,6 +446,7 @@ async def assemble(
     core.deps.corrector = core.corrections
     found = handlers(catalog, hud_sink, core.corrections)
     found = _wire_memory_store(core, found)
+    found = _wire_mood(core, config, hud_sink, found)
     core.self_model = _self_model(core, config)
     if not any(IntentId.HELP.value in h.intents for h in found):
         from magi.agent.self_model import HelpHandler
@@ -545,6 +549,21 @@ def _wire_news_feedback(core: Core, config: Config, found: list[ActionHandler]) 
                 core.warn(f"{e}; retorno de notícias com os padrões")
             h.feedback.repo = repo
             return
+
+
+def _wire_mood(
+    core: Core, config: Config, hud_sink: HudSink, found: list[ActionHandler]
+) -> list[ActionHandler]:
+    """Termômetro de humor (4.3): estado em ``data_dir``, ``mood`` ao HUD, "pega leve"/"pode pegar
+    pesado" locais e ajustes em ``mood_events`` quando há banco."""
+    from magi.memory import mood
+
+    events = core.repos.mood_events if core.repos is not None else None
+    core.mood = mood.MoodTracker(config.paths.data_dir / mood.STATE_FILE, hud=hud_sink, events=events)
+    core.deps.mood = core.mood
+    if any(IntentId.MOOD_SOFTER.value in h.intents for h in found):
+        return found
+    return [*found, *mood.handlers(core.mood)]
 
 
 def _wire_memory_store(core: Core, found: list[ActionHandler]) -> list[ActionHandler]:
