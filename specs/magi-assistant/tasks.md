@@ -233,6 +233,13 @@ Formato de cada tarefa:
   - Orçamento: ~45k
   - Pronto: testes com `/proc` falso, catálogo falso e Store via `MockTransport`: detecta o jogo, ignora a Steam, fecha o jogo, cache de tags persiste e vence, adaptadores, e o agente recebe o `GameContext`.
 
+- [x] **1.22 Recarga de config sem reiniciar** — `ConfigReloader` (`magi/core/reload.py`) observa o `config.toml` do `magi-core` (debounce de 500 ms) e aplica a quente: `[providers]`/`[tasks]` (`Registry.reload` refaz só os backends/tarefas afetados; `GuardedTts.voice` exposto, a voz nova vale na próxima fala e `PhraseSpeaker.invalidate` regenera o cache de frases sob demanda), `[budget]` (teto e preços), `[alerts]`, `[news.delivery]`, `[news.feedback]`, `[conversation]` (serviço e satélites conectados) e `[user]` (ficha). `[database]`, `[paths]`, `[game]`, `[music]` e demais chaves de `[news]` só logam "mudança em [X] exige reiniciar o magi-core"; `[satellite]` fica com o satélite. Config inválida (inclusive seção a quente malformada) → mantém a anterior, loga e manda card discreto ao HUD. Segredo trocado no keyring sob um nome já em uso só vale ao reiniciar (o pool é mantido); nome novo em `keys` vale na hora. *(R21.1)*
+  - Lê: `magi/common/config.py`, `magi/providers/registry.py`, `magi/core/tts.py`, `magi/core/assemble.py`, `magi/core/service.py`
+  - Escreve: `magi/core/reload.py`, `magi/providers/registry.py`, `magi/core/tts.py`, `magi/core/assemble.py`, `magi/core/service.py`, `tests/core/test_reload.py`
+  - Depende de: 0.2, 1.19
+  - Orçamento: ~45k
+  - Pronto: testes com arquivo temporário e debounce falso: trocar a voz muda a próxima fala e invalida o cache; teto do orçamento vale na hora; config inválida mantém a anterior; seção que exige reinício só loga.
+
 - [ ] **1.18 Medição da fase 1** — script de desempenho do §10 (CPU/RAM ociosos por 10 min, latência p90 de 50 turnos).
   - Lê: §10, tabela RNF de `requirements.md`
   - Escreve: `tools/perf.py`, `docs/perf/fase1.md`
