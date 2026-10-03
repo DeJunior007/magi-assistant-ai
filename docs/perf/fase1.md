@@ -182,3 +182,18 @@ uv run python -m tools.perf latency --turns 10 --phrase "quantas patas tem uma a
 Espere ~1 min depois do reinício antes do `idle` (a pré-geração das frases `fixed` roda em segundo
 plano no primeiro uso do TTS) e não rode `latency` junto com `idle`. O 1º turno de cada frase pode
 pagar a síntese/aquecimento; os outros 49 medem o caminho com cache.
+
+## Medição ao vivo depois da 1.23 (2026-10-03, ~10:45–11:05)
+
+Mesmos comandos da seção anterior (`tools.perf idle --minutes 10`, `latency --turns 50 --phrase cancela`,
+`latency --turns 10 --phrase "quantas patas tem uma aranha" --gap 3`), com os serviços reiniciados após o merge.
+
+| RNF | Meta | Antes (1.18) | Depois (1.23) | Veredito |
+| --- | --- | --- | --- | --- |
+| RNF-01 CPU dormindo | ≤ 2% | 1,30% | média 1,12% (p90 2,19%) | dentro |
+| RNF-02 RAM dormindo | ≤ 300 MB | 402 MB PSS | **233 MB PSS** (satélite+núcleo+pg) | dentro |
+| RNF-04 comando conhecido | ≤ 1,5 s p90 | 1,78 s | **1,17 s** (média 0,67 s, n=50, 0 falhas) | dentro |
+| RNF-05 pergunta ao agente | ≤ 3 s p90 | 4,12 s | **3,45 s** (média 2,57 s, n=10) | fora (perto) |
+
+RNF-05 segue fora: o caminho é STT → modelo → TTS em série; o próximo passo é falar a primeira frase
+enquanto o modelo ainda gera (streaming por frase) e cortar o silêncio inicial do TTS (tarefa 1.24).

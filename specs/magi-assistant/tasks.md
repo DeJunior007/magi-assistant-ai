@@ -247,7 +247,7 @@ Formato de cada tarefa:
   - Orçamento: ~60k
   - Pronto: frases fixas usam o cache (zero chamadas ao TTS na segunda vez); memória lenta não segura a resposta além de 300 ms; sessões onnx criadas com as opções de memória; suíte verde; re-medição ao vivo com `tools.perf` pelo usuário.
 
-- [ ] **1.18 Medição da fase 1** — script de desempenho do §10 (CPU/RAM ociosos por 10 min, latência p90 de 50 turnos).
+- [x] **1.18 Medição da fase 1** — script de desempenho do §10 (CPU/RAM ociosos por 10 min, latência p90 de 50 turnos).
   - Lê: §10, tabela RNF de `requirements.md`
   - Escreve: `tools/perf.py`, `docs/perf/fase1.md`
   - Depende de: 1.13, 1.17, 1.19
