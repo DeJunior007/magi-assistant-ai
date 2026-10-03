@@ -351,7 +351,7 @@ Formato de cada tarefa:
   - Orçamento: ~30k
   - Pronto: perfil muda após uma semana, sem passar do limite.
 
-- [ ] **4.3 Humor no núcleo** — sinais locais, nota 0–4 suavizada, "pega leve" / "pode pegar pesado", nível no prompt e `mood` ao HUD. *(R13.3–R13.5)*
+- [x] **4.3 Humor no núcleo** — sinais locais, nota 0–4 suavizada, "pega leve" / "pode pegar pesado", nível no prompt e `mood` ao HUD. *(R13.3–R13.5)*
   - Lê: `contracts.py`, §4.4, R13
   - Escreve: `magi/memory/mood.py`, testes
   - Depende de: 4.1
