@@ -143,3 +143,12 @@ async def test_aceitar_chama_o_picker_e_recusa_segura() -> None:
     assert not await s.on_game(opened(RACING))
     clock.t += 9 * 3600
     assert await s.on_game(opened(RACING))
+
+
+def test_open_world_nao_vence_tag_casual() -> None:
+    forza = RunningGame(
+        "Forza Horizon 5", 5, 0.0, 1551360, ("Racing",), ("Single-player",), ("Racing", "Open World")
+    )
+    zelda = RunningGame("Mundo aberto", 6, 0.0, 1, ("Adventure",), ("Single-player",), ("Open World",))
+    assert classify(forza) is GameClass.CASUAL
+    assert classify(zelda) is GameClass.IMMERSIVE

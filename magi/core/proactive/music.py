@@ -75,10 +75,10 @@ IMMERSIVE_TAGS = frozenset(
         "horror",
         "survival horror",
         "psychological horror",
-        "exploration",
-        "open world",
     }
 )
+# Fracos: só tornam o jogo imersivo se não houver tag casual (Forza Horizon = racing + open world).
+WEAK_IMMERSIVE_TAGS = frozenset({"exploration", "open world"})
 CASUAL_TAGS = frozenset(
     {
         "casual",
@@ -111,6 +111,8 @@ def classify(game: Any) -> GameClass:
         return GameClass.IMMERSIVE
     if tags & CASUAL_TAGS:
         return GameClass.CASUAL
+    if tags & WEAK_IMMERSIVE_TAGS:
+        return GameClass.IMMERSIVE
     return GameClass.UNKNOWN
 
 
