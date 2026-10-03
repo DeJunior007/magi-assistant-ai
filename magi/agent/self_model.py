@@ -64,6 +64,7 @@ TOOL_GAPS: dict[str, str] = {
     "search": "pesquisar na internet",
     "news_query": "responder sobre novidades de jogos e anime",
     "spotify_pick": "escolher música pelo seu gosto",
+    "remember": "lembrar de coisas entre conversas",
 }
 
 _SLOT_WORDS = {"game": "jogo", "volume": "número", "brightness": "número", "amount": "valor",

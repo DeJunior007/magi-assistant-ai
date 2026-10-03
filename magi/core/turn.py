@@ -65,6 +65,8 @@ from magi.common.contracts import (
     ToneMetadata,
     Transcript,
     TurnContext,
+    TurnRecord,
+    TurnsRepo,
     TurnState,
     Verdict,
     VoteMsg,
@@ -121,6 +123,7 @@ class TurnDeps:
     - ``router`` (1.8): sem ele, todo texto vai ao agente.
     - ``actions`` (1.9-1.11) e ``agent`` (3.x): sem eles, responde ``SAY_UNAVAILABLE``.
     - ``speaker`` (1.12): sem ele, a resposta só aparece na legenda do HUD.
+    - ``turns`` (4.1): histórico local de turnos (R11.6), gravado em segundo plano.
     """
 
     stt: SttProvider | None = None
@@ -129,6 +132,7 @@ class TurnDeps:
     actions: ActionRegistry | None = None
     agent: Agent | None = None
     speaker: Speaker | None = None
+    turns: TurnsRepo | None = None
 
 
 def _normalize(text: str) -> str:
@@ -161,6 +165,7 @@ class TurnPipeline:
 
     def __init__(self, deps: TurnDeps | None = None) -> None:
         self.deps = deps if deps is not None else TurnDeps()
+        self._tasks: set[asyncio.Task[None]] = set()
 
     async def transcribe(self, audio: bytes, fmt: PcmFormat, ctx: TurnContext) -> Transcript:
         """Texto da fala já corrigido. Falha do provedor vira transcrição vazia (R3.5)."""
@@ -188,18 +193,53 @@ class TurnPipeline:
         Resposta com ``redo_text`` (correção, R3.3) refaz o turno uma vez com esse texto, sem
         passar de novo pelo ``Corrector``; a fala fica "<fala da correção> <fala refeita>".
         """
-        result = await self._respond(transcript, ctx)
-        if not result.redo_text:
-            return result
-        again = await self._respond(transcript.with_final(result.redo_text), ctx)
-        speech = " ".join(s for s in (result.speech, again.speech) if s)
-        return dataclasses.replace(again, speech=speech, redo_text=result.redo_text)
+        result, route = await self._respond(transcript, ctx)
+        if result.redo_text:
+            redo = transcript.with_final(result.redo_text)
+            again, route = await self._respond(redo, ctx)
+            speech = " ".join(s for s in (result.speech, again.speech) if s)
+            result, transcript = dataclasses.replace(again, speech=speech, redo_text=result.redo_text), redo
+        self._record(transcript, ctx, result, route)
+        return result
 
-    async def _respond(self, transcript: Transcript, ctx: TurnContext) -> ActionResult:
+    def _record(
+        self, transcript: Transcript, ctx: TurnContext, result: ActionResult, route: RouteResult | None
+    ) -> None:
+        """Grava o turno em ``turns`` sem segurar a resposta (R11.6)."""
+        if self.deps.turns is None or transcript.is_empty:
+            return
+        intent = route.intent.id if route is not None and route.intent is not None else None
+        rec = TurnRecord(
+            satellite=ctx.satellite,
+            text_heard=transcript.heard,
+            text_final=transcript.final,
+            at=ctx.started_at,
+            intent=intent,
+            routed_local=route is not None and route.kind is RouteKind.LOCAL,
+            reply=result.full_text or result.speech,
+            mood=ctx.mood,
+        )
+        task = asyncio.create_task(self._save_turn(self.deps.turns, rec))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    @staticmethod
+    async def _save_turn(repo: TurnsRepo, rec: TurnRecord) -> None:
+        try:
+            await repo.add(rec)
+        except Exception:
+            log.exception("falha ao gravar o turno no histórico")
+
+    async def _respond(
+        self, transcript: Transcript, ctx: TurnContext
+    ) -> tuple[ActionResult, RouteResult | None]:
         if transcript.is_empty:
-            return ActionResult(ok=False, speech=SAY_NOT_HEARD, expression=Expression.CONFUSED)
+            return ActionResult(ok=False, speech=SAY_NOT_HEARD, expression=Expression.CONFUSED), None
         text = transcript.final
         route = self.route(text, ctx)
+        return await self._dispatch(text, route, ctx), route
+
+    async def _dispatch(self, text: str, route: RouteResult, ctx: TurnContext) -> ActionResult:
         if route.kind is RouteKind.LOCAL:
             assert route.intent is not None
             return await self.run_action(ActionRequest(intent=route.intent, ctx=ctx, text=text))
