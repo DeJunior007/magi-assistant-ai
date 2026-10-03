@@ -254,6 +254,13 @@ Formato de cada tarefa:
   - Orçamento: ~60k
   - Pronto: 1ª frase vira áudio antes do fim da geração; 2 frases no mesmo envio; ferramenta não fala antes; silêncio inicial cortado (limite 600 ms); uso contabilizado; interrupção corta; suíte verde; re-medição ao vivo do RNF-05 depois de reiniciar os serviços.
 
+- [x] **1.25 Transcrição enquanto fala** — RNF-05 p90 3,39 s após a 1.24; o STT só começava depois do `audio-stop`. `[tasks].stt` ganha `streaming = true|false` (padrão `false`) e `streaming_model` opcional: com ele ligado, o `audio-start` (ou o 1º `audio-chunk`) abre uma sessão Realtime só de transcrição (`/v1/realtime?intent=transcription`, `session.update` tipo `transcription`, PCM reamostrado para 24 kHz, sem detecção de turno no servidor), os pedaços seguem conforme chegam e o `audio-stop` só faz `commit` e espera o texto final (`SttStream` em `magi/core/stt.py`, `GuardedStt.stream_transcribe`, `OpenAIBackend.stream_transcribe`). Mesma dica de vocabulário (`prompt`), mesmo orçamento (segundos de áudio, preço por minuto do modelo). Falha, estouro (1,5 s) ou texto vazio → áudio inteiro pelo caminho antigo; silêncio, interrupção e desconexão fecham a sessão. Validação real: ganho de só ~70 ms com `gpt-transcribe` (o modelo só transcreve depois do `commit`); fica desligado. *(RNF-05)*
+  - Lê: `docs/perf/fase1.md`, `magi/core/stt.py`, `magi/core/turn.py`, `magi/providers/openai_provider.py`, `magi/providers/registry.py`, `docs/spikes/S3.md`
+  - Escreve: `magi/core/stt.py`, `magi/core/turn.py`, `magi/providers/openai_provider.py`, `magi/providers/registry.py`, `config.example.toml`, `tests/core/test_stt_stream.py`, `tests/providers/test_stt_stream_live.py`, `docs/perf/fase1.md`
+  - Depende de: 1.24
+  - Orçamento: ~60k
+  - Pronto: texto final chega após o stop sem reenviar o áudio; falha/estouro cai no caminho antigo; uso contabilizado; `no_speech`/interrupção fecham a sessão; suíte verde; validação real (`-m live`) medindo fim da fala → texto contra o caminho antigo.
+
 - [x] **1.18 Medição da fase 1** — script de desempenho do §10 (CPU/RAM ociosos por 10 min, latência p90 de 50 turnos).
   - Lê: §10, tabela RNF de `requirements.md`
   - Escreve: `tools/perf.py`, `docs/perf/fase1.md`

@@ -26,7 +26,9 @@ free_tier = true                        # proíbe dados pessoais (memória, voz,
 name = ""                               # como a Magui te chama (ex.: "Pedro")
 
 [tasks]
-stt        = { provider = "openai", model = "gpt-transcribe" }
+# streaming (1.25): transcreve enquanto fala pela Realtime API (sessão de transcrição por WebSocket);
+# streaming_model opcional (padrão = model; gpt-live-transcribe custa ~4x). Falhou -> áudio inteiro.
+stt        = { provider = "openai", model = "gpt-transcribe", streaming = false }
 tts        = { provider = "openai", model = "gpt-4o-mini-tts", voice = "<escolher ouvindo ~/Music/magi-vozes>", instructions = "Fale em português do Brasil com sotaque brasileiro natural. Voz feminina jovem, animada e brincalhona, como uma amiga gamer conversando no Discord." }
 agent      = { provider = "openai", model = "gpt-5.4-mini", reasoning_effort = "none", timeout_s = 15 }
 vision     = { provider = "openai", model = "gpt-5.4-mini" }  # não medido no S3 (mesmo modelo do agente)
@@ -55,6 +57,10 @@ per = 1000000
 [budget.prices.openai."gpt-transcribe"]
 input = 0.0045                          # USD por minuto de áudio
 per = 60                                # input_units = segundos
+
+[budget.prices.openai."gpt-live-transcribe"]  # só se for o streaming_model (1.25)
+input = 0.017
+per = 60
 
 [budget.prices.openai."gpt-4o-mini-tts"]
 # ESTIMATIVA, não é preço de tabela: a OpenAI cobra US$ 0,60/1M tokens de texto + US$ 12/1M tokens

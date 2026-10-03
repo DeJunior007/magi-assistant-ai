@@ -237,3 +237,58 @@ uv run python -m tools.perf latency --turns 10 --phrase "quantas patas tem uma a
 Ganho pequeno sobre a 1.23 (p90 3,45 s): as respostas medidas têm uma frase só (1,5–2 s de áudio), então a
 fala por frase quase não antecipa nada. O tempo é STT (~0,7 s, depois do fim da fala) + modelo (~1–1,5 s) +
 primeiro byte do TTS (~0,6–0,9 s). Próximo passo: transcrever enquanto o usuário fala (tarefa 1.25).
+
+## 1.25 Transcrição enquanto fala
+
+### O que mudou
+
+- `[tasks].stt` ganha `streaming = true|false` (padrão `false`) e `streaming_model` (opcional; padrão = `model`).
+  Ligado, o `audio-start` (ou o 1º `audio-chunk`) abre uma **sessão Realtime só de transcrição** por WebSocket
+  (`wss://api.openai.com/v1/realtime?intent=transcription`, `session.update` com `type: "transcription"`,
+  `audio/pcm` a 24 kHz — o PCM de 16 kHz do satélite é reamostrado por pedaço —, `turn_detection: null`, `language`
+  e a mesma dica de vocabulário em `prompt`). Cada `audio-chunk` vai em `input_audio_buffer.append` conforme chega;
+  no `audio-stop` o núcleo só manda `input_audio_buffer.commit` e espera
+  `conversation.item.input_audio_transcription.completed`. Cliente: `client.realtime` do SDK `openai` (usa o
+  `websockets`, que já está no lock por dependência transitiva; nenhuma dependência nova).
+- Orçamento: checado antes de abrir; no fim registra os segundos de áudio enviados no modelo do streaming (preço
+  por minuto em `[budget.prices]`). Uma chave só, sem rodízio (os pedaços não se reenviam).
+- Queda automática: sessão que falha (conexão, `error`, `failed`), não entrega o texto em 1,5 s depois do fim
+  (`STREAM_FINAL_TIMEOUT_S`) ou devolve texto vazio → o áudio inteiro vai pelo caminho antigo, sem perder o turno.
+  `no_speech`/cancelamento, nova ativação, desconexão e prazos estourados fecham a sessão. O WebSocket é fechado
+  em segundo plano: o aperto de mão de fechamento leva ~2 s e, esperado no caminho, anulava o ganho.
+
+### Preço oficial (developers.openai.com/api/docs/pricing, 2026-10-03)
+
+`gpt-transcribe` US$ 0,0045/min · `gpt-live-transcribe` US$ 0,017/min · `gpt-4o-transcribe` US$ 0,006/min. A doc da
+transcrição Realtime aceita `gpt-live-transcribe` (recomendado, contínuo, com `delay`) e `gpt-transcribe`
+(**transcreve por turno confirmado**: só começa depois do `commit`).
+
+### Validação real (2026-10-03, `fala_ptbr.wav`, 4,94 s, pedaços de 80 ms em tempo real, 3 repetições)
+
+| Caminho | Fim da fala → texto (mediana) | Amostras | Texto |
+| --- | --- | --- | --- |
+| antigo, WAV inteiro, `gpt-transcribe` | **858 ms** | 743 / 936 / 858 | "Ei, Maggie, toca uma música aí e abre o painel do jogo, por favor." |
+| streaming, `gpt-transcribe` | **786 ms** | 811 / 786 / 693 | igual (às vezes "Hey Maggie", sem o "aí") |
+| streaming, `gpt-live-transcribe` | **649 ms** | 650 / 490 / 649 | "Eu magi toca uma musica e abre o painel do jogo" (sem acento; com `delay: "minimal"`, "Imag", "Jodo") |
+
+Custo da validação ≈ US$ 0,006. Eventos de uma sessão `gpt-transcribe`: `committed` chega ~155 ms após o `commit`
+e o texto final ~500 ms depois — o modelo só começa no `commit`, então mandar o áudio antes economiza apenas o
+envio do arquivo (~70 ms). O `gpt-live-transcribe` já manda os `delta` durante a fala, mas o `completed` ainda leva
+~0,5–0,6 s após o `commit`, com transcrição pior e 3,8× o preço.
+
+**Conclusão:** a meta de texto pronto ≤ 300 ms após o fim **não é alcançável** com a API atual nesses modelos. O
+ganho com `gpt-transcribe` (~70 ms, dentro da variação) não justifica uma conexão por turno; fica **desligado**.
+Não mexe no RNF-05 de forma relevante; os próximos candidatos são o modelo (~1–1,5 s) e o primeiro byte do TTS.
+
+### Como ligar e re-medir
+
+```toml
+[tasks]
+stt = { provider = "openai", model = "gpt-transcribe", streaming = true }
+# opcional: streaming_model = "gpt-live-transcribe"  (com [budget.prices.openai."gpt-live-transcribe"])
+```
+
+```
+MAGI_LIVE=1 uv run pytest -q -s -m live tests/providers/test_stt_stream_live.py   # ~US$ 0,006
+uv run python -m tools.perf latency --turns 10 --phrase "quantas patas tem uma aranha" --gap 3
+```

@@ -7,8 +7,10 @@ criado com ``max_retries=0`` para que 429/401/403 cheguem ao KeyPool na hora. Ca
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
+import logging
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
@@ -39,9 +41,14 @@ from magi.providers.base import (
 )
 from magi.providers.keypool import COOLDOWN_STATUSES, KeyRejected, is_model_quota
 
+log = logging.getLogger(__name__)
+
 #: Saída ``pcm`` do endpoint de voz: 24 kHz, 16 bits, mono.
 TTS_FORMAT = PcmFormat(rate=24_000, width=2, channels=1)
 DEFAULT_DIMENSIONS = 1536
+#: Taxa do `audio/pcm` da Realtime API (1.25): só 24 kHz, 16 bits, mono.
+REALTIME_RATE = 24_000
+CLOSE_TIMEOUT_S = 5.0
 #: Conexão ociosa fica no pool por até 2 min (o padrão do httpx é 5 s): entre um turno e outro o
 #: TLS não precisa ser refeito (1.23). Se o servidor fechar antes, o httpx abre outra.
 KEEPALIVE_S = 120.0
@@ -77,6 +84,93 @@ def openai_errors(provider: str) -> Iterator[None]:
         raise ProviderError(f"{provider}: HTTP {e.status_code}: {e.message}") from e
     except openai.OpenAIError as e:
         raise ProviderError(f"{provider}: {e}") from e
+
+
+@contextmanager
+def realtime_errors(provider: str) -> Iterator[None]:
+    """Erros do WebSocket (fora do ``openai_errors``): recusa no aperto de mão com 401/403/429
+    -> ``KeyRejected``; conexão caída e afins -> ``ProviderError``."""
+    try:
+        yield
+    except (KeyRejected, ProviderError, asyncio.CancelledError):
+        raise
+    except Exception as e:  # noqa: BLE001 - websockets.InvalidStatus, ConnectionClosed, OSError...
+        status = get_attr(e, "response", "status_code", default=None)
+        if isinstance(status, int) and status in COOLDOWN_STATUSES:
+            raise KeyRejected(status, f"{provider}: realtime recusou a chave ({status})") from e
+        raise ProviderError(f"{provider}: realtime: {e!r}") from e
+
+
+def _bps(fmt: PcmFormat) -> int:
+    return max(1, fmt.rate * fmt.width * fmt.channels)
+
+
+class PcmResampler:
+    """PCM 16 bits de ``fmt`` -> mono 16 bits em ``rate``, por pedaços, com interpolação linear
+    contínua entre pedaços (guarda a última amostra). Só 16 bits; outra largura levanta."""
+
+    def __init__(self, fmt: PcmFormat, rate: int) -> None:
+        if fmt.width != 2:
+            raise ProviderError(f"realtime: só PCM de 16 bits (veio {fmt.width * 8})")
+        self.fmt = fmt
+        self.step = fmt.rate / rate  # avanço na entrada por amostra de saída
+        self._prev: float | None = None
+        self._pos = 0.0  # próxima posição de saída, relativa à amostra ``_prev``
+
+    def feed(self, chunk: bytes) -> bytes:
+        import numpy as np
+
+        usable = len(chunk) - len(chunk) % (2 * self.fmt.channels)
+        x = np.frombuffer(chunk[:usable], dtype="<i2").astype(np.float32)
+        if self.fmt.channels > 1:
+            x = x.reshape(-1, self.fmt.channels).mean(axis=1)
+        if not x.size:
+            return b""
+        if self.step == 1.0:
+            return x.astype("<i2").tobytes()
+        if self._prev is None:  # primeiro pedaço: começa na amostra 0
+            y = x
+        else:
+            y = np.concatenate(([self._prev], x))
+        t = np.arange(self._pos, len(y) - 1 + 1e-9, self.step)
+        out = np.interp(t, np.arange(len(y)), y)
+        self._pos = (t[-1] + self.step - (len(y) - 1)) if t.size else self._pos - (len(y) - 1)
+        self._prev = float(y[-1])
+        return np.clip(np.rint(out), -32768, 32767).astype("<i2").tobytes()
+
+
+_closing: set[asyncio.Task[Any]] = set()
+
+
+def _close_later(conn: Any) -> None:
+    """Fecha o WebSocket em segundo plano: o aperto de mão de fechamento leva ~2 s e o texto
+    já chegou (medido na 1.25)."""
+
+    async def close() -> None:
+        try:
+            await asyncio.wait_for(conn.close(), CLOSE_TIMEOUT_S)
+        except Exception as e:  # noqa: BLE001 - conexão já descartada
+            log.debug("realtime: fechamento: %r", e)
+
+    task = asyncio.create_task(close())
+    _closing.add(task)
+    task.add_done_callback(_closing.discard)
+
+
+def _append(pcm: bytes) -> str:
+    return json.dumps({"type": "input_audio_buffer.append", "audio": base64.b64encode(pcm).decode()})
+
+
+async def _realtime_final(conn: Any) -> str:
+    """Lê eventos da sessão até o texto final; ``error``/``failed`` levantam ``ProviderError``."""
+    while True:
+        event = json.loads(await conn.recv_bytes())
+        kind = event.get("type", "")
+        if kind == "conversation.item.input_audio_transcription.completed":
+            return str(event.get("transcript") or "")
+        if kind in ("error", "conversation.item.input_audio_transcription.failed"):
+            err = event.get("error") or {}
+            raise ProviderError(f"realtime: {kind}: {err.get('message') or err or event}")
 
 
 def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
@@ -219,6 +313,62 @@ class OpenAIBackend:
             res = await with_timeout(ctx, self._client(key).audio.transcriptions.create(**kwargs))
         text = res if isinstance(res, str) else get_attr(res, "text", default="")
         return Transcript.raw(text.strip(), language), ctx.usage(audio_seconds(audio, fmt))
+
+    async def stream_transcribe(
+        self,
+        key: ApiKey,
+        ctx: CallCtx,
+        chunks: AsyncIterator[bytes],
+        fmt: PcmFormat,
+        hint: str,
+        language: str,
+    ) -> tuple[Transcript, Usage | None]:
+        """Transcrição enquanto fala (1.25): sessão Realtime só de transcrição por WebSocket
+        (``/v1/realtime?intent=transcription``). Abre a conexão já, manda cada pedaço de PCM
+        (reamostrado para 24 kHz, o único formato ``audio/pcm`` aceito) conforme chega e, no fim
+        do iterador, faz ``input_audio_buffer.commit`` e espera o
+        ``conversation.item.input_audio_transcription.completed``. Sem detecção de turno no
+        servidor (o VAD é o do satélite). Uso = segundos de áudio enviados (preço por minuto)."""
+        transcription: dict[str, Any] = {"model": ctx.model, "language": language}
+        if hint:
+            transcription["prompt"] = hint
+        session = {
+            "type": "session.update",
+            "session": {
+                "type": "transcription",
+                "audio": {
+                    "input": {
+                        "format": {"type": "audio/pcm", "rate": REALTIME_RATE},
+                        "transcription": transcription,
+                        "turn_detection": None,
+                    }
+                },
+            },
+        }
+        resampler = PcmResampler(fmt, REALTIME_RATE)
+        sent = 0
+        with openai_errors(ctx.provider), realtime_errors(ctx.provider):
+            conn = await self._client(key).realtime.connect(
+                extra_query={"intent": "transcription"}
+            ).enter()
+            try:
+                await conn.send_raw(json.dumps(session))
+                reader = asyncio.create_task(_realtime_final(conn))
+                try:
+                    async for chunk in chunks:
+                        if reader.done():  # erro da sessão antes do fim: para de mandar
+                            break
+                        sent += len(chunk)
+                        if pcm := resampler.feed(chunk):
+                            await conn.send_raw(_append(pcm))
+                    if not reader.done():
+                        await conn.send_raw(json.dumps({"type": "input_audio_buffer.commit"}))
+                    text = await reader
+                finally:
+                    reader.cancel()
+            finally:
+                _close_later(conn)
+        return Transcript.raw(text.strip(), language), ctx.usage(sent / _bps(fmt))
 
     # -- TTS -------------------------------------------------------------------------------
 
