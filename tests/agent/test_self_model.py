@@ -201,3 +201,9 @@ async def test_agente_recebe_sobre_voce_e_self_info() -> None:
     assert "self_info" in [t.name for t in chat.seen[0][1]]
     assert res.speech == "Tá na tela a lista. Pede aí."
     assert "Jogos:" in res.full_text and res.cards
+
+
+def test_about_uses_user_name():
+    assert "PC do usuário" in _model(raw={}).about_section()
+    about = _model(raw={"user": {"name": "Pedro"}}).about_section()
+    assert "PC de Pedro" in about and "Quem fala com você é Pedro" in about

@@ -261,10 +261,14 @@ class SelfModel:
         s = self.state()
         areas = ", ".join(a.name for a in self.areas() if a.name != AREA_NAMES["magi"])
         gaps = self.gaps()
+        user = self.raw.get("user") if isinstance(self.raw.get("user"), Mapping) else {}
+        name = str(user.get("name") or "").strip()
+        owner = f"de {name}" if name else "do usuário"
+        who = f" Quem fala com você é {name}; chame pelo nome." if name else ""
         lines = [
             "## Sobre você",
-            'Você é a MAGI (fala-se "Magui"), roda no PC do usuário (Linux/KDE): satélite de voz, núcleo e '
-            "o HUD MAGI Gamer no 2º monitor.",
+            f'Você é a MAGI (fala-se "Magui"), roda no PC {owner} (Linux/KDE): satélite de voz, núcleo e '
+            "o HUD MAGI Gamer no 2º monitor." + who,
             f"Ativação: {self._activation(s)}.",
             f"Comandos locais: {areas or 'nenhum'}. "
             f"Ferramentas: {', '.join(self.tool_names()) or 'nenhuma'}.",

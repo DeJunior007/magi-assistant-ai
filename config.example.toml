@@ -22,6 +22,9 @@ free_tier = true                        # proíbe dados pessoais (memória, voz,
 # Em /v1/chat/completions, gpt-5.4-mini e gpt-5.6-luna só aceitam tools com reasoning_effort =
 # "none" (testado em 2026-10-02; "low" dá HTTP 400). Em search na OpenAI,
 # reasoning_effort vira reasoning.effort da Responses API.
+[user]
+name = ""                               # como a Magui te chama (ex.: "Pedro")
+
 [tasks]
 stt        = { provider = "openai", model = "gpt-transcribe" }
 tts        = { provider = "openai", model = "gpt-4o-mini-tts", voice = "<escolher ouvindo ~/Music/magi-vozes>", instructions = "Fale em português do Brasil com sotaque brasileiro natural. Voz feminina jovem, animada e brincalhona, como uma amiga gamer conversando no Discord." }
