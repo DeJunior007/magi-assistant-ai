@@ -132,6 +132,7 @@ class TurnState(StrEnum):
     THINKING = "thinking"
     CONFIRMING = "confirming"
     SPEAKING = "speaking"
+    FOLLOWUP = "followup"  # janela de continuação após a resposta (1.20)
 
 
 _S = TurnState
@@ -144,15 +145,18 @@ _S = TurnState
 #: - confirming -> thinking (chegou a resposta falada), speaking (cancelado por tempo, R5.4)
 #:   ou listening (nova ativação);
 #: - speaking -> sleeping (playback-done), listening (interrupção, R12.5) ou confirming
-#:   (terminou de falar a pergunta "diz confirma");
+#:   (terminou de falar a pergunta "diz confirma") ou followup (janela de continuação, 1.20);
+#: - thinking -> followup (resposta sem fala);
+#: - followup -> thinking (falou na janela), sleeping (silêncio/dispensa) ou listening (ativação);
 #: - qualquer estado acordado -> sleeping (erro, cancelamento, satélite desconectado, §9).
 #: Transição para o mesmo estado é inválida (ex.: wake durante listening é ignorado).
 TRANSITIONS: Mapping[TurnState, frozenset[TurnState]] = {
     _S.SLEEPING: frozenset({_S.LISTENING, _S.SPEAKING}),
     _S.LISTENING: frozenset({_S.THINKING, _S.SLEEPING}),
-    _S.THINKING: frozenset({_S.SPEAKING, _S.CONFIRMING, _S.LISTENING, _S.SLEEPING}),
+    _S.THINKING: frozenset({_S.SPEAKING, _S.CONFIRMING, _S.LISTENING, _S.SLEEPING, _S.FOLLOWUP}),
     _S.CONFIRMING: frozenset({_S.THINKING, _S.SPEAKING, _S.LISTENING, _S.SLEEPING}),
-    _S.SPEAKING: frozenset({_S.SLEEPING, _S.LISTENING, _S.CONFIRMING}),
+    _S.SPEAKING: frozenset({_S.SLEEPING, _S.LISTENING, _S.CONFIRMING, _S.FOLLOWUP}),
+    _S.FOLLOWUP: frozenset({_S.THINKING, _S.SLEEPING, _S.LISTENING}),
 }
 
 
@@ -293,8 +297,10 @@ class SatelliteStatus:
 class ListenRequest:
     """``magi-listen``: núcleo pede uma escuta curta sem wake word (R5.4, §3.1 ``confirming``).
 
-    O satélite toca o bip, grava com VAD e encerra com ``no_speech`` se ninguém falar em
-    ``timeout_ms``.
+    O satélite grava com VAD e encerra com ``no_speech`` se ninguém falar em ``timeout_ms``
+    (prazo só para começar a falar; a gravação segue até o fim pelo VAD, teto de 15 s).
+    ``reason``: ``"confirm"`` (R5.4) ou ``"followup"`` (janela de continuação, 1.20). Nenhuma
+    escuta pedida pelo núcleo toca bip: o HUD mostra o rosto em ``listening``.
     """
 
     timeout_ms: int = CONFIRM_TIMEOUT_MS
@@ -545,6 +551,7 @@ STATE_EXPRESSION: Mapping[TurnState, Expression] = {
     TurnState.THINKING: Expression.THINKING,
     TurnState.CONFIRMING: Expression.ALERT,
     TurnState.SPEAKING: Expression.SPEAKING,
+    TurnState.FOLLOWUP: Expression.LISTENING,
 }
 
 

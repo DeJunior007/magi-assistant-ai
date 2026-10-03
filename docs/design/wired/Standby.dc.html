@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>MAGI-01 Espera</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;family=Shippori+Mincho:wght@500;700&amp;family=Zen+Kaku+Gothic+New:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#09080d}
+a{color:#b392f0}a:hover{color:#d4c2f7}
+.lb{font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.08em;color:#8f89a6;text-transform:uppercase}
+.jp{font-family:'Zen Kaku Gothic New',sans-serif}
+.scan{position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 3px)}
+</style>
+</helmet>
+<div style="width:1920px;height:1080px;position:relative;overflow:hidden;background:#09080d;color:#d8d3e6;font-family:'JetBrains Mono',monospace">
+
+  <!-- cenário: poste à direita, fios fora da área de conteúdo, prédios só na faixa de baixo -->
+  <svg viewBox="0 0 1920 1080" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">
+    <rect x="1040" y="960" width="110" height="120" fill="#121019"></rect>
+    <rect x="1150" y="935" width="80" height="145" fill="#0f0e15"></rect>
+    <rect x="1250" y="975" width="150" height="105" fill="#121019"></rect>
+    <rect x="1420" y="920" width="96" height="160" fill="#0f0e15"></rect>
+    <rect x="1530" y="955" width="140" height="125" fill="#121019"></rect>
+    <rect x="1690" y="900" width="230" height="180" fill="#0f0e15"></rect>
+    <rect x="1170" y="955" width="7" height="9" fill="#e8b04a" opacity=".35"></rect>
+    <rect x="1446" y="944" width="7" height="9" fill="{{accent}}" opacity=".45"></rect>
+    <rect x="1730" y="930" width="7" height="9" fill="#e8b04a" opacity=".3"></rect>
+    <rect x="1756" y="40" width="10" height="1040" fill="#1a1823"></rect>
+    <rect x="1696" y="96" width="130" height="6" fill="#1a1823"></rect>
+    <rect x="1710" y="126" width="102" height="5" fill="#1a1823"></rect>
+    <path d="M1696 99 Q 1600 150 1480 -10" stroke="#1a1823" stroke-width="2" fill="none"></path>
+    <path d="M1710 128 Q 1580 190 1400 -10" stroke="#1a1823" stroke-width="2" fill="none"></path>
+    <path d="M1826 99 Q 1880 140 1940 128" stroke="#1a1823" stroke-width="2" fill="none"></path>
+    <path d="M1812 128 Q 1870 175 1940 168" stroke="#1a1823" stroke-width="2" fill="none"></path>
+  </svg>
+  <div class="scan"></div>
+
+  <!-- relógio (esquerda) -->
+  <div style="position:absolute;left:160px;top:170px;bottom:170px;display:flex;gap:44px">
+    <div style="width:4px;background:{{rail}}"></div>
+    <div style="display:flex;flex-direction:column;justify-content:space-between">
+      <div style="display:flex;gap:20px;align-items:baseline">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:40px;letter-spacing:.04em">MAGI SYSTEM</span>
+        <span class="jp" style="font-size:22px;color:#8f89a6">待機中</span>
+      </div>
+      <div style="font-family:'Shippori Mincho',serif;font-weight:700;font-size:150px;line-height:1.08;color:#efeae0;white-space:pre-line">{{kanji}}</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:500;font-size:56px;letter-spacing:.02em">{{words}}</span>
+        <span class="lb" style="font-size:16px">{{dateStr}} · <span class="jp">{{jpDay}}</span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- coluna direita: status, mascote, música — alinhados ao topo e à base do relógio -->
+  <div style="position:absolute;left:1180px;top:170px;bottom:170px;width:440px;display:flex;flex-direction:column;justify-content:space-between">
+    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #26232f;padding-bottom:14px">
+      <span class="lb">magi-01 // melchior</span>
+      <span class="lb" style="display:flex;align-items:center;gap:8px;color:#d8d3e6"><span style="width:8px;height:8px;border-radius:50%;background:{{dot}};box-shadow:0 0 8px {{glow}}"></span>led {{ledEn}}</span>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:22px">
+      <svg viewBox="0 0 260 150" style="width:200px;height:115px;flex:none" aria-hidden="true">
+        <path d="M44 18 Q 14 75 44 132" stroke="#5c576b" stroke-width="7" fill="none" stroke-linecap="round"></path>
+        <path d="M216 18 Q 246 75 216 132" stroke="#5c576b" stroke-width="7" fill="none" stroke-linecap="round"></path>
+        <path d="M78 46 Q 92 36 106 46" stroke="#d8d3e6" stroke-width="3" fill="none"></path>
+        <path d="M154 46 Q 168 36 182 46" stroke="#d8d3e6" stroke-width="3" fill="none"></path>
+        <line x1="76" y1="66" x2="108" y2="66" stroke="#d8d3e6" stroke-width="4"></line>
+        <line x1="152" y1="66" x2="184" y2="66" stroke="#d8d3e6" stroke-width="4"></line>
+        <line x1="80" y1="94" x2="88" y2="84" stroke="{{accent}}" stroke-width="2.4"></line>
+        <line x1="90" y1="94" x2="98" y2="84" stroke="{{accent}}" stroke-width="2.4"></line>
+        <line x1="162" y1="94" x2="170" y2="84" stroke="{{accent}}" stroke-width="2.4"></line>
+        <line x1="172" y1="94" x2="180" y2="84" stroke="{{accent}}" stroke-width="2.4"></line>
+        <path d="M122 108 Q 130 116 138 108" stroke="#d8d3e6" stroke-width="2.5" fill="none"></path>
+        <text x="226" y="24" fill="#8f89a6" font-family="JetBrains Mono" font-size="16">z</text>
+        <text x="240" y="10" fill="#8f89a6" font-family="JetBrains Mono" font-size="12">z</text>
+      </svg>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <span class="jp" style="font-size:16px;color:#d8d3e6">「少し眠いです…」</span>
+        <span class="jp" style="font-size:14px;letter-spacing:.14em;color:#8f89a6">信号は、まだ届いている。</span>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:18px;align-items:center;border-top:1px solid #26232f;padding-top:18px">
+      <div style="position:relative;width:72px;height:72px;flex:none;background:#1a1823;border:1px solid #3a3646" role="img" aria-label="Capa do álbum">
+        <svg viewBox="0 0 72 72" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true"><circle cx="36" cy="36" r="22" fill="none" stroke="#2f2b3a" stroke-width="9"></circle><circle cx="36" cy="36" r="5" fill="#e8b04a" opacity=".7"></circle></svg>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0">
+        <span class="lb" style="font-size:11px;color:#5fd38d">● spotify · 再生中</span>
+        <span style="font-family:'Barlow Condensed',sans-serif;font-size:24px">[Nome da faixa] <span style="color:#8f89a6">— [Artista]</span></span>
+        <div style="height:2px;background:#26232f;position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:43%;background:#e8b04a"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="lb" style="position:absolute;left:160px;bottom:70px;font-size:12px">meta+m · painel completo</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"led":{"editor":"boolean","default":false,"section":"LED"},"rgbColor":{"editor":"color","default":"#ff3b6b","options":["#ff3b6b","#3bb6ff","#ffb020","#9d5cff"],"section":"LED"},"rgbMode":{"editor":"enum","options":["fixa","ciclo"],"default":"fixa","section":"LED"},"$preview":{"width":1920,"height":1080}}'>
+class Component extends DCLogic {
+  componentDidMount() { this._t = setInterval(() => this.setState({ now: Date.now() }), 1000); }
+  componentWillUnmount() { clearInterval(this._t); }
+  renderVals() {
+    const st = this.state || {};
+    const d = new Date(st.now || Date.now());
+    const k = ['零','壱','弐','参','肆','伍','陸','漆','捌','玖'];
+    const kn = (n) => n === 0 ? '零' : n < 10 ? k[n] : (n < 20 ? '拾' : k[Math.floor(n / 10)] + '拾') + (n % 10 ? k[n % 10] : '');
+    const ones = ['','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+    const tens = ['','','twenty','thirty','forty','fifty'];
+    const en = (n) => n < 20 ? ones[n] : tens[Math.floor(n / 10)] + (n % 10 ? '-' + ones[n % 10] : '');
+    const h = d.getHours(), m = d.getMinutes();
+    const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+    const months = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+    const jp = ['日曜日','月曜日','火曜日','水曜日','木曜日','金曜日','土曜日'];
+    const hsl = (hh) => { const f = (n) => { const k2 = (n + hh / 30) % 12; const c = 0.5 - 0.45 * Math.max(-1, Math.min(k2 - 3, 9 - k2, 1)); return Math.round(c * 255).toString(16).padStart(2, '0'); }; return '#' + f(0) + f(8) + f(4); };
+    const led = this.props.led ?? false;
+    const rgb = (this.props.rgbMode ?? 'fixa') === 'ciclo' ? hsl((d.getTime() / 1000 * 12) % 360) : (this.props.rgbColor ?? '#ff3b6b');
+    return {
+      kanji: kn(h) + '時\n' + kn(m) + '分',
+      words: ((h === 0 ? 'zero' : en(h)) + ' ' + (m === 0 ? "o'clock" : m < 10 ? 'oh ' + en(m) : en(m))).toUpperCase(),
+      dateStr: days[d.getDay()] + ', ' + months[d.getMonth()] + ' ' + d.getDate(),
+      jpDay: jp[d.getDay()],
+      accent: led ? rgb : '#b392f0',
+      rail: led ? rgb : '#3a3646',
+      dot: led ? rgb : '#3a3646',
+      glow: led ? rgb : 'transparent',
+      ledEn: led ? 'on' : 'off'
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -247,3 +247,31 @@ async def test_grava_enquanto_pressionado():
     # silêncio não encerra o PTT (VAD só mede o tom); fim por soltar o atalho
     assert from_event(client.events[-1]).reason == AudioEndReason.PTT_RELEASE
     assert types.count("audio-chunk") >= 10
+
+
+class NoisyPlayer:
+    """Registra qualquer uso do player (bip, interrupção...)."""
+
+    def __init__(self):
+        self.used = []
+
+    def __getattr__(self, name):
+        self.used.append(name)
+        return lambda *a, **k: None
+
+
+async def test_escuta_followup_sem_bip_e_no_speech():
+    """1.20: ``magi-listen`` com reason=followup grava sem tocar nada e encerra calado no prazo."""
+    from magi.common.contracts import ListenRequest
+    from magi.common.events import from_event
+
+    ptt, client, player = PushToTalk(), FakeClient(), NoisyPlayer()
+    listens = asyncio.Queue()
+    listens.put_nowait(ListenRequest(timeout_ms=400, reason="followup"))
+    src = ScriptSource(ptt, 20, {})
+    await wake_loop(src, WakeSpotter(Silent(), gate_dbfs=None), client, "pc", vad=Silent(),
+                    listens=listens, player=player)
+    assert player.used == [] and client.msgs == []  # sem bip, sem wake
+    types = [e.type for e in client.events]
+    assert types[0] == "audio-start" and types.count("audio-stop") == 1
+    assert from_event(client.events[-1]).reason == AudioEndReason.NO_SPEECH

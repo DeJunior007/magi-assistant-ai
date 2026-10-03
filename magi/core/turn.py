@@ -8,8 +8,9 @@ Duas peças:
   (1.5 stt, 1.6 correções, 1.8 roteador, 1.9-1.11 ações, 1.12 voz, 3.x agente) só preenche o seu
   campo, sem mexer no turno.
 - ``TurnMachine``: estados de um satélite (``sleeping → listening → thinking → (confirming) →
-  speaking → sleeping``), interrupção por nova ativação, escuta curta de confirmação com prazo e
-  envio de ``state``/``subtitle``/``mouth``/``card``/``vote`` ao HUD.
+  speaking → (followup) → sleeping``), interrupção por nova ativação, escuta curta de confirmação
+  com prazo, janela de continuação sem wake word (1.20) e envio de
+  ``state``/``subtitle``/``mouth``/``card``/``vote`` ao HUD.
 
 A máquina é dirigida por ``handle(msg)`` com as mensagens já decodificadas do satélite
 (``magi.common.events.from_event``). O trabalho longo (transcrição, ação, fala) roda numa tarefa
@@ -23,7 +24,7 @@ import contextlib
 import dataclasses
 import logging
 import unicodedata
-from collections.abc import Coroutine
+from collections.abc import Coroutine, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -32,6 +33,7 @@ from wyoming.audio import AudioChunk, AudioStart
 
 from magi.common.contracts import (
     CONFIRM_TIMEOUT_MS,
+    MAX_RECORDING_MS,
     STATE_EXPRESSION,
     ActionRegistry,
     ActionRequest,
@@ -73,6 +75,9 @@ from magi.common.contracts import (
 
 log = logging.getLogger(__name__)
 
+#: Estados em que o núcleo aceita gravação do satélite.
+_RECORDING_STATES = frozenset({TurnState.LISTENING, TurnState.CONFIRMING, TurnState.FOLLOWUP})
+
 #: Falha ou silêncio na transcrição (R3.5).
 SAY_NOT_HEARD = "Não peguei, repete?"
 #: Confirmação negada ou expirada (R5.4).
@@ -85,6 +90,21 @@ SAY_DID_YOU_MEAN = "Você quis dizer isso?"
 #: Folga sobre o prazo de confirmação: o satélite encerra a escuta com ``no_speech`` no prazo e
 #: o núcleo só cancela sozinho se esse aviso não chegar (satélite travado).
 CONFIRM_GRACE_MS = 1_500
+
+#: Janela de continuação padrão (``[conversation] followup_s``, 1.20): prazo para começar a falar
+#: depois que a Magui termina a resposta.
+FOLLOWUP_S = 3.0
+#: Quanto tempo o rosto fica ``happy`` ao ser dispensada, antes de dormir (sem fala, 1.20).
+DISMISS_FACE_S = 0.8
+#: Frases que dispensam a Magui quando são a fala inteira (normalizadas, 1.20). "pode ir" e
+#: "esquece" só valem fora da confirmação (lá são "confirma"/"cancela", R5.4).
+DISMISS_PHRASES = frozenset({
+    "valeu", "obrigado", "obrigada", "brigado", "brigada", "muito obrigado", "muito obrigada",
+    "so isso", "e so isso", "pode ir", "dispensa", "dispensada", "tchau", "nada nao", "nada",
+    "esquece", "falou",
+})
+#: Vocativos ignorados nas frases de dispensa ("valeu, Magui").
+_DISMISS_EXTRA = frozenset({"magui", "magi", "ei"})
 
 #: Palavras aceitas como "confirma" quando o roteador não decide (R5.4).
 _YES_WORDS = frozenset({"confirma", "confirmo", "confirmado", "sim"})
@@ -114,6 +134,26 @@ class TurnDeps:
 def _normalize(text: str) -> str:
     text = unicodedata.normalize("NFKD", text.casefold())
     return "".join(c for c in text if c.isalnum() or c.isspace())
+
+
+def is_dismissal(text: str) -> bool:
+    """A fala inteira é uma dispensa ("valeu", "só isso", "tchau"...)? (1.20)."""
+    words = [w for w in _normalize(text).split() if w not in _DISMISS_EXTRA]
+    return bool(words) and " ".join(words) in DISMISS_PHRASES
+
+
+def followup_ms_from_config(raw: Mapping[str, Any] | None) -> int | None:
+    """Janela de continuação em ms a partir de ``[conversation]`` (``followup``, ``followup_s``).
+    ``None`` = desligada. Sem a seção, liga com ``FOLLOWUP_S``."""
+    conv = (raw or {}).get("conversation") or {}
+    if not isinstance(conv, Mapping) or not conv.get("followup", True):
+        return None
+    try:
+        secs = float(conv.get("followup_s", FOLLOWUP_S))
+    except (TypeError, ValueError):
+        log.warning("[conversation] followup_s inválido; usando %.1f s", FOLLOWUP_S)
+        secs = FOLLOWUP_S
+    return round(secs * 1000) if secs > 0 else None
 
 
 class TurnPipeline:
@@ -209,6 +249,12 @@ class TurnMachine:
       de ``speaking`` é ignorado.
     - Em ``confirming``: fala → ``thinking`` → ação confirmada ou "Cancelado."; silêncio
       (``no_speech``) ou prazo estourado → ``speaking`` com "Cancelado.".
+    - Janela de continuação (1.20, ``followup_ms``): fim de uma resposta sem confirmação pendente
+      → ``followup`` (``magi-listen`` com ``reason="followup"``, sem bip, rosto ``listening``).
+      Fala → turno normal, que reabre a janela no fim; silêncio → ``sleeping`` calado. Fora em
+      call no Discord e depois de aviso proativo ou de "Cancelado." por silêncio.
+    - Dispensa ("valeu", "só isso"... como frase inteira, em qualquer turno normal) → rosto
+      ``happy`` por um instante e ``sleeping``, sem fala. Ativação sem fala → ``sleeping`` calado.
     - Erro inesperado ou satélite desconectado → ``sleeping`` (§9).
     """
 
@@ -220,12 +266,17 @@ class TurnMachine:
         *,
         confirm_timeout_ms: int = CONFIRM_TIMEOUT_MS,
         confirm_grace_ms: int = CONFIRM_GRACE_MS,
+        followup_ms: int | None = None,
+        dismiss_face_s: float = DISMISS_FACE_S,
     ) -> None:
         self.link = link
         self.hud = hud
         self.pipeline = pipeline
         self.confirm_timeout_ms = confirm_timeout_ms
         self.confirm_grace_ms = confirm_grace_ms
+        self.followup_ms = followup_ms
+        self.dismiss_face_s = dismiss_face_s
+        self._followup = False  # a fala em curso abre a janela de continuação ao terminar
         self._state = TurnState.SLEEPING
         self._task: asyncio.Task[None] | None = None
         self._timer: asyncio.Task[None] | None = None
@@ -268,7 +319,7 @@ class TurnMachine:
             case WakeEvent():
                 await self.wake(msg.source)
             case AudioStart():
-                if self._state in (TurnState.LISTENING, TurnState.CONFIRMING):
+                if self._state in _RECORDING_STATES:
                     self._fmt = PcmFormat(rate=msg.rate, width=msg.width, channels=msg.channels)
                     self._audio.clear()
                     self._recording = True
@@ -315,6 +366,7 @@ class TurnMachine:
         speaker = self.pipeline.deps.speaker
         if speaker is None:
             return True
+        self._followup = False  # aviso não abre janela de continuação
         await self._go(TurnState.SPEAKING, expression)
         # A volta a ``sleeping`` vem com ``playback-done`` (ou erro, via ``_guard``).
         self._start(speaker.say(text, self.link, personal=False))
@@ -345,20 +397,31 @@ class TurnMachine:
         )
 
     async def _audio_end(self, end: AudioEnd) -> None:
-        if not self._recording or self._state not in (TurnState.LISTENING, TurnState.CONFIRMING):
+        if not self._recording or self._state not in _RECORDING_STATES:
             return
         audio, fmt = bytes(self._audio), self._fmt or PcmFormat()
         self._audio.clear()
         self._recording = False
-        silent = not audio or end.reason in (AudioEndReason.NO_SPEECH, AudioEndReason.CANCELLED)
+        silent = (
+            not audio
+            or end.reason in (AudioEndReason.NO_SPEECH, AudioEndReason.CANCELLED)
+            # apertou o atalho e soltou calado: o VAD do satélite não ouviu voz nenhuma
+            or (
+                end.reason is AudioEndReason.PTT_RELEASE
+                and end.tone is not None
+                and end.tone.duration_ms == 0
+            )
+        )
 
-        if self._state is TurnState.LISTENING:
+        if self._state in (TurnState.LISTENING, TurnState.FOLLOWUP):
+            followup = self._state is TurnState.FOLLOWUP
+            self._cancel_timer()
             if silent:
                 await self._go(TurnState.SLEEPING)
                 return
             self._ctx = ctx = self._make_ctx(end.tone)
             await self._go(TurnState.THINKING)
-            self._start(self._think(audio, fmt, ctx))
+            self._start(self._think(audio, fmt, ctx, followup=followup))
             return
 
         # confirming
@@ -366,19 +429,41 @@ class TurnMachine:
         pending, self._pending = self._pending, None
         ctx = self._ctx or self._make_ctx(end.tone)
         if silent or pending is None:
-            self._start(self._deliver(await self._cancelled()))
+            self._start(self._deliver(await self._cancelled(), followup=False))
             return
         await self._go(TurnState.THINKING)
         self._start(self._confirm(audio, fmt, pending, ctx))
 
     async def _after_speaking(self) -> None:
-        """Fim da fala (ou nada a falar): confirma se há pedido pendente, senão dorme."""
-        if self._pending is None:
-            await self._go(TurnState.SLEEPING)
+        """Fim da fala (ou nada a falar): confirma se há pedido pendente; senão abre a janela de
+        continuação (se ligada e fora de call) ou dorme."""
+        followup, self._followup = self._followup, False
+        if self._pending is not None:
+            await self._go(TurnState.CONFIRMING)
+            await self.link.send(ListenRequest(timeout_ms=self.confirm_timeout_ms))
+            self._timer = asyncio.create_task(self._confirm_deadline())
             return
-        await self._go(TurnState.CONFIRMING)
-        await self.link.send(ListenRequest(timeout_ms=self.confirm_timeout_ms))
-        self._timer = asyncio.create_task(self._confirm_deadline())
+        if followup and self.followup_ms and not self._in_call and self._state is not TurnState.CONFIRMING:
+            await self._go(TurnState.FOLLOWUP)
+            await self.link.send(ListenRequest(timeout_ms=self.followup_ms, reason="followup"))
+            self._timer = asyncio.create_task(self._followup_deadline())
+            return
+        await self._go(TurnState.SLEEPING)
+
+    async def _followup_deadline(self) -> None:
+        """Rede de segurança se o satélite não encerrar a escuta: sem gravação no prazo, ou
+        passada a gravação máxima, dorme calado."""
+        followup_ms = self.followup_ms or 0
+        await asyncio.sleep((followup_ms + self.confirm_grace_ms) / 1000)
+        if self._recording:
+            await asyncio.sleep(max(0, MAX_RECORDING_MS - followup_ms) / 1000)
+        if self._state is not TurnState.FOLLOWUP:
+            return
+        self._timer = None
+        self._recording = False
+        self._audio.clear()
+        log.info("%s: janela de continuação expirou sem resposta do satélite", self.satellite)
+        await self._go(TurnState.SLEEPING)
 
     async def _confirm_deadline(self) -> None:
         await asyncio.sleep((self.confirm_timeout_ms + self.confirm_grace_ms) / 1000)
@@ -389,7 +474,7 @@ class TurnMachine:
         self._audio.clear()
         self._pending = None
         log.info("%s: confirmação expirou", self.satellite)
-        self._start(self._deliver(await self._cancelled()))
+        self._start(self._deliver(await self._cancelled(), followup=False))
 
     async def _cancelled(self) -> ActionResult:
         await self._close_vote(Verdict.DENIED)
@@ -417,14 +502,28 @@ class TurnMachine:
             if self._state is not TurnState.SLEEPING:
                 await self._go(TurnState.SLEEPING)
 
-    async def _think(self, audio: bytes, fmt: PcmFormat, ctx: TurnContext) -> None:
+    async def _think(self, audio: bytes, fmt: PcmFormat, ctx: TurnContext, *, followup: bool = False) -> None:
         transcript = await self.pipeline.transcribe(audio, fmt, ctx)
+        if is_dismissal(transcript.final):
+            await self._dismiss()
+            return
+        if followup and transcript.is_empty:
+            # ruído na janela de continuação: nada de "não peguei", só volta a dormir
+            await self._go(TurnState.SLEEPING)
+            return
         result = await self.pipeline.respond(transcript, ctx)
         text = result.redo_text or transcript.final
         if text.strip():
             # Texto efetivo deste turno: o próximo turno o recebe em ``ctx.previous_text``.
             self._last_text, self._last_at = text, ctx.started_at
         await self._deliver(result)
+
+    async def _dismiss(self) -> None:
+        """Dispensada: rosto ``happy`` por um instante e dorme, sem fala (1.20)."""
+        log.info("%s: dispensada", self.satellite)
+        await self.hud.send(StateMsg(Expression.HAPPY))
+        await asyncio.sleep(self.dismiss_face_s)
+        await self._go(TurnState.SLEEPING)
 
     async def _confirm(self, audio: bytes, fmt: PcmFormat, pending: ActionRequest, ctx: TurnContext) -> None:
         transcript = await self.pipeline.transcribe(audio, fmt, ctx)
@@ -435,8 +534,10 @@ class TurnMachine:
         result = await self.pipeline.run_action(pending)
         await self._deliver(result)
 
-    async def _deliver(self, result: ActionResult) -> None:
-        """Mostra e fala a resposta. Estado de partida: ``thinking`` ou ``confirming``."""
+    async def _deliver(self, result: ActionResult, *, followup: bool = True) -> None:
+        """Mostra e fala a resposta. Estado de partida: ``thinking`` ou ``confirming``.
+        ``followup``: ao terminar, abre a janela de continuação (1.20)."""
+        self._followup = followup
         if result.needs_confirmation:
             self._pending = result.on_confirm
             if result.dangerous:

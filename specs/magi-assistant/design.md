@@ -93,6 +93,18 @@ sequenceDiagram
 durante `speaking` corta a reprodução (Req. 12.5). Estado `confirming` espera "confirma" por 8 s
 (Req. 5.4) com uma nova escuta curta, sem precisar de "Ei Magui".
 
+Conversa contínua (tarefa 1.20): ao fim de uma resposta sem confirmação pendente, `speaking →
+followup`. O núcleo manda `magi-listen` (`reason="followup"`, prazo `[conversation] followup_s`,
+padrão 3 s, só para *começar* a falar), sem bip, com o rosto em `listening`. Fala → `thinking` (turno
+completo, sem wake word) e a janela reabre no fim; silêncio → `sleeping` calado. Dispensa ("valeu",
+"só isso", "tchau"... como frase inteira, em qualquer turno) → rosto `happy` por 0,8 s e `sleeping`,
+sem fala. Sem janela em call no Discord (só PTT), após aviso proativo e após "Cancelado." por silêncio.
+
+| De | Para |
+|---|---|
+| `speaking`/`thinking` (resposta sem fala) | `followup` |
+| `followup` | `thinking` (falou), `sleeping` (silêncio/dispensa), `listening` (wake/PTT) |
+
 ### 3.2 Discord (Req. 2)
 
 - Detecção de call: `pulsectl` lista `source-output`s; call ativa = fluxo de captura cujo
@@ -349,3 +361,26 @@ magi-assistant-ai/
 | S2 | Atalho: KGlobalAccel entrega pressionar e soltar? DualSense via evdev precisa do grupo `input`? | Escolha do mecanismo de PTT |
 | S3 | Quais modelos da OpenAI e do Gemini atendem latência e custo (transcrição PT-BR, TTS feminina, agente, pesquisa)? | Valores para `[tasks]` |
 | S4 | openWakeWord com "Ei Magui": quantas amostras para ≤ 1 falso disparo/h? | Modelo `ei_magui.onnx` |
+
+## 13. Interface "wired" (R23)
+
+Fonte visual: `docs/design/MAGI-HANDOFF.md` e `docs/design/wired/{Main,Standby}.dc.html` (só referência; o runtime `.dc` não é usado). Onde o handoff conflita com este SDD, vale o SDD:
+
+| Handoff | Decisão no SDD |
+| --- | --- |
+| HTML/SVG | QPainter raster no `gamerhud.py` (sem GPU); grade lógica 1920×1080 com `painter.scale(4/3)` |
+| Spotify pela Web API (polling, controles com Premium) | MPRIS local para metadados, capa (`mpris:artUrl`), posição e controles; Web API só se um dia houver "a seguir" |
+| Mascote estático | Mascote vetorial com as 7 expressões do R17 e boca por nível de áudio (`magi-mouth`) |
+| Valores simulados | Dados reais; "– –" quando não houver |
+
+Módulos novos em `hud/wired/` (o `gamerhud.py` só escolhe o tema e repassa eventos):
+
+- `theme.py`: tokens do handoff e tingimento pelo LED (`rgb+88` borda, `rgb+14` fundo).
+- `fonts.py` + `hud/fonts/`: Shippori Mincho, Barlow Condensed, JetBrains Mono, Zen Kaku Gothic New (OFL), carregadas pelo `QFontDatabase`.
+- `kit.py`: painel chanfrado (14 px), traço 56×3, scanlines em pixmap, barras de segmentos (warn/hot), sparklines, rótulos.
+- `scene.py`: cenário de fios/postes/prédios em pixmap cacheado por tamanho.
+- `mascot.py`: mascote (parênteses, olhos, rubor, boca), expressões, piscar, "zz".
+- `data.py`: rede (`/proc/net/dev`), histórico de carga (amostra a cada 30 s, 120 pontos), FPS mín/méd/máx, Spotify via MPRIS (QtDBus) com cache de capa, log de eventos do rodapé.
+- `main_screen.py` e `standby_screen.py`: composição das telas; camadas estáticas em cache e redesenho por região (relógio 1 Hz, dados 1 Hz, mascote até 30 fps só quando acordada).
+
+Tema escolhido por `ui = "wired" | "eva"` no `settings.json` do HUD (padrão `wired`).

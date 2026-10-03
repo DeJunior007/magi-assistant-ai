@@ -245,6 +245,20 @@ Fonte: [docs/PRD.md](../../docs/PRD.md) (rev. 34). Cada requisito aponta para os
 2. O satélite do PC DEVE ser um processo separado que fala esse protocolo.
 3. O Magui DEVE registrar de qual satélite veio cada turno e responder no mesmo satélite.
 
+## Requisito 23 — Interface "wired" do MAGI (redesign)
+
+**História:** como usuário, quero o MAGI com o visual "wired" (fios, postes, scanlines, kanji) do handoff `docs/design/MAGI-HANDOFF.md`, sem perder nenhum dado que o painel já mostra.
+
+1. O MAGI DEVE desenhar duas telas, Painel completo e Tela de espera, seguindo o layout, os tokens de cor e as fontes do handoff, numa grade lógica de 1920×1080 escalada para o monitor (2560×1440 = 4/3).
+2. O MAGI DEVE manter as fontes de dados atuais (CPU, GPU, RAM, VRAM, FPS, controles, specs) e acrescentar rede (↓/↑), histórico de carga de 60 min, FPS mín/méd/máx e o Spotify em reprodução.
+3. Quando um dado não existir, o MAGI DEVE mostrar "– –" ou um estado vazio; NÃO DEVE mostrar dado simulado.
+4. O mascote do handoff DEVE substituir o rosto de caracteres do R17, mantendo as 7 expressões, a boca "—"/"o"/"O" pelo volume da voz, as piscadas e a legenda da fala (R17.1–R17.6 continuam valendo sobre o novo desenho).
+5. O "Now playing" DEVE ler faixa, artista, álbum, capa, posição e estado pelo MPRIS do Spotify (sem Premium) e oferecer anterior/tocar-pausar/próxima; "a seguir" só aparece se houver fonte real.
+6. O botão LED DEVE ligar/desligar o RGB Sync existente, persistir o estado e, ligado, tingir as 3 unidades MAGI, o ponto do botão, o rubor do mascote e o trilho da tela de espera com a cor atual do OpenRGB; se o OpenRGB não responder, volta a "off" visualmente com aviso no log.
+7. Os controles clicáveis DEVEM ter área mínima de 44 px (lógicos) e a cor NUNCA DEVE ser a única informação (ex.: 正常 sempre com "NORMAL").
+8. O redesenho NÃO DEVE usar GPU nem passar do consumo de CPU do painel atual (meta ≤ 10% de um núcleo no Painel completo, ≤ 3% na Tela de espera).
+9. O tema antigo (Evangelion) DEVE continuar disponível por configuração até o novo ser aprovado em uso.
+
 ---
 
 ## Requisitos não funcionais

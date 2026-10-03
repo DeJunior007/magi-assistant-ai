@@ -219,6 +219,13 @@ Formato de cada tarefa:
   - Orçamento: ~55k
   - Pronto: `magi-core` sobe com a config real (provedores sem chave degradam com aviso); turno de ponta a ponta com satélite falso usa todas as peças; "não, eu falei X" refaz o turno.
 
+- [x] **1.20 Conversa contínua** — depois de responder, a Magui fica ouvindo por 3 s sem wake word e sem bip (estado `followup`, rosto `listening`); fala → turno normal que reabre a janela; silêncio → dorme calada. Dispensa por frase inteira ("valeu", "obrigado", "só isso", "pode ir", "dispensa", "tchau", "nada não", "esquece") → rosto `happy` e dorme, sem fala. Ativou e não falou → dorme calada. Sem janela em call no Discord. Config `[conversation] followup`, `followup_s`.
+  - Lê: §3.1, `magi/core/turn.py`, `contracts.py` (ListenRequest, TurnState, AudioEndReason), `magi/satellite/__main__.py`, `magi/satellite/stream.py`
+  - Escreve: `magi/common/contracts.py` (`TurnState.FOLLOWUP`), `magi/core/turn.py`, `magi/core/service.py`, `config.example.toml`, §3.1, testes
+  - Depende de: 1.4, 1.19
+  - Orçamento: ~50k
+  - Pronto: testes com satélite/HUD falsos: continuação sem wake word reabre a janela; silêncio dorme sem falar; dispensa dorme; em call sem janela; nova ativação durante a janela; satélite não toca nada com `reason="followup"`.
+
 - [ ] **1.18 Medição da fase 1** — script de desempenho do §10 (CPU/RAM ociosos por 10 min, latência p90 de 50 turnos).
   - Lê: §10, tabela RNF de `requirements.md`
   - Escreve: `tools/perf.py`, `docs/perf/fase1.md`
@@ -480,6 +487,38 @@ Formato de cada tarefa:
   - Depende de: 6.10, 3.8
   - Orçamento: ~30k
   - Pronto: "o que saiu de novo do Silksong?" responde com links.
+
+## Fase U — Interface "wired" (R23)
+
+Fonte: `docs/design/MAGI-HANDOFF.md`, design §13. U1 e U2 em paralelo; U3 depois das duas; U4 por último. Ninguém edita `hud/gamerhud.py` antes da U4.
+
+- [ ] **U1 Kit visual** — fontes em `hud/fonts/` + carregamento, tokens e tingimento do LED, painel chanfrado, scanlines, barras de segmentos, sparkline, cenário de fios e mascote vetorial com as 7 expressões e boca por nível; script que salva PNGs de cada peça. *(R23.1, R23.4, R23.7)*
+  - Lê: handoff, `docs/design/wired/*.dc.html`, design §13, `hud/face.py` (expressões e API), `hud/gamerhud.py` só `Theme`/`alpha` (grep)
+  - Escreve: `hud/fonts/`, `hud/wired/{__init__,theme,fonts,kit,scene,mascot}.py`, `hud/tools/wired_demo.py`, `tests/hud/test_wired_kit.py`
+  - Depende de: —
+  - Orçamento: ~60k
+  - Pronto: PNGs das peças batem com o canvas; mascote troca expressão e boca.
+
+- [ ] **U2 Dados novos** — rede, histórico de 60 min, FPS mín/méd/máx, Spotify por MPRIS (metadados, capa em cache, posição interpolada, controles) e log de eventos do rodapé. *(R23.2, R23.3, R23.5)*
+  - Lê: design §13, `hud/gamerhud.py` só `Sensors`, `FpsSource`, `ProcStats`, `controllers`, `system_info` (grep), `magi/core/actions/spotify_mpris.py` (nomes MPRIS)
+  - Escreve: `hud/wired/data.py`, `tests/hud/test_wired_data.py`
+  - Depende de: —
+  - Orçamento: ~45k
+  - Pronto: dados reais no console por 1 min; sem Spotify aberto mostra vazio.
+
+- [ ] **U3 Telas** — Painel completo e Tela de espera compondo U1 + U2 + dados existentes; caches por camada; mapa de áreas clicáveis (LED, controles do player, cards CPU/GPU/RAM). *(R23.1–R23.8)*
+  - Lê: handoff, design §13, APIs de U1 e U2
+  - Escreve: `hud/wired/{main_screen,standby_screen}.py`, `hud/tools/wired_demo.py`, testes
+  - Depende de: U1, U2
+  - Orçamento: ~60k
+  - Pronto: PNGs 2560×1440 das duas telas nos estados standby/gaming e LED off/on.
+
+- [ ] **U4 Integração** — `ui = "wired"|"eva"` no `gamerhud.py`, transição do Meta+M, cliques (LED → RGB Sync, player → MPRIS, cards → detalhes por processo), eventos da Magui → mascote/legenda, medição de CPU. *(R23.6, R23.8, R23.9)*
+  - Lê: `hud/gamerhud.py`, APIs de U3, `hud/hud_bridge.py`
+  - Escreve: `hud/gamerhud.py`, `hud/README.md`, testes
+  - Depende de: U3
+  - Orçamento: ~60k
+  - Pronto: HUD real no tema novo, CPU dentro da meta do R23.8.
 
 ## Encerramento do MVP
 
