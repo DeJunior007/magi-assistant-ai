@@ -5,7 +5,8 @@
     QT_QPA_PLATFORM=offscreen uv run python hud/tools/wired_hud.py bench [segundos] [awake]
 
 Não toca na sessão ao vivo: settings em memória (nada é gravado no settings.json do HUD), ponte
-com a Magui num socket que ninguém escuta e OpenRGB só lido. `shots` grava
+com a Magui num socket que ninguém escuta, OpenRGB só lido e papel de parede intocado
+(`GAMERHUD_NO_WALLPAPER=1`: plasma/kwin viram no-op e prepare/restore nem rodam). `shots` grava
 `hud-{full,idle}-{standby,gaming}.png` (2560×1440); o modo "gaming" injeta um jogo e uma faixa
 falsos só para a foto. `bench` deixa o HUD rodando com os timers reais e mede a CPU do processo
 (`/proc/self/stat`, utime+stime) em cada tela.
@@ -20,6 +21,7 @@ import time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ["GAMERHUD_NO_WALLPAPER"] = "1"   # nunca toca no papel de parede real (U5)
 HUD_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HUD_DIR))
 
@@ -37,6 +39,8 @@ def make_hud():
     gamerhud.load_settings = lambda: dict(SETTINGS)
     gamerhud.save_settings = lambda data: SETTINGS.update(data)
     gamerhud.settings_mtime = lambda: 1.0
+    for name in ("prepare_wallpapers", "still_wallpapers", "pause_wallpapers", "restore_wallpapers"):
+        setattr(gamerhud, name, lambda *a, **k: None)
     sock = Path(tempfile.mkdtemp()) / "hud.sock"
     w = gamerhud.HUD({"seg": "Hack"}, bridge=hud_bridge.HudBridge(sock))
     w.resize(2560, 1440)

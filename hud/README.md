@@ -11,6 +11,9 @@ assistente Magui vai morar (ver `specs/magi-assistant/`).
 - Tema segue a cor da placa-mãe no OpenRGB (botão RGB SYNC liga/desliga).
 - Tela de ociosidade estilo title card do Evangelion (Meta+M alterna, com cortina animada).
 - Troca as cenas do Wallpaper Engine por um print delas enquanto aberto (libera ~580 MB de VRAM).
+  A volta é garantida: ao fechar (sinais, closeEvent), pelo `gamerhud` bin e pelo vigia, que roda
+  `--restore` se o HUD não está aberto e alguma tela ficou presa num print, mesmo sem
+  `wallpaper_state.json`. `GAMERHUD_NO_WALLPAPER=1` (ou offscreen) não toca no papel de parede.
 - Vigia (`gamerhud-watch.py`) abre o HUD quando um jogo começa e fecha quando termina.
 
 ## Arquivos

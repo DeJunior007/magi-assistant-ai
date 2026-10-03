@@ -6,6 +6,10 @@ não reabre até o próximo jogo).
 Detecta jogos da Steam pelo processo `reaper SteamLaunch AppId=N` e qualquer
 outro jogo Vulkan pelo log em tempo real do MangoHud.
 Config em ~/.config/gamerhud/settings.json: "auto_open" e "auto_close" (true/false).
+
+Rede de segurança do papel de parede: no login e a cada RESCUE_S, se o HUD não está rodando
+e alguma tela ficou presa num print de ~/.cache/gamerhud/stills/ (lido do appletsrc, só
+leitura), chama `gamerhud.py --restore`, que devolve o plugin do Wallpaper Engine.
 """
 import fcntl
 import json
@@ -23,9 +27,12 @@ FPS_DIR = os.path.join(CACHE, "fps")
 SETTINGS = os.path.expanduser("~/.config/gamerhud/settings.json")
 PLUGIN_QML = os.path.expanduser(
     "~/.local/share/plasma/wallpapers/com.github.catsout.wallpaperEngineKde/contents/ui/main.qml")
+APPLETSRC = os.path.expanduser("~/.config/plasma-org.kde.plasma.desktop-appletsrc")
+STILLS = os.path.join(CACHE, "stills")
 IGNORE_APPIDS = {"228980"}   # Steamworks Common Redistributables (roda na instalação)
 POLL_S = 2
 GRACE_S = 15                 # espera depois do jogo fechar (cobre launchers que reiniciam)
+RESCUE_S = 30                # intervalo da checagem de wallpaper preso
 
 
 def settings():
@@ -81,6 +88,41 @@ def mango_game():
     return None
 
 
+def stuck_stills(path=None):
+    """Containments do Plasma em org.kde.image com a imagem dentro de ~/.cache/gamerhud/stills/."""
+    plugin, image, sec = {}, {}, []
+    try:
+        with open(path or APPLETSRC, encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        line = line.strip()
+        if line.startswith("["):
+            sec = re.findall(r"\[([^\]]*)\]", line)
+            continue
+        if len(sec) < 2 or sec[0] != "Containments" or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        if len(sec) == 2 and key == "wallpaperplugin":
+            plugin[sec[1]] = val
+        elif sec[2:] == ["Wallpaper", "org.kde.image", "General"] and key == "Image":
+            image[sec[1]] = val
+    return sorted(c for c, p in plugin.items() if p == "org.kde.image" and STILLS in image.get(c, ""))
+
+
+def rescue_wallpaper():
+    """HUD fechado + tela presa num print = restaura. True se chamou o --restore."""
+    if hud_pid() is not None or not stuck_stills():
+        return False
+    try:
+        subprocess.run(["python3", HUD, "--restore"], timeout=60,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return True
+
+
 def ensure_plugin_patch():
     """O plugin do Wallpaper Engine pausa 5 s toda vez que carrega uma cena; deixa em 0,5 s.
     Reaplica se uma atualização do plugin desfizer (vale a partir do próximo login)."""
@@ -109,9 +151,14 @@ def main():
     current = None        # jogo em andamento
     gone_since = None
     child = None          # HUD que o vigia abriu
+    next_rescue = 0.0     # 0 = já no login
     while True:
         if child and child.poll() is not None:
             child = None  # HUD fechou (pelo usuário ou por nós)
+            next_rescue = 0.0
+        if time.monotonic() >= next_rescue:
+            rescue_wallpaper()
+            next_rescue = time.monotonic() + RESCUE_S
         cfg = settings()
         game = steam_game() or mango_game()
         if game:
