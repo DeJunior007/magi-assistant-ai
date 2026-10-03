@@ -197,3 +197,36 @@ Mesmos comandos da seção anterior (`tools.perf idle --minutes 10`, `latency --
 
 RNF-05 segue fora: o caminho é STT → modelo → TTS em série; o próximo passo é falar a primeira frase
 enquanto o modelo ainda gera (streaming por frase) e cortar o silêncio inicial do TTS (tarefa 1.24).
+
+## 1.24 Fala por frase em streaming
+
+### O que mudou
+
+- **Chat em streaming.** O agente pede a resposta com `stream=True` e
+  `stream_options={"include_usage": True}` (`GuardedChat.chat_stream` → `OpenAIBackend.chat_stream`;
+  orçamento checado antes e uso de tokens registrado no fim, como no `chat`). Quando a resposta é
+  texto, cada frase falada que fecha (pelas regras do `compose`: fim de frase, sem markdown, URL nem
+  lista; a frase só sai quando a seguinte começa ou o texto acaba) vai direto para o TTS e o áudio
+  já segue ao satélite. A 2ª frase entra na fila do **mesmo** `audio-start` … `audio-stop`
+  (`PhraseSpeaker.say_stream`); o resto do texto vai para legenda/cards no fim, pelo `compose`.
+  Se o modelo pede ferramenta, nada é falado antes. Na 1ª chamada (paralela à busca de memórias,
+  1.23) as frases esperam a busca decidir; se ela traz memórias, a chamada é refeita e o rascunho
+  descartado. Ativação ou PTT durante a fala cancela o envio e o resto da geração.
+- **Silêncio inicial do TTS (S3).** A voz "nova" abre cada frase com 0,2–0,5 s mudos. Amostras
+  abaixo de -50 dBFS no começo são descartadas até a primeira fala, nunca mais que 600 ms (áudio
+  curto todo baixo fica como está). Vale no streaming, ao gravar no cache de frases e ao ler dele
+  (entradas antigas são regravadas cortadas na primeira leitura). Ganha também o RNF-04 e as
+  respostas cacheadas.
+
+### Ganho esperado
+
+O primeiro áudio deixa de esperar a geração inteira: sai quando a 1ª frase fecha (para respostas de
+uma frase só, quando o texto termina, sem o resto do turno no caminho), mais o tempo até o primeiro
+byte do TTS. Somado ao corte de 0,2–0,5 s de silêncio, a expectativa é −0,4 a −0,9 s no p90 do RNF-05
+(3,45 s → ~2,6–3,0 s), maior em respostas de duas frases.
+
+### Como re-medir (depois de reiniciar `magi-core` no código novo)
+
+```
+uv run python -m tools.perf latency --turns 10 --phrase "quantas patas tem uma aranha" --gap 3
+```

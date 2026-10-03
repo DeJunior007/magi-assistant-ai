@@ -9,6 +9,12 @@
 - As fixas são pré-geradas no primeiro uso (``warm``, disparado em segundo plano no primeiro
   ``say``). Chave = hash de texto normalizado + provedor + modelo + voz + formato: trocar a voz
   invalida. Cache em ``~/.cache/magi/tts/`` com limite de tamanho (LRU por mtime).
+- Silêncio inicial (1.24, S3: a voz "nova" abre com 0,2–0,5 s mudos): amostras abaixo de
+  ``SILENCE_DBFS`` no começo de cada frase são descartadas até a primeira fala, nunca mais que
+  ``MAX_TRIM_MS``. Vale no streaming, ao gravar no cache e ao ler dele (entradas antigas são
+  regravadas cortadas na primeira leitura).
+- ``say_stream`` (1.24): frases que vão chegando (fala por frase do agente) num único envio
+  ``audio-start`` … ``audio-stop``, uma atrás da outra.
 - Erro do TTS não trava o turno: o envio termina (``audio-stop``) com o que saiu até ali, para o
   satélite responder ``playback-done``; a legenda já foi para o HUD.
 """
@@ -21,10 +27,11 @@ import hashlib
 import logging
 import os
 import re
-from collections.abc import AsyncIterator, Callable, Iterable
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 from magi.common.contracts import CHUNK_MS, PcmFormat, SatelliteLink, TtsProvider
@@ -35,6 +42,58 @@ PHRASES_FILE = Path(__file__).with_name("phrases.yaml")
 DEFAULT_CACHE_MAX_BYTES = 64 * 1024 * 1024
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 _SPACES = re.compile(r"\s+")
+#: Limiar do silêncio inicial (1.24): |amostra| abaixo de -50 dBFS (16 bits: ~104) é silêncio.
+SILENCE_DBFS = -50.0
+#: Nunca corta mais que isto do começo de uma frase.
+MAX_TRIM_MS = 600
+
+
+def _silence_level(width: int) -> int:
+    return round((1 << (8 * width - 1)) * 10 ** (SILENCE_DBFS / 20))
+
+
+def _first_sound(pcm: bytes, fmt: PcmFormat) -> int | None:
+    """Byte (alinhado ao quadro) da primeira amostra acima do limiar; ``None`` = tudo mudo.
+    Só PCM de 16 bits; outro formato conta como som desde o início."""
+    if fmt.width != 2:
+        return 0
+    frame = fmt.width * fmt.channels
+    usable = len(pcm) - len(pcm) % frame
+    samples = np.frombuffer(pcm[:usable], dtype="<i2")
+    loud = np.flatnonzero(np.abs(samples.astype(np.int32)) >= _silence_level(2))
+    if not loud.size:
+        return None
+    return int(loud[0]) * 2 // frame * frame
+
+
+def trim_silence(pcm: bytes, fmt: PcmFormat) -> bytes:
+    """``pcm`` sem o silêncio inicial (no máximo ``MAX_TRIM_MS``). Áudio curto e todo abaixo do
+    limiar fica como está (não é silêncio "antes da fala", é a fala inteira baixa)."""
+    limit = fmt.bytes_for_ms(MAX_TRIM_MS)
+    start = _first_sound(pcm[:limit], fmt)
+    if start is None:
+        return pcm[limit:] if len(pcm) > limit else pcm
+    return pcm[start:]
+
+
+async def trim_lead(chunks: AsyncIterable[bytes], fmt: PcmFormat) -> AsyncIterator[bytes]:
+    """Versão em streaming de ``trim_silence``: segura até ``MAX_TRIM_MS`` do começo enquanto só
+    há silêncio e repassa o resto como chega (a fala sai assim que aparece)."""
+    limit = fmt.bytes_for_ms(MAX_TRIM_MS)
+    head: bytes | None = b""
+    async for pcm in chunks:
+        if head is None:
+            yield pcm
+            continue
+        head += pcm
+        start = _first_sound(head[:limit], fmt)
+        if start is None and len(head) <= limit:
+            continue
+        out, head = head[limit if start is None else start :], None
+        if out:
+            yield out
+    if head:
+        yield head
 
 
 def default_cache_dir(env: dict[str, str] | None = None) -> Path:
@@ -213,17 +272,50 @@ class PhraseSpeaker:
             return
         self._start_warm()
         provider = self.provider()
+        await link.play(self._speak(provider, text, personal), provider.output_format)
+
+    async def say_stream(self, texts: AsyncIterable[str], link: SatelliteLink, *, personal: bool) -> None:
+        """Fala as frases de ``texts`` conforme chegam, num único envio ao satélite (1.24)."""
+        self._start_warm()
+        provider = self.provider()
+        await link.play(self._speak_all(provider, texts, personal), provider.output_format)
+
+    async def _speak_all(
+        self, provider: TtsProvider, texts: AsyncIterable[str], personal: bool
+    ) -> AsyncIterator[bytes]:
+        async for raw in texts:
+            text = _SPACES.sub(" ", raw).strip()
+            if not text:
+                continue
+            async for pcm in self._speak(provider, text, personal):
+                yield pcm
+
+    async def _speak(self, provider: TtsProvider, text: str, personal: bool) -> AsyncIterator[bytes]:
+        """PCM de uma frase: do cache se houver; senão do TTS (e vai para o cache se for frase
+        conhecida). Sem o silêncio inicial."""
         fmt = provider.output_format
         cacheable = self.phrases.cacheable(text)
         key = self.key(text, provider) if cacheable else ""
-        if cacheable and (pcm := self.cache.get(key)) is not None:
-            await link.play(_chunks(pcm, fmt), fmt)
+        if cacheable and (pcm := self._cached(key, fmt)) is not None:
+            async for chunk in _chunks(pcm, fmt):
+                yield chunk
             return
         sink: list[bytes] | None = [] if cacheable else None
         stream = _SafeStream(provider, text, personal, sink)
-        await link.play(stream, fmt)
+        async for chunk in stream:
+            yield chunk
         if sink is not None and stream.ok and sink:
             self.cache.put(key, b"".join(sink))
+
+    def _cached(self, key: str, fmt: PcmFormat) -> bytes | None:
+        """PCM do cache sem o silêncio inicial; entrada antiga (anterior à 1.24) é regravada cortada."""
+        pcm = self.cache.get(key)
+        if pcm is None:
+            return None
+        trimmed = trim_silence(pcm, fmt)
+        if len(trimmed) != len(pcm) and trimmed:
+            self.cache.put(key, trimmed)
+        return trimmed or pcm
 
     # -- pré-geração -------------------------------------------------------------------------
 
@@ -282,7 +374,8 @@ class _SafeStream:
 
     async def _run(self) -> AsyncIterator[bytes]:
         try:
-            async for pcm in self._provider.synthesize(self._text, personal=self._personal):
+            raw = self._provider.synthesize(self._text, personal=self._personal)
+            async for pcm in trim_lead(raw, self._provider.output_format):
                 if not pcm:
                     continue
                 if self._sink is not None:

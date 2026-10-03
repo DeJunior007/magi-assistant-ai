@@ -33,6 +33,7 @@ from magi.common.contracts import (
     NoKeyAvailable,
     PcmFormat,
     PersonalDataRefused,
+    ProviderError,
     ProviderTask,
     SearchResult,
     ToolSpec,
@@ -233,6 +234,42 @@ class GuardedChat(_Guarded):
     ) -> ChatReply:
         async def op(k: ApiKey) -> tuple[ChatReply, Usage | None]:
             reply = await self._backend.chat(k, self._ctx, messages, tools, json_mode)
+            return reply, reply.usage
+
+        return await self._run(personal, op)
+
+    async def chat_stream(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        tools: Sequence[ToolSpec] = (),
+        personal: bool,
+        on_text: Callable[[str], None],
+    ) -> ChatReply:
+        """``chat`` em streaming (1.24): o texto vai para ``on_text`` conforme chega (nada depois
+        de uma chamada de ferramenta). Orçamento e uso como em ``chat``. Recusa de chave depois de
+        o texto começar não troca de chave (o texto já saiu). Backend sem streaming: ``chat`` e o
+        texto inteiro de uma vez, se não houver ferramenta."""
+        stream = getattr(self._backend, "chat_stream", None)
+        if stream is None:
+            reply = await self.chat(messages, tools=tools, personal=personal)
+            if reply.text and not reply.tool_calls:
+                on_text(reply.text)
+            return reply
+        started = False
+
+        def emit(piece: str) -> None:
+            nonlocal started
+            started = True
+            on_text(piece)
+
+        async def op(k: ApiKey) -> tuple[ChatReply, Usage | None]:
+            try:
+                reply = await stream(k, self._ctx, messages, tools, False, emit)
+            except KeyRejected as e:
+                if started:
+                    raise ProviderError(str(e)) from e
+                raise
             return reply, reply.usage
 
         return await self._run(personal, op)

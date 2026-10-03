@@ -9,6 +9,12 @@ protocolo direto e o estado leva ``ChatMessage`` de ``contracts.py``.
 Ferramenta que devolve ``needs_confirmation`` encerra o grafo: o resultado sobe como está e o
 núcleo entra em ``confirming``. A resposta final passa por ``magi.core.compose`` (fala ≤ 2
 frases, ``full_text``, cards).
+
+Fala por frase (1.24): com um ``EarlySpeech`` do turno em ``EARLY_SPEECH`` e um chat com
+``chat_stream``, o modelo responde em streaming e cada frase falada que fecha (``SpeechDraft``)
+já vai para o TTS enquanto o resto ainda é gerado. Se o modelo pede ferramenta, nada é falado.
+Na primeira chamada (em paralelo com a busca de memórias) as frases ficam retidas até a busca
+decidir: se ela traz memórias, a chamada é refeita e o rascunho, descartado.
 """
 
 from __future__ import annotations
@@ -35,7 +41,8 @@ from magi.common.contracts import (
     ProviderTask,
     TurnContext,
 )
-from magi.core.compose import compose, short_speech
+from magi.core.compose import SpeechDraft, compose, short_speech
+from magi.core.early import EARLY_SPEECH, EarlySpeech
 
 log = logging.getLogger(__name__)
 
@@ -132,7 +139,7 @@ class GraphAgent:
         if step == 1 and mem_task is not None:
             messages, reply = await self._first_reply(state, mem_task, tools)
         else:
-            reply = await state["chat"].chat(messages, tools=tools, personal=True)
+            reply = await _call(state["chat"], messages, tools, _Voice.current())
         msg = ChatMessage(role="assistant", content=reply.text, tool_calls=reply.tool_calls)
         return {"messages": [*messages, msg], "steps": step, "reply": reply}
 
@@ -141,7 +148,8 @@ class GraphAgent:
     ) -> tuple[list[ChatMessage], ChatReply]:
         """Primeira chamada do modelo em paralelo com a busca de memórias (1.23)."""
         chat, messages = state["chat"], state["messages"]
-        first = asyncio.ensure_future(chat.chat(messages, tools=tools, personal=True))
+        voice = _Voice.current(held=True)
+        first = asyncio.ensure_future(_call(chat, messages, tools, voice))
         try:
             await asyncio.wait((mem_task, first), return_when=asyncio.FIRST_COMPLETED)
             if not mem_task.done():
@@ -154,7 +162,18 @@ class GraphAgent:
                     log.warning("agente: memórias não cabem no prompt; seguindo sem elas")
                 else:
                     first.cancel()
-                    return with_mem, await chat.chat(with_mem, tools=tools, personal=True)
+                    if voice is not None:
+                        voice.discard()
+                    return with_mem, await _call(chat, with_mem, tools, _Voice.current())
+            if voice is not None:
+                if (
+                    first.done()
+                    and not first.cancelled()
+                    and first.exception() is None
+                    and first.result().tool_calls
+                ):
+                    voice.discard()  # texto antes da chamada de ferramenta não é falado
+                voice.release()
             return messages, await first
         finally:
             for task in (first, mem_task):
@@ -304,6 +323,57 @@ class GraphAgent:
                 )
             )
         return ActionResult(ok=False, speech=SAY_GAVE_UP, expression=Expression.CONFUSED)
+
+
+class _Voice:
+    """Frases de uma chamada do modelo a caminho do ``EarlySpeech`` (1.24). ``held``: retém as
+    frases até ``release`` (primeira chamada, enquanto a busca de memórias não decide)."""
+
+    def __init__(self, early: EarlySpeech, *, held: bool = False) -> None:
+        self._early = early
+        self._held: list[str] | None = [] if held else None
+        self._dead = False
+        self.draft = SpeechDraft()
+
+    @classmethod
+    def current(cls, *, held: bool = False) -> _Voice | None:
+        early = EARLY_SPEECH.get()
+        return cls(early, held=held) if early is not None else None
+
+    def push(self, delta: str) -> None:
+        self._say(self.draft.push(delta))
+
+    def finish(self, text: str) -> None:
+        self._say(self.draft.finish(text))
+
+    def release(self) -> None:
+        held, self._held = self._held, None
+        self._say(held or [])
+
+    def discard(self) -> None:
+        self._dead = True
+
+    def _say(self, found: list[str]) -> None:
+        if self._dead:
+            return
+        if self._held is not None:
+            self._held.extend(found)
+            return
+        for sentence in found:
+            self._early.say(sentence)
+
+
+async def _call(
+    chat: ChatProvider, messages: list[ChatMessage], tools: Sequence[Any], voice: _Voice | None
+) -> ChatReply:
+    """Uma chamada do modelo; com ``voice`` e ``chat_stream``, em streaming falando por frase."""
+    stream = getattr(chat, "chat_stream", None)
+    if voice is None or stream is None:
+        return await chat.chat(messages, tools=tools, personal=True)
+    reply = await stream(messages, tools=tools, personal=True, on_text=voice.push)
+    if not reply.tool_calls:
+        voice.finish(reply.text)
+    return reply
 
 
 def _task_result(task: asyncio.Task[list[Any]]) -> list[Any]:
