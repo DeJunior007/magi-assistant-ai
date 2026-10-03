@@ -1,0 +1,217 @@
+"""Roteiro de gravação do wake word "Ei Magui" (spike S4).
+
+Uso::
+
+    uv run python -m tools.wakeword.record            # tudo: positivas, negativas, ruído
+    uv run python -m tools.wakeword.record --section positive
+    uv run python -m tools.wakeword.record --list-devices
+
+Grava WAV 16 kHz mono em ``~/.local/share/magi/wakeword-data/{positive,negative,noise}/``.
+Retoma de onde parou (conta os arquivos que já existem). Em cada passo: Enter grava,
+``r`` + Enter apaga e regrava a última, ``p`` + Enter pula, ``q`` + Enter sai.
+Pode rodar com o ``magi-satellite`` ligado: o PipeWire entrega o microfone aos dois.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+
+from tools.wakeword.common import AUDIO_RATE, data_dir, dbfs, next_index, trim_silence, write_wav
+
+APP_NAME = "magi-wakeword-rec"
+
+
+@dataclass(frozen=True, slots=True)
+class Take:
+    section: str  # positive | negative | noise
+    label: str  # vai no nome do arquivo
+    say: str  # o que falar
+    how: str  # instrução
+    seconds: float
+
+
+# (rótulo, instrução, quantidade)
+POSITIVE_STYLES = [
+    ("normal", "voz normal, como se chamasse alguém do lado", 8),
+    ("baixo", "baixinho, quase sussurrando", 6),
+    ("alto", "alto, chamando de longe", 6),
+    ("rapido", "rápido, emendado", 6),
+    ("lento", "devagar, arrastado", 5),
+    ("longe", "a 1–2 m do microfone (ou de costas para ele)", 6),
+    ("fundo", "com jogo ou música tocando alto nas caixas", 7),
+    ("cansado", "cansado, bocejando, voz de sono", 5),
+    ("rindo", "rindo ou sorrindo enquanto fala", 5),
+]
+
+NEGATIVE_PHRASES = [
+    "Ei, mano!", "E aí, mano, beleza?", "Magia.", "Maggie, vem cá.", "A Magali chegou.",
+    "Ei, Maria!", "Ei, Miguel!", "Que mágico!", "Ei, me ajuda aqui.", "Ei, me dá isso.",
+    "Magnífico!", "Ei, amigo!", "Fala, Magrão!", "Vamos jogar Magic?", "Que mágoa.",
+    "Ei, aguenta aí!", "Pega a magia de gelo.", "Ei, Magno!", "Que bagulho doido.", "Ei, mãe!",
+    "Eita, mano!", "Ai, magoei o pé.", "Lá no mangue.", "Ei, Gui!", "Mano, que isso?",
+    "Bora jogar Valorant.", "Abre o Minecraft aí.", "Partida de League of Legends.",
+    "Monster Hunter é muito bom.", "Vou jogar Elden Ring.", "Mario Kart hoje?",
+    "Counter-Strike de noite.", "Magicka é engraçado.", "Ei, cadê o mapa?", "Me passa a munição.",
+    "Hoje tem jogo do Brasil.",
+]
+
+FREE_TALK = [
+    "conte como foi o seu dia",
+    "descreva o jogo que você mais jogou esta semana",
+    "leia em voz alta qualquer texto da tela",
+]
+
+
+def build_takes() -> list[Take]:
+    takes = [
+        Take("positive", label, "Ei Magui", how, 2.5)
+        for label, how, n in POSITIVE_STYLES
+        for _ in range(n)
+    ]
+    takes += [Take("negative", "frase", p, "voz normal", 3.5) for p in NEGATIVE_PHRASES]
+    takes += [Take("negative", "livre", "(fala livre)", t, 20.0) for t in FREE_TALK]
+    takes.append(
+        Take("noise", "quarto", "(silêncio)", "fique quieto; deixe PC/ventilador como de costume", 60.0)
+    )
+    return takes
+
+
+SECTION_PREFIX = {"positive": "pos", "negative": "neg", "noise": "noise"}
+
+
+def take_path(base: Path, take: Take) -> Path:
+    d = base / take.section
+    prefix = f"{SECTION_PREFIX[take.section]}_{take.label}"
+    return d / f"{prefix}_{next_index(d, prefix):03d}.wav"
+
+
+def count_done(base: Path, section: str) -> int:
+    d = base / section
+    return len(list(d.glob("*.wav"))) if d.is_dir() else 0
+
+
+Recorder = Callable[[float], np.ndarray]
+
+
+def sounddevice_recorder(device: str | int | None = None, target: str | None = None) -> Recorder:
+    """Grava ``seconds`` do microfone (PortAudio → plugin ALSA do PipeWire), int16 mono 16 kHz."""
+    from magi.satellite.capture import pipewire_alsa_props
+
+    os.environ["PIPEWIRE_ALSA"] = pipewire_alsa_props(APP_NAME, target)
+    import sounddevice as sd
+
+    def rec(seconds: float) -> np.ndarray:
+        data = sd.rec(int(seconds * AUDIO_RATE), samplerate=AUDIO_RATE, channels=1, dtype="int16",
+                      device=device)
+        sd.wait()
+        return np.asarray(data, dtype=np.int16).reshape(-1)
+
+    return rec
+
+
+def process(take: Take, pcm: np.ndarray) -> np.ndarray:
+    """Corta silêncio das bordas (menos no ruído do quarto)."""
+    return pcm if take.section == "noise" else trim_silence(pcm)
+
+
+def run(
+    takes: list[Take],
+    base: Path,
+    recorder: Recorder,
+    *,
+    ask: Callable[[str], str] = input,
+    out: Callable[[str], None] = print,
+) -> int:
+    """Executa o roteiro. Devolve quantos arquivos foram salvos nesta sessão."""
+    by_section: dict[str, list[int]] = {}
+    for i, t in enumerate(takes):
+        by_section.setdefault(t.section, []).append(i)
+    # retoma: em cada seção, pula os passos que já têm arquivo
+    queue = []
+    for _section, idxs in by_section.items():
+        queue += idxs[count_done(base, _section):]
+    saved = 0
+    last: tuple[int, Path] | None = None  # (posição na fila, arquivo)
+    pos = 0
+    while pos < len(queue):
+        take = takes[queue[pos]]
+        total = len(by_section[take.section])
+        done = count_done(base, take.section)
+        out(f"\n[{take.section} {done + 1}/{total}] {take.how}")
+        out(f'  Fale: "{take.say}"   ({take.seconds:g} s)')
+        cmd = ask("  Enter grava · r regrava a última · p pula · q sai > ").strip().lower()
+        if cmd == "q":
+            break
+        if cmd == "p":
+            pos += 1
+            continue
+        if cmd == "r":
+            if last is None:
+                out("  nada para regravar nesta sessão")
+                continue
+            pos, path = last
+            path.unlink(missing_ok=True)
+            saved -= 1
+            last = None
+            out(f"  apagado {path.name}; regravando")
+            continue
+        out("  >>> gravando... fale agora" if take.section != "noise" else "  >>> gravando silêncio...")
+        raw = recorder(take.seconds)
+        pcm = process(take, raw)
+        if len(pcm) < AUDIO_RATE // 5:
+            out(f"  não ouvi nada (pico {dbfs(raw):.0f} dBFS); vamos repetir")
+            continue
+        peak = int(np.abs(pcm.astype(np.int32)).max())
+        level = dbfs(pcm)
+        path = take_path(base, take)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_wav(path, pcm)
+        saved += 1
+        last = (pos, path)
+        note = ""
+        if peak >= 32000:
+            note = "  (saturou: fale um pouco mais longe/baixo)"
+        elif take.section != "noise" and level < -45:
+            note = "  (muito baixo: confira o microfone)"
+        out(f"  ok: {len(pcm) / AUDIO_RATE:.2f} s, {level:.0f} dBFS -> {path.name}{note}")
+        pos += 1
+    for section in by_section:
+        out(f"{section}: {count_done(base, section)}/{len(by_section[section])}")
+    return saved
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--section", choices=["all", "positive", "negative", "noise"], default="all")
+    ap.add_argument("--data-dir", type=Path, default=None, help="padrão: ~/.local/share/magi/wakeword-data")
+    ap.add_argument("--device", default=None, help="dispositivo do PortAudio (nome ou número)")
+    ap.add_argument("--target", default=None, help="source do PipeWire (como [satellite] mic_target)")
+    ap.add_argument("--list-devices", action="store_true")
+    args = ap.parse_args(argv)
+    if args.list_devices:
+        import sounddevice as sd
+
+        print(sd.query_devices())
+        return 0
+    takes = build_takes()
+    if args.section != "all":
+        takes = [t for t in takes if t.section == args.section]
+    base = args.data_dir or data_dir()
+    device = int(args.device) if args.device and args.device.isdigit() else args.device
+    print(f"Gravando em {base}. Leva ~15 min no total. Use o microfone de sempre (headset).")
+    try:
+        run(takes, base, sounddevice_recorder(device, args.target))
+    except (KeyboardInterrupt, EOFError):
+        print("\ninterrompido; o que já foi gravado ficou salvo")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
