@@ -33,9 +33,9 @@ SYS="$HUD_DIR/system"
 SHARE="$HOME/.local/share"
 LINK="$SHARE/gamerhud"
 
-render() {  # copia um template trocando @HOME@ pela home atual
+render() {  # copia um template trocando @HOME@ pela home atual e @REPO@ pelo repositório
     mkdir -p "$(dirname "$2")"
-    sed "s|@HOME@|$HOME|g" "$1" > "$2"
+    sed -e "s|@HOME@|$HOME|g" -e "s|@REPO@|$REPO_DIR|g" "$1" > "$2"
 }
 
 install_hud() {
@@ -55,6 +55,7 @@ render "$SYS/bin/gamerhud" "$HOME/.local/bin/gamerhud"
 chmod +x "$HOME/.local/bin/gamerhud"
 render "$SYS/applications/gamerhud.desktop" "$SHARE/applications/gamerhud.desktop"
 render "$SYS/applications/magi-view.desktop" "$SHARE/applications/magi-view.desktop"
+render "$SYS/applications/condessa-record.desktop" "$SHARE/applications/condessa-record.desktop"
 render "$SYS/autostart/gamerhud-watch.desktop" "$HOME/.config/autostart/gamerhud-watch.desktop"
 
 echo "== Steam aberta pelo MangoHud (FPS em todos os jogos)"
