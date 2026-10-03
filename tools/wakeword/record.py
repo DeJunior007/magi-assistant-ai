@@ -135,6 +135,44 @@ def process(take: Take, pcm: np.ndarray) -> np.ndarray:
     return pcm if take.section == "noise" else trim_silence(pcm)
 
 
+def pending_queue(takes: list[Take], base: Path) -> tuple[dict[str, list[int]], list[int]]:
+    """Agrupa os passos por seção e monta a fila do que falta (retoma: em cada seção, pula os
+    passos que já têm arquivo). Devolve ``(índices por seção, fila de índices em ``takes``)``."""
+    by_section: dict[str, list[int]] = {}
+    for i, t in enumerate(takes):
+        by_section.setdefault(t.section, []).append(i)
+    queue: list[int] = []
+    for section, idxs in by_section.items():
+        queue += idxs[count_done(base, section):]
+    return by_section, queue
+
+
+@dataclass(frozen=True, slots=True)
+class Saved:
+    path: Path | None  # None: não ouviu nada (mudo/curto demais), nada foi salvo
+    seconds: float
+    level: float  # dBFS do trecho salvo (ou do bruto, se não salvou)
+    note: str  # aviso de saturação/volume baixo ("" se ok)
+
+
+def save_take(take: Take, base: Path, raw: np.ndarray) -> Saved:
+    """Corta o silêncio, recusa gravação muda/curta (< 0,2 s de som) e grava o WAV."""
+    pcm = process(take, raw)
+    if len(pcm) < AUDIO_RATE // 5:
+        return Saved(None, 0.0, dbfs(raw), "")
+    peak = int(np.abs(pcm.astype(np.int32)).max())
+    level = dbfs(pcm)
+    path = take_path(base, take)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_wav(path, pcm)
+    note = ""
+    if peak >= 32000:
+        note = "saturou: fale um pouco mais longe/baixo"
+    elif take.section != "noise" and level < -45:
+        note = "muito baixo: confira o microfone"
+    return Saved(path, len(pcm) / AUDIO_RATE, level, note)
+
+
 def run(
     takes: list[Take],
     base: Path,
@@ -144,13 +182,7 @@ def run(
     out: Callable[[str], None] = print,
 ) -> int:
     """Executa o roteiro. Devolve quantos arquivos foram salvos nesta sessão."""
-    by_section: dict[str, list[int]] = {}
-    for i, t in enumerate(takes):
-        by_section.setdefault(t.section, []).append(i)
-    # retoma: em cada seção, pula os passos que já têm arquivo
-    queue = []
-    for _section, idxs in by_section.items():
-        queue += idxs[count_done(base, _section):]
+    by_section, queue = pending_queue(takes, base)
     saved = 0
     last: tuple[int, Path] | None = None  # (posição na fila, arquivo)
     pos = 0
@@ -177,24 +209,14 @@ def run(
             out(f"  apagado {path.name}; regravando")
             continue
         out("  >>> gravando... fale agora" if take.section != "noise" else "  >>> gravando silêncio...")
-        raw = recorder(take.seconds)
-        pcm = process(take, raw)
-        if len(pcm) < AUDIO_RATE // 5:
-            out(f"  não ouvi nada (pico {dbfs(raw):.0f} dBFS); vamos repetir")
+        res = save_take(take, base, recorder(take.seconds))
+        if res.path is None:
+            out(f"  não ouvi nada (pico {res.level:.0f} dBFS); vamos repetir")
             continue
-        peak = int(np.abs(pcm.astype(np.int32)).max())
-        level = dbfs(pcm)
-        path = take_path(base, take)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        write_wav(path, pcm)
         saved += 1
-        last = (pos, path)
-        note = ""
-        if peak >= 32000:
-            note = "  (saturou: fale um pouco mais longe/baixo)"
-        elif take.section != "noise" and level < -45:
-            note = "  (muito baixo: confira o microfone)"
-        out(f"  ok: {len(pcm) / AUDIO_RATE:.2f} s, {level:.0f} dBFS -> {path.name}{note}")
+        last = (pos, res.path)
+        note = f"  ({res.note})" if res.note else ""
+        out(f"  ok: {res.seconds:.2f} s, {res.level:.0f} dBFS -> {res.path.name}{note}")
         pos += 1
     for section in by_section:
         out(f"{section}: {count_done(base, section)}/{len(by_section[section])}")
