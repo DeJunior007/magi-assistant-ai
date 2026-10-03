@@ -107,6 +107,10 @@ class GraphAgent:
             self._tools[t.name] = t
         self._specs = tuple(t.spec for t in self._tools.values())
 
+    def tool(self, name: str) -> Tool | None:
+        """Ferramenta pelo nome (ex.: ``search`` para o fallback de novidades, 6.12)."""
+        return self._tools.get(name)
+
     # -- grafo --------------------------------------------------------------------------------
 
     def _build(self) -> Any:

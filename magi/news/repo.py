@@ -1,8 +1,7 @@
 """``NewsRepo`` em Postgres (design §7). Tarefa 6.1 cobre fontes e notícias cruas; a 6.6, criar
 itens e juntar cruas a eles (agrupamento); a 6.7, classificação e retorno; a 6.8, preferências
 por obra e progresso; a 6.10, pontuação (``unscored``) e entrega; a 6.11, retorno
-(``delivered_recent``, ``feedback_signals``). A busca ainda levanta
-``NotImplementedError``.
+(``delivered_recent``, ``feedback_signals``); a 6.12, a busca por obra (``search_items``).
 
 Usa uma ``psycopg.AsyncConnection`` em modo ``autocommit`` (cada chamada é uma transação). Os
 nomes das tabelas não têm schema: o ``search_path`` da conexão decide (testes usam um schema
@@ -19,10 +18,14 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from magi.common.contracts import FranchisePref, NewsItem, NewsLevel, NewsRaw, NewsSource, Progress
+from magi.news.spoiler import norm
 
-
-def _todo(name: str) -> NotImplementedError:
-    return NotImplementedError(f"PgNewsRepo.{name}: implementado nas tarefas 6.7+")
+#: Obra + manchete normalizadas como ``spoiler.norm`` (minúsculas, sem acento, só letras/dígitos),
+#: com espaço nas pontas para casar palavras inteiras.
+_NORM_TEXT = (
+    "(' ' || regexp_replace(translate(lower(coalesce(franchise, '') || ' ' || title),"
+    " 'áàâãäåéèêëíìîïóòôõöúùûüçñ', 'aaaaaaeeeeiiiiooooouuuucn'), '[^a-z0-9]+', ' ', 'g') || ' ')"
+)
 
 
 _ITEM_COLS = (
@@ -267,7 +270,21 @@ class PgNewsRepo:
     async def search_items(
         self, *, franchise: str | None = None, embedding: Sequence[float] | None = None, limit: int = 5
     ) -> list[NewsItem]:
-        raise _todo("search_items")
+        """Itens classificados sobre ``franchise`` (6.12, R20.1), maior prioridade e mais recentes
+        primeiro. Casamento tolerante: cada palavra de ``norm(franchise)`` aparece inteira na obra
+        ou na manchete normalizadas (sem acento/pontuação). Sem ``franchise``: todos. ``embedding``
+        ainda é ignorado."""
+        conds = ["kind IS NOT NULL"]
+        params: list[Any] = []
+        for word in norm(franchise or "").split():
+            conds.append(f"{_NORM_TEXT} LIKE %s")
+            params.append(f"% {word} %")
+        cur = await self.conn.execute(
+            f"SELECT {_ITEM_COLS} FROM news_items WHERE {' AND '.join(conds)}"
+            " ORDER BY priority DESC NULLS LAST, first_seen DESC NULLS LAST, id DESC LIMIT %s",
+            [*params, limit],
+        )
+        return [_item(r) for r in await cur.fetchall()]
 
     # --- preferências por obra e progresso (6.8) ----------------------------------------------
 
