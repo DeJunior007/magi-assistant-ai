@@ -486,6 +486,9 @@ intents:
       - "nao gostei dessa noticia"
       - "nao curti essa noticia"
       - "esse tipo de noticia nao"
+      - "nao quero saber disso"
+      - "nao quero mais saber disso"
+      - "nao me interessa"
 
   - id: news.more
     label: "mais notícias assim"
@@ -494,6 +497,9 @@ intents:
       - "mais disso"
       - "quero mais disso"
       - "mais noticias assim"
+      - "curti essa noticia"
+      - "gostei dessa noticia"
+      - "quero saber mais disso"
 
   - id: news.drop
     label: "parar de seguir {franchise}"
@@ -502,6 +508,8 @@ intents:
       - "larguei {franchise}"
       - "parei de jogar {franchise}"
       - "nao acompanho mais {franchise}"
+      - "larguei de {franchise}"
+      - "parei de ver {franchise}"
 
   # -- autoconhecimento (3.9) -----------------------------------------------
   - id: magi.help

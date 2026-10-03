@@ -481,7 +481,7 @@ Formato de cada tarefa:
   - Orçamento: ~35k
   - Pronto: "bomba" simulada falada fora de call; "alta" vira card.
 
-- [ ] **6.11 Retorno e aprendizado** — "não curti", ignorados 3×, "mais disso", obra largada. *(R19.7, R19.8)*
+- [x] **6.11 Retorno e aprendizado** — "não curti", ignorados 3×, "mais disso", obra largada. *(R19.7, R19.8)*
   - Lê: `contracts.py`, §7 (`franchise_prefs`, `news_feedback`), R19
   - Escreve: `magi/news/feedback.py`, testes
   - Depende de: 6.10
