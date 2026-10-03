@@ -50,6 +50,7 @@ from magi.common.contracts import (
     CorrectionsRepo,
     GameCatalog,
     HudSink,
+    IntentId,
     ProviderTask,
     SubtitleMsg,
     Usage,
@@ -232,15 +233,22 @@ def default_handlers(
     return found
 
 
-AgentFactory = Callable[[Any, ActionRegistry], Agent]
+AgentFactory = Callable[[Any, ActionRegistry, Any], Agent]
 
 
-def default_agent(providers: Any, registry: ActionRegistry) -> Agent:
-    """``GraphAgent`` (3.4) com as ferramentas de sistema sobre o registro de ações."""
+def default_agent(providers: Any, registry: ActionRegistry, self_model: Any = None) -> Agent:
+    """``GraphAgent`` (3.4) com as ferramentas de sistema sobre o registro de ações e, com a ficha
+    (3.9, ``SelfModel``), a ferramenta ``self_info`` e a seção "Sobre você" no prompt."""
     from magi.agent.graph import GraphAgent
+    from magi.agent.self_model import SelfInfoTool
     from magi.agent.tools.system import system_tools
 
-    return GraphAgent(providers, system_tools(registry), game=lambda: None)
+    tools: list[Any] = [*system_tools(registry)]
+    if self_model is None:
+        return GraphAgent(providers, tools, game=lambda: None)
+    tools.append(SelfInfoTool(self_model))
+    self_model.tools = tuple(t.spec for t in tools)
+    return GraphAgent(providers, tools, game=lambda: None, about=self_model.about_section)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -265,6 +273,7 @@ class Core:
     tasks: list[asyncio.Task[Any]] = field(default_factory=list)  # tarefas de fundo (gosto, 2.3)
     music: Any = None  # magi.core.music.signals.MusicSignals (2.4); observa em ``start_proactive``
     music_task: asyncio.Task[Any] | None = None
+    self_model: Any = None  # magi.agent.self_model.SelfModel (3.9): ficha viva da Magui
 
     def warn(self, msg: str) -> None:
         if msg not in self.warnings:
@@ -416,7 +425,13 @@ async def assemble(
     core.deps.router = LocalRouter(catalog)
     core.deps.corrector = core.corrections
     found = handlers(catalog, hud_sink, core.corrections)
+    core.self_model = _self_model(core, config)
+    if not any(IntentId.HELP.value in h.intents for h in found):
+        from magi.agent.self_model import HelpHandler
+
+        found = [*found, HelpHandler(core.self_model)]
     core.deps.actions = actions.Registry(found)
+    core.self_model.registry = core.deps.actions
     _wire_music(core, found)
 
     # STT e TTS
@@ -430,14 +445,51 @@ async def assemble(
         why = _has_key_safe(core.providers, "agent")
         if why is None:
             try:
-                core.deps.agent = agent(core.providers, core.deps.actions)
+                core.deps.agent = agent(core.providers, core.deps.actions, core.self_model)
             except Exception as e:
                 why = f"{type(e).__name__}: {e}"
         if why is not None:
             core.warn(f"agente: {why}")
     if core.deps.agent is None:
         core.warn("agente indisponível: perguntas respondem 'ainda não sei fazer isso'")
+    core.self_model.agent_ready = core.deps.agent is not None
     return core
+
+
+SPOTIFY_CHECK_TTL_S = 60.0
+
+
+def _self_model(core: Core, config: Config) -> Any:
+    """Ficha da Magui (3.9) com leituras baratas do estado: keyring do Spotify (cache de 60 s),
+    call pelo ``ProactiveSink``, chaves por tarefa e o orçamento."""
+    import time
+
+    from magi.agent.self_model import SelfModel
+
+    seen: list[tuple[float, bool]] = []
+
+    def spotify() -> bool:
+        now = time.monotonic()
+        if not seen or now - seen[0][0] > SPOTIFY_CHECK_TTL_S:
+            from magi.core.actions.spotify_api import TokenStore
+
+            store = TokenStore()
+            seen[:] = [(now, bool(store.client_id() and store.load()))]
+        return seen[0][1]
+
+    def missing() -> list[str]:
+        if core.providers is None:
+            return sorted(config.tasks)
+        return [f"{t} ({c.provider})" for t, c in config.tasks.items() if _has_key_safe(core.providers, t)]
+
+    proactive = core.proactive
+    return SelfModel(
+        raw=config.raw,
+        spotify=spotify,
+        in_call=proactive.in_call if proactive is not None else None,
+        missing_keys=missing,
+        budget=core.budget.status,
+    )
 
 
 def _wire_news(core: Core, config: Config) -> None:

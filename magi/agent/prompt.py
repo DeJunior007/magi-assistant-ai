@@ -1,12 +1,15 @@
 """Montagem do prompt do agente (tarefa 3.3, R11.1-R11.3, R13, R14, §4.3).
 
-O prompt final é uma mensagem ``system`` (persona + perfil + humor + jogo + memórias) seguida dos
-últimos 2 turnos da conversa. O total estimado nunca passa de ``MAX_PROMPT_TOKENS`` (R11.3): a
-pergunta atual do usuário fica fora da conta e é anexada por ``Prompt.with_user``.
+O prompt final é uma mensagem ``system`` (persona + "Sobre você" + humor + jogo + perfil +
+memórias) seguida dos últimos 2 turnos da conversa. O total estimado nunca passa de
+``MAX_PROMPT_TOKENS`` (R11.3): a pergunta atual do usuário fica fora da conta e é anexada por
+``Prompt.with_user``.
 
-Orçamento por parte (§4.3): persona ~500 · perfil ≤ 300 · humor ~40 · jogo ~80 · memórias ≤ 400 ·
-turnos ≤ 180. Se mesmo assim estourar, corta primeiro as memórias menos parecidas, depois os
-turnos mais antigos e, por fim, encurta o perfil.
+Orçamento por parte (§4.3): persona ~540 · sobre você ≤ 300 · perfil ≤ 300 · humor ~40 · jogo ~80 ·
+memórias ≤ 400 · turnos ≤ 180. O teto subiu de 1500 para 1800 na 3.9: a seção "Sobre você"
+(autoconhecimento, ``self_model.py``) é fixa e não pode ser cortada para caber memórias. Se mesmo
+assim estourar, corta primeiro as memórias menos parecidas, depois os turnos mais antigos e, por
+fim, encurta o perfil.
 
 Os tokens são estimados sem chamar API: ``ceil(caracteres / 3,5)`` (estimativa do projeto para
 português) mais um custo fixo por mensagem.
@@ -22,7 +25,8 @@ from pathlib import Path
 
 from magi.common.contracts import MEMORY_TOP_K, MOOD_MAX, MOOD_MIN, ChatMessage, HelpStep, Memory
 
-MAX_PROMPT_TOKENS = 1_500
+MAX_PROMPT_TOKENS = 1_800
+SELF_MAX_TOKENS = 300
 PROFILE_MAX_TOKENS = 300
 MEMORIES_MAX_TOKENS = 400
 MEMORY_ITEM_MAX_TOKENS = 100
@@ -128,6 +132,16 @@ def load_persona() -> str:
     return PERSONA_PATH.read_text(encoding="utf-8").strip()
 
 
+def self_section(about: str | None) -> str | None:
+    """Seção "Sobre você" (3.9), cortada em ``SELF_MAX_TOKENS``. Ganha o título se não tiver."""
+    body = (about or "").strip()
+    if not body:
+        return None
+    if not body.startswith("## "):
+        body = f"## Sobre você\n{body}"
+    return truncate_to_tokens(body, SELF_MAX_TOKENS)
+
+
 def mood_section(mood: int) -> str:
     """Nível de humor + instrução de tom (R13.4). ``mood`` fora de 0..4 é ajustado ao limite."""
     if not isinstance(mood, int) or isinstance(mood, bool):
@@ -231,15 +245,17 @@ def build_prompt(
     memories: Sequence[Memory] = (),
     history: Sequence[ChatMessage] = (),
     persona: str | None = None,
+    about: str | None = None,
     max_tokens: int = MAX_PROMPT_TOKENS,
 ) -> Prompt:
     """Monta o prompt do agente sem passar de ``max_tokens`` estimados (R11.3).
 
     ``memories`` vem da busca por similaridade; ``history`` são as mensagens anteriores em ordem
-    cronológica (sem a fala atual). ``persona`` substitui ``persona.md`` (testes).
+    cronológica (sem a fala atual). ``persona`` substitui ``persona.md`` (testes). ``about``: seção
+    "Sobre você" da ficha viva (``SelfModel.about_section``).
     """
     persona_text = (persona if persona is not None else load_persona()).strip()
-    fixed = [persona_text, mood_section(mood), game_section(game)]
+    fixed = [persona_text, self_section(about), mood_section(mood), game_section(game)]
 
     mems = _prepare_memories(memories)
     turns = _prepare_turns(history)

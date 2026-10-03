@@ -440,6 +440,7 @@ class IntentId(StrEnum):
     NEWS_DROP = "news.drop"  # obra largada, slot franchise (R19.8)
     CONFIRM_YES = "confirm.yes"  # "confirma" (R5.4)
     CONFIRM_NO = "confirm.no"  # "cancela"
+    HELP = "magi.help"  # "o que você sabe fazer?", "quem é você?" (3.9)
 
 
 @dataclass(frozen=True, slots=True)

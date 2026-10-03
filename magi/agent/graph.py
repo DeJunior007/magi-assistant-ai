@@ -72,6 +72,7 @@ class GraphAgent:
     ``providers``: registro de provedores; ``providers.chat(ProviderTask.AGENT)`` é pedido a cada
     turno. ``tools``: ferramentas oferecidas ao modelo. ``game``: devolve o jogo em foco (ou
     ``None``). ``profile``: perfil compacto (ou ``None``). ``persona``: substitui ``persona.md``.
+    ``about``: seção "Sobre você" (3.9, ``SelfModel.about_section``), lida a cada turno.
     """
 
     def __init__(
@@ -82,6 +83,7 @@ class GraphAgent:
         game: Callable[[], GameContext | None] | None = None,
         profile: Callable[[], str | None] | None = None,
         persona: str | None = None,
+        about: Callable[[], str | None] | None = None,
         max_steps: int = MAX_STEPS,
     ) -> None:
         self._providers = providers
@@ -90,6 +92,7 @@ class GraphAgent:
         self._game = game
         self._profile = profile
         self._persona = persona
+        self._about = about
         self.max_steps = max_steps
         self._history: deque[ChatMessage] = deque(maxlen=2 * HISTORY_TURNS)
         self._graph = self._build()
@@ -150,6 +153,7 @@ class GraphAgent:
                 memories=(),
                 history=tuple(self._history),
                 persona=self._persona,
+                about=self._about_text(),
             )
         except PromptTooLarge:
             log.exception("prompt do agente não cabe no limite")
@@ -183,18 +187,37 @@ class GraphAgent:
             )
         return result
 
+    def _about_text(self) -> str | None:
+        if self._about is None:
+            return None
+        try:
+            return self._about()
+        except Exception:
+            log.exception("seção 'Sobre você' indisponível")
+            return None
+
+    @property
+    def tool_specs(self) -> tuple[Any, ...]:
+        """Specs das ferramentas oferecidas ao modelo (ficha da 3.9)."""
+        return self._specs
+
     def _finish(self, state: _State) -> ActionResult:
         reply = state.get("reply")
         results = state.get("results", [])
         last = results[-1] if results else None
         full = (reply.text if reply else "").strip()
+        # Cards e listas completas das ferramentas (ex.: self_info) seguem para o HUD.
+        cards = tuple(c for r in results for c in r.cards)
         if full:
-            return ActionResult(ok=True, speech=short_speech(full), full_text=full)
+            extra = [r.full_text for r in results if r.cards and r.full_text and r.full_text != r.speech]
+            text = "\n\n".join([full, *extra]) if extra else full
+            return ActionResult(ok=True, speech=short_speech(full), full_text=text, cards=cards)
         if last is not None and last.speech:
             return ActionResult(
                 ok=last.ok,
                 speech=short_speech(last.speech),
                 full_text=last.full_text or last.speech,
                 expression=last.expression,
+                cards=cards,
             )
         return ActionResult(ok=False, speech=SAY_GAVE_UP, expression=Expression.CONFUSED)

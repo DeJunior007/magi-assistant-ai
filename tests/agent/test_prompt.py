@@ -62,8 +62,9 @@ def _system(prompt) -> str:
 
 
 def test_persona_tem_cerca_de_500_tokens():
+    # Teto 560 (era 520): a 3.9 juntou a regra "nunca afirmar capacidade sem ferramenta" (~40 tokens).
     tokens = estimate_tokens(load_persona())
-    assert 400 <= tokens <= 520
+    assert 400 <= tokens <= 560
 
 
 def test_persona_cobre_os_tracos():
@@ -213,7 +214,7 @@ def test_so_os_ultimos_2_turnos_e_teto_de_180():
     assert prompt.messages[1].role == "user"
 
 
-def test_tudo_no_maximo_nunca_passa_de_1500():
+def test_tudo_no_maximo_nunca_passa_do_teto():
     perfil = "x" * 5000
     mems = [Memory(kind="fato", body="y" * 2000, score=0.5) for _ in range(10)]
     hist = [ChatMessage(role=r, content="z" * 2000) for r in ("user", "assistant") * 5]
