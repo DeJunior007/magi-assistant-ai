@@ -31,6 +31,7 @@ from magi.common.contracts import (
     ToolSpec,
     TurnContext,
 )
+from magi.core.compose import plain, short_speech
 from magi.providers.base import SEARCH_TIMEOUT_S
 
 log = logging.getLogger(__name__)
@@ -69,8 +70,7 @@ SAY_NO_SOURCE = "Pesquisei, mas não achei fonte que confirme isso."
 SAY_BUDGET = "Bati no teto de gasto do mês, então não pesquisei."
 SAY_FAILED = "A pesquisa não respondeu agora. Tenta de novo daqui a pouco."
 
-_MD = re.compile(r"[*_`#>]+|\s*\[\d+(?:,\s*\d+)*\]")
-_SENT_END = re.compile(r"(?<=[.!?…])\s+")
+_CITE = re.compile(r"\s*\[\d+(?:,\s*\d+)*\]")
 
 
 def clean_question(question: str, private_terms: Sequence[str] = ()) -> str:
@@ -85,9 +85,7 @@ def clean_question(question: str, private_terms: Sequence[str] = ()) -> str:
 
 def spoken_summary(answer: str, max_sentences: int = 2) -> str:
     """Resumo para a fala: sem markdown/citações ``[1]``, no máximo ``max_sentences`` frases."""
-    text = re.sub(r"\s+", " ", _MD.sub("", answer)).strip()
-    parts = [p for p in _SENT_END.split(text) if p]
-    return " ".join(parts[:max_sentences])
+    return short_speech(_CITE.sub("", answer), max_sentences)
 
 
 def _cards(res: SearchResult) -> tuple[CardMsg, ...]:
@@ -180,7 +178,8 @@ class SearchTool:
             return ActionResult(ok=True, speech=SAY_NO_SOURCE, expression=Expression.CONFUSED)
         speech = spoken_summary(res.answer) or "Achei estas fontes."
         sources = "\n".join(f"- {c.title} — {c.url}" for c in cards)
-        full = f"{spoken_summary(res.answer, 6) or speech}\n\nFontes:\n{sources}"
+        answer = plain(_CITE.sub("", res.answer))
+        full = f"{answer or speech}\n\nFontes:\n{sources}"
         return ActionResult(ok=True, speech=speech, full_text=full, cards=cards)
 
 

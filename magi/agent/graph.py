@@ -7,13 +7,13 @@ resposta final. O ``ChatProvider`` não é um ChatModel do LangChain, então os 
 protocolo direto e o estado leva ``ChatMessage`` de ``contracts.py``.
 
 Ferramenta que devolve ``needs_confirmation`` encerra o grafo: o resultado sobe como está e o
-núcleo entra em ``confirming``. A resposta final vira ``speech`` (≤ 2 frases) e ``full_text``.
+núcleo entra em ``confirming``. A resposta final passa por ``magi.core.compose`` (fala ≤ 2
+frases, ``full_text``, cards).
 """
 
 from __future__ import annotations
 
 import logging
-import re
 from collections import deque
 from collections.abc import Callable, Sequence
 from typing import Any, Literal, TypedDict
@@ -34,25 +34,19 @@ from magi.common.contracts import (
     ProviderTask,
     TurnContext,
 )
+from magi.core.compose import compose, short_speech
 
 log = logging.getLogger(__name__)
 
 MAX_STEPS = 4
 HISTORY_TURNS = 2
-SPEECH_MAX_SENTENCES = 2
 
 SAY_BUDGET = "Bati o teto do mês, só comandos locais agora."
 SAY_PROVIDER_FAILED = "Não consegui falar com a nuvem agora, tenta de novo daqui a pouco."
 SAY_GAVE_UP = "Me enrolei aqui, tenta pedir de outro jeito."
 SAY_UNKNOWN_TOOL = "Ferramenta desconhecida."
 
-_SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
-
-
-def short_speech(text: str, max_sentences: int = SPEECH_MAX_SENTENCES) -> str:
-    """Primeiras ``max_sentences`` frases de ``text`` (fala curta, R12.3)."""
-    parts = [p for p in _SENTENCE_END.split(" ".join(text.split())) if p]
-    return " ".join(parts[:max_sentences])
+__all__ = ["GraphAgent", "short_speech"]
 
 
 class _State(TypedDict, total=False):
@@ -233,13 +227,15 @@ class GraphAgent:
         if full:
             extra = [r.full_text for r in results if r.cards and r.full_text and r.full_text != r.speech]
             text = "\n\n".join([full, *extra]) if extra else full
-            return ActionResult(ok=True, speech=short_speech(full), full_text=text, cards=cards)
+            return compose(ActionResult(ok=True, speech=full, full_text=text, cards=cards))
         if last is not None and last.speech:
-            return ActionResult(
-                ok=last.ok,
-                speech=short_speech(last.speech),
-                full_text=last.full_text or last.speech,
-                expression=last.expression,
-                cards=cards,
+            return compose(
+                ActionResult(
+                    ok=last.ok,
+                    speech=last.speech,
+                    full_text=last.full_text or last.speech,
+                    expression=last.expression,
+                    cards=cards,
+                )
             )
         return ActionResult(ok=False, speech=SAY_GAVE_UP, expression=Expression.CONFUSED)
