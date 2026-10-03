@@ -513,7 +513,7 @@ Fonte: `docs/design/MAGI-HANDOFF.md`, design §13. U1 e U2 em paralelo; U3 depoi
   - Orçamento: ~45k
   - Pronto: dados reais no console por 1 min; sem Spotify aberto mostra vazio.
 
-- [ ] **U3 Telas** — Painel completo e Tela de espera compondo U1 + U2 + dados existentes; caches por camada; mapa de áreas clicáveis (LED, controles do player, cards CPU/GPU/RAM). *(R23.1–R23.8)*
+- [x] **U3 Telas** — Painel completo e Tela de espera compondo U1 + U2 + dados existentes; caches por camada; mapa de áreas clicáveis (LED, controles do player, cards CPU/GPU/RAM). *(R23.1–R23.8)*
   - Lê: handoff, design §13, APIs de U1 e U2
   - Escreve: `hud/wired/{main_screen,standby_screen}.py`, `hud/tools/wired_demo.py`, testes
   - Depende de: U1, U2
