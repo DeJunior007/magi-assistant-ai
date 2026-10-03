@@ -333,6 +333,8 @@ class Core:
         if self.game is not None and self.game_task is None:
             self.game_task = asyncio.create_task(self.game.run())
             self.tasks.append(self.game_task)
+        if self.deps.prewarm is not None:  # clientes HTTP prontos já na subida (1.23)
+            self.tasks.append(asyncio.create_task(self.deps.prewarm(), name="prewarm"))
 
     async def aclose(self) -> None:
         if self.news is not None:
@@ -798,6 +800,8 @@ def _wire_voice(core: Core, config: Config, catalog: GameCatalog) -> None:
     from magi.core.tts import PhraseCache, PhraseSpeaker
 
     p = core.providers
+    if callable(getattr(p, "warm", None)):
+        core.deps.prewarm = p.warm  # a cada ativação abre as conexões de STT/TTS/agente (1.23)
     why = _check(p, "stt")
     if why is None:
         repo = core.corrections.repo if core.corrections else None

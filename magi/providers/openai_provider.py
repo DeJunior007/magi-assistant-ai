@@ -42,6 +42,10 @@ from magi.providers.keypool import COOLDOWN_STATUSES, KeyRejected, is_model_quot
 #: Saída ``pcm`` do endpoint de voz: 24 kHz, 16 bits, mono.
 TTS_FORMAT = PcmFormat(rate=24_000, width=2, channels=1)
 DEFAULT_DIMENSIONS = 1536
+#: Conexão ociosa fica no pool por até 2 min (o padrão do httpx é 5 s): entre um turno e outro o
+#: TLS não precisa ser refeito (1.23). Se o servidor fechar antes, o httpx abre outra.
+KEEPALIVE_S = 120.0
+WARM_TIMEOUT_S = 5.0
 TTS_CHUNK = 4096
 #: Opções de ``[tasks.<t>]`` repassadas como estão a ``chat.completions.create`` (S3: o
 #: ``gpt-5.6-luna`` só aceita tools com ``reasoning_effort = "none"``).
@@ -152,6 +156,7 @@ class OpenAIBackend:
         self._clients: dict[tuple[str, str], Any] = {}
 
     def _default_client(self, key: ApiKey) -> Any:
+        import httpx
         import openai
 
         return openai.AsyncOpenAI(
@@ -159,7 +164,21 @@ class OpenAIBackend:
             base_url=self.cfg.options.get("base_url"),
             timeout=float(self.cfg.options.get("timeout_s", 30.0)),
             max_retries=0,
+            http_client=openai.DefaultAsyncHttpxClient(
+                limits=httpx.Limits(
+                    max_connections=50, max_keepalive_connections=10, keepalive_expiry=KEEPALIVE_S
+                )
+            ),
         )
+
+    async def warm(self, key: ApiKey, ctx: CallCtx) -> None:
+        """Cria o cliente e abre a conexão (TCP + TLS) com um ``GET /models``, que não é cobrado
+        (1.23). Com a conexão no pool, o próximo STT/TTS/chat não paga o handshake."""
+        import httpx
+
+        with openai_errors(ctx.provider):
+            client = self._client(key)
+            await client.get("/models", cast_to=httpx.Response, options={"timeout": WARM_TIMEOUT_S})
 
     def _client(self, key: ApiKey) -> Any:
         ck = (key.name, key.secret)

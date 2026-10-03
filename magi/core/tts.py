@@ -50,28 +50,37 @@ def normalize(text: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Phrases:
-    """Frases fixas e moldes com placeholder (``{game}``)."""
+    """Frases fixas e moldes com placeholder (``{game}``).
+
+    ``fixed`` são pré-geradas por ``warm``; ``lazy`` (1.23) são fixas também, mas só vão para o
+    cache na primeira vez que são faladas (respostas raras, sem custo de pré-geração).
+    """
 
     fixed: tuple[str, ...] = ()
     templates: tuple[str, ...] = ()
+    lazy: tuple[str, ...] = ()
     _patterns: tuple[re.Pattern[str], ...] = field(default=(), repr=False, compare=False)
     _fixed_norm: frozenset[str] = field(default=frozenset(), repr=False, compare=False)
 
     @classmethod
-    def build(cls, fixed: Iterable[str] = (), templates: Iterable[str] = ()) -> Phrases:
+    def build(
+        cls, fixed: Iterable[str] = (), templates: Iterable[str] = (), lazy: Iterable[str] = ()
+    ) -> Phrases:
         fixed_t = tuple(s.strip() for s in fixed if s and s.strip())
         tpl_t = tuple(s.strip() for s in templates if s and s.strip())
+        lazy_t = tuple(s.strip() for s in lazy if s and s.strip())
         return cls(
             fixed_t,
             tpl_t,
+            lazy_t,
             tuple(_compile(t) for t in tpl_t),
-            frozenset(normalize(s) for s in fixed_t),
+            frozenset(normalize(s) for s in fixed_t + lazy_t),
         )
 
     @classmethod
     def load(cls, path: Path = PHRASES_FILE) -> Phrases:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        return cls.build(data.get("fixed") or (), data.get("templates") or ())
+        return cls.build(data.get("fixed") or (), data.get("templates") or (), data.get("lazy") or ())
 
     def cacheable(self, text: str) -> bool:
         """Frase fixa ou molde preenchido."""

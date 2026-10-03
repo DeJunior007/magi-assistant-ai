@@ -204,7 +204,7 @@ def download_models(models_dir: Path, names: tuple[str, ...] = (DEFAULT_WAKE_MOD
 
 
 class OpenWakeWordDetector:
-    """``WakeDetector`` com openWakeWord + onnxruntime (1 thread)."""
+    """``WakeDetector`` com openWakeWord + onnxruntime (1 thread, sessões enxutas)."""
 
     def __init__(
         self, model: str | os.PathLike[str] = DEFAULT_WAKE_MODEL, models_dir: Path | None = None
@@ -218,16 +218,20 @@ class OpenWakeWordDetector:
                 f"modelos de atributos do openWakeWord ausentes: {missing}; "
                 "rode `uv run magi-satellite --download-models`"
             )
-        from openwakeword.model import Model
+        import onnxruntime as ort
 
+        from magi.satellite.onnx import import_openwakeword_model, lean_sessions
+
+        model_cls = import_openwakeword_model()  # sem scipy/scikit-learn (1.23)
         self.path = path
         self.name = path.stem
-        self._model = Model(
-            wakeword_models=[str(path)],
-            inference_framework="onnx",
-            melspec_model_path=str(feats[0]),
-            embedding_model_path=str(feats[1]),
-        )
+        with lean_sessions(ort):  # 1 thread, sem arena nem memory pattern (1.23; RNF-02)
+            self._model = model_cls(
+                wakeword_models=[str(path)],
+                inference_framework="onnx",
+                melspec_model_path=str(feats[0]),
+                embedding_model_path=str(feats[1]),
+            )
         # Otimização (medida na 1.1): o openWakeWord 0.6 guarda 10 s de áudio num deque de ints
         # Python e o copia inteiro para lista a cada bloco (~1,3 ms de CPU por bloco, mais que o
         # próprio modelo). Ele só lê as últimas ``n + 480`` amostras, então um deque curto dá o

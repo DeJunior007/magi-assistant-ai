@@ -111,3 +111,74 @@ uv run python -m tools.perf latency --turns 5 --phrase "quantas patas tem uma ar
 ```
 
 O núcleo e o satélite precisam estar rodando; não rode `latency` junto com `idle`.
+
+## Otimizações 1.23
+
+Feitas depois da medição acima, sem reiniciar os serviços. Os números "depois" ao vivo ficam para
+a re-medição com os serviços reiniciados no código novo (comandos no fim desta seção).
+
+### O que mudou
+
+- **RNF-02, satélite.** As sessões onnxruntime do wake word (melspectrogram, embedding e modelo do
+  openWakeWord) e do Silero VAD nascem com 1 thread, **sem arena de CPU** e **sem memory pattern**
+  (`magi/satellite/onnx.py`; as do openWakeWord são criadas por dentro da biblioteca, então o
+  `InferenceSession` é trocado só durante a construção do `Model`). E `import openwakeword` deixou
+  de carregar scipy e scikit-learn: o `__init__` do pacote importa o treinador de verificadores,
+  que o Magui não usa, e agora recebe um stub. O scipy do satélite (`capture.resample`) já era
+  importado só quando há arquivo fora de 16 kHz.
+- **RNF-02, núcleo.** Os SDKs da OpenAI e do Gemini já eram importados só no primeiro uso do
+  backend; o Gemini (busca, notícias) continua fora até ser usado. O núcleo não mudou de tamanho.
+- **RNF-04.** Todas as constantes `SAY_*` do código entram no cache de frases (`phrases.yaml`): as
+  respostas mais comuns do turno ("Ainda não sei fazer isso.", "Isso eu ainda não sei fazer.",
+  "Você quis dizer isso?", "Tem certeza? Diz confirma."...) em `fixed`, pré-geradas; as raras numa
+  seção nova, `lazy`, que vai para o cache na primeira vez que é falada (sem custo de
+  pré-geração); dois moldes novos. Um teste varre `magi/` e falha se alguma `SAY_*` ficar de fora.
+  O TTS já era streaming (`with_streaming_response`, blocos de 4 KiB ≈ 85 ms de áudio repassados
+  ao satélite conforme chegam), e "Abrindo {game}." já era cacheado por valor depois da 1ª vez.
+- **RNF-04/05, conexões.** O cliente da OpenAI guarda conexões ociosas por 120 s (o padrão do
+  httpx é 5 s: entre um turno e outro o TLS era refeito). E o núcleo pré-aquece a conexão com um
+  `GET /models` (não cobrado) na subida e **a cada ativação** (`TurnDeps.prewarm` →
+  `Registry.warm`, em segundo plano): o handshake acontece enquanto o usuário ainda fala. STT,
+  TTS, agente e embeddings usam o mesmo backend, então uma conexão aquecida serve a todos.
+- **RNF-05.** No `GraphAgent.answer`, a busca de memórias (embeddings + banco) corre **em paralelo**
+  com a primeira chamada do modelo, que sai sem memórias. Se a busca não acha nada acima do
+  limiar (o caso comum, como "quantas patas tem uma aranha"), a resposta segue; se acha, a
+  primeira chamada é cancelada/descartada e refeita com as memórias (custo: os tokens de entrada
+  de uma chamada a mais, só nesses turnos). Depois que o modelo responde, a busca tem no máximo
+  300 ms (`MEMORY_GRACE_S`) para terminar; senão segue sem ela.
+
+### Medições locais (offline)
+
+Satélite, wake word + VAD carregados e ~32 s de ruído processados num processo isolado (script
+simples lendo `/proc/self/smaps_rollup`; não inclui captura de áudio nem Wyoming):
+
+| | PSS | RSS | anon | módulos pesados | CPU por bloco de 80 ms |
+| --- | --- | --- | --- | --- | --- |
+| antes | 188–197 MB | 200–209 MB | 135–144 MB | scipy, sklearn | 1,81 ms |
+| depois | **84 MB** | 96 MB | 54 MB | — | 1,80 ms |
+
+Cerca de **−105 MB** de PSS no satélite sem custo de CPU. Projeção: satélite ~223 → ~120 MB e total
+ocioso ~402 → **~300 MB** (núcleo e Postgres iguais). Fica no limite da meta; a re-medição decide.
+
+Agente, `answer()` com provedores simulados nos tempos do log da 1.18 (embeddings 0,7 s, chat
+1,5 s): antes 2,20 s em qualquer caso (série); depois **1,50 s** sem memória relevante e 2,20 s
+com memória relevante. Esperado ao vivo no RNF-05: −0,3 a −1,1 s no p90 das perguntas sem memória.
+
+Comando "cancela": a resposta "Ainda não sei fazer isso." agora sai do cache (só o 1º turno após
+o reinício sintetiza), então o primeiro áudio deve ficar perto do "só até a ação" medido acima
+(p90 ≈ 0,8 s) em vez de 1,78 s.
+
+O ganho do keep-alive/pré-aquecimento não aparece no `tools.perf latency` (os turnos vêm a cada
+1,5–3 s, dentro dos 5 s do httpx); aparece no uso real, com turnos espaçados.
+
+### Como re-medir ao vivo (depois de reiniciar `magi-satellite` e `magi-core` no código novo)
+
+```
+uv run python -m tools.perf idle --minutes 10 --json idle-1.23.json
+uv run python -m tools.perf latency --turns 50 --phrase cancela --json cmd-1.23.json
+uv run python -m tools.perf latency --turns 10 --phrase "quantas patas tem uma aranha" --gap 3 --json ask-1.23.json
+```
+
+Espere ~1 min depois do reinício antes do `idle` (a pré-geração das frases `fixed` roda em segundo
+plano no primeiro uso do TTS) e não rode `latency` junto com `idle`. O 1º turno de cada frase pode
+pagar a síntese/aquecimento; os outros 49 medem o caminho com cache.

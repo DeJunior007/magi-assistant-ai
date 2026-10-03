@@ -13,6 +13,7 @@ frases, ``full_text``, cards).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import deque
 from collections.abc import Callable, Sequence
@@ -39,6 +40,8 @@ from magi.core.compose import compose, short_speech
 log = logging.getLogger(__name__)
 
 MAX_STEPS = 4
+#: Quanto a primeira resposta do modelo espera pelas memórias depois de chegar (1.23; RNF-05).
+MEMORY_GRACE_S = 0.3
 HISTORY_TURNS = 2
 
 SAY_BUDGET = "Bati o teto do mês, só comandos locais agora."
@@ -58,6 +61,8 @@ class _State(TypedDict, total=False):
     chat: ChatProvider
     ctx: TurnContext
     text: str
+    memories: asyncio.Task[list[Any]] | None
+    remake: Callable[[list[Any]], list[ChatMessage]]
     final: bool
 
 
@@ -68,7 +73,10 @@ class GraphAgent:
     turno. ``tools``: ferramentas oferecidas ao modelo. ``game``: devolve o jogo em foco (ou
     ``None``). ``profile``: perfil compacto (ou ``None``). ``persona``: substitui ``persona.md``.
     ``about``: seção "Sobre você" (3.9, ``SelfModel.about_section``), lida a cada turno.
-    ``memory``: ``MemoryStore`` (4.1); antes de cada turno busca até 5 memórias para o prompt.
+    ``memory``: ``MemoryStore`` (4.1); busca até 5 memórias para o prompt. A busca (embeddings +
+    banco) corre em paralelo com a primeira chamada do modelo, que sai sem memórias (1.23): se a
+    busca não acha nada (o caso comum), a resposta segue; se acha, a chamada é refeita com elas.
+    Depois que o modelo responde, a busca tem só ``MEMORY_GRACE_S`` para terminar.
     """
 
     def __init__(
@@ -119,9 +127,41 @@ class GraphAgent:
     async def _model_node(self, state: _State) -> dict[str, Any]:
         step = state.get("steps", 0) + 1
         tools = self._specs if step < self.max_steps else ()
-        reply = await state["chat"].chat(state["messages"], tools=tools, personal=True)
+        messages = state["messages"]
+        mem_task = state.get("memories")
+        if step == 1 and mem_task is not None:
+            messages, reply = await self._first_reply(state, mem_task, tools)
+        else:
+            reply = await state["chat"].chat(messages, tools=tools, personal=True)
         msg = ChatMessage(role="assistant", content=reply.text, tool_calls=reply.tool_calls)
-        return {"messages": [*state["messages"], msg], "steps": step, "reply": reply}
+        return {"messages": [*messages, msg], "steps": step, "reply": reply}
+
+    async def _first_reply(
+        self, state: _State, mem_task: asyncio.Task[list[Any]], tools: Sequence[Any]
+    ) -> tuple[list[ChatMessage], ChatReply]:
+        """Primeira chamada do modelo em paralelo com a busca de memórias (1.23)."""
+        chat, messages = state["chat"], state["messages"]
+        first = asyncio.ensure_future(chat.chat(messages, tools=tools, personal=True))
+        try:
+            await asyncio.wait((mem_task, first), return_when=asyncio.FIRST_COMPLETED)
+            if not mem_task.done():
+                await asyncio.wait((mem_task,), timeout=MEMORY_GRACE_S)
+            memories = _task_result(mem_task)
+            if memories:
+                try:
+                    with_mem = state["remake"](memories)
+                except PromptTooLarge:
+                    log.warning("agente: memórias não cabem no prompt; seguindo sem elas")
+                else:
+                    first.cancel()
+                    return with_mem, await chat.chat(with_mem, tools=tools, personal=True)
+            return messages, await first
+        finally:
+            for task in (first, mem_task):
+                if not task.done():
+                    task.cancel()
+                elif not task.cancelled():
+                    task.exception()  # marca como lida (erro da chamada descartada não vira aviso)
 
     def _after_model(self, state: _State) -> Literal["tools", "__end__"]:
         reply = state.get("reply")
@@ -159,22 +199,47 @@ class GraphAgent:
     # -- protocolo Agent ----------------------------------------------------------------------
 
     async def answer(self, text: str, ctx: TurnContext) -> ActionResult:
-        memories = await self.memory.relevant(text) if self.memory is not None else []
-        try:
+        profile = self.profile() if self.profile else None
+        game = self._game() if self._game else None
+        history = tuple(self._history)
+        about = self._about_text()
+
+        def remake(memories: list[Any]) -> list[ChatMessage]:
             prompt = build_prompt(
                 mood=ctx.mood,
-                profile=self.profile() if self.profile else None,
-                game=self._game() if self._game else None,
+                profile=profile,
+                game=game,
                 memories=memories,
-                history=tuple(self._history),
+                history=history,
                 persona=self._persona,
-                about=self._about_text(),
+                about=about,
             )
+            return prompt.with_user(text)
+
+        try:
+            messages = remake([])
         except PromptTooLarge:
             log.exception("prompt do agente não cabe no limite")
             return ActionResult(ok=False, speech=SAY_GAVE_UP, expression=Expression.CONFUSED)
+        mem_task = asyncio.ensure_future(self.memory.relevant(text)) if self.memory is not None else None
+        try:
+            return await self._run(text, ctx, messages, mem_task, remake)
+        finally:
+            if mem_task is not None and not mem_task.done():
+                mem_task.cancel()
+
+    async def _run(
+        self,
+        text: str,
+        ctx: TurnContext,
+        messages: list[ChatMessage],
+        mem_task: asyncio.Task[list[Any]] | None,
+        remake: Callable[[list[Any]], list[ChatMessage]],
+    ) -> ActionResult:
         state: _State = {
-            "messages": prompt.with_user(text),
+            "messages": messages,
+            "memories": mem_task,
+            "remake": remake,
             "steps": 0,
             "reply": None,
             "results": [],
@@ -239,3 +304,10 @@ class GraphAgent:
                 )
             )
         return ActionResult(ok=False, speech=SAY_GAVE_UP, expression=Expression.CONFUSED)
+
+
+def _task_result(task: asyncio.Task[list[Any]]) -> list[Any]:
+    """Memórias de uma busca terminada; ``[]`` se não terminou, foi cancelada ou falhou."""
+    if not task.done() or task.cancelled() or task.exception() is not None:
+        return []
+    return list(task.result() or [])

@@ -24,7 +24,7 @@ import contextlib
 import dataclasses
 import logging
 import unicodedata
-from collections.abc import Coroutine, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -130,6 +130,8 @@ class TurnDeps:
     - ``speaker`` (1.12): sem ele, a resposta só aparece na legenda do HUD.
     - ``turns`` (4.1): histórico local de turnos (R11.6), gravado em segundo plano.
     - ``mood`` (4.3): ``magi.memory.mood.MoodTracker``; sem ele, ``ctx.mood`` fica no padrão.
+    - ``prewarm`` (1.23): disparado em segundo plano a cada ativação, abre as conexões HTTP dos
+      provedores (STT/TTS/agente) enquanto o usuário ainda fala; erro é ignorado.
     """
 
     stt: SttProvider | None = None
@@ -140,6 +142,7 @@ class TurnDeps:
     speaker: Speaker | None = None
     turns: TurnsRepo | None = None
     mood: Any = None
+    prewarm: Callable[[], Awaitable[Any]] | None = None
 
 
 def _normalize(text: str) -> str:
@@ -173,6 +176,22 @@ class TurnPipeline:
     def __init__(self, deps: TurnDeps | None = None) -> None:
         self.deps = deps if deps is not None else TurnDeps()
         self._tasks: set[asyncio.Task[None]] = set()
+
+    def prewarm(self) -> None:
+        """Abre as conexões dos provedores em segundo plano (1.23). Não bloqueia nem levanta."""
+        warm = self.deps.prewarm
+        if warm is None or any(t.get_name() == "prewarm" for t in self._tasks):
+            return
+        task = asyncio.create_task(self._prewarm(warm), name="prewarm")
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    @staticmethod
+    async def _prewarm(warm: Callable[[], Awaitable[Any]]) -> None:
+        try:
+            await warm()
+        except Exception as e:  # noqa: BLE001 - aquecimento é só otimização
+            log.debug("pré-aquecimento falhou: %s", e)
 
     async def transcribe(self, audio: bytes, fmt: PcmFormat, ctx: TurnContext) -> Transcript:
         """Texto da fala já corrigido. Falha do provedor vira transcrição vazia (R3.5)."""
@@ -428,6 +447,7 @@ class TurnMachine:
             await self.link.send(StopPlayback())
         self._source = source
         self._started_at = datetime.now(UTC)
+        self.pipeline.prewarm()
         await self._go(TurnState.LISTENING)
 
     async def announce(
