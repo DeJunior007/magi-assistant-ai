@@ -300,7 +300,7 @@ Formato de cada tarefa:
   - Orçamento: ~45k
   - Pronto: pergunta geral respondida em ≤ 3 s (RNF-05).
 
-- [ ] **3.5 Ferramentas de mídia** — `close_game` (confirmação), `rgb`, `spotify_play`, `spotify_control`, `spotify_pick`.
+- [x] **3.5 Ferramentas de mídia** — `close_game` (confirmação), `rgb`, `spotify_play`, `spotify_control`, `spotify_pick`.
   - Lê: `contracts.py`, `magi/agent/tools/base.py`, interfaces das ações de jogos, sistema e Spotify
   - Escreve: `magi/agent/tools/media.py`, testes
   - Depende de: 3.4, 2.5
