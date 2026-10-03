@@ -409,7 +409,7 @@ Formato de cada tarefa:
   - Orçamento: ~35k
   - Pronto: alerta simulado por voz fora de call e só na tela em call.
 
-- [ ] **5.4 Sugestão de música** — gênero pelas tags da Steam; casual no máximo 1×/sessão; imersivo e competitivo nunca. *(R15.3–R15.6)*
+- [x] **5.4 Sugestão de música** — gênero pelas tags da Steam; casual no máximo 1×/sessão; imersivo e competitivo nunca. *(R15.3–R15.6)*
   - Lê: `contracts.py`, R15, interface de `magi/core/music/pick.py`
   - Escreve: `magi/core/proactive/music.py`, `magi/core/steam_tags.py`, testes
   - Depende de: 2.5

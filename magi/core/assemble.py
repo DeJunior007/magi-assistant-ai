@@ -9,8 +9,9 @@
 - ``SteamCatalog`` → ``LocalRouter``; ``HintedStt`` (dica com jogos e correções);
   ``Corrections`` (corretor + ``correction.fix``); ações de jogos, HUD, sistema e Spotify;
   ``PhraseSpeaker`` com cache em ``[paths].cache_dir/tts``;
-- proatividade (5.3, 6.10): ``ProactiveSink`` + ``AlertMonitor`` (``[alerts]``) + ``NewsDelivery``
-  (``[news.delivery]``, só com Postgres), ligados aos satélites
+- proatividade (5.3, 5.4, 6.10): ``ProactiveSink`` + ``AlertMonitor`` (``[alerts]``) + ``NewsDelivery``
+  (``[news.delivery]``, só com Postgres) + ``MusicSuggester`` (ouvinte do ``GameWatcher``,
+  ``[music] suggest``), ligados aos satélites
   por ``Core.start_proactive`` depois que o serviço Wyoming sobe; o aviso de 80% do orçamento
   passa pelo monitor (fala fora de call, só tela em call).
 
@@ -650,6 +651,7 @@ def _wire_pick(core: Core, config: Config, found: list[ActionHandler]) -> None:
         return
     if core.game is not None:
         picker.game = core.game.current
+        _wire_suggest(core, config, picker)
     picker.genres = pick.GenreCache(config.paths.data_dir / pick.GENRE_FILE)
     taste = core.repos.taste if core.repos is not None else None
     if taste is None:
@@ -663,6 +665,18 @@ def _wire_pick(core: Core, config: Config, found: list[ActionHandler]) -> None:
         return
     chat = core.providers.chat(ProviderTask.NEWS)
     core.tasks.append(asyncio.create_task(pick.genre_loop(taste, picker.genres, chat)))
+
+
+def _wire_suggest(core: Core, config: Config, picker: Any) -> None:
+    """Sugestão de música ao abrir jogo casual (5.4, ``[music] suggest``, padrão ligado)."""
+    music_raw = config.raw.get("music")
+    if isinstance(music_raw, dict) and not music_raw.get("suggest", True):
+        return
+    if core.proactive is None or core.game is None:
+        return
+    from magi.core.proactive.music import MusicSuggester
+
+    core.game.subscribe(MusicSuggester(core.proactive, picker, picker.player).on_game)
 
 
 def _wire_voice(core: Core, config: Config, catalog: GameCatalog) -> None:

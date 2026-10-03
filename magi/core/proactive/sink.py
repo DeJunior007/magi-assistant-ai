@@ -10,8 +10,12 @@
   um turno em curso. Se a call começar enquanto espera, ou se o satélite seguir ocupado por
   ``max_wait_s``, a frase cai para legenda.
 
-Usos: alertas (5.3, ``magi.core.proactive.alerts``) e notícias (6.10: "bomba" com
-``Priority.VOICE``, "alta" com ``Priority.SCREEN``).
+Usos: alertas (5.3, ``magi.core.proactive.alerts``), notícias (6.10: "bomba" com
+``Priority.VOICE``, "alta" com ``Priority.SCREEN``) e sugestão de música (5.4).
+
+``offer`` (5.4): pergunta com resposta. Falada, o satélite abre a escuta curta de confirmação;
+"sim/bora/pode" chama ``Offer.accept`` (o resultado é falado), "não" chama ``Offer.decline``,
+silêncio volta a dormir calado. Na tela (call/sem satélite) a pergunta fica só na legenda.
 """
 
 from __future__ import annotations
@@ -23,9 +27,9 @@ import time
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
-from magi.common.contracts import CardMsg, Expression, HudSink, SubtitleMsg
+from magi.common.contracts import ActionResult, CardMsg, Expression, HudSink, SubtitleMsg
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +51,14 @@ class Outcome(StrEnum):
     SCREEN = "screen"
 
 
+@dataclass(frozen=True, slots=True)
+class Offer:
+    """Pergunta proativa com resposta (5.4): ``accept`` no "sim", ``decline`` no "não"."""
+
+    accept: Callable[[], Awaitable[ActionResult]]
+    decline: Callable[[], Any] | None = None
+
+
 @runtime_checkable
 class ProactiveTarget(Protocol):
     """Satélite que pode falar um aviso (``magi.core.turn.TurnMachine``)."""
@@ -54,8 +66,11 @@ class ProactiveTarget(Protocol):
     @property
     def in_call(self) -> bool: ...
 
-    async def announce(self, text: str, expression: Expression | None = None) -> bool:
-        """Fala se estiver dormindo e livre; ``False`` = ocupado, tente depois."""
+    async def announce(
+        self, text: str, expression: Expression | None = None, *, offer: Offer | None = None
+    ) -> bool:
+        """Fala se estiver dormindo e livre; ``False`` = ocupado, tente depois. ``offer``: escuta
+        a resposta depois da fala (5.4)."""
         ...
 
 
@@ -67,6 +82,7 @@ class _Item:
     kind: str
     speech: str
     expression: Expression | None
+    offer: Offer | None = None
 
 
 class ProactiveSink:
@@ -112,6 +128,7 @@ class ProactiveSink:
         priority: Priority = Priority.VOICE,
         *,
         expression: Expression | None = None,
+        offer: Offer | None = None,
     ) -> Outcome:
         """Entrega um aviso (ver docstring do módulo). Não espera a fala terminar."""
         if card is not None:
@@ -123,7 +140,7 @@ class ProactiveSink:
             log.info("aviso %s só na tela: %s", kind, speech)
             return Outcome.SCREEN
         if speech:
-            self._queue.put_nowait(_Item(kind, speech, expression))
+            self._queue.put_nowait(_Item(kind, speech, expression, offer))
             if self._worker is None or self._worker.done():
                 self._worker = asyncio.create_task(self._run())
         return Outcome.QUEUED
@@ -155,7 +172,8 @@ class ProactiveSink:
             targets = self._targets()
             if not targets or any(t.in_call for t in targets):
                 break
-            if await targets[0].announce(item.speech, item.expression):
+            extra = {"offer": item.offer} if item.offer is not None else {}
+            if await targets[0].announce(item.speech, item.expression, **extra):
                 log.info("aviso %s falado: %s", item.kind, item.speech)
                 return
             if self._clock() >= deadline:

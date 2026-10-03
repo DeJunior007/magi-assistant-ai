@@ -45,8 +45,9 @@ from magi.common.contracts import (
 )
 from magi.common.events import audio_chunk, audio_start, decode_hud, encode_hud_line, to_event
 from magi.core.hud_client import HudServer
+from magi.core.proactive.sink import Offer
 from magi.core.service import CoreService
-from magi.core.turn import SAY_CANCELLED, SAY_NOT_HEARD, SAY_UNAVAILABLE, TurnDeps, TurnPipeline
+from magi.core.turn import SAY_CANCELLED, SAY_DECLINED, SAY_NOT_HEARD, SAY_UNAVAILABLE, TurnDeps, TurnPipeline
 
 T = 3.0  # prazo de cada espera nos testes (s)
 VOICE = PcmFormat(rate=22_050)
@@ -601,3 +602,52 @@ async def test_pipeline_sem_dependencias_degrada() -> None:
     assert t.is_empty
     assert (await pipe.respond(t, _ctx())).speech == SAY_NOT_HEARD
     assert (await pipe.respond(Transcript.raw("oi"), _ctx())).speech == SAY_UNAVAILABLE
+
+
+# ---------------------------------------------------------------------------------------------
+# Pergunta proativa com resposta (5.4)
+# ---------------------------------------------------------------------------------------------
+
+
+async def _offer(rig: Rig) -> tuple[list[str], Event]:
+    calls: list[str] = []
+
+    async def accept() -> ActionResult:
+        calls.append("accept")
+        return ActionResult(ok=True, speech="Coloquei uma.")
+
+    machine = rig.service.machine("pc")
+    assert machine is not None
+    offer = Offer(accept=accept, decline=lambda: calls.append("decline"))
+    assert await machine.announce("Quer um som pra acompanhar o Dead Cells?", offer=offer)
+    await rig.sat.hear()
+    await rig.sat.send(PlaybackDone())
+    await _until(lambda: rig.state is TurnState.CONFIRMING)
+    return calls, await rig.sat.expect(EventType.LISTEN)
+
+
+async def test_pergunta_proativa_sim_chama_accept(make_rig) -> None:
+    rig = await make_rig()
+    calls, _ = await _offer(rig)
+    await rig.sat.speak("confirma")
+    await rig.sat.hear()
+    assert calls == ["accept"]
+    assert rig.speaker.said[-1] == "Coloquei uma."
+
+
+async def test_pergunta_proativa_nao_registra_recusa(make_rig) -> None:
+    rig = await make_rig()
+    calls, _ = await _offer(rig)
+    await rig.sat.speak("cancela")
+    await rig.sat.hear()
+    assert calls == ["decline"]
+    assert rig.speaker.said[-1] == SAY_DECLINED
+
+
+async def test_pergunta_proativa_silencio_dorme_calado(make_rig) -> None:
+    rig = await make_rig()
+    calls, _ = await _offer(rig)
+    await rig.sat.speak("", AudioEndReason.NO_SPEECH)
+    await _until(lambda: rig.state is TurnState.SLEEPING)
+    assert calls == []
+    assert len(rig.speaker.said) == 1

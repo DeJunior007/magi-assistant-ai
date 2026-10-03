@@ -27,7 +27,7 @@ import unicodedata
 from collections.abc import Coroutine, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from wyoming.audio import AudioChunk, AudioStart
 
@@ -75,6 +75,9 @@ from magi.common.contracts import (
     check_transition,
 )
 
+if TYPE_CHECKING:
+    from magi.core.proactive.sink import Offer
+
 log = logging.getLogger(__name__)
 
 #: Estados em que o núcleo aceita gravação do satélite.
@@ -84,6 +87,8 @@ _RECORDING_STATES = frozenset({TurnState.LISTENING, TurnState.CONFIRMING, TurnSt
 SAY_NOT_HEARD = "Não peguei, repete?"
 #: Confirmação negada ou expirada (R5.4).
 SAY_CANCELLED = "Cancelado."
+#: Resposta a um "não" para uma pergunta proativa (5.4).
+SAY_DECLINED = "Beleza."
 #: Nada atende o pedido (ação ou agente ainda não plugados).
 SAY_UNAVAILABLE = "Ainda não sei fazer isso."
 #: "Você quis dizer X?" quando o roteador não traz a frase pronta (R4.2).
@@ -278,6 +283,16 @@ class TurnPipeline:
             return ActionResult(ok=False, speech=SAY_UNAVAILABLE, expression=Expression.CONFUSED)
         return await actions.run(req)
 
+    def is_no(self, transcript: Transcript, ctx: TurnContext) -> bool:
+        """A resposta é "não"/"cancela"? (pergunta proativa, 5.4)."""
+        if transcript.is_empty:
+            return False
+        route = self.route(transcript.final, ctx)
+        if route.intent is not None and route.kind is RouteKind.LOCAL:
+            if route.intent.id == IntentId.CONFIRM_NO:
+                return True
+        return bool(set(_normalize(transcript.final).split()) & _NO_WORDS)
+
     def is_yes(self, transcript: Transcript, ctx: TurnContext) -> bool:
         """A resposta da escuta curta é "confirma"? (R5.4). Roteador primeiro, palavras depois."""
         if transcript.is_empty:
@@ -308,6 +323,9 @@ class TurnMachine:
       → ``followup`` (``magi-listen`` com ``reason="followup"``, sem bip, rosto ``listening``).
       Fala → turno normal, que reabre a janela no fim; silêncio → ``sleeping`` calado. Fora em
       call no Discord e depois de aviso proativo ou de "Cancelado." por silêncio.
+    - Pergunta proativa (``announce(..., offer=...)``, 5.4): fim da fala → ``confirming``; "sim"
+      → ``offer.accept()`` (resultado falado), "não" → ``offer.decline()`` + "Beleza.", outra
+      coisa → turno normal; silêncio ou prazo → ``sleeping`` calado.
     - Dispensa ("valeu", "só isso"... como frase inteira, em qualquer turno normal) → rosto
       ``happy`` por um instante e ``sleeping``, sem fala. Ativação sem fala → ``sleeping`` calado.
     - Erro inesperado ou satélite desconectado → ``sleeping`` (§9).
@@ -341,6 +359,7 @@ class TurnMachine:
         self._audio = bytearray()
         self._recording = False
         self._pending: ActionRequest | None = None
+        self._offer: Offer | None = None  # pergunta proativa esperando resposta (5.4)
         self._ctx: TurnContext | None = None
         self._vote_open = False
         self._in_call = False
@@ -411,10 +430,13 @@ class TurnMachine:
         self._started_at = datetime.now(UTC)
         await self._go(TurnState.LISTENING)
 
-    async def announce(self, text: str, expression: Expression | None = None) -> bool:
+    async def announce(
+        self, text: str, expression: Expression | None = None, *, offer: Offer | None = None
+    ) -> bool:
         """Fala proativa (R15.1, ``magi.core.proactive``): só começa com o satélite dormindo e
         livre, nunca corta uma fala ou turno. ``False`` = ocupado agora (tente depois). Uma
-        ativação durante o aviso interrompe como numa resposta comum."""
+        ativação durante o aviso interrompe como numa resposta comum. ``offer``: depois da fala,
+        escuta curta da resposta (5.4)."""
         if self._state is not TurnState.SLEEPING or self.busy:
             return False
         await self.hud.send(SubtitleMsg(text))
@@ -422,6 +444,7 @@ class TurnMachine:
         if speaker is None:
             return True
         self._followup = False  # aviso não abre janela de continuação
+        self._offer = offer
         await self._go(TurnState.SPEAKING, expression)
         # A volta a ``sleeping`` vem com ``playback-done`` (ou erro, via ``_guard``).
         self._start(speaker.say(text, self.link, personal=False))
@@ -482,7 +505,16 @@ class TurnMachine:
         # confirming
         self._cancel_timer()
         pending, self._pending = self._pending, None
+        offer, self._offer = self._offer, None
         ctx = self._ctx or self._make_ctx(end.tone)
+        if offer is not None:
+            if silent:
+                await self._go(TurnState.SLEEPING)
+                return
+            self._ctx = ctx = self._make_ctx(end.tone)
+            await self._go(TurnState.THINKING)
+            self._start(self._answer_offer(audio, fmt, offer, ctx))
+            return
         if silent or pending is None:
             self._start(self._deliver(await self._cancelled(), followup=False))
             return
@@ -493,7 +525,7 @@ class TurnMachine:
         """Fim da fala (ou nada a falar): confirma se há pedido pendente; senão abre a janela de
         continuação (se ligada e fora de call) ou dorme."""
         followup, self._followup = self._followup, False
-        if self._pending is not None:
+        if self._pending is not None or self._offer is not None:
             await self._go(TurnState.CONFIRMING)
             await self.link.send(ListenRequest(timeout_ms=self.confirm_timeout_ms))
             self._timer = asyncio.create_task(self._confirm_deadline())
@@ -529,6 +561,10 @@ class TurnMachine:
         self._audio.clear()
         self._pending = None
         log.info("%s: confirmação expirou", self.satellite)
+        if self._offer is not None:  # pergunta proativa sem resposta: dorme calado
+            self._offer = None
+            await self._go(TurnState.SLEEPING)
+            return
         self._start(self._deliver(await self._cancelled(), followup=False))
 
     async def _cancelled(self) -> ActionResult:
@@ -553,6 +589,7 @@ class TurnMachine:
         except Exception:
             log.exception("%s: erro no turno", self.satellite)
             self._pending = None
+            self._offer = None
             await self._close_vote(Verdict.DENIED)
             if self._state is not TurnState.SLEEPING:
                 await self._go(TurnState.SLEEPING)
@@ -587,6 +624,24 @@ class TurnMachine:
             return
         await self._close_vote(Verdict.APPROVED)
         result = await self.pipeline.run_action(pending)
+        await self._deliver(result)
+
+    async def _answer_offer(self, audio: bytes, fmt: PcmFormat, offer: Offer, ctx: TurnContext) -> None:
+        transcript = await self.pipeline.transcribe(audio, fmt, ctx)
+        if self.pipeline.is_yes(transcript, ctx):
+            await self._deliver(await offer.accept())
+            return
+        if transcript.is_empty:  # ruído: como silêncio, dorme calado
+            await self._go(TurnState.SLEEPING)
+            return
+        if self.pipeline.is_no(transcript, ctx):
+            if offer.decline is not None:
+                offer.decline()
+            await self._deliver(ActionResult(ok=True, speech=SAY_DECLINED), followup=False)
+            return
+        # Outra coisa ("qual a temperatura da GPU?"): turno normal.
+        result = await self.pipeline.respond(transcript, ctx)
+        self._last_text, self._last_at = result.redo_text or transcript.final, ctx.started_at
         await self._deliver(result)
 
     async def _deliver(self, result: ActionResult, *, followup: bool = True) -> None:
@@ -626,4 +681,5 @@ class TurnMachine:
         self._recording = False
         self._audio.clear()
         self._pending = None
+        self._offer = None
         await self._close_vote(Verdict.DENIED)
