@@ -247,6 +247,13 @@ Formato de cada tarefa:
   - Orçamento: ~60k
   - Pronto: frases fixas usam o cache (zero chamadas ao TTS na segunda vez); memória lenta não segura a resposta além de 300 ms; sessões onnx criadas com as opções de memória; suíte verde; re-medição ao vivo com `tools.perf` pelo usuário.
 
+- [x] **1.24 Fala por frase em streaming** — RNF-05 ficou em 3,45 s após a 1.23. O agente pede a resposta em streaming (`chat_stream` no `GuardedChat`/`OpenAIBackend`, `stream_options={"include_usage": True}`, orçamento e uso como antes) e, quando a resposta é texto, cada frase falada que fecha (`SpeechDraft` em `compose.py`, mesmas regras de `short_speech`) vai para o `EarlySpeech` do turno (`magi/core/early.py`, via `ContextVar`): a 1ª frase já sintetiza e toca, a 2ª entra na fila do mesmo `audio-start` … `audio-stop` (`PhraseSpeaker.say_stream`); `_deliver` completa com o que faltar da fala final e manda legenda/cards. Chamada de ferramenta não fala; na 1ª chamada (paralela à busca de memórias) as frases esperam a busca decidir. Ativação/PTT durante a fala cancela tudo. O TTS corta o silêncio inicial (< -50 dBFS, no máximo 600 ms) no streaming, ao gravar e ao ler o cache (entradas antigas regravadas). *(RNF-05)*
+  - Lê: `docs/perf/fase1.md`, `magi/agent/graph.py`, `magi/core/compose.py`, `magi/core/turn.py`, `magi/core/tts.py`, `magi/providers/openai_provider.py`, `magi/providers/registry.py`
+  - Escreve: `magi/core/early.py`, `magi/core/compose.py`, `magi/core/tts.py`, `magi/core/turn.py`, `magi/agent/graph.py`, `magi/providers/openai_provider.py`, `magi/providers/registry.py`, `tests/core/test_stream_speech.py`, `tests/providers/test_chat_stream.py`, `docs/perf/fase1.md`
+  - Depende de: 1.23
+  - Orçamento: ~60k
+  - Pronto: 1ª frase vira áudio antes do fim da geração; 2 frases no mesmo envio; ferramenta não fala antes; silêncio inicial cortado (limite 600 ms); uso contabilizado; interrupção corta; suíte verde; re-medição ao vivo do RNF-05 depois de reiniciar os serviços.
+
 - [x] **1.18 Medição da fase 1** — script de desempenho do §10 (CPU/RAM ociosos por 10 min, latência p90 de 50 turnos).
   - Lê: §10, tabela RNF de `requirements.md`
   - Escreve: `tools/perf.py`, `docs/perf/fase1.md`

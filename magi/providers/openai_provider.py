@@ -140,6 +140,22 @@ def _reply(resp: Any, ctx: CallCtx) -> ChatReply:
     return ChatReply(text=get_attr(msg, "content", default=""), tool_calls=calls, usage=usage)
 
 
+def _chat_kwargs(
+    ctx: CallCtx, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec], json_mode: bool
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "model": ctx.model,
+        "messages": _messages(messages),
+        "timeout": timeout_s(ctx),
+        **_chat_options(ctx, bool(tools)),
+    }
+    if tools:
+        kwargs["tools"] = _tools(tools)
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+    return kwargs
+
+
 def _chat_options(ctx: CallCtx, tools: bool) -> dict[str, Any]:
     out = {k: ctx.options[k] for k in CHAT_OPTIONS if k in ctx.options}
     if not tools:
@@ -237,19 +253,55 @@ class OpenAIBackend:
         tools: Sequence[ToolSpec],
         json_mode: bool,
     ) -> ChatReply:
-        kwargs: dict[str, Any] = {
-            "model": ctx.model,
-            "messages": _messages(messages),
-            "timeout": timeout_s(ctx),
-            **_chat_options(ctx, bool(tools)),
-        }
-        if tools:
-            kwargs["tools"] = _tools(tools)
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
+        kwargs = _chat_kwargs(ctx, messages, tools, json_mode)
         with openai_errors(ctx.provider):
             resp = await with_timeout(ctx, self._client(key).chat.completions.create(**kwargs))
         return _reply(resp, ctx)
+
+    async def chat_stream(
+        self,
+        key: ApiKey,
+        ctx: CallCtx,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[ToolSpec],
+        json_mode: bool,
+        on_text: Callable[[str], None],
+    ) -> ChatReply:
+        """Como ``chat``, mas em streaming (1.24): cada pedaço de texto vai para ``on_text`` assim
+        que chega, até aparecer a primeira chamada de ferramenta (daí em diante nada mais vai).
+        O uso de tokens vem no último pedaço (``include_usage``)."""
+        kwargs = _chat_kwargs(ctx, messages, tools, json_mode)
+        kwargs["stream"] = True
+        kwargs["stream_options"] = {"include_usage": True}
+        text: list[str] = []
+        calls: dict[int, dict[str, str]] = {}
+        tokens = (0, 0)
+        with openai_errors(ctx.provider):
+            stream = await with_timeout(ctx, self._client(key).chat.completions.create(**kwargs))
+            async for chunk in stream:
+                if get_attr(chunk, "usage") is not None:
+                    tokens = (
+                        get_attr(chunk, "usage", "prompt_tokens", default=0),
+                        get_attr(chunk, "usage", "completion_tokens", default=0),
+                    )
+                for choice in get_attr(chunk, "choices") or ():
+                    delta = get_attr(choice, "delta")
+                    for tc in get_attr(delta, "tool_calls") or ():
+                        entry = calls.setdefault(
+                            int(get_attr(tc, "index", default=len(calls))), {"id": "", "name": "", "args": ""}
+                        )
+                        entry["id"] = str(get_attr(tc, "id", default="") or entry["id"])
+                        entry["name"] += str(get_attr(tc, "function", "name", default="") or "")
+                        entry["args"] += str(get_attr(tc, "function", "arguments", default="") or "")
+                    if piece := get_attr(delta, "content", default=""):
+                        text.append(piece)
+                        if not calls:
+                            on_text(piece)
+        tool_calls = tuple(
+            ToolCall(id=c["id"], name=c["name"], arguments=_parse_args(c["args"]))
+            for _, c in sorted(calls.items())
+        )
+        return ChatReply(text="".join(text), tool_calls=tool_calls, usage=ctx.usage(*tokens))
 
     async def ask(self, key: ApiKey, ctx: CallCtx, question: str, image: bytes, mime: str) -> ChatReply:
         url = f"data:{mime};base64,{base64.b64encode(image).decode()}"

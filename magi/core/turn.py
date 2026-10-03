@@ -24,7 +24,7 @@ import contextlib
 import dataclasses
 import logging
 import unicodedata
-from collections.abc import Awaitable, Callable, Coroutine, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -74,6 +74,7 @@ from magi.common.contracts import (
     check_transition,
 )
 from magi.core.compose import compose, subtitle
+from magi.core.early import EARLY_SPEECH, EarlySpeech
 
 if TYPE_CHECKING:
     from magi.core.proactive.sink import Offer
@@ -627,12 +628,35 @@ class TurnMachine:
             # ruído na janela de continuação: nada de "não peguei", só volta a dormir
             await self._go(TurnState.SLEEPING)
             return
-        result = await self.pipeline.respond(transcript, ctx)
-        text = result.redo_text or transcript.final
-        if text.strip():
-            # Texto efetivo deste turno: o próximo turno o recebe em ``ctx.previous_text``.
-            self._last_text, self._last_at = text, ctx.started_at
-        await self._deliver(result)
+        early = self._early_speech()
+        token = EARLY_SPEECH.set(early)
+        try:
+            try:
+                result = await self.pipeline.respond(transcript, ctx)
+            finally:
+                EARLY_SPEECH.reset(token)
+            text = result.redo_text or transcript.final
+            if text.strip():
+                # Texto efetivo deste turno: o próximo turno o recebe em ``ctx.previous_text``.
+                self._last_text, self._last_at = text, ctx.started_at
+            await self._deliver(result, early=early)
+        finally:
+            if early is not None:
+                early.cancel()  # interrupção/erro no meio: para o envio (fim normal: já terminou)
+
+    def _early_speech(self) -> EarlySpeech | None:
+        """Fala por frase em streaming (1.24): o agente fala a 1ª frase enquanto ainda gera."""
+        speaker = self.pipeline.deps.speaker
+        say_stream = getattr(speaker, "say_stream", None)
+        if say_stream is None:
+            return None
+
+        async def play(texts: AsyncIterator[str]) -> None:
+            if self._state is not TurnState.SPEAKING:
+                await self._go(TurnState.SPEAKING)
+            await say_stream(texts, self.link, personal=True)
+
+        return EarlySpeech(play)
 
     async def _dismiss(self) -> None:
         """Dispensada: rosto ``happy`` por um instante e dorme, sem fala (1.20)."""
@@ -668,10 +692,13 @@ class TurnMachine:
         self._last_text, self._last_at = result.redo_text or transcript.final, ctx.started_at
         await self._deliver(result)
 
-    async def _deliver(self, result: ActionResult, *, followup: bool = True) -> None:
+    async def _deliver(
+        self, result: ActionResult, *, followup: bool = True, early: EarlySpeech | None = None
+    ) -> None:
         """Mostra e fala a resposta. Estado de partida: ``thinking`` ou ``confirming``.
         ``followup``: ao terminar, abre a janela de continuação (1.20). A resposta passa por
-        ``compose`` (3.6): fala ≤ 2 frases sem URL, legenda completa e cards de links."""
+        ``compose`` (3.6): fala ≤ 2 frases sem URL, legenda completa e cards de links.
+        ``early`` (1.24): se o agente já começou a falar, o que falta da fala entra no mesmo envio."""
         self._followup = followup
         result = compose(result)
         if result.needs_confirmation:
@@ -684,6 +711,11 @@ class TurnMachine:
         if (sub := subtitle(result)) is not None:
             await self.hud.send(sub)
         speaker = self.pipeline.deps.speaker
+        if early is not None and early.started:
+            if result.expression is not None:
+                await self.hud.send(StateMsg(result.expression))
+            await early.finish(early.missing(result.speech))
+            return
         if result.speech and speaker is not None:
             await self._go(TurnState.SPEAKING, result.expression)
             # Último passo da tarefa: a continuação vem com ``playback-done`` (ou nova ativação).

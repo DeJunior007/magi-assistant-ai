@@ -111,6 +111,54 @@ def short_speech(text: str, max_sentences: int = SPEECH_MAX_SENTENCES) -> str:
     return " ".join(sentences(clean_speech(text))[:max_sentences])
 
 
+_LEFTOVER_MD = re.compile(r"[*_`~\[\]#]+")
+_NOT_WORD = re.compile(r"\W+")
+
+
+def speech_key(sentence: str) -> str:
+    """Forma de comparar frases faladas: só letras e números, sem caixa (1.24)."""
+    return _NOT_WORD.sub("", sentence.casefold())
+
+
+class SpeechDraft:
+    """Frases faladas de um texto que ainda está chegando (fala por frase em streaming, 1.24).
+
+    ``push`` recebe os pedaços do modelo e devolve as frases novas já fechadas, pelas mesmas
+    regras de ``short_speech`` (fim de frase, sem markdown/URL/lista, no máximo
+    ``max_sentences``). Uma frase só sai quando a seguinte já começou (a última ainda pode
+    crescer) e a palavra em curso fica de fora; ``finish`` solta o que faltou com o texto
+    completo. Restos de markdown não fechado (``**``) saem da frase falada.
+    """
+
+    def __init__(self, max_sentences: int = SPEECH_MAX_SENTENCES) -> None:
+        self.max_sentences = max_sentences
+        self.text = ""
+        self.released: list[str] = []
+
+    def push(self, delta: str) -> list[str]:
+        self.text += delta
+        if len(self.released) >= self.max_sentences:
+            return []
+        cut = max(self.text.rfind(" "), self.text.rfind("\n"))
+        if cut <= 0:
+            return []
+        found = sentences(clean_speech(self.text[:cut]))[:-1]
+        return self._release(found)
+
+    def finish(self, text: str | None = None) -> list[str]:
+        return self._release(sentences(clean_speech(self.text if text is None else text)))
+
+    def _release(self, found: list[str]) -> list[str]:
+        new = []
+        for sentence in found[len(self.released) : self.max_sentences]:
+            spoken = _DANGLING.sub(r"\1", " ".join(_LEFTOVER_MD.sub(" ", sentence).split()))
+            if not speech_key(spoken):
+                break
+            new.append(spoken)
+        self.released += new
+        return new
+
+
 def _card_key(card: CardMsg) -> str:
     return card.url.rstrip("/").lower() if card.url else " ".join(card.title.lower().split())
 
