@@ -77,9 +77,9 @@ Formato de cada tarefa:
   - Orçamento: ~30k
   - Pronto: `[tasks]` preenchida com modelos e preços.
 
-- [ ] **0.7 Spike S4: "Ei Magui"** — roteiro de gravação de ~50 amostras, treino do openWakeWord, medição de falsos disparos em 1 h de jogo. **Precisa de mim** para gravar e jogar.
+- [ ] **0.7 Spike S4: "Condessa"** — ativação por "Condessa" (sozinha ou com "hey/oi/oh"); roteiro de gravação de ~50 amostras, treino do openWakeWord, medição de falsos disparos em 1 h de jogo. **Precisa de mim** para gravar e jogar.
   - Lê: §5, §12, `docs/spikes/S1.md`
-  - Escreve: `spikes/s4_wake/` (roteiro, treino, medição), `docs/spikes/S4.md`, `magi/satellite/models/ei_magui.onnx`
+  - Escreve: `spikes/s4_wake/` (roteiro, treino, medição), `docs/spikes/S4.md`, `~/.local/share/magi/models/wakeword/condessa.onnx` (kit em `tools/wakeword/`, `--word condessa`)
   - Depende de: 0.4
   - Orçamento: ~35k
   - Pronto: modelo com ≤ 1 falso disparo/h (RNF-06).

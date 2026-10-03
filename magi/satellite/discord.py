@@ -2,7 +2,7 @@
 
 A cada ``POLL_S`` segundos lista os ``source-output``s do PipeWire (``pulsectl``, numa thread
 própria para não bloquear o laço) e procura um fluxo de captura do Discord ativo (não ``corked``).
-Em call, desliga o "Ei Magui" (``WakeSpotter.enabled = False``) e manda
+Em call, desliga o "Condessa" (``WakeSpotter.enabled = False``) e manda
 ``SatelliteStatus(in_call=True, wake_enabled=False)`` ao núcleo; ao sair, religa e manda o status.
 Histerese: o estado só muda depois de ``confirm`` leituras iguais seguidas (2 × 2 s ≤ 5 s, R2.2).
 Erro do ``pulsectl`` não derruba o satélite: a leitura é ignorada e a conexão é refeita na próxima.

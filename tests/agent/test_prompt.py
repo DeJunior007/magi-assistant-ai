@@ -63,8 +63,9 @@ def _system(prompt) -> str:
 
 def test_persona_tem_cerca_de_500_tokens():
     # Teto 560 (era 520): a 3.9 juntou a regra "nunca afirmar capacidade sem ferramenta" (~40 tokens).
+    # Teto 580: linha do apelido "Condessa" (ativação e vocativo, ~30 tokens).
     tokens = estimate_tokens(load_persona())
-    assert 400 <= tokens <= 560
+    assert 400 <= tokens <= 580
 
 
 def test_persona_cobre_os_tracos():

@@ -1,4 +1,4 @@
-"""Roteiro de gravação do wake word "Ei Magui" (spike S4).
+"""Roteiro de gravação do wake word "Condessa" (spike S4).
 
 Uso::
 
@@ -6,7 +6,8 @@ Uso::
     uv run python -m tools.wakeword.record --section positive
     uv run python -m tools.wakeword.record --list-devices
 
-Grava WAV 16 kHz mono em ``~/.local/share/magi/wakeword-data/{positive,negative,noise}/``.
+Grava WAV 16 kHz mono em ``~/.local/share/magi/wakeword-data/<word>/{positive,negative,noise}/``
+(``--word``, padrão ``condessa``). Positivas: "Condessa" sozinha ou com "hey/oi/oh" na frente.
 Retoma de onde parou (conta os arquivos que já existem). Em cada passo: Enter grava,
 ``r`` + Enter apaga e regrava a última, ``p`` + Enter pula, ``q`` + Enter sai.
 Pode rodar com o ``magi-satellite`` ligado: o PipeWire entrega o microfone aos dois.
@@ -23,7 +24,15 @@ from pathlib import Path
 
 import numpy as np
 
-from tools.wakeword.common import AUDIO_RATE, data_dir, dbfs, next_index, trim_silence, write_wav
+from tools.wakeword.common import (
+    AUDIO_RATE,
+    DEFAULT_WORD,
+    data_dir,
+    dbfs,
+    next_index,
+    trim_silence,
+    write_wav,
+)
 
 APP_NAME = "magi-wakeword-rec"
 
@@ -50,16 +59,20 @@ POSITIVE_STYLES = [
     ("rindo", "rindo ou sorrindo enquanto fala", 5),
 ]
 
+#: Formas que o Pedro usa para chamar; o modelo dispara com "Condessa" em qualquer uma.
+#: "Condessa" nunca entra nas negativas (ensinaria o modelo a ignorá-la).
+POSITIVE_FORMS = ["Condessa", "Hey Condessa", "Oi Condessa", "Oh Condessa"]
+
 NEGATIVE_PHRASES = [
-    "Ei, mano!", "E aí, mano, beleza?", "Magia.", "Maggie, vem cá.", "A Magali chegou.",
-    "Ei, Maria!", "Ei, Miguel!", "Que mágico!", "Ei, me ajuda aqui.", "Ei, me dá isso.",
-    "Magnífico!", "Ei, amigo!", "Fala, Magrão!", "Vamos jogar Magic?", "Que mágoa.",
-    "Ei, aguenta aí!", "Pega a magia de gelo.", "Ei, Magno!", "Que bagulho doido.", "Ei, mãe!",
-    "Eita, mano!", "Ai, magoei o pé.", "Lá no mangue.", "Ei, Gui!", "Mano, que isso?",
-    "Bora jogar Valorant.", "Abre o Minecraft aí.", "Partida de League of Legends.",
-    "Monster Hunter é muito bom.", "Vou jogar Elden Ring.", "Mario Kart hoje?",
-    "Counter-Strike de noite.", "Magicka é engraçado.", "Ei, cadê o mapa?", "Me passa a munição.",
-    "Hoje tem jogo do Brasil.",
+    "Condensa o texto.", "Confessa logo!", "Com dez reais dá.", "Concessão de rua.", "Que promessa!",
+    "Vai, depressa!", "Põe na mesa.", "A mesa tá cheia.", "Comece agora.", "Boa conversa.",
+    "Com essa condição, não.", "Oi, vovó!", "Hey, você!", "Oi, tudo bem?", "Oh, que isso!",
+    "Com certeza.", "Professora chegou.", "Condomínio novo.", "Confesso que gostei.",
+    "Com pressa não dá.", "Essa sobremesa é boa.", "Hey, Siri.", "Oi, Clara!", "Oh, Vanessa!",
+    "Começa a partida.", "Contesta o juiz.", "Bora jogar Valorant.", "Abre o Minecraft aí.",
+    "Partida de League of Legends.", "Vou jogar Elden Ring.", "Hollow Knight é muito bom.",
+    "Counter-Strike de noite.", "Me passa a munição.", "Cadê o mapa?", "Hoje tem jogo do Brasil.",
+    "Que condição, hein?",
 ]
 
 FREE_TALK = [
@@ -70,10 +83,11 @@ FREE_TALK = [
 
 
 def build_takes() -> list[Take]:
+    styles = [(label, how) for label, how, n in POSITIVE_STYLES for _ in range(n)]
+    # as formas se alternam, então cada jeito de falar pega todas (ou quase todas) elas
     takes = [
-        Take("positive", label, "Ei Magui", how, 2.5)
-        for label, how, n in POSITIVE_STYLES
-        for _ in range(n)
+        Take("positive", label, POSITIVE_FORMS[i % len(POSITIVE_FORMS)], how, 2.5)
+        for i, (label, how) in enumerate(styles)
     ]
     takes += [Take("negative", "frase", p, "voz normal", 3.5) for p in NEGATIVE_PHRASES]
     takes += [Take("negative", "livre", "(fala livre)", t, 20.0) for t in FREE_TALK]
@@ -190,7 +204,9 @@ def run(
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--section", choices=["all", "positive", "negative", "noise"], default="all")
-    ap.add_argument("--data-dir", type=Path, default=None, help="padrão: ~/.local/share/magi/wakeword-data")
+    ap.add_argument("--word", default=DEFAULT_WORD, help="palavra/modelo (pasta dos dados); padrão: condessa")
+    ap.add_argument("--data-dir", type=Path, default=None,
+                    help="padrão: ~/.local/share/magi/wakeword-data/<word>")
     ap.add_argument("--device", default=None, help="dispositivo do PortAudio (nome ou número)")
     ap.add_argument("--target", default=None, help="source do PipeWire (como [satellite] mic_target)")
     ap.add_argument("--list-devices", action="store_true")
@@ -203,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
     takes = build_takes()
     if args.section != "all":
         takes = [t for t in takes if t.section == args.section]
-    base = args.data_dir or data_dir()
+    base = args.data_dir or data_dir(args.word)
     device = int(args.device) if args.device and args.device.isdigit() else args.device
     print(f"Gravando em {base}. Leva ~15 min no total. Use o microfone de sempre (headset).")
     try:

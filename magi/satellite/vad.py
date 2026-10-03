@@ -41,7 +41,7 @@ CONTEXT_SAMPLES = 64
 DEFAULT_THRESHOLD = 0.5
 #: Histerese: durante a fala, o bloco só vira silêncio abaixo deste valor (como no Silero).
 DEFAULT_NEG_THRESHOLD = 0.35
-#: Após o "Ei Magui", se ninguém falar neste prazo a gravação termina com ``no_speech``.
+#: Após o "Condessa", se ninguém falar neste prazo a gravação termina com ``no_speech``.
 WAKE_NO_SPEECH_MS = 5_000
 
 

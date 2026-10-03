@@ -88,6 +88,7 @@ def make(stt: FakeStt | None = None, **kw: object) -> tuple[HintedStt, FakeStt]:
     kw.setdefault("catalog", FakeCatalog(GAMES))
     kw.setdefault("vocab", FakeVocab(VOCAB))
     kw.setdefault("corrections", FakeCorrections(CORRS))
+    kw.setdefault("base_terms", ())
     return HintedStt(stt, **kw), stt  # type: ignore[arg-type]
 
 
@@ -202,7 +203,10 @@ async def test_broken_sources_and_no_sources() -> None:
     assert stt.calls[0]["hint"] == "Vocabulário: Dead Cells, Hollow Knight, deducels."
     bare = HintedStt(FakeStt())
     assert (await bare.transcribe(AUDIO, CAPTURE_FORMAT, personal=True)).final
-    assert bare.inner.calls[0]["hint"] == ""  # type: ignore[attr-defined]
+    assert bare.inner.calls[0]["hint"] == "Vocabulário: Condessa."  # type: ignore[attr-defined]
+    nothing = HintedStt(FakeStt(), base_terms=())
+    assert (await nothing.transcribe(AUDIO, CAPTURE_FORMAT, personal=True)).final
+    assert nothing.inner.calls[0]["hint"] == ""  # type: ignore[attr-defined]
 
 
 async def test_provider_factory_follows_config_reload() -> None:

@@ -52,7 +52,7 @@ INTENTS_PATH = Path(__file__).with_name("intents.yaml")
 
 #: Palavras que não mudam o comando: somem do texto e das frases-modelo antes da nota.
 FILLERS = frozenset(
-    "o a os as um uma uns umas e ai ae la ei oi ow opa po pfv pf mim me ne eu magui maggie "
+    "o a os as um uma uns umas e ai ae la ei oi ow opa po pfv pf mim me ne eu magui maggie condessa hey "
     "vai so agora logo rapidinho pra pro no na nos nas em de do da dos das num numa pela pelo "
     "ate ok beleza".split()
 )

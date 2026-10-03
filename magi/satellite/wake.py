@@ -1,9 +1,9 @@
-"""Detecção do wake word "Ei Magui" (§5, R1.1, R1.2, R1.6).
+"""Detecção do wake word "Condessa" (§5, R1.1, R1.2, R1.6).
 
 - ``WakeDetector``: interface de um modelo que dá uma nota 0..1 por bloco de 80 ms.
 - ``OpenWakeWordDetector``: backend openWakeWord (só ONNX; ``tflite-runtime`` não tem wheel para
   Python 3.12). Enquanto o modelo próprio do spike S4 não existe, usa um modelo pré-treinado
-  provisório (padrão ``hey_jarvis``); para trocar, aponte ``wake_model`` para ``ei_magui.onnx``.
+  provisório (padrão ``hey_jarvis``); para trocar, use ``wake_model = "condessa"`` (``condessa.onnx``).
 - ``WakeSpotter``: aplica limiar (recarregável), paciência (blocos seguidos acima do limiar) e
   um intervalo de recarga depois de cada ativação.
 - ``WakeSettings``: lido da seção ``[satellite]`` do ``config.toml``.
@@ -26,7 +26,7 @@ from magi.common.contracts import CHUNK_SAMPLES
 
 log = logging.getLogger(__name__)
 
-#: Modelo provisório até o spike S4 entregar ``ei_magui.onnx``.
+#: Modelo provisório até o spike S4 entregar ``condessa.onnx``.
 DEFAULT_WAKE_MODEL = "hey_jarvis"
 DEFAULT_THRESHOLD = 0.5
 DEFAULT_COOLDOWN_MS = 2000

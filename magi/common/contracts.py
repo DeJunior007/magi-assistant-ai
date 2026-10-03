@@ -69,7 +69,7 @@ MOUTH_INTERVAL_MS = 50
 MOUTH_CLOSED_BELOW = 0.15
 MOUTH_HALF_BELOW = 0.5
 
-#: Fim de fala por VAD e duração máxima da gravação por "Ei Magui" (R1.5).
+#: Fim de fala por VAD e duração máxima da gravação por "Condessa" (R1.5).
 VAD_SILENCE_MS = 700
 MAX_RECORDING_MS = 15_000
 #: Janela para dizer "confirma" (R5.4).
@@ -195,7 +195,7 @@ class EventType(StrEnum):
     ``audio-stop``; durante a reprodução o satélite manda ``magi-mouth`` (~20/s) e, ao terminar
     de tocar tudo, ``playback-done``. Se a reprodução for interrompida por wake/atalho (R12.5), o
     satélite corta o som e manda só o novo ``magi-wake`` (sem ``playback-done``).
-    Escuta curta sem "Ei Magui" (R5.4): núcleo manda ``magi-listen``; o satélite responde direto
+    Escuta curta sem "Condessa" (R5.4): núcleo manda ``magi-listen``; o satélite responde direto
     com ``audio-start``... ``audio-stop`` (``reason=no_speech`` se ninguém falar no prazo).
     """
 
@@ -217,7 +217,7 @@ class EventType(StrEnum):
 class WakeSource(StrEnum):
     """Origem da ativação (R1.2, R1.3, R1.7)."""
 
-    WAKE = "wake"  # "Ei Magui"
+    WAKE = "wake"  # "Condessa"
     PTT = "ptt"  # atalho de apertar pra falar (teclado ou DualSense)
 
 
@@ -247,7 +247,7 @@ class SatelliteHello:
 
 @dataclass(frozen=True, slots=True)
 class WakeEvent:
-    """``magi-wake``: ativação por "Ei Magui" ou atalho (R1.2, R1.3, R12.5, R22.3).
+    """``magi-wake``: ativação por "Condessa" ou atalho (R1.2, R1.3, R12.5, R22.3).
 
     ``score`` é a confiança do wake word (0..1); ``None`` para atalho.
     """
@@ -285,7 +285,7 @@ class SatelliteStatus:
     """``magi-status``: estado do satélite, enviado quando muda (R2.1, R2.2, R15.2).
 
     ``in_call``: há chamada ativa no Discord (avisos só na tela).
-    ``wake_enabled``: detecção de "Ei Magui" ligada.
+    ``wake_enabled``: detecção de "Condessa" ligada.
     """
 
     satellite: str

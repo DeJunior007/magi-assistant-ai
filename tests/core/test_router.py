@@ -165,6 +165,16 @@ def test_limiares_ajustaveis(router: LocalRouter) -> None:
     assert strict.route("pausa a música aí agora mesmo então", CTX).kind is RouteKind.AGENT
 
 
+def test_condessa_e_vocativo(router: LocalRouter) -> None:
+    plain = _route(router, "pausa a música")
+    for text in ("Condessa, pausa a música", "hey condessa pausa a música", "oi Condessa, pausa a música"):
+        res = _route(router, text)
+        assert res.intent is not None and plain.intent is not None, text
+        assert (res.kind, res.intent.id, res.score) == (plain.kind, plain.intent.id, plain.score), text
+    game = _route(router, "oh condessa, abre o dead cells")
+    assert game.intent is not None and game.intent.slot(SlotName.GAME).value == "588650"
+
+
 def test_vazio_vai_ao_agente(router: LocalRouter) -> None:
     res = _route(router, "  ... ")
     assert res.kind is RouteKind.AGENT and res.score == 0.0

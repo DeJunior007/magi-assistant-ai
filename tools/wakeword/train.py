@@ -1,4 +1,4 @@
-"""Treino do wake word "Ei Magui" (spike S4) — CPU, sem GPU.
+"""Treino do wake word "Condessa" (spike S4) — CPU, sem GPU.
 
 Mesmo princípio do treino oficial do openWakeWord (``openwakeword/train.py`` e o notebook
 ``automatic_model_training.ipynb``): os modelos de atributos (melspectrograma + embedding do
@@ -12,7 +12,9 @@ Passos::
 
     uv run python -m tools.wakeword.train synth             # TTS OpenAI, teto US$ 0,20
     uv run python -m tools.wakeword.train fetch             # 185 MB de negativos (~11 h) do openWakeWord
-    uv run --with onnx python -m tools.wakeword.train train # treina e grava ei_magui.onnx
+    uv run --with onnx python -m tools.wakeword.train train # treina e grava condessa.onnx
+
+Todos aceitam ``--word`` (padrão ``condessa``): pasta dos dados e nome do modelo.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ import numpy as np
 from magi.satellite.wake import FEATURE_MODELS, default_models_dir
 from tools.wakeword.common import (
     AUDIO_RATE,
+    DEFAULT_WORD,
     EMB_DIM,
     N_FRAMES,
     WINDOW_SAMPLES,
@@ -46,7 +49,7 @@ from tools.wakeword.common import (
     write_wav,
 )
 
-MODEL_NAME = "ei_magui"
+MODEL_NAME = DEFAULT_WORD  # padrão; o nome real vem de --word
 EXTRA_URL = (
     "https://huggingface.co/datasets/davidscripka/openwakeword_features/resolve/main/"
     "validation_set_features.npy"
@@ -63,7 +66,7 @@ TTS_USD_PER_MIN = 0.015
 TTS_USD_PER_TOKEN = 0.60e-6
 TTS_WORST_CALL_USD = 0.0015  # reserva por chamada antes de saber a duração (~6 s)
 VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse"]
-TEXTS = ["Ei Magui", "Ei, Magui!", "Ei Magui?"]
+TEXTS = ["Condessa", "Hey Condessa", "Oi Condessa", "Oh Condessa"]
 STYLES = [
     "voz normal, chamando alguém que está perto",
     "falando baixo, quase sussurrando",
@@ -75,8 +78,8 @@ STYLES = [
     "tom casual de quem está jogando videogame",
 ]
 PRONUNCIATION = (
-    "Fale em português do Brasil, sotaque brasileiro natural. 'Ei' como em 'ei, você'. "
-    "'Magui' pronuncia-se 'ma-GUI', com G duro como em 'guitarra' (o U não soa). "
+    "Fale em português do Brasil, sotaque brasileiro natural. 'Hey', 'Oi' e 'Oh' como quem chama "
+    "alguém. 'Condessa' pronuncia-se 'con-DÊ-ssa', tônica no DE, E fechado. "
     "Diga só a frase, sem nada antes ou depois. Estilo: "
 )
 
@@ -276,7 +279,7 @@ class MLP:
         return self
 
 
-def export_onnx(mlp: MLP, path: Path) -> None:
+def export_onnx(mlp: MLP, path: Path, name: str = MODEL_NAME) -> None:
     """Grava o MLP como ONNX ``[N, 16, 96] -> [N, 1]`` (padronização embutida na 1ª camada)."""
     try:
         import onnx
@@ -303,7 +306,7 @@ def export_onnx(mlp: MLP, path: Path) -> None:
         helper.make_node("Sigmoid", ["logit"], ["score"]),
     ]
     graph = helper.make_graph(
-        nodes, MODEL_NAME,
+        nodes, name,
         [helper.make_tensor_value_info("x", TensorProto.FLOAT, ["N", N_FRAMES, EMB_DIM])],
         [helper.make_tensor_value_info("score", TensorProto.FLOAT, ["N", 1])],
         inits,
@@ -395,7 +398,7 @@ def heldout_recall(mlp: MLP, base: Path, feat: Featurizer, threshold: float = 0.
 
 def train(args) -> Path:
     t0 = time.monotonic()
-    base: Path = args.data_dir or data_dir()
+    base: Path = args.data_dir or data_dir(args.word)
     models_dir: Path = args.models_dir or default_models_dir()
     extra = args.extra
     if extra is None and (train_dir() / "validation_set_features.npy").exists():
@@ -415,10 +418,10 @@ def train(args) -> Path:
         for thr in (0.3, 0.5, 0.7, 0.9):
             print(f"  limiar {thr:.1f}: {activations(s, thr) / hours:.2f} falsos disparos/h "
                   f"em {hours:.1f} h de negativos reservados")
-    out = args.output or models_dir / f"{MODEL_NAME}.onnx"
+    out = args.output or models_dir / f"{args.word}.onnx"
     if out.exists():
         shutil.copy2(out, out.with_suffix(".onnx.bak"))
-    export_onnx(mlp, out)
+    export_onnx(mlp, out, out.stem)
     import onnxruntime as ort
 
     sess = ort.InferenceSession(str(out), providers=["CPUExecutionProvider"])
@@ -447,12 +450,13 @@ def fetch(dest: Path) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--data-dir", type=Path, default=None)
+    ap.add_argument("--word", default=DEFAULT_WORD, help="palavra: pasta dos dados e nome do .onnx")
+    ap.add_argument("--data-dir", type=Path, default=None, help="padrão: .../wakeword-data/<word>")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("synth", help="gera positivas sintéticas com TTS da OpenAI")
     s.add_argument("-n", type=int, default=150)
     s.add_argument("--budget", type=float, default=0.20, help="teto acumulado em US$")
-    s.add_argument("--text", action="append", help="frase (repetível); padrão: variações de 'Ei Magui'")
+    s.add_argument("--text", action="append", help="frase (repetível); padrão: Condessa com e sem hey/oi/oh")
     sub.add_parser("fetch", help="baixa negativos pré-computados do openWakeWord (~11 h, 185 MB)")
     t = sub.add_parser("train", help="treina e exporta o ONNX")
     t.add_argument("--aug", type=int, default=10, help="variações aumentadas por positiva")
@@ -464,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--output", type=Path, default=None)
     t.add_argument("--seed", type=int, default=0)
     args = ap.parse_args(argv)
-    base = args.data_dir or data_dir()
+    base = args.data_dir or data_dir(args.word)
     if args.cmd == "synth":
         synthesize(base / "synthetic", args.n, args.budget, openai_speaker(), texts=args.text)
     elif args.cmd == "fetch":

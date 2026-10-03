@@ -165,9 +165,10 @@ async def test_dispensa_na_janela_e_em_turno_normal() -> None:
 
 
 def test_frases_de_dispensa() -> None:
-    for t in ("valeu", "Obrigado.", "só isso", "pode ir", "dispensa", "tchau", "nada não", "esquece"):
+    for t in ("valeu", "Obrigado.", "só isso", "pode ir", "dispensa", "tchau", "nada não", "esquece",
+              "valeu, Condessa", "Valeu, condessa!", "tchau, Magui", "oi condessa, só isso"):
         assert is_dismissal(t), t
-    for t in ("valeu a pena?", "esquece isso", "tchau pro jogo", "", "magui"):
+    for t in ("valeu a pena?", "esquece isso", "tchau pro jogo", "", "magui", "condessa", "oi condessa"):
         assert not is_dismissal(t), t
 
 

@@ -110,8 +110,8 @@ DISMISS_PHRASES = frozenset({
     "so isso", "e so isso", "pode ir", "dispensa", "dispensada", "tchau", "nada nao", "nada",
     "esquece", "falou",
 })
-#: Vocativos ignorados nas frases de dispensa ("valeu, Magui").
-_DISMISS_EXTRA = frozenset({"magui", "magi", "ei"})
+#: Vocativos ignorados nas frases de dispensa ("valeu, Magui", "valeu, Condessa").
+_DISMISS_EXTRA = frozenset({"magui", "magi", "maggie", "condessa", "ei", "hey", "oi", "oh"})
 
 #: Palavras aceitas como "confirma" quando o roteador não decide (R5.4).
 _YES_WORDS = frozenset({"confirma", "confirmo", "confirmado", "sim"})

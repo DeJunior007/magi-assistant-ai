@@ -21,15 +21,24 @@ N_FRAMES = 16
 EMB_DIM = 96
 
 
-def data_dir() -> Path:
+#: Palavra de ativação padrão do kit: nome do modelo (``condessa.onnx``) e da pasta de dados.
+DEFAULT_WORD = "condessa"
+
+
+def data_root() -> Path:
     """``$XDG_DATA_HOME/magi/wakeword-data`` (padrão ``~/.local/share``)."""
     base = os.environ.get("XDG_DATA_HOME") or "~/.local/share"
     return Path(base).expanduser() / "magi" / "wakeword-data"
 
 
+def data_dir(word: str = DEFAULT_WORD) -> Path:
+    """Dados de uma palavra: ``.../magi/wakeword-data/<word>/{positive,negative,noise,...}``."""
+    return data_root() / word
+
+
 def train_dir() -> Path:
     """Área de trabalho do treino (atributos baixados, cache): ``.../magi/wakeword-train``."""
-    return data_dir().parent / "wakeword-train"
+    return data_root().parent / "wakeword-train"
 
 
 def list_wavs(*dirs: Path) -> list[Path]:
