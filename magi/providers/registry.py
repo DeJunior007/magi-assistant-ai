@@ -17,6 +17,7 @@ estado de espera das chaves cujos nomes não mudaram.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import re
 import time
@@ -186,6 +187,39 @@ class GuardedStt(_Guarded):
         return await self._run(
             personal, lambda k: self._backend.transcribe(k, self._ctx, audio, fmt, hint, language)
         )
+
+    @property
+    def streaming(self) -> bool:
+        """``[tasks].stt`` com ``streaming = true`` e backend que sabe transcrever enquanto fala
+        (1.25)."""
+        return bool(self._ctx.options.get("streaming", False)) and hasattr(
+            self._backend, "stream_transcribe"
+        )
+
+    async def stream_transcribe(
+        self,
+        chunks: AsyncIterator[bytes],
+        fmt: PcmFormat,
+        *,
+        hint: str = "",
+        language: str = "pt",
+        personal: bool,
+    ) -> Transcript:
+        """Transcrição enquanto fala (1.25). Uma chave só, sem rodízio: os pedaços não podem ser
+        reenviados (quem chama cai no ``transcribe`` com o áudio inteiro). Mesmo orçamento e
+        regra de dados pessoais do ``transcribe``; modelo de ``streaming_model`` ou o da tarefa."""
+        model = str(self._ctx.options.get("streaming_model") or self.model)
+        ctx = dataclasses.replace(self._ctx, model=model)
+        await self._before(personal)
+        key = self._acquire()
+        try:
+            result, usage = await self._backend.stream_transcribe(key, ctx, chunks, fmt, hint, language)  # type: ignore[attr-defined]
+        except KeyRejected as e:
+            self._failed(key, e)
+            raise
+        self._ok(key)
+        await self._after(usage)
+        return result
 
 
 class GuardedTts(_Guarded):

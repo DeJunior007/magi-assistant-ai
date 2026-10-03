@@ -9,9 +9,11 @@ priorizados por uso/peso e cortados em ``STT_HINT_MAX_TOKENS``. O áudio só pas
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import math
-from collections.abc import Callable, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable
 from dataclasses import dataclass
 
 from magi.common.contracts import (
@@ -39,6 +41,9 @@ ALIAS_WEIGHT = 0.8
 #: Termos fixos da dica: como o Pedro chama a assistente para ativar e no meio da fala.
 BASE_TERMS: tuple[str, ...] = ("Condessa",)
 BASE_WEIGHT = 2.0
+#: Espera máxima pelo texto final da transcrição enquanto fala depois do fim da fala (1.25);
+#: estourou, cai no envio do áudio inteiro.
+STREAM_FINAL_TIMEOUT_S = 1.5
 
 
 def estimate_tokens(text: str) -> int:
@@ -158,3 +163,95 @@ class HintedStt:
             return Transcript.raw("", language)
         text = " ".join((result.heard or "").split())
         return Transcript.raw(text, result.language or language)
+
+    # -- transcrição enquanto fala (1.25) ------------------------------------------------------
+
+    @property
+    def streaming(self) -> bool:
+        return bool(getattr(self.inner, "streaming", False))
+
+    def open_stream(
+        self, fmt: PcmFormat, *, hint: str = "", language: str = "pt", personal: bool
+    ) -> SttStream | None:
+        """Abre a transcrição enquanto fala, se o provedor da config a tem ligada; senão ``None``.
+        Não bloqueia: a conexão abre em segundo plano e os pedaços esperam numa fila."""
+        try:
+            inner = self.inner
+            if not getattr(inner, "streaming", False):
+                return None
+        except Exception as e:  # noqa: BLE001 - sem streaming, o turno segue pelo caminho antigo
+            log.debug("transcrição enquanto fala indisponível: %s", e)
+            return None
+        return SttStream(self, inner, fmt, hint=hint, language=language, personal=personal)
+
+
+_END = None
+
+
+class SttStream:
+    """Uma sessão de transcrição enquanto fala (1.25). ``feed`` não bloqueia; ``finish`` fecha
+    o envio e espera o texto final por até ``timeout`` s, devolvendo ``None`` em falha/estouro
+    (quem chama manda o áudio inteiro pelo caminho antigo); ``cancel`` derruba a sessão
+    (interrupção, silêncio)."""
+
+    def __init__(
+        self, owner: HintedStt, inner: object, fmt: PcmFormat, *, hint: str, language: str, personal: bool
+    ) -> None:
+        self.fmt = fmt
+        self.language = language
+        self._queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self._closed = False
+        self._task = asyncio.create_task(self._run(owner, inner, hint, personal), name="stt-stream")
+        self._task.add_done_callback(lambda t: t.cancelled() or t.exception())  # sem aviso de erro solto
+
+    async def _chunks(self) -> AsyncIterator[bytes]:
+        while (chunk := await self._queue.get()) is not _END:
+            yield chunk
+
+    async def _run(self, owner: HintedStt, inner: object, hint: str, personal: bool) -> Transcript:
+        full_hint = await owner.build_hint(hint)
+        result = await inner.stream_transcribe(  # type: ignore[attr-defined]
+            self._chunks(), self.fmt, hint=full_hint, language=self.language, personal=personal
+        )
+        return Transcript.raw(" ".join((result.heard or "").split()), result.language or self.language)
+
+    @property
+    def failed(self) -> bool:
+        return self._task.done() and (self._task.cancelled() or self._task.exception() is not None)
+
+    def feed(self, chunk: bytes) -> None:
+        if not self._closed and chunk and not self._task.done():
+            self._queue.put_nowait(chunk)
+
+    async def finish(self, timeout: float = STREAM_FINAL_TIMEOUT_S) -> Transcript | None:
+        """Texto final, ou ``None`` se a sessão falhou, estourou ``timeout`` ou veio vazia."""
+        if not self._closed:
+            self._closed = True
+            self._queue.put_nowait(_END)
+        try:
+            result = await asyncio.wait_for(asyncio.shield(self._task), timeout)
+        except TimeoutError:
+            log.warning("transcrição enquanto fala: sem texto em %.1f s; mandando o áudio inteiro", timeout)
+            await self.cancel()
+            return None
+        except asyncio.CancelledError:
+            if self._task.cancelled() and not _current_cancelling():
+                return None
+            await self.cancel()
+            raise
+        except Exception as e:  # noqa: BLE001 - qualquer falha cai no caminho antigo
+            log.warning("transcrição enquanto fala falhou: %s; mandando o áudio inteiro", e)
+            return None
+        return None if result.is_empty else result
+
+    async def cancel(self) -> None:
+        self._closed = True
+        if not self._task.done():
+            self._task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await self._task
+
+
+def _current_cancelling() -> bool:
+    task = asyncio.current_task()
+    return bool(task is not None and task.cancelling())

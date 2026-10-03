@@ -194,16 +194,35 @@ class TurnPipeline:
         except Exception as e:  # noqa: BLE001 - aquecimento é só otimização
             log.debug("pré-aquecimento falhou: %s", e)
 
-    async def transcribe(self, audio: bytes, fmt: PcmFormat, ctx: TurnContext) -> Transcript:
-        """Texto da fala já corrigido. Falha do provedor vira transcrição vazia (R3.5)."""
+    def open_stream(self, fmt: PcmFormat) -> Any:
+        """Transcrição enquanto fala (1.25): ``SttStream`` se o STT a tem ligada, senão ``None``."""
+        opener = getattr(self.deps.stt, "open_stream", None)
+        if opener is None:
+            return None
+        try:
+            return opener(fmt, personal=True)
+        except Exception as e:  # noqa: BLE001 - otimização: o turno segue pelo caminho antigo
+            log.debug("transcrição enquanto fala não abriu: %s", e)
+            return None
+
+    async def transcribe(
+        self, audio: bytes, fmt: PcmFormat, ctx: TurnContext, *, stream: Any = None
+    ) -> Transcript:
+        """Texto da fala já corrigido. Falha do provedor vira transcrição vazia (R3.5).
+        ``stream`` (1.25): sessão aberta na gravação; só espera o texto final e, se ela falhou,
+        estourou o tempo ou veio vazia, manda o áudio inteiro como antes."""
         stt = self.deps.stt
         if stt is None or not audio:
+            if stream is not None:
+                await stream.cancel()
             return Transcript.raw("")
-        try:
-            transcript = await stt.transcribe(audio, fmt, personal=True)
-        except ProviderError as e:
-            log.warning("transcrição falhou (%s): %s", ctx.satellite, e)
-            return Transcript.raw("")
+        transcript = await stream.finish() if stream is not None else None
+        if transcript is None:
+            try:
+                transcript = await stt.transcribe(audio, fmt, personal=True)
+            except ProviderError as e:
+                log.warning("transcrição falhou (%s): %s", ctx.satellite, e)
+                return Transcript.raw("")
         if self.deps.corrector is not None and not transcript.is_empty:
             transcript = await self.deps.corrector.apply(transcript)
         return transcript
@@ -378,6 +397,7 @@ class TurnMachine:
         self._fmt: PcmFormat | None = None
         self._audio = bytearray()
         self._recording = False
+        self._stream: Any = None  # transcrição enquanto fala da gravação atual (1.25)
         self._pending: ActionRequest | None = None
         self._offer: Offer | None = None  # pergunta proativa esperando resposta (5.4)
         self._ctx: TurnContext | None = None
@@ -417,11 +437,16 @@ class TurnMachine:
                     self._fmt = PcmFormat(rate=msg.rate, width=msg.width, channels=msg.channels)
                     self._audio.clear()
                     self._recording = True
+                    await self._open_stream(self._fmt)
             case AudioChunk():
                 if self._recording:
                     if self._fmt is None:
                         self._fmt = PcmFormat(rate=msg.rate, width=msg.width, channels=msg.channels)
+                    if self._stream is None and not self._audio:
+                        await self._open_stream(self._fmt)
                     self._audio += msg.audio
+                    if self._stream is not None:
+                        self._stream.feed(msg.audio)
             case AudioEnd():
                 await self._audio_end(msg)
             case PlaybackDone():
@@ -499,10 +524,23 @@ class TurnMachine:
             previous_at=self._last_at,
         )
 
+    async def _open_stream(self, fmt: PcmFormat) -> None:
+        await self._drop_stream()
+        self._stream = self.pipeline.open_stream(fmt)
+
+    async def _drop_stream(self) -> None:
+        """Fecha a transcrição enquanto fala (silêncio, interrupção, nova gravação)."""
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            await stream.cancel()
+
     async def _audio_end(self, end: AudioEnd) -> None:
         if not self._recording or self._state not in _RECORDING_STATES:
             return
         audio, fmt = bytes(self._audio), self._fmt or PcmFormat()
+        # Fica em ``_stream`` até a próxima gravação ou ``_cancel_work``: se o turno for
+        # interrompido antes de esperar o texto, a sessão ainda é fechada.
+        stream = self._stream
         self._audio.clear()
         self._recording = False
         silent = (
@@ -520,11 +558,12 @@ class TurnMachine:
             followup = self._state is TurnState.FOLLOWUP
             self._cancel_timer()
             if silent:
+                await self._drop_stream()
                 await self._go(TurnState.SLEEPING)
                 return
             self._ctx = ctx = self._make_ctx(end.tone)
             await self._go(TurnState.THINKING)
-            self._start(self._think(audio, fmt, ctx, followup=followup))
+            self._start(self._think(audio, fmt, ctx, followup=followup, stream=stream))
             return
 
         # confirming
@@ -534,17 +573,19 @@ class TurnMachine:
         ctx = self._ctx or self._make_ctx(end.tone)
         if offer is not None:
             if silent:
+                await self._drop_stream()
                 await self._go(TurnState.SLEEPING)
                 return
             self._ctx = ctx = self._make_ctx(end.tone)
             await self._go(TurnState.THINKING)
-            self._start(self._answer_offer(audio, fmt, offer, ctx))
+            self._start(self._answer_offer(audio, fmt, offer, ctx, stream=stream))
             return
         if silent or pending is None:
+            await self._drop_stream()
             self._start(self._deliver(await self._cancelled(), followup=False))
             return
         await self._go(TurnState.THINKING)
-        self._start(self._confirm(audio, fmt, pending, ctx))
+        self._start(self._confirm(audio, fmt, pending, ctx, stream=stream))
 
     async def _after_speaking(self) -> None:
         """Fim da fala (ou nada a falar): confirma se há pedido pendente; senão abre a janela de
@@ -574,6 +615,7 @@ class TurnMachine:
         self._timer = None
         self._recording = False
         self._audio.clear()
+        await self._drop_stream()
         log.info("%s: janela de continuação expirou sem resposta do satélite", self.satellite)
         await self._go(TurnState.SLEEPING)
 
@@ -584,6 +626,7 @@ class TurnMachine:
         self._timer = None
         self._recording = False
         self._audio.clear()
+        await self._drop_stream()
         self._pending = None
         log.info("%s: confirmação expirou", self.satellite)
         if self._offer is not None:  # pergunta proativa sem resposta: dorme calado
@@ -619,8 +662,10 @@ class TurnMachine:
             if self._state is not TurnState.SLEEPING:
                 await self._go(TurnState.SLEEPING)
 
-    async def _think(self, audio: bytes, fmt: PcmFormat, ctx: TurnContext, *, followup: bool = False) -> None:
-        transcript = await self.pipeline.transcribe(audio, fmt, ctx)
+    async def _think(
+        self, audio: bytes, fmt: PcmFormat, ctx: TurnContext, *, followup: bool = False, stream: Any = None
+    ) -> None:
+        transcript = await self.pipeline.transcribe(audio, fmt, ctx, stream=stream)
         if is_dismissal(transcript.final):
             await self._dismiss()
             return
@@ -665,8 +710,10 @@ class TurnMachine:
         await asyncio.sleep(self.dismiss_face_s)
         await self._go(TurnState.SLEEPING)
 
-    async def _confirm(self, audio: bytes, fmt: PcmFormat, pending: ActionRequest, ctx: TurnContext) -> None:
-        transcript = await self.pipeline.transcribe(audio, fmt, ctx)
+    async def _confirm(
+        self, audio: bytes, fmt: PcmFormat, pending: ActionRequest, ctx: TurnContext, *, stream: Any = None
+    ) -> None:
+        transcript = await self.pipeline.transcribe(audio, fmt, ctx, stream=stream)
         if not self.pipeline.is_yes(transcript, ctx):
             await self._deliver(await self._cancelled())
             return
@@ -674,8 +721,10 @@ class TurnMachine:
         result = await self.pipeline.run_action(pending)
         await self._deliver(result)
 
-    async def _answer_offer(self, audio: bytes, fmt: PcmFormat, offer: Offer, ctx: TurnContext) -> None:
-        transcript = await self.pipeline.transcribe(audio, fmt, ctx)
+    async def _answer_offer(
+        self, audio: bytes, fmt: PcmFormat, offer: Offer, ctx: TurnContext, *, stream: Any = None
+    ) -> None:
+        transcript = await self.pipeline.transcribe(audio, fmt, ctx, stream=stream)
         if self.pipeline.is_yes(transcript, ctx):
             await self._deliver(await offer.accept())
             return
@@ -738,6 +787,7 @@ class TurnMachine:
                 await task
         self._recording = False
         self._audio.clear()
+        await self._drop_stream()
         self._pending = None
         self._offer = None
         await self._close_vote(Verdict.DENIED)
