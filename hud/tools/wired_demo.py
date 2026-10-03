@@ -8,6 +8,11 @@ Arquivos: kit.png (painéis, segmentos, sparklines, rótulos, selo, tingimento L
 scene-main.png (cena "cam 01" + mascote), scene-standby.png (fundo da espera com as áreas de
 texto), mascot.png (prancha com as 7 expressões, bocas, piscada e olhar em dois acentos) e
 fonts.png (as quatro famílias).
+
+U3: main-<estado>-<led>.png e standby-<estado>-<led>.png — as duas telas em 2560×1440 nos estados
+standby/gaming × LED off / on #ff3b6b / on #3bb6ff, mais main-empty.png e standby-empty.png (sem
+nenhum dado), com o tempo de um quadro completo e de um incremental. O snapshot de demonstração
+existe só aqui; o código de produção não tem valores simulados.
 """
 
 from __future__ import annotations
@@ -16,15 +21,19 @@ import math
 import os
 import random
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PySide6.QtCore import QPointF, QRectF, Qt  # noqa: E402
-from PySide6.QtGui import QGuiApplication, QImage, QPainter  # noqa: E402
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt  # noqa: E402
+from PySide6.QtGui import QGuiApplication, QImage, QLinearGradient, QPainter, QPixmap  # noqa: E402
 from wired import fonts, kit, scene  # noqa: E402
+from wired.main_screen import MainScreen, Pilot, Snapshot, Track  # noqa: E402
 from wired.mascot import EXPRESSIONS, Mascot  # noqa: E402
+from wired.standby_screen import StandbyScreen  # noqa: E402
 from wired.theme import (  # noqa: E402
     BG,
     CPU,
@@ -289,6 +298,108 @@ def draw_fonts(p: QPainter) -> None:
         y += 130
 
 
+# ------------------------------------------------------------------ U3: telas (dados de demonstração)
+
+DEMO_NOW = datetime(2026, 10, 3, 19, 11, 42)
+
+
+def demo_cover() -> QPixmap:
+    pm = QPixmap(300, 300)
+    p = QPainter(pm)
+    g = QLinearGradient(0, 0, 300, 300)
+    g.setColorAt(0, color("#2a1f3d"))
+    g.setColorAt(1, color("#0d2a2a"))
+    p.fillRect(0, 0, 300, 300, g)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(color("#e8b04a"))
+    p.drawEllipse(QPointF(190, 110), 46, 46)
+    p.end()
+    return pm
+
+
+def demo_snapshot(mode: str, rgb: str | None) -> Snapshot:
+    gaming = mode == "gaming"
+    hist = {k: series(seed, base, 18 if k != "ram" else 3, 120)
+            for k, seed, base in (("cpu", 2, 50 if gaming else 22), ("gpu", 5, 84 if gaming else 30),
+                                  ("ram", 9, 36))}
+    axis = [(i / 4, f"{18 + (i + 1) // 4:02d}:{(i * 15 + 11) % 60:02d}") for i in range(5)]
+    fps_series = [max(60.0, v * 1.6 + 30) for v in series(1, 70, 25, 60)]
+    return Snapshot(
+        gaming=gaming,
+        cpu=51 if gaming else 12, cpu_temp=50 if gaming else 41,
+        gpu=100 if gaming else 6, gpu_temp=78 if gaming else 44, gpu_w=161 if gaming else 14,
+        ram=36, ram_txt="11.4/32G", vram=29, vram_txt="4.7/16G",
+        cpu_label="i5-11400F · 6C/12T", gpu_label="RX 9060 XT", ram_label="32GB DDR4 3200",
+        specs=[("CPU", "INTEL CORE I5-11400F"), ("GPU", "AMD RADEON RX 9060 XT 16G"),
+               ("M/B", "GIGABYTE Z490 AORUS PRO AX"), ("RAM", "32 GB DDR4 3200"),
+               ("OS", "NOBARA LINUX 44 · 7.2.6"), ("MESA", "26.2.3")],
+        pilots=[Pilot("DUALSENSE", 25, "BT", True)],
+        net_down=2.4e6, net_up=812e3, net_series=[v * 3e4 for v in series(4, 45, 35, 60)],
+        history=hist, history_axis=axis,
+        fps=144 if gaming else None, fps_min=118 if gaming else None, fps_avg=142 if gaming else None,
+        fps_max=165 if gaming else None, fps_series=fps_series if gaming else [],
+        track=Track("Demo Track Title", "Demo Artist", "Demo Album", 2024, 102.0, 238.0,
+                    playing=gaming, cover=demo_cover() if gaming else None),
+        events=["[19:03:24] game.exe launched", "[19:03:41] network up 2.4 MB/s", "[19:04:10] user active"],
+        led_on=rgb is not None, led_rgb=rgb,
+        magui_state="listening" if gaming else "sleeping",
+    )
+
+
+def render_screen(screen, snap: Snapshot, path: Path, mono: float = 0.0) -> float:
+    size = QSize(round(W * SCALE), round(H * SCALE))
+    img = QImage(size, QImage.Format.Format_RGB32)
+    p = QPainter(img)
+    t0 = time.perf_counter()
+    screen.paint(p, size, snap, DEMO_NOW, mono=mono)
+    dt = time.perf_counter() - t0
+    p.end()
+    img.save(str(path))
+    return dt
+
+
+def bench(screen, snap: Snapshot, n: int = 20) -> tuple[float, float]:
+    """(quadro completo, quadro incremental de 1 s) em ms, 2560×1440 offscreen."""
+    size = QSize(round(W * SCALE), round(H * SCALE))
+    img = QImage(size, QImage.Format.Format_RGB32)
+    full = []
+    for _ in range(n):
+        screen._static = None  # força a reconstrução do cache
+        p = QPainter(img)
+        t0 = time.perf_counter()
+        screen.paint(p, size, snap, DEMO_NOW, mono=0.0)
+        full.append(time.perf_counter() - t0)
+        p.end()
+    inc = []
+    for i in range(1, n + 1):
+        now = DEMO_NOW.replace(second=(DEMO_NOW.second + i) % 60)
+        t0 = time.perf_counter()
+        regs = screen.dirty_regions(snap, now, size)
+        p = QPainter(img)
+        for r in regs:
+            screen.paint(p, size, snap, now, mono=float(i), region=r)
+        p.end()
+        inc.append(time.perf_counter() - t0)
+    return sorted(full)[n // 2] * 1e3, sorted(inc)[n // 2] * 1e3
+
+
+def render_screens(out: Path) -> None:
+    for mode in ("standby", "gaming"):
+        for led, rgb in (("off", None), ("on-ff3b6b", "#ff3b6b"), ("on-3bb6ff", "#3bb6ff")):
+            snap = demo_snapshot(mode, rgb)
+            for prefix, cls in (("main", MainScreen), ("standby", StandbyScreen)):
+                path = out / f"{prefix}-{mode}-{led}.png"
+                render_screen(cls(), snap, path)
+                print(path)
+    for prefix, cls in (("main", MainScreen), ("standby", StandbyScreen)):
+        path = out / f"{prefix}-empty.png"
+        render_screen(cls(), Snapshot(), path)
+        print(path)
+    for prefix, cls, mode in (("main", MainScreen, "gaming"), ("standby", StandbyScreen, "standby")):
+        full, inc = bench(cls(), demo_snapshot(mode, "#ff3b6b"))
+        print(f"{prefix}: quadro completo {full:.1f} ms · incremental (1 s) {inc:.2f} ms")
+
+
 def main() -> None:
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / ".cache/gamerhud/wired-demo"
     out.mkdir(parents=True, exist_ok=True)
@@ -297,6 +408,7 @@ def main() -> None:
     for name, fn in (("kit", draw_kit), ("scene-main", draw_scene_main),
                      ("scene-standby", draw_scene_standby), ("mascot", draw_mascot), ("fonts", draw_fonts)):
         print(board(name, out, fn))
+    render_screens(out)
 
 
 if __name__ == "__main__":
