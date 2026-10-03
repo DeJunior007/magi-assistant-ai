@@ -317,3 +317,21 @@ def test_handlers_register():
     for iid in (IntentId.VOLUME_SET, IntentId.VOLUME_MUTE, IntentId.VOLUME_UNMUTE,
                 IntentId.RGB_COLOR, IntentId.RGB_BRIGHTNESS):
         assert reg.handles(iid)
+
+
+async def test_rgb_brightness_relative_uses_current_level():
+    from types import SimpleNamespace
+
+    calls = []
+    fake = SimpleNamespace(
+        board_color=lambda host, port: (255, 0, 0, 0.5),
+        set_brightness=lambda pct, *a: calls.append(pct) or 1,
+    )
+    act = RgbActions(orgb=fake)
+    res = await act.run(_req(IntentId.RGB_BRIGHTNESS, (SlotName.BRIGHTNESS, "+20")))
+    assert res.ok and calls == [70] and res.speech == "Brilho em 70%."
+    await act.run(_req(IntentId.RGB_BRIGHTNESS, (SlotName.BRIGHTNESS, "-60")))
+    assert calls[-1] == 0  # nunca abaixo de 0
+    fake.board_color = lambda host, port: None  # OpenRGB fora: não chuta valor
+    res = await act.run(_req(IntentId.RGB_BRIGHTNESS, (SlotName.BRIGHTNESS, "+20")))
+    assert not res.ok and len(calls) == 2

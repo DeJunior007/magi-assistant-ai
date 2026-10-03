@@ -181,9 +181,18 @@ class RgbActions:
             ok_say = f"RGB {name}." if name else "Cor aplicada."
         else:
             slot = req.intent.slot(SlotName.BRIGHTNESS)
-            pct = _percent(slot.value) if slot else None
+            raw = slot.value.strip() if slot else ""
+            pct = _percent(raw) if raw else None
             if pct is None:
                 return ActionResult(ok=False, speech="Quanto de brilho?")
+            if raw[0] in "+-":  # "aumenta o brilho" = "+20": relativo ao brilho atual da placa
+                try:
+                    cur = await asyncio.to_thread(self._mod().board_color, self._host, self._port)
+                except (OSError, ConnectionError, struct.error, IndexError, ValueError):
+                    cur = None
+                if cur is None:
+                    return ActionResult(ok=False, speech=SAY_RGB_DOWN)
+                pct = round(cur[3] * 100) + pct
             pct = max(0, min(100, pct))
             fn, arg = "set_brightness", pct
             ok_say = f"Brilho em {pct}%."

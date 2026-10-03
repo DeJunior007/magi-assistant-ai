@@ -243,10 +243,10 @@ def set_brightness(pct, board_only=False, host="127.0.0.1", port=6742, timeout=1
     return _write(lambda cli, i, d: cli.apply_brightness(i, d, frac), board_only, host, port, timeout, name)
 
 
-def board_color():
+def board_color(host="127.0.0.1", port=6742):
     """(r, g, b, nível 0..1) da placa-mãe, ou None se o OpenRGB não responder."""
     try:
-        cli = OpenRGB()
+        cli = OpenRGB(host, port)
         devs = cli.devices()
         cli.close()
     except (OSError, ConnectionError, struct.error, IndexError):
