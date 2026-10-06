@@ -80,6 +80,12 @@ intents:
       - say: "modo ocioso"
         slots: {on_off: "on"}
         label: "mostrar a tela de ociosidade"
+      - say: "coloca o hud em modo ocioso"
+        slots: {on_off: "on"}
+        label: "mostrar a tela de ociosidade"
+      - say: "deixa o hud em modo ocioso"
+        slots: {on_off: "on"}
+        label: "mostrar a tela de ociosidade"
       - say: "tela de descanso"
         slots: {on_off: "on"}
         label: "mostrar a tela de ociosidade"
@@ -154,6 +160,9 @@ intents:
       - say: "mais alto"
         slots: {volume: "+10"}
         label: "aumentar o volume"
+      - say: "aumenta"
+        slots: {volume: "+10"}
+        label: "aumentar o volume"
       - say: "abaixa o volume"
         slots: {volume: "-10"}
         label: "abaixar o volume"
@@ -161,6 +170,9 @@ intents:
         slots: {volume: "-10"}
         label: "abaixar o volume"
       - say: "mais baixo"
+        slots: {volume: "-10"}
+        label: "abaixar o volume"
+      - say: "abaixa"
         slots: {volume: "-10"}
         label: "abaixar o volume"
       - "volume {volume}"

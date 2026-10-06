@@ -22,7 +22,7 @@ from magi.common.contracts import (
     VocabTerm,
     WakeSource,
 )
-from magi.core.stt import HintedStt, HintTerm, build_hint, estimate_tokens
+from magi.core.stt import BASE_TERMS, HINT_PREFIX, HintedStt, HintTerm, build_hint, estimate_tokens
 from magi.core.turn import TurnDeps, TurnPipeline
 
 AUDIO = b"\x00\x01" * CAPTURE_FORMAT.rate  # 1 s de PCM falso
@@ -138,7 +138,7 @@ async def test_transcribes_test_phrase_with_hint(no_disk_writes: list) -> None:
     call = stt.calls[0]
     assert call["audio"] is AUDIO and call["personal"] is True and call["language"] == "pt"
     hint = call["hint"]
-    assert hint.startswith("Vocabulário: ")
+    assert hint.startswith(HINT_PREFIX)
     for term in ("Dead Cells", "Hollow Knight", "deducels", "mó brisa", "Magui", "Celeste"):
         assert term in hint
     # Prioridade: Hollow Knight (1+4 usos) > Magui (3.0) > ... > mó brisa (0.5)
@@ -167,14 +167,15 @@ def test_build_hint_rules() -> None:
     assert build_hint([]) == ""
     assert estimate_tokens("a" * 7) == 2
     terms = [HintTerm("x" * 50, 2.0), HintTerm("  grande   termo ", 1.0), HintTerm("GRANDE termo", 5)]
-    assert build_hint(terms, max_tokens=12) == "Vocabulário: GRANDE termo."
-    assert build_hint(terms, max_tokens=500) == f"Vocabulário: GRANDE termo, {'x' * 50}."
+    small = estimate_tokens(f"{HINT_PREFIX}GRANDE termo.")
+    assert build_hint(terms, max_tokens=small) == f"{HINT_PREFIX}GRANDE termo."
+    assert build_hint(terms, max_tokens=500) == f"{HINT_PREFIX}GRANDE termo, {'x' * 50}."
 
 
 async def test_caller_hint_has_top_priority() -> None:
     hinted, stt = make()
     await hinted.transcribe(AUDIO, CAPTURE_FORMAT, hint="Baldur's Gate", personal=True)
-    assert stt.calls[0]["hint"].startswith("Vocabulário: Baldur's Gate, Hollow Knight")
+    assert stt.calls[0]["hint"].startswith(f"{HINT_PREFIX}Baldur's Gate, Hollow Knight")
 
 
 @pytest.mark.parametrize("error", [ProviderError("caiu"), TimeoutError(), ValueError("json")])
@@ -200,10 +201,10 @@ async def test_broken_sources_and_no_sources() -> None:
     hinted, stt = make(vocab=BrokenRepo(), corrections=BrokenRepo())
     t = await hinted.transcribe(AUDIO, CAPTURE_FORMAT, personal=True)
     assert t.final == "abre o dead cells"
-    assert stt.calls[0]["hint"] == "Vocabulário: Dead Cells, Hollow Knight, deducels."
+    assert stt.calls[0]["hint"] == f"{HINT_PREFIX}Dead Cells, Hollow Knight, deducels."
     bare = HintedStt(FakeStt())
     assert (await bare.transcribe(AUDIO, CAPTURE_FORMAT, personal=True)).final
-    assert bare.inner.calls[0]["hint"] == "Vocabulário: Condessa."  # type: ignore[attr-defined]
+    assert bare.inner.calls[0]["hint"] == f"{HINT_PREFIX}{', '.join(BASE_TERMS)}."  # type: ignore[attr-defined]
     nothing = HintedStt(FakeStt(), base_terms=())
     assert (await nothing.transcribe(AUDIO, CAPTURE_FORMAT, personal=True)).final
     assert nothing.inner.calls[0]["hint"] == ""  # type: ignore[attr-defined]

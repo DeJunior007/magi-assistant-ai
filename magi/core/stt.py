@@ -30,7 +30,9 @@ log = logging.getLogger(__name__)
 
 #: Heurística de tokens sem API: ~3,5 caracteres por token em português.
 CHARS_PER_TOKEN = 3.5
-HINT_PREFIX = "Vocabulário: "
+#: Contexto em português: só a lista de nomes (quase todos de jogos em inglês) puxava a
+#: transcrição para o inglês ("Is it early?", "The Earlids").
+HINT_PREFIX = "Pedro fala em português do Brasil com a assistente Condessa, no PC de jogos. Vocabulário: "
 HINT_SEP = ", "
 HINT_END = "."
 
@@ -39,7 +41,9 @@ CORRECTION_BASE = 1.0
 GAME_WEIGHT = 1.0
 ALIAS_WEIGHT = 0.8
 #: Termos fixos da dica: como o Pedro chama a assistente para ativar e no meio da fala.
-BASE_TERMS: tuple[str, ...] = ("Condessa",)
+BASE_TERMS: tuple[str, ...] = (
+    "Condessa", "HUD", "LEDs", "RGB", "Spotify", "modo ocioso", "volume", "Discord", "Steam",
+)
 BASE_WEIGHT = 2.0
 #: Espera máxima pelo texto final da transcrição enquanto fala depois do fim da fala (1.25);
 #: estourou, cai no envio do áudio inteiro.

@@ -71,7 +71,7 @@ que ela mesma lista.
 | Pesquisa | qualquer coisa recente ("quando sai o próximo Zelda?"): Gemini com Google; links vão pro HUD |
 | Tela (visão) | "que bicho é esse?", "o que tá escrito aqui?" (janela ativa); "...na tela" pega o monitor todo. Só quando você pede; a captura é apagada depois |
 | Ajuda no jogo | "como passo do boss da lua?", "manda a solução" |
-| Confirmação | "confirma"/"sim" ou "cancela"/"não" |
+| Confirmação | "confirma"/"sim" ou "cancela"/"não"; vale até 20 s depois mesmo se você apertar o atalho no meio da pergunta. Pedido meio entendido vai direto para a IA, sem "você quis dizer"; só desligar/reiniciar/fechar jogo perguntam |
 
 Ferramentas do agente (`magi/agent/tools/`): `open_game`, `close_game`, `hud`, `volume`, `rgb`,
 `spotify_play`, `spotify_control`, `spotify_pick`, `search`, `news_query`, `screenshot`,

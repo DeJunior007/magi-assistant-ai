@@ -524,7 +524,7 @@ async def test_confirmacao_expira_por_tempo(make_rig) -> None:
 
 
 async def test_voce_quis_dizer_confirma_e_executa(make_rig) -> None:
-    rig = await make_rig()
+    rig = await make_rig(agent=False)  # sem agente, a nota média ainda pergunta
     await _ate_confirming(rig, "abri o jogo", Expression.CONFUSED)
     assert rig.speaker.said == ["Abrir o jogo?"]
     assert rig.hud.of(VoteMsg) == []  # não é perigosa
@@ -540,10 +540,30 @@ async def test_wake_durante_confirming_descarta_pendencia(make_rig) -> None:
     await rig.sat.wake()
     assert await rig.hud.state() == L
     assert rig.hud.of(VoteMsg)[-1] == VoteMsg(Verdict.DENIED)
-    await rig.sat.speak("confirma")  # agora é fala nova, não confirmação
-    assert await rig.hud.states(2) == [TH, Expression.CONFUSED]
-    assert rig.speaker.said[-1] == SAY_UNAVAILABLE
+    await rig.sat.speak("confirma")  # perigosa: não volta; o "sim" solto vai ao agente
+    assert await rig.hud.states(2) == [TH, SP]
+    assert rig.speaker.said[-1] == "Resposta curta."
     assert len(rig.actions.calls) == 1
+
+
+async def test_nota_media_vai_ao_agente_sem_perguntar(make_rig) -> None:
+    rig = await make_rig()
+    await rig.sat.wake()
+    await rig.sat.speak("abri o jogo")
+    assert await rig.hud.states(3) == [L, TH, SP]
+    assert rig.speaker.said == ["Resposta curta."]
+    assert rig.actions.calls == []
+
+
+async def test_sim_depois_de_interromper_a_pergunta_executa(make_rig) -> None:
+    rig = await make_rig(agent=False)
+    await _ate_confirming(rig, "abri o jogo", Expression.CONFUSED)
+    await rig.sat.wake()  # atalho apertado de novo antes de responder
+    assert await rig.hud.state() == L
+    await rig.sat.speak("confirma")
+    assert await rig.hud.states(2) == [TH, Expression.HAPPY]
+    await rig.sat.hear()
+    assert rig.actions.calls[-1].intent.id == IntentId.GAME_OPEN
 
 
 # ---------------------------------------------------------------------------------------------
