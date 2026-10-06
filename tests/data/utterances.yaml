@@ -116,3 +116,11 @@
 - {text: "manda uma mensagem pro joão", intent: agent}
 - {text: "quero jogar algo novo, o que você recomenda?", intent: agent}
 - {text: "liga pra minha mãe", intent: agent}
+# Turnos reais (out/2026): falas curtas, HUD vs. música e buscas com sobra.
+- {text: "Agora aumenta.", intent: volume.set, slots: {volume: "+10"}}
+- {text: "Abaixa.", intent: volume.set, slots: {volume: "-10"}}
+- {text: "Coloca o HUD em modo ocioso.", intent: hud.idle_toggle, slots: {on_off: "on"}}
+- {text: "Coloca uma só da Willow então.", intent: music.play, slots: {query: "willow"}}
+- {text: "Coloca Linkin Park por favor.", intent: music.play, slots: {query: "linkin park"}}
+- {text: "Eu quero o LED, ligar o LED do PC.", intent: agent}
+- {text: "Coloque uma playlist da Willow Smith e com mais alguns alternativos.", intent: agent}
