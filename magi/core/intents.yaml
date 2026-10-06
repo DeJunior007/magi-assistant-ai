@@ -481,6 +481,11 @@ intents:
       - "o que tem de novo"
       - "me conta as novidades"
       - "que que tem de novo"
+      - "proxima noticia"
+      - "proxima novidade"
+      - "outra noticia"
+      - "outra novidade"
+      - "mais uma noticia"
 
   - id: news.spoilers_ok
     label: "liberar spoiler de {franchise}"

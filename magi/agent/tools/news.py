@@ -31,6 +31,7 @@ from typing import Any
 
 from magi.agent.tools.base import ToolArgsError, arg_int, arg_str
 from magi.common.contracts import (
+    ARG_ALSO_YES,
     ARG_DECLINED,
     ARG_QUIET,
     ActionRequest,
@@ -88,6 +89,13 @@ SAY_ASK_MORE = "Quer ouvir outra?"
 SAY_LAST = "Era isso por enquanto."
 SAY_RADIO_DECLINED = "Beleza, depois tem mais."
 ARG_NEXT = "next"
+#: Também valem "sim" para o "Quer ouvir outra?" (sem acento; "próxima" não vira música).
+RADIO_ALSO_YES = (
+    "proxima", "outra", "manda outra", "manda", "pode mandar", "passa", "pode passar", "bora",
+    "proxima noticia", "proxima novidade", "outra noticia", "outra novidade", "mais uma",
+)
+#: Rádio em andamento: "próxima notícia" dentro deste tempo continua sem o "Tem N novidades".
+RADIO_SESSION = timedelta(minutes=10)
 #: "Conta mais dessa": quantas fontes abrir e o mínimo de texto de uma página para não usar o feed.
 DEEPER_SOURCES = 5
 MIN_ARTICLE_CHARS = 400
@@ -185,6 +193,7 @@ class NewsQuery:
         self.chat: Any = None  # ChatProvider da tarefa ``news`` (narração do modo rádio)
         self._ahead: tuple[int, asyncio.Task[str]] | None = None  # próxima já em narração
         self.last: tuple[NewsItem, Shown] | None = None  # última notícia falada ("conta mais")
+        self._last_at: datetime | None = None  # quando o rádio falou a última
 
     async def _show(self, items: Sequence[NewsItem]) -> list[Shown]:
         ids = [i.id for i in items if i.id is not None]
@@ -205,6 +214,7 @@ class NewsQuery:
         if not items:
             return ActionResult(ok=True, speech=SAY_NOTHING)
         shown = await self._show(items)
+        self.last = (items[0], shown[0])  # a que a IA vai citar primeiro ("conta mais dessa")
         if mark:
             at = self.now()
             for i in items:
@@ -216,6 +226,9 @@ class NewsQuery:
         """Uma notícia narrada e "Quer ouvir outra?" (o "sim" chama de novo com ``first=False``)."""
         if self.repo is None:
             return ActionResult(ok=False, speech=SAY_NO_DB)
+        now = self.now()
+        if self._last_at is not None and now - self._last_at <= RADIO_SESSION:
+            first = False  # "próxima notícia" no meio do rádio: continua
         items = await self.repo.undelivered(WHATS_NEW_LEVELS, limit=RADIO_COUNT)
         if not items:
             return ActionResult(ok=True, speech=SAY_NOTHING if first else SAY_LAST)
@@ -223,8 +236,8 @@ class NewsQuery:
         [shown] = await self._show([item])
         text = await self._narration(item, shown)
         if item.id is not None:
-            await self.repo.mark_delivered(item.id, self.now())
-        self.last = (item, shown)
+            await self.repo.mark_delivered(item.id, now)
+        self.last, self._last_at = (item, shown), now
         head = ""
         if first:
             n = len(items)
@@ -344,7 +357,9 @@ class NewsQuery:
             ]
         items = _rank(items)[:MAX_ITEMS]
         if items:
-            return render(await self._show(items), items, topic)
+            shown = await self._show(items)
+            self.last = (items[0], shown[0])
+            return render(shown, items, topic)
         if self.search is not None:
             return await self.search.run({"question": SEARCH_QUESTION.format(topic=topic)}, ctx)
         if self.repo is None:
@@ -359,7 +374,12 @@ def _ask_more(ctx: TurnContext, text: str, full: str, cards: tuple[CardMsg, ...]
         intent=Intent(id=IntentId.NEWS_WHATS_NEW.value),
         ctx=ctx,
         confirmed=True,
-        args={ARG_NEXT: True, ARG_DECLINED: SAY_RADIO_DECLINED, ARG_QUIET: True},
+        args={
+            ARG_NEXT: True,
+            ARG_DECLINED: SAY_RADIO_DECLINED,
+            ARG_QUIET: True,
+            ARG_ALSO_YES: RADIO_ALSO_YES,
+        },
     )
     return ActionResult(
         ok=True,
