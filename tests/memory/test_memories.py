@@ -203,3 +203,43 @@ async def test_pipeline_records_turn_history_in_background():
 
 def test_memory_dataclass_has_score():
     assert Memory(kind="fact", body="x").score is None
+
+
+def _age(repo: InMemoryMemoriesRepo, days: int) -> None:
+    """Envelhece todas as memórias do repo em memória (que grava ``created_at`` = agora)."""
+    from dataclasses import replace
+    from datetime import timedelta
+
+    for mid, (m, vec) in list(repo._rows.items()):
+        repo._rows[mid] = (replace(m, created_at=m.created_at - timedelta(days=days)), vec)
+
+
+async def test_forget_old_memory_asks_and_deletes_after_yes():
+    repo = InMemoryMemoriesRepo()
+    mem = store(repo)
+    mem.remember("Pedro torce pro Flamengo")
+    await mem.drain()
+    _age(repo, 10)
+    mem.last_id = None  # núcleo reiniciado: nada gravado nesta execução
+    handler = ForgetHandler(mem)
+    req = ActionRequest(intent=Intent(id=IntentId.MEMORY_FORGET.value), ctx=CTX, text="esquece isso")
+    res = await handler.run(req)
+    assert res.needs_confirmation and "Flamengo" in res.speech and res.on_confirm is not None
+    assert len(await mem.recent()) == 1  # nada apagado antes do "sim"
+    done = await handler.run(res.on_confirm)
+    assert done.speech == SAY_FORGOT and await mem.recent() == []
+
+
+async def test_forget_tool_asks_for_old_memory():
+    repo = InMemoryMemoriesRepo()
+    mem = store(repo)
+    mem.remember("Pedro está jogando Hades")
+    await mem.drain()
+    _age(repo, 3)
+    mem.last_id = None
+    tools = {t.name: t for t in memory_tools(mem)}
+    res = await tools["forget"].run({"what": "jogando hades"}, CTX)
+    assert res.needs_confirmation and "Hades" in res.speech
+    assert len(await mem.recent()) == 1
+    assert (await ForgetHandler(mem).run(res.on_confirm)).speech == SAY_FORGOT
+    assert await mem.recent() == []

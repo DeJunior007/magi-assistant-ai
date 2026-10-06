@@ -17,7 +17,7 @@ import logging
 import math
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from psycopg.rows import class_row
@@ -30,6 +30,8 @@ log = logging.getLogger(__name__)
 #: relação ficam em ~0,1-0,25; o mesmo assunto passa de ~0,4).
 MIN_SCORE = 0.35
 #: "forget(what)" só apaga se a mais parecida passar deste limiar.
+#: Memória mais nova que isso é "desta conversa": o "esquece" apaga sem perguntar.
+FRESH_MEMORY = timedelta(minutes=30)
 FORGET_MIN_SCORE = 0.45
 #: Fato quase igual a um já gravado não é gravado de novo.
 DUPLICATE_SCORE = 0.93
@@ -289,32 +291,51 @@ class MemoryStore:
             log.warning("memória: busca indisponível (%s)", type(e).__name__)
             return []
 
-    async def forget_last(self) -> Memory | None:
-        """Apaga a última memória gravada (nesta execução ou, se nenhuma, a mais recente do banco)."""
+    def is_fresh(self, memory: Memory, now: datetime | None = None) -> bool:
+        """Memória desta conversa: a última gravada nesta execução ou com até ``FRESH_MEMORY``.
+        Apagar uma dessas não pede confirmação; uma antiga, sim."""
+        if memory.id is not None and memory.id == self.last_id:
+            return True
+        if memory.created_at is None:
+            return False
+        return (now or datetime.now(UTC)) - memory.created_at <= FRESH_MEMORY
+
+    async def last_memory(self) -> Memory | None:
+        """A última memória gravada (nesta execução ou, se nenhuma, a mais recente do banco)."""
         await self.drain()
         recent = await self.repo.recent(50)
         target = next((m for m in recent if m.id == self.last_id), None) if self.last_id else None
         if target is None and recent:
             target = recent[0]
-        if target is None or target.id is None:
-            return None
-        await self.repo.delete(target.id)
-        self.last_id = None
+        return target if target is not None and target.id is not None else None
+
+    async def similar(self, what: str) -> Memory | None:
+        """A memória mais parecida com ``what`` (se passar de ``FORGET_MIN_SCORE``); vazio = a última."""
+        await self.drain()
+        if not what.strip():
+            return await self.last_memory()
+        [vec] = await self._embed([what])
+        hits = await self.repo.search(vec, 1, FORGET_MIN_SCORE)
+        return hits[0] if hits and hits[0].id is not None else None
+
+    async def delete(self, memory_id: int) -> None:
+        await self.repo.delete(memory_id)
+        if memory_id == self.last_id:
+            self.last_id = None
+
+    async def forget_last(self) -> Memory | None:
+        """Apaga a última memória gravada (ver ``last_memory``)."""
+        target = await self.last_memory()
+        if target is not None and target.id is not None:
+            await self.delete(target.id)
         return target
 
     async def forget(self, what: str) -> Memory | None:
-        """Apaga a memória mais parecida com ``what`` (se passar de ``FORGET_MIN_SCORE``)."""
-        await self.drain()
-        if not what.strip():
-            return await self.forget_last()
-        [vec] = await self._embed([what])
-        hits = await self.repo.search(vec, 1, FORGET_MIN_SCORE)
-        if not hits or hits[0].id is None:
-            return None
-        await self.repo.delete(hits[0].id)
-        if hits[0].id == self.last_id:
-            self.last_id = None
-        return hits[0]
+        """Apaga a memória mais parecida com ``what`` (ver ``similar``)."""
+        target = await self.similar(what)
+        if target is not None and target.id is not None:
+            await self.delete(target.id)
+        return target
 
     async def recent(self, limit: int = 20) -> list[Memory]:
         return await self.repo.recent(limit)

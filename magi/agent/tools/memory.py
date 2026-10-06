@@ -4,6 +4,9 @@
   jogos que ele está jogando, coisas que ele pediu para lembrar). Grava em segundo plano.
 - ``forget(what)``: apaga a memória mais parecida com ``what`` (vazio = a última gravada).
 - ``ForgetHandler``: intent local ``memory.forget`` ("esquece isso") apaga a última memória gravada.
+
+Memória desta conversa (``MemoryStore.is_fresh``) some na hora; uma antiga é lida em voz alta e só
+some depois do "sim" (a confirmação volta ao ``ForgetHandler`` com o id no slot ``text``).
 """
 
 from __future__ import annotations
@@ -12,7 +15,18 @@ from collections.abc import Mapping
 from typing import Any
 
 from magi.agent.tools.base import arg_str
-from magi.common.contracts import ActionRequest, ActionResult, Expression, IntentId, ToolSpec, TurnContext
+from magi.common.contracts import (
+    ActionRequest,
+    ActionResult,
+    Expression,
+    Intent,
+    IntentId,
+    Memory,
+    Slot,
+    SlotName,
+    ToolSpec,
+    TurnContext,
+)
 from magi.memory.memories_repo import MemoryStore
 
 MEMORY_KINDS = ("fact", "preference", "game", "request")
@@ -21,6 +35,23 @@ SAY_REMEMBERED = "Guardei."
 SAY_FORGOT = "Esquecido."
 SAY_NOTHING = "Não tinha nada guardado sobre isso."
 SAY_WHAT = "Guardar o quê?"
+
+
+async def forget_or_ask(store: MemoryStore, target: Memory | None, ctx: TurnContext) -> ActionResult:
+    """Apaga ``target`` se for desta conversa; se for antiga, pergunta antes (lendo o que é)."""
+    if target is None or target.id is None:
+        return ActionResult(ok=False, speech=SAY_NOTHING)
+    if store.is_fresh(target):
+        await store.delete(target.id)
+        return ActionResult(ok=True, speech=SAY_FORGOT, full_text=f"Esqueci: {target.body}")
+    intent = Intent(id=IntentId.MEMORY_FORGET.value, slots=(Slot(name=SlotName.TEXT, value=str(target.id)),))
+    return ActionResult(
+        ok=True,
+        speech=f"Isso é antigo: {target.body}. Apago?",
+        needs_confirmation=True,
+        on_confirm=ActionRequest(intent=intent, ctx=ctx, confirmed=True),
+        expression=Expression.CONFUSED,
+    )
 
 REMEMBER_SPEC = ToolSpec(
     name="remember",
@@ -83,10 +114,7 @@ class ForgetTool:
         return self.spec.name
 
     async def run(self, args: Mapping[str, Any], ctx: TurnContext, text: str = "") -> ActionResult:
-        gone = await self.store.forget(arg_str(args, "what"))
-        if gone is None:
-            return ActionResult(ok=False, speech=SAY_NOTHING)
-        return ActionResult(ok=True, speech=SAY_FORGOT, full_text=f"Esqueci: {gone.body}")
+        return await forget_or_ask(self.store, await self.store.similar(arg_str(args, "what")), ctx)
 
 
 def memory_tools(store: MemoryStore) -> list[RememberTool | ForgetTool]:
@@ -102,7 +130,9 @@ class ForgetHandler:
         self.store = store
 
     async def run(self, req: ActionRequest) -> ActionResult:
-        gone = await self.store.forget_last()
-        if gone is None:
-            return ActionResult(ok=True, speech=SAY_NOTHING)
-        return ActionResult(ok=True, speech=SAY_FORGOT, full_text=f"Esqueci: {gone.body}")
+        slot = req.intent.slot(SlotName.TEXT)
+        if req.confirmed and slot is not None and slot.value.isdigit():  # "sim" para uma antiga
+            await self.store.delete(int(slot.value))
+            return ActionResult(ok=True, speech=SAY_FORGOT)
+        res = await forget_or_ask(self.store, await self.store.last_memory(), req.ctx)
+        return res if res.ok else ActionResult(ok=True, speech=SAY_NOTHING)
