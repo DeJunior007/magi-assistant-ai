@@ -27,7 +27,7 @@ from functools import lru_cache
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
 
-from . import fonts, kit, scene
+from . import fonts, kit, scene, sky
 from .mascot import Mascot
 from .theme import (
     BG,
@@ -372,9 +372,12 @@ class Screen:
     """Base das duas telas: cache da camada estática, grupos com chave e retângulo, mascote."""
 
     MASCOT_RECT = QRectF()
+    SCENE_KIND = "main"
 
-    def __init__(self, mascot: Mascot | None = None):
+    def __init__(self, mascot: Mascot | None = None, anim: scene.SceneAnimator | None = None):
         self.mascot = mascot or Mascot("sleeping")
+        self.anim = anim or scene.SceneAnimator(self.SCENE_KIND)
+        self.sky = sky.NIGHT
         self._static: tuple[tuple, QPixmap] | None = None
         self._keys: dict[str, tuple] = {}
         self._snap: Snapshot | None = None
@@ -392,6 +395,18 @@ class Screen:
     def draw_static(self, p: QPainter, s: float) -> None:
         raise NotImplementedError
 
+    def paint_scene(self, p: QPainter, snap: Snapshot, mono: float, s: float) -> None:
+        """Camada animada do cenário (painter na grade lógica, recortado à região)."""
+        raise NotImplementedError
+
+    def scene_rects(self) -> list[QRectF]:
+        raise NotImplementedError
+
+    def set_time(self, now: datetime) -> None:
+        """Dia e noite: paleta do céu para ``now`` (o fundo em cache muda junto, a cada 5 min)."""
+        self.sky = sky.sky_at(now)
+        self.anim.set_sky(self.sky)
+
     # -- comum
     @staticmethod
     def scale(size: QSize) -> float:
@@ -406,7 +421,7 @@ class Screen:
         self.mascot.set_level(snap.mouth_level)
 
     def static_pixmap(self, size: QSize) -> QPixmap:
-        key = (size.width(), size.height())
+        key = (size.width(), size.height(), self.sky.key)
         if self._static is None or self._static[0] != key:
             s = self.scale(size)
             pm = QPixmap(size)
@@ -426,6 +441,7 @@ class Screen:
         área (o fundo sai do cache e só os grupos que a tocam são redesenhados)."""
         now = now or datetime.now()
         mono = time.monotonic() if mono is None else mono
+        self.set_time(now)
         s = self.scale(size)
         full = QRect(0, 0, size.width(), size.height())
         dev = full if region is None else region.intersected(full)
@@ -443,9 +459,11 @@ class Screen:
                 continue
             if name == "mascot":
                 self.mascot.paint(p, self.MASCOT_RECT, accent(snap), mono)
+            elif name == "scene":
+                self.paint_scene(p, snap, mono, s)
             else:
                 self.draw_group(name, p, snap, now, s)
-            if all(dev.contains(d) for d in drs):
+            if all(dev.contains(d.intersected(full)) for d in drs):
                 self._keys[name] = self.group_key(name, snap, now)
         p.restore()
 
@@ -455,7 +473,8 @@ class Screen:
         now = now or datetime.now()
         size = size or QSize(round(W), round(H))
         s = self.scale(size)
-        if self._static is None or self._static[0] != (size.width(), size.height()):
+        self.set_time(now)
+        if self._static is None or self._static[0] != (size.width(), size.height(), self.sky.key):
             return [QRect(0, 0, size.width(), size.height())]
         out = []
         for name, rects in self.groups().items():
@@ -468,6 +487,17 @@ class Screen:
         size = size or QSize(round(W), round(H))
         redraw, nxt = self.mascot.tick(mono)
         return (dev_rect(self.MASCOT_RECT, self.scale(size)) if redraw else None), nxt
+
+    def scene_tick(self, mono: float | None = None, size: QSize | None = None) -> tuple[list[QRect], float]:
+        """Avança o cenário animado (fios, janelas, névoa, pássaro); (retângulos a redesenhar,
+        próximo prazo em monotonic)."""
+        size = size or QSize(round(W), round(H))
+        moved, nxt = self.anim.tick(mono)
+        if not moved:
+            return [], nxt
+        s = self.scale(size)
+        full = QRect(0, 0, size.width(), size.height())
+        return [dev_rect(r, s).intersected(full) for r in self.scene_rects()], nxt
 
     def hit_rects(self, snap: Snapshot | None = None) -> dict[str, QRectF]:
         return {}
@@ -637,18 +667,9 @@ class MainScreen(Screen):
                              ("net", "Network", TEXT)):
             heading(p, X1 + 20, CARD[k].top() + 37, name, color_=col)
         # centro em cima: cena + lado do mascote
-        path = kit.panel(p, MID_TOP)
-        p.save()
-        p.setClipPath(path)
-        p.drawPixmap(SCENE, scene.main_scene(SCENE.width(), SCENE.height(), CPU, s), QRectF())
-        p.restore()
-        kit.draw_scanlines(p, SCENE, clip=path)
-        kit.panel(p, MID_TOP, fill=None)
+        kit.panel(p, MID_TOP)
+        self._scene_frame(p, s, None)
         p.fillRect(QRectF(SCENE.right() - 1, MID_TOP.top(), 1, MID_TOP.height()), color(LINE))
-        label(p, SCENE.left() + 24, Y2 + 35, "cam 01 // 電線", color_=TEXT)
-        text(p, SCENE.left() + 24, MID_TOP.bottom() - 50, "信号は、まだ届いている。", key="jp", px=18,
-             spacing=0.14)
-        label(p, SCENE.left() + 24, MID_TOP.bottom() - 26, "the signal is still arriving.", upper=False)
         label(p, SIDE_X, _SY + 12, "magi-01 // melchior")
         text(p, SIDE_R, _SY + 12, "人格", key="jp", px=12, color_=TEXT_DIM, align=R)
         # centro embaixo
@@ -680,6 +701,33 @@ class MainScreen(Screen):
         label(p, X1 + w + 12, 1042, "multi agent guidance interface")
         label(p, 1892, 1042, "meta+m · painel completo", align=R)
 
+    def _scene_frame(self, p: QPainter, s: float, mono: float | None) -> None:
+        """"cam 01": fundo do céu da hora, camada animada (``mono``; None = parado, no estático),
+        scanlines, borda do painel e legendas por cima."""
+        path = kit.panel_path(MID_TOP)
+        p.save()
+        p.setClipPath(path, Qt.ClipOperation.IntersectClip)
+        p.setClipRect(SCENE, Qt.ClipOperation.IntersectClip)
+        p.drawPixmap(SCENE, scene.main_scene(SCENE.width(), SCENE.height(), CPU, s, self.sky, live=False),
+                     QRectF())
+        self.anim.paint(p, SCENE, CPU, mono)
+        p.restore()
+        kit.draw_scanlines(p, SCENE, clip=path)
+        p.save()
+        p.setClipRect(SCENE, Qt.ClipOperation.IntersectClip)
+        kit.panel(p, MID_TOP, fill=None)
+        p.restore()
+        label(p, SCENE.left() + 24, Y2 + 35, "cam 01 // 電線", color_=TEXT)
+        text(p, SCENE.left() + 24, MID_TOP.bottom() - 50, "信号は、まだ届いている。", key="jp", px=18,
+             spacing=0.14)
+        label(p, SCENE.left() + 24, MID_TOP.bottom() - 26, "the signal is still arriving.", upper=False)
+
+    def paint_scene(self, p: QPainter, snap: Snapshot, mono: float, s: float) -> None:
+        self._scene_frame(p, s, mono)
+
+    def scene_rects(self) -> list[QRectF]:
+        return self.anim.regions(SCENE)
+
     # ---------------------------------------------------------------- grupos
 
     def groups(self) -> dict[str, list[QRectF]]:
@@ -687,6 +735,7 @@ class MainScreen(Screen):
             return QRectF(r.left() + 2, r.top() + top, r.width() - 4, r.height() - top - 2)
 
         return {
+            "scene": self.scene_rects(),  # primeiro: REC e o resto do cam 01 vão por cima
             "clock": [HEADER_CLOCK, REC],
             "fps": [inner(CARD_FPS)],
             "cpu": [QRectF(X1 + 2, CARD["cpu"].top() + 2, 356, CARD["cpu"].height() - 4)],
@@ -718,6 +767,8 @@ class MainScreen(Screen):
             return (sn.ram, sn.ram_txt, sn.ram_label)
         if name == "net":
             return (sn.net_down, sn.net_up, tuple(sn.net_series))
+        if name == "scene":
+            return (self.sky.key,)
         if name == "mascot":
             return (accent(sn).rgb(), sn.magui_state)
         if name == "mood":
