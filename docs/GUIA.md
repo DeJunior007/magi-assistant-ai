@@ -129,7 +129,8 @@ Respostas faladas têm até 2 frases; a resposta completa e os links aparecem co
 
 **Memória.** Ela guarda fatos duradouros (gostos, o que você está jogando, planos, "lembra
 que...") no Postgres e busca até 5 parecidos a cada pergunta. "**Esquece isso**" apaga a última
-memória guardada (ou a mais parecida com o que você disser). Um perfil curto de estilo (gírias,
+memória guardada (ou a mais parecida com o que você disser): se ela for desta conversa (até
+30 min), some na hora; se for antiga, ela lê em voz alta e pergunta "Apago?". Um perfil curto de estilo (gírias,
 formalidade, tamanho de resposta) é atualizado 1× por dia.
 
 **Humor.** Nota 0–4 suavizada a partir do tom de voz (gritando, desanimado), palavras (palavrão
