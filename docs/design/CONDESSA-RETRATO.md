@@ -4,6 +4,60 @@ O HUD já sabe animar um retrato em camadas (`hud/wired/portrait.py`): pisca, ol
 mexe a boca com a voz, respira de leve acordada e troca de expressão. Falta só a arte. Enquanto a
 pasta não tiver as camadas obrigatórias, o HUD continua com o rostinho vetorial.
 
+## Lista completa estilo Persona 3 Reload (rosto solo, camadas)
+
+O retrato do P3R é **uma pose só** (busto de frente ou levemente 3/4, enquadramento fixo) e o que
+muda são olhos, sobrancelhas e boca por cima, mais detalhes soltos (rubor, suor). A vida vem de
+piscar, mexer a boca com a voz, respirar e trocar de expressão — nunca de trocar a pose inteira.
+
+**Como pedir a arte (o jeito mais fácil):** gere a **base** e depois cada variação **na mesma
+imagem, mudando só a região** (inpainting de olhos ou de boca, mesma semente/personagem). Me
+entregue as imagens **inteiras**, todas do mesmo tamanho e alinhadas; eu extraio as camadas pela
+diferença com a base. Quadro sugerido: **1200 × 900**, fundo liso ou transparente, cabeça ocupando
+~50% da altura, nada cortado nas laterais (cabelo inteiro dentro do quadro).
+
+### A. Base (1)
+| Arquivo | O que é |
+| --- | --- |
+| `base` | busto neutro, olhos abertos e boca fechada (é a referência de todas as outras) |
+
+### B. Olhos + sobrancelhas (cada linha = um conjunto; piscar precisa de aberto, meio e fechado)
+| Conjunto | aberto | meio | fechado | Uso |
+| --- | --- | --- | --- | --- |
+| neutro | ✔ | ✔ | ✔ | ouvindo, falando, padrão |
+| feliz (olhos sorrindo, sobrancelha relaxada) | ✔ | – | ✔ (arco "^ ^") | feliz |
+| sério (sobrancelha baixa, olhar firme) | ✔ | ✔ | ✔ | alerta |
+| surpresa (olhos arregalados, sobrancelha alta) | ✔ | – | – | confusa/susto (pisca usando o fechado neutro) |
+| preocupada (sobrancelhas inclinadas para cima no meio) | ✔ | ✔ | ✔ | confusa, "não peguei" |
+| pensativa (olhar para cima/lado) | ✔ | – | – | pensando |
+| sonolenta (pálpebra a meio) | ✔ | – | ✔ | dormindo |
+| olhar à esquerda / à direita (neutro, só íris) | ✔ / ✔ | – | – | olhares quando parada |
+
+### C. Boca
+| Arquivo | Uso |
+| --- | --- |
+| fechada neutra | parada, falando em silêncio |
+| entreaberta | fala baixa (sílabas fracas) |
+| aberta | fala alta |
+| bem aberta | opcional: fala animada/gritinho |
+| sorriso fechado | feliz parada |
+| sorriso aberto | feliz falando / risada |
+| "o" pequeno | surpresa, pensando |
+| linha reta / bico | séria, emburrada |
+| sorriso de canto | zoeira (humor alto) |
+
+### D. Detalhes por cima (PNG só com o detalhe)
+rubor nas bochechas · gota de suor · "zz" · "?" · "!" · (opcional) lágrima, veia de raiva.
+
+### E. Opcional (mais vida, estilo P3R)
+- **cabelo da frente separado** (mechas que balançam de leve) e **cabelo de trás** — dá o
+  balanço sutil do P3R;
+- **cabeça levemente inclinada** (mesma arte, 3–5°) para "pensando".
+
+**Mínimo para funcionar bem:** A + B (neutro com 3, feliz, sério, surpresa, pensativa,
+sonolenta) + C (fechada, entreaberta, aberta, sorriso fechado, sorriso aberto, "o") + D (rubor,
+"zz") ≈ **20 imagens**. Tudo da lista ≈ 35.
+
 ## Atalho: folha de expressões (quadros inteiros)
 
 Em vez de camadas, dá para usar uma **folha N×N de expressões** (rostos inteiros, poses
