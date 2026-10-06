@@ -35,6 +35,7 @@ sys.path.insert(0, HERE)
 import orgb  # noqa: E402
 import hud_bridge  # noqa: E402
 from face import Face  # noqa: E402
+from wired.data import ClaudeStats  # noqa: E402
 from wired.integration import CARD_DETAIL, WiredUI, rgb_hex  # noqa: E402
 
 TARGET_SCREEN = os.environ.get("GAMERHUD_SCREEN", "DP-1")
@@ -984,6 +985,8 @@ class HUD(QWidget):
         self.view = cfg.get("view", "full")   # 'full' | 'idle' (Meta+M alterna)
         self.ui = "eva" if cfg.get("ui", UI_DEFAULT) == "eva" else "wired"
         self.wired = WiredUI() if self.ui == "wired" else None   # tema wired (U4)
+        self.claude_stats = None
+        self.attach_claude()
         # tela de ociosidade: média de FPS que só muda a cada IDLE_AVG_S, e tempo de sessão
         self.idle_avg = None
         self.idle_acc = []
@@ -1034,6 +1037,7 @@ class HUD(QWidget):
         self.trans = None
         if ui == "wired":
             self.wired = self.wired_keep if getattr(self, "wired_keep", None) else WiredUI()
+            self.attach_claude()
             self.frame = None
             self.wired.set_state(self.face.state if self.face.state in self.FACE_STATES else "sleeping")
             self.wired.set_mood(self.magui_mood)
@@ -1053,6 +1057,15 @@ class HUD(QWidget):
             self.sample()
         if self.wired:
             self.wired_timer.start(1000 - int(time.time() * 1000) % 1000 + 3)
+
+    def attach_claude(self):
+        """Painel "Claude Code": coleta numa thread (MAGI_NO_CLAUDE_STATS=1 desliga, nos testes)."""
+        if self.wired is None or os.environ.get("MAGI_NO_CLAUDE_STATS") == "1":
+            return
+        if self.claude_stats is None:
+            self.claude_stats = ClaudeStats()
+            self.claude_stats.start()
+        self.wired.claude = self.claude_stats
 
     def wired_poll(self):
         d = self.sensors.data

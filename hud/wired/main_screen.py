@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import lru_cache
+from typing import Any
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
@@ -122,6 +123,7 @@ class Snapshot:
     caption: str | None = None  # legenda da fala da Magui
     mood: int | None = None  # termômetro de humor 0 (pega leve) .. 4 (pode zoar), R13.7; None = sem dado
     news: list[tuple[str, str]] = field(default_factory=list)  # Rádio Ayanami: (HH:MM, manchete), novas 1º
+    claude: Any = None  # data.ClaudeView: consumo e sessões do Claude Code; None = sem dado
 
 
 def led_lit(snap: Snapshot) -> bool:
@@ -250,6 +252,19 @@ def wrapped(p: QPainter, rect: QRectF, s: str, *, key: str = "jp", px: float = 1
     for i, ln in enumerate(lines):
         p.drawText(QPointF(rect.left(), rect.top() + (lh - fm.height()) / 2 + a + i * lh), ln)
     p.restore()
+
+
+def human_tokens(n: int | None) -> str:
+    """Tokens em forma curta: 950, 12,3 mil, 271 mi."""
+    if n is None:
+        return NA
+    if n >= 10**8:
+        return f"{n / 1e6:.0f} mi"
+    if n >= 10**6:
+        return f"{n / 1e6:.1f} mi".replace(".", ",")
+    if n >= 1000:
+        return f"{n / 1e3:.1f} mil".replace(".", ",")
+    return str(n)
 
 
 def dev_rect(r: QRectF, s: float) -> QRect:
@@ -529,10 +544,12 @@ SCENE = QRectF(X2, Y2, 1 + 922 * 1.4 / 2.4, MID_TOP.height())
 SIDE_X, SIDE_R = SCENE.right() + 22, MID_TOP.right() - 23
 HIST = QRectF(X2, MID_TOP.bottom() + 20, 544, _M)
 SPEC = QRectF(HIST.right() + 20, HIST.top(), 360, _M)
-# direita: Now playing compacto + Rádio Ayanami (últimas notícias contadas)
+# direita: Now playing compacto, Rádio Ayanami (cartões) e Claude Code
 NP = QRectF(X3, Y2, 360, 292)
-RADIO = QRectF(X3, NP.bottom() + 20, 360, Y3 - 20 - NP.bottom() - 20)
-RADIO_ITEMS = 5
+RADIO = QRectF(X3, NP.bottom() + 20, 360, 262)
+CLAUDE = QRectF(X3, RADIO.bottom() + 20, 360, Y3 - 20 - RADIO.bottom() - 20)
+RADIO_ITEMS = 3
+RADIO_CARD_H = 56.0
 
 # lado do mascote (flex column gap 14, a partir de top+1+22)
 _SY = Y2 + 23
@@ -699,6 +716,9 @@ class MainScreen(Screen):
         kit.panel(p, RADIO)
         w = heading(p, RADIO.left() + 21, RADIO.top() + 41, "Rádio Ayanami").width()
         text(p, RADIO.left() + 21 + w + 12, RADIO.top() + 41, "放送", key="jp", px=12, color_=TEXT_DIM)
+        kit.panel(p, CLAUDE)
+        w = heading(p, CLAUDE.left() + 21, CLAUDE.top() + 41, "Claude Code").width()
+        text(p, CLAUDE.left() + 21 + w + 12, CLAUDE.top() + 41, "補佐", key="jp", px=12, color_=TEXT_DIM)
         # rodapé
         w = heading(p, X1, 1043, "MAGI", px=16).width()
         label(p, X1 + w + 12, 1042, "multi agent guidance interface")
@@ -751,6 +771,7 @@ class MainScreen(Screen):
             "magi": [QRectF(MAGI.left() + 2, LED_BTN.top() - 2, MAGI.width() - 4, MAGI.height() - 36)],
             "player": [QRectF(NP.left() + 2, NP.top() + 18, NP.width() - 4, NP.height() - 20)],
             "radio": [inner(RADIO, 56)],
+            "claude": [inner(CLAUDE, 56)],
             "footer": [FOOTER],
         }
 
@@ -786,6 +807,10 @@ class MainScreen(Screen):
                     t.cover.cacheKey() if t.cover is not None else None)
         if name == "radio":
             return tuple(sn.news)
+        if name == "claude":
+            c = sn.claude
+            return (None,) if c is None else (c.tokens, c.output, c.replies, tuple(c.sessions), c.running,
+                                               c.autofix)
         if name == "footer":
             return tuple(sn.events)
         return ()
@@ -1024,19 +1049,48 @@ class MainScreen(Screen):
 
     def _g_radio(self, p, snap, now, s):
         x, wdt = RADIO.left() + 21, RADIO.width() - 42
-        y = RADIO.top() + 64
+        y = RADIO.top() + 60
         if not snap.news:
-            label(p, x, y + 10, "nenhuma notícia ainda", upper=False)
-            label(p, x, y + 32, 'diga "novidades"', upper=False, color_=TEXT_DIM)
+            label(p, x, y + 14, "nenhuma notícia ainda", upper=False)
+            label(p, x, y + 36, 'diga "novidades"', upper=False, color_=TEXT_DIM)
             return
-        slot = (RADIO.bottom() - 21 - y) / RADIO_ITEMS
         for i, (hhmm, title) in enumerate(snap.news[:RADIO_ITEMS]):
-            top = y + i * slot
-            if i:
-                p.fillRect(QRectF(x, top - 8, wdt, 1), color(LINE))
-            label(p, x, top + 10, hhmm, px=11, color_=CPU if i == 0 else TEXT_DIM)
-            wrapped(p, QRectF(x, top + 18, wdt, slot - 28), title, key="mono", px=13,
-                    color_=TEXT if i == 0 else TEXT_DIM, line_h=18, max_lines=max(1, int((slot - 28) // 18)))
+            card = QRectF(x, y + i * (RADIO_CARD_H + 8), wdt, RADIO_CARD_H)
+            first = i == 0
+            p.fillRect(card, color(BUTTON))
+            bar = color(CPU if first else LINE_STRONG)
+            p.fillRect(QRectF(card.left(), card.top(), 3, card.height()), bar)
+            label(p, card.left() + 12, card.top() + 16, hhmm, px=10, color_=CPU if first else TEXT_DIM)
+            wrapped(p, QRectF(card.left() + 12, card.top() + 21, card.width() - 20, RADIO_CARD_H - 24), title,
+                    key="mono", px=12, color_=TEXT if first else TEXT_DIM, line_h=15, max_lines=2)
+
+    def _g_claude(self, p, snap, now, s):
+        x, x1 = CLAUDE.left() + 21, CLAUDE.right() - 21
+        y = CLAUDE.top() + 60
+        c = snap.claude
+        if c is None or c.tokens is None:
+            label(p, x, y + 14, "sem dados do claude code", upper=False)
+            return
+        label(p, x, y + 10, "hoje", px=11)
+        text(p, x, baseline("cond", 30, y + 16, 32, 500), human_tokens(c.tokens), key="cond", px=30,
+             weight=500)
+        label(p, x1, y + 34, f"{c.replies} resp · saída {human_tokens(c.output)}", px=11, align=R,
+              upper=False)
+        y += 62
+        p.fillRect(QRectF(x, y, x1 - x, 1), color(LINE))
+        label(p, x, y + 18, f"sessões · {c.running} rodando", px=11)
+        y += 26
+        if not c.sessions:
+            label(p, x, y + 14, "nenhuma ativa", upper=False, color_=TEXT_DIM)
+        for proj, running, ago in c.sessions[:3]:
+            dot = "●" if running else "○"
+            label(p, x, y + 14, f"{dot} {proj}", upper=False, color_=GPU if running else TEXT_DIM, max_w=230)
+            label(p, x1, y + 14, "agora" if ago < 1 else f"{ago} min", px=11, align=R, upper=False)
+            y += 22
+        if c.autofix:
+            yb = CLAUDE.bottom() - 26
+            p.fillRect(QRectF(x, yb - 18, x1 - x, 1), color(LINE))
+            label(p, x, yb, c.autofix, px=11, upper=False, color_=WARN, max_w=x1 - x)
 
     # ---------------------------------------------------------------- rodapé
 

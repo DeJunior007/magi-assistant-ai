@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt  # noqa: E402
 from PySide6.QtGui import QGuiApplication, QImage, QLinearGradient, QPainter, QPixmap  # noqa: E402
 from wired import fonts, kit, scene  # noqa: E402
+from wired.data import ClaudeView  # noqa: E402
 from wired.main_screen import MainScreen, Pilot, Snapshot, Track  # noqa: E402
 from wired.mascot import EXPRESSIONS, Mascot  # noqa: E402
 from wired.standby_screen import StandbyScreen  # noqa: E402
@@ -345,6 +346,9 @@ def demo_snapshot(mode: str, rgb: str | None) -> Snapshot:
                         "março de 2027."),
               ("19:06", "O criador de Hunter x Hunter vai recusar trabalhos com prazo para cuidar da saúde."),
               ("19:05", "The Record of a Fallen Vampire vai virar anime para TV em 2027.")],
+        claude=ClaudeView(271_300_000, 1_500_000, 1209,
+                          [("magi-assistant-ai", True, 0), ("KPCeramica", False, 7)], 1,
+                          "conserto pronto: roteador · diga \"aplica\""),
         led_on=rgb is not None, led_rgb=rgb,
         magui_state="listening" if gaming else "sleeping",
     )
