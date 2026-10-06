@@ -302,3 +302,31 @@ def test_radio_magui_guarda_as_noticias_do_radio():
     radio("Gundam novo em março.", 120)
     snap = ui.build({})
     assert [t for _, t in snap.news] == ["Gundam novo em março.", "Saiu o trailer de Hades 3."]
+
+
+def test_meta_m_alterna_com_cortina(make_hud, monkeypatch):
+    """Meta+M grava "view" no settings.json; o HUD aberto faz a cortina e termina na outra tela."""
+    import time as _time
+
+    w = make_hud()
+    w.show()
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.processEvents()
+    cfg = {"view": "idle", "transition": True, "rgb_sync": True}
+    monkeypatch.setattr(gamerhud, "load_settings", lambda: cfg)
+    w.settings_mtime = -1  # settings.json "mudou"
+    w.poll_rgb()
+    assert w.trans is not None and w.view == "idle"
+    w.grab()  # pinta no meio da cortina
+    w.trans["t0"] -= gamerhud.TRANSITION_S + 0.1
+    w.animate()
+    assert w.trans is None and w.view == "idle"
+    img = w.grab()
+    assert not img.isNull()
+    cfg["view"] = "full"
+    w.settings_mtime = -2
+    w.poll_rgb()
+    w.trans["t0"] = _time.monotonic() - gamerhud.TRANSITION_S - 0.1
+    w.animate()
+    assert w.view == "full" and w.trans is None
