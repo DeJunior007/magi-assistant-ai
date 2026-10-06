@@ -9,6 +9,11 @@ e todas têm ``timestamp`` (ISO, UTC) e ``cwd``. Este módulo soma o dia e lista
   do diretório do registro (``/home/x/proj`` → ``-home-x-proj``), não do ``cwd`` das linhas, que
   muda quando a sessão entra em outra pasta.
 
+**Janela de 5 h** (limite de uso da assinatura): como as ferramentas de uso do Claude Code fazem,
+uma janela começa na hora cheia da primeira resposta e dura ``WINDOW_H`` horas; resposta depois do
+fim abre outra. O limite em si depende do plano e não fica nos registros, então só se mostra o fim
+da janela e o que foi usado nela (tokens novos à parte da leitura de cache, que pesa bem menos).
+
 Leitura incremental: cada arquivo é relido só a partir do byte onde parou (o ``UsageReader`` guarda
 o deslocamento), então chamar a cada poucos segundos é barato mesmo com sessões grandes.
 Base para o painel "Claude Code" do HUD (proposta em ``docs/design/AUTOCONSERTO.md``).
@@ -29,6 +34,7 @@ log = logging.getLogger(__name__)
 
 PROJECTS_DIR = Path.home() / ".claude/projects"
 ACTIVE_MIN = 10
+WINDOW_H = 5
 TZ = ZoneInfo("America/Sao_Paulo")
 
 
@@ -50,6 +56,11 @@ class Tokens:
     @property
     def total(self) -> int:
         return self.input + self.output + self.cache_read + self.cache_write
+
+    @property
+    def fresh(self) -> int:
+        """Tokens novos (entrada, saída e criação de cache), sem a leitura de cache."""
+        return self.input + self.output + self.cache_write
 
 
 @dataclass(slots=True)
@@ -73,6 +84,9 @@ class Summary:
     by_model: dict[str, Tokens]
     active: list[Session]  # mais recente primeiro
     running: int
+    window_start: datetime | None = None  # janela de 5 h em curso (None = nenhuma aberta)
+    window_end: datetime | None = None
+    window: Tokens = field(default_factory=Tokens)
 
 
 class UsageReader:
@@ -89,6 +103,8 @@ class UsageReader:
         self._sessions: dict[str, Session] = {}
         self._by_model: dict[str, Tokens] = {}
         self._day: str | None = None
+        self._recent: list[tuple[datetime, dict]] = []  # respostas das últimas 2 janelas de 5 h
+        self._horizon = datetime.min.replace(tzinfo=UTC)
 
     def _reset_day(self, day: str) -> None:
         self._day = day
@@ -96,6 +112,7 @@ class UsageReader:
         for s in self._sessions.values():
             s.today = Tokens()
         self._offsets = {}  # relê tudo para refazer a soma do novo dia
+        self._recent = []
 
     def _files(self) -> Iterable[Path]:
         if not self.root.is_dir():
@@ -134,10 +151,12 @@ class UsageReader:
             usage = msg.get("usage") if isinstance(msg, dict) else None
             if not isinstance(usage, dict) or when is None:
                 continue
-            if when.astimezone(self.tz).strftime("%Y-%m-%d") != day:
-                continue
             model = str(msg.get("model") or "?")
             if model.startswith("<"):  # "<synthetic>": mensagens internas, sem consumo real
+                continue
+            if when >= self._horizon:
+                self._recent.append((when, usage))
+            if when.astimezone(self.tz).strftime("%Y-%m-%d") != day:
                 continue
             sess.today.add(usage)
             self._by_model.setdefault(model, Tokens()).add(usage)
@@ -145,6 +164,7 @@ class UsageReader:
     def summary(self) -> Summary:
         now = self.now()
         day = now.astimezone(self.tz).strftime("%Y-%m-%d")
+        self._horizon = now - timedelta(hours=2 * WINDOW_H)
         if day != self._day:
             self._reset_day(day)
         for path in self._files():
@@ -168,7 +188,28 @@ class UsageReader:
             total.cache_read += t.cache_read
             total.cache_write += t.cache_write
             total.replies += t.replies
-        return Summary(day, total, dict(self._by_model), active, sum(1 for s in active if s.running))
+        self._recent = [(w, u) for w, u in self._recent if w >= self._horizon]
+        start, end, window = current_window([w for w, _ in self._recent], now)
+        if start is not None:
+            for w, u in self._recent:
+                if start <= w < end:
+                    window.add(u)
+        return Summary(day, total, dict(self._by_model), active, sum(1 for s in active if s.running),
+                       start, end, window)
+
+
+def current_window(times: list[datetime], now: datetime,
+                   hours: int = WINDOW_H) -> tuple[datetime | None, datetime | None, Tokens]:
+    """Janela de ``hours`` h em curso: começa na hora cheia da 1ª resposta depois do fim da anterior."""
+    start = end = None
+    span = timedelta(hours=hours)
+    for t in sorted(times):
+        if end is None or t >= end:
+            start = t.replace(minute=0, second=0, microsecond=0)
+            end = start + span
+    if end is None or now >= end:
+        return None, None, Tokens()
+    return start, end, Tokens()
 
 
 def _parse(ts: object) -> datetime | None:

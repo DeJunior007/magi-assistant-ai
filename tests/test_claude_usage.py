@@ -63,3 +63,32 @@ def test_vira_o_dia_e_zera(tmp_path):
 def test_sem_pasta_e_human(tmp_path):
     assert UsageReader(tmp_path / "nada", now=lambda: NOW, running_cwds=set).summary().tokens.total == 0
     assert human(950) == "950" and human(1234) == "1,2 mil" and human(3_400_000) == "3,4 mi"
+
+
+def test_janela_de_5h():
+    from datetime import timedelta
+
+    from magi.maintenance.claude_usage import current_window
+
+    t = datetime(2026, 10, 6, 14, 37, tzinfo=UTC)
+    start, end, _ = current_window([t, t + timedelta(hours=1)], t + timedelta(hours=2))
+    assert start == datetime(2026, 10, 6, 14, 0, tzinfo=UTC) and end == start + timedelta(hours=5)
+    # resposta depois do fim abre outra janela, na hora cheia dela
+    later = t + timedelta(hours=6)
+    start, end, _ = current_window([t, later], later + timedelta(minutes=5))
+    assert start == datetime(2026, 10, 6, 20, 0, tzinfo=UTC)
+    # janela já fechada e nenhuma resposta nova: nada em curso
+    assert current_window([t], t + timedelta(hours=6))[0] is None
+
+
+def test_janela_soma_so_o_que_esta_dentro(tmp_path):
+    proj = tmp_path / "p"
+    proj.mkdir()
+    (proj / "s.jsonl").write_text(
+        line("2026-10-06T15:30:00Z", "/a", U)  # janela anterior (15:00-20:00)
+        + line("2026-10-06T20:10:00Z", "/a", U)  # abre a janela 20:00-01:00
+        + line("2026-10-06T21:50:00Z", "/a", U)
+    )
+    s = UsageReader(tmp_path, now=lambda: NOW, running_cwds=set).summary()
+    assert s.window_start == datetime(2026, 10, 6, 20, 0, tzinfo=UTC)
+    assert s.window.replies == 2 and s.window.fresh == 2 * 160 and s.window.cache_read == 2000

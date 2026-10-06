@@ -810,7 +810,7 @@ class MainScreen(Screen):
         if name == "claude":
             c = sn.claude
             return (None,) if c is None else (c.tokens, c.output, c.replies, tuple(c.sessions), c.running,
-                                               c.autofix)
+                                               c.autofix, c.window_end, c.window_fresh, c.window_cache)
         if name == "footer":
             return tuple(sn.events)
         return ()
@@ -1071,12 +1071,17 @@ class MainScreen(Screen):
         if c is None or c.tokens is None:
             label(p, x, y + 14, "sem dados do claude code", upper=False)
             return
-        label(p, x, y + 10, "hoje", px=11)
-        text(p, x, baseline("cond", 30, y + 16, 32, 500), human_tokens(c.tokens), key="cond", px=30,
-             weight=500)
-        label(p, x1, y + 34, f"{c.replies} resp · saída {human_tokens(c.output)}", px=11, align=R,
-              upper=False)
-        y += 62
+        if c.window_end:
+            label(p, x, y + 10, f"janela 5h · até {c.window_end}", px=11)
+            text(p, x, baseline("cond", 30, y + 16, 32, 500), human_tokens(c.window_fresh), key="cond", px=30,
+                 weight=500)
+            label(p, x1, y + 34, f"+{human_tokens(c.window_cache)} cache", px=11, align=R, upper=False)
+        else:
+            label(p, x, y + 10, "janela 5h · livre", px=11)
+            text(p, x, baseline("cond", 30, y + 16, 32, 500), "0", key="cond", px=30, weight=500)
+        label(p, x, y + 66, f"hoje {human_tokens(c.tokens)} novos · {c.replies} resp", px=11, upper=False,
+              color_=TEXT_DIM)
+        y += 78
         p.fillRect(QRectF(x, y, x1 - x, 1), color(LINE))
         label(p, x, y + 18, f"sessões · {c.running} rodando", px=11)
         y += 26
