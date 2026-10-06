@@ -123,6 +123,18 @@ gpu_clear_c        = 85
 battery_pct        = 15          # controle (power_supply com scope=Device, ex. DualSense)
 battery_clear_pct  = 20          # (ou carregando)
 cost               = true        # 80% e 100% do teto de [budget], uma vez por mês
+disk               = true        # uso do SSD: avisa em disk_warn_pct e de novo em disk_crit_pct
+disk_paths         = ["/"]
+disk_warn_pct      = 85
+disk_crit_pct      = 95
+cleanup_announce_gb = 0.5        # a faxina diária (magi-clean) só vira aviso se liberou isto
+
+[cleanup]
+# Faxina diária do Docker (magi-clean.timer, 04:30): cache de build e imagens órfãs; nunca volumes.
+enabled        = true
+keep_hours     = 168             # cache de build mais novo que isso fica
+aggressive_pct = 90              # disco acima disso: limpa todo o cache de build
+path           = "/"
 
 [news.delivery]
 # Entrega de notícias pelo núcleo (6.10, R19.5, R19.6): bomba = frase + card (voz só fora de

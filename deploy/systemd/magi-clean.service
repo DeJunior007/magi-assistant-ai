@@ -1,0 +1,13 @@
+# Faxina do Docker (magi.maintenance.cleanup): cache de build velho e imagens órfãs; nunca
+# volumes. Unit de usuário disparada por magi-clean.timer. Template: @REPO@ é trocado pelo
+# caminho real do repositório por hud/install.sh.
+[Unit]
+Description=Magui: faxina do Docker (magi-clean)
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO@
+ExecStart="@REPO@/.venv/bin/magi-clean"
+TimeoutStartSec=900
+Nice=15
+IOSchedulingClass=idle

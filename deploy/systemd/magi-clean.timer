@@ -1,0 +1,13 @@
+# Dispara magi-clean.service uma vez por dia (madrugada). Persistent=true roda logo ao ligar se
+# a janela passou com o PC desligado; o aviso por voz sai pelo magi-core (AlertMonitor).
+[Unit]
+Description=Magui: faxina do Docker uma vez por dia
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+Persistent=true
+RandomizedDelaySec=20min
+Unit=magi-clean.service
+
+[Install]
+WantedBy=timers.target

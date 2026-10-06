@@ -98,12 +98,12 @@ def battery(sysfs: Path, name: str, pct: int, status: str = "Discharging", scope
     (d / "status").write_text(status + "\n")
 
 
-def rig(tmp_path: Path, target: Target | None = None, **kw):
+def rig(tmp_path: Path, target: Target | None = None, *, disk: bool = False, **kw):
     hud = Hud()
     t = target or Target()
     clock = Clock()
     sink = ProactiveSink(hud, lambda: [t], sleep=no_sleep, clock=clock)
-    cfg = AlertsConfig(sysfs=tmp_path, cooldown_s=600)
+    cfg = AlertsConfig(sysfs=tmp_path, cooldown_s=600, disk=disk)  # sem o disco real do PC
     mon = AlertMonitor(sink, cfg, clock=clock, **kw)
     return hud, t, clock, sink, mon
 
@@ -326,3 +326,60 @@ async def test_turn_machine_announce() -> None:
     assert speaker.said == [("CPU quente.", False)]
     assert hud.subtitles() == ["CPU quente."]
     await m.close()
+
+
+# -- SSD e faxina ----------------------------------------------------------------------------
+
+
+class Usage:
+    def __init__(self, pct: float, total: int = 1000 * 10**9) -> None:
+        self.total = total
+        self.set(pct)
+
+    def set(self, pct: float) -> None:
+        self.used = int(self.total * pct / 100)
+        self.free = self.total - self.used
+
+    def __call__(self, path: str) -> Usage:
+        return self
+
+
+async def test_ssd_avisa_em_85_e_de_novo_em_95(tmp_path) -> None:
+    _, t, clock, sink, mon = rig(tmp_path, disk=True)
+    usage = Usage(80)
+    mon._disk_usage = usage
+
+    async def step(pct: float) -> list[str]:
+        usage.set(pct)
+        clock.t += 1000
+        await mon.check_disks()
+        await sink.drain()
+        return t.said
+
+    assert await step(80) == []
+    assert await step(86) == ["O SSD tá com 86% ocupado, sobram 140 GB."]
+    assert len(await step(88)) == 1  # mesmo episódio
+    said = await step(96)
+    assert len(said) == 2 and said[1].startswith("O SSD tá quase cheio: 96% ocupado, só 40 GB livres.")
+    assert len(await step(97)) == 2
+    await step(70)  # liberou espaço: fecha os dois
+    assert len(await step(90)) == 3
+
+
+async def test_faxina_avisa_uma_vez(tmp_path) -> None:
+    from magi.maintenance.cleanup import CleanupResult, save
+
+    state = tmp_path / "alerts_state.json"
+    now = datetime(2026, 10, 7, 8, 0, tzinfo=TZ)
+    _, t, _, sink, mon = rig(tmp_path, state_path=state, now=lambda: now)
+    out = tmp_path / "cleanup_state.json"
+    save(CleanupResult(now.isoformat(), "routine", 12_300_000_000, 89.0, 113 * 10**9), out)
+    await mon.check_cleanup()
+    await mon.check_cleanup()
+    await sink.drain()
+    assert t.said == ["Fiz uma faxina no Docker: liberei 12 GB. Agora tem 113 GB livres no SSD."]
+    # pouca coisa liberada: não vale aviso
+    save(CleanupResult(now.isoformat(), "routine", 100_000_000, 89.0, 113 * 10**9), out)
+    await mon.check_cleanup()
+    await sink.drain()
+    assert len(t.said) == 1
