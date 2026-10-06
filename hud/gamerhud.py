@@ -1118,9 +1118,15 @@ class HUD(QWidget):
     def face_tick(self):
         now = time.monotonic()
         if self.wired:
-            rect, deadline = self.wired.screen(self.view).mascot_tick(now, self.size())
-            if rect is not None and not self.trans and self.isVisible():
-                self.update(rect)
+            screen = self.wired.screen(self.view)
+            rect, deadline = screen.mascot_tick(now, self.size())
+            rects, scene_deadline = screen.scene_tick(now, self.size())  # cenário animado
+            if self.detail and self.view != "idle":
+                rects = []  # o painel de detalhes cobre o "cam 01": não redesenha por baixo
+            if not self.trans and self.isVisible():
+                for r in ([rect] if rect is not None else []) + rects:
+                    self.update(r)
+            deadline = min(deadline, scene_deadline)
             self.face_timer.start(max(1, math.ceil((deadline - now) * 1000)))
             return
         redraw, deadline = self.face.tick(now)

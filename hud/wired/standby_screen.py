@@ -77,6 +77,8 @@ def _lh(key: str, px: float, weight: int | None = None) -> float:
 class StandbyScreen(Screen):
     """Tela de espera."""
 
+    SCENE_KIND = "standby"
+
     def __init__(self, mascot=None):
         super().__init__(mascot)
         # coluna do relógio: topo / kanji (2 × 162) / base, distribuídos (space-between)
@@ -103,7 +105,8 @@ class StandbyScreen(Screen):
     # ---------------------------------------------------------------- estático
 
     def draw_static(self, p: QPainter, s: float) -> None:
-        p.drawPixmap(QRectF(0, 0, 1920, 1080), scene.standby_scene(1920, 1080, CPU, s), QRectF())
+        p.drawPixmap(QRectF(0, 0, 1920, 1080),
+                     scene.standby_scene(1920, 1080, CPU, s, self.sky, live=False), QRectF())
         kit.draw_scanlines(p, QRectF(0, 0, 1920, 1080))
         w = text(p, TX, self.y_title, "MAGI SYSTEM", key="cond", px=40, weight=600, spacing=0.04).width()
         text(p, TX + w + 20, self.y_title, "待機中", key="jp", px=22, color_=TEXT_DIM)
@@ -114,8 +117,15 @@ class StandbyScreen(Screen):
 
     # ---------------------------------------------------------------- grupos
 
+    def paint_scene(self, p: QPainter, snap: Snapshot, mono: float, s: float) -> None:
+        self.anim.paint(p, QRectF(0, 0, 1920, 1080), CPU, mono)  # o fundo já veio do estático
+
+    def scene_rects(self) -> list[QRectF]:
+        return self.anim.regions(QRectF(0, 0, 1920, 1080))
+
     def groups(self) -> dict[str, list[QRectF]]:
         return {
+            "scene": self.scene_rects(),  # primeiro: o resto vai por cima
             "clock": [QRectF(TX - 4, self.y_kanji - 4, 1160 - TX, BOTTOM + 6 - self.y_kanji)],
             "led": [RAIL, QRectF(COL.right() - 130, TOP - 4, 132, self.y_rule1 - TOP)],
             "mascot": [self.MASCOT_RECT],
@@ -125,6 +135,8 @@ class StandbyScreen(Screen):
         }
 
     def group_key(self, name: str, snap: Snapshot, now: datetime) -> tuple:
+        if name == "scene":
+            return (self.sky.key,)
         if name == "clock":
             return (now.strftime("%Y%m%d%H%M"),)
         if name == "led":
