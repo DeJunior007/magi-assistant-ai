@@ -166,7 +166,9 @@ _VAGUE_PEN, _UNKNOWN_GAME_PEN = 20.0, 5.0
 _VAGUE_TAIL = frozenset("isso isto em se pra para na no nele nela".split())
 #: Busca de música cujo rabo fala de outra coisa ("coloca o HUD em modo ocioso", "o LED do PC")
 #: ou é comprida demais para nome de música/artista vai ao agente.
-_OFF_MUSIC = frozenset("hud tela ocioso ociosidade led leds luz luzes rgb brilho volume painel pc computador".split())
+_OFF_MUSIC = frozenset(
+    "hud tela ocioso ociosidade led leds luz luzes rgb brilho volume painel pc computador".split()
+)
 _OFF_MUSIC_PEN = 40.0
 _LONG_QUERY_WORDS = 6
 
