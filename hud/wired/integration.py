@@ -34,6 +34,7 @@ from .main_screen import (
     text,
 )
 from .mascot import EXPRESSIONS, Mascot
+from .portrait import make_mascot
 from .standby_screen import StandbyScreen
 from .theme import CPU, GPU, LINE, PANEL, RAM, TEXT, TEXT_DIM, alpha, color
 
@@ -116,7 +117,7 @@ class WiredUI:
     def __init__(self, now_playing: NowPlaying | None = None, net: NetRate | None = None,
                  history: LoadHistory | None = None, fps: FpsStats | None = None,
                  events: EventLog | None = None, mascot: Mascot | None = None):
-        self.mascot = mascot or Mascot("sleeping")
+        self.mascot = mascot or make_mascot("sleeping")  # retrato da Condessa, se houver a arte
         self.main = MainScreen(self.mascot)
         self.standby = StandbyScreen(self.mascot)
         self.now_playing = now_playing if now_playing is not None else NowPlaying()

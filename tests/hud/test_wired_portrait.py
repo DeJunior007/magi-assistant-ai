@@ -1,0 +1,114 @@
+"""Retrato em camadas da Condessa: arte sintética (quadrados coloridos) num diretório temporário."""
+
+from __future__ import annotations
+
+import random
+from pathlib import Path
+
+import pytest
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QImage, QPainter
+from wired.mascot import BLINK_LEN, Mascot
+from wired.portrait import Portrait, PortraitAssets, make_mascot, missing
+
+SIZE = 64
+# camada -> (cor, retângulo x, y, w, h no canvas 64×64)
+LAYERS = {
+    "base.png": ("#404040", (0, 0, 64, 64)),
+    "eyes/open.png": ("#00ff00", (16, 16, 32, 8)),
+    "eyes/half.png": ("#008800", (16, 16, 32, 8)),
+    "eyes/closed.png": ("#0000ff", (16, 16, 32, 8)),
+    "mouth/closed.png": ("#ff0000", (24, 44, 16, 6)),
+    "mouth/small.png": ("#ff8800", (24, 44, 16, 6)),
+    "mouth/open.png": ("#ffff00", (24, 44, 16, 6)),
+    "mouth/happy.png": ("#ff00ff", (24, 44, 16, 6)),
+    "extra/sleeping.png": ("#ffffff", (52, 2, 8, 8)),
+}
+
+
+def write(folder: Path, layers=LAYERS, toml: str = "breath_px = 0\n") -> Path:
+    for rel, (c, (x, y, w, h)) in layers.items():
+        img = QImage(SIZE, SIZE, QImage.Format.Format_ARGB32)
+        img.fill(Qt.GlobalColor.transparent)
+        p = QPainter(img)
+        p.fillRect(x, y, w, h, QColor(c))
+        p.end()
+        (folder / rel).parent.mkdir(parents=True, exist_ok=True)
+        assert img.save(str(folder / rel))
+    (folder / "portrait.toml").write_text(toml)
+    return folder
+
+
+def render(m: Mascot, now: float) -> QImage:
+    img = QImage(SIZE, SIZE, QImage.Format.Format_ARGB32)
+    img.fill(Qt.GlobalColor.black)
+    p = QPainter(img)
+    m.paint(p, QRectF(0, 0, SIZE, SIZE), "#b392f0", now)
+    p.end()
+    return img
+
+
+def at(img: QImage, x: int, y: int) -> str:
+    return QColor(img.pixel(x, y)).name()
+
+
+def test_faltando_cai_no_mascote_vetorial(tmp_path):
+    assert set(missing(tmp_path)) == {"base.png", "eyes/open.png", "eyes/closed.png", "mouth/closed.png",
+                                      "mouth/open.png"}
+    m = make_mascot("sleeping", tmp_path)
+    assert type(m) is Mascot
+
+
+def test_camadas_por_estado(tmp_path):
+    m = make_mascot("listening", write(tmp_path))
+    assert isinstance(m, Portrait)
+    m._blink_at = 100.0
+    img = render(m, 1.0)
+    assert at(img, 32, 20) == "#00ff00" and at(img, 32, 47) == "#ff0000" and at(img, 4, 4) == "#404040"
+    # piscada: meio, fechado, meio
+    assert m.eye_frame(100.0 + BLINK_LEN * 0.1) == "half"
+    assert at(render(m, 100.0 + BLINK_LEN * 0.5), 32, 20) == "#0000ff"
+    # fala: boca pelo nível
+    m.set_expression("speaking")
+    for level, c in ((0.0, "#ff0000"), (0.3, "#ff8800"), (0.9, "#ffff00")):
+        m.set_level(level)
+        assert at(render(m, 1.0), 32, 47) == c
+    # boca parada da expressão
+    m.set_expression("happy")
+    assert at(render(m, 1.0), 32, 47) == "#ff00ff"
+    # dormindo: olhos fechados e o "zz" por cima
+    m.set_expression("sleeping")
+    img = render(m, 1.0)
+    assert at(img, 32, 20) == "#0000ff" and at(img, 55, 5) == "#ffffff"
+
+
+def test_meio_fechado_opcional_e_olhar(tmp_path):
+    layers = {k: v for k, v in LAYERS.items() if k != "eyes/half.png"}
+    assets = PortraitAssets(write(tmp_path, layers, "breath_px = 0\ngaze_px = 8\n"))
+    m = Portrait(assets, "listening", rng=random.Random(1), now=0.0)
+    assert assets.eyes("listening", "half") is assets.layer("eyes/closed.png")
+    m._glance_end, m._glance_dir = 1e9, 1
+    img = render(m, 1.0)
+    assert at(img, 18, 20) == "#404040" and at(img, 52, 20) == "#00ff00"  # olhos 8 px à direita
+
+
+def test_respira_acordada_e_para_dormindo(tmp_path):
+    m = Portrait(PortraitAssets(write(tmp_path, toml="breath_px = 3\nbreath_period = 4\n")), "listening",
+                 rng=random.Random(2), now=0.0)
+    assert {m.breath(t / 10) for t in range(40)} >= {-3, 3}
+    redraw, nxt = m.tick(0.5)
+    assert redraw and nxt <= 0.5 + 1 / 8 + 1e-6
+    m.set_expression("sleeping")
+    assert m.breath(1.0) == 0
+    m.tick(10.0)
+    assert m.tick(10.5) == (False, 14.0)  # dormindo: 1 redesenho a cada 4 s (R17.4)
+
+
+@pytest.mark.parametrize("fit", ["contain", "cover"])
+def test_encaixe(tmp_path, fit):
+    m = Portrait(PortraitAssets(write(tmp_path, toml=f'fit = "{fit}"\nbreath_px = 0\n')), "listening")
+    r = m.target(QRectF(0, 18, 64, 28))
+    if fit == "contain":  # inteiro e centrado
+        assert (r.left(), r.top(), r.width(), r.height()) == (18.0, 18.0, 28.0, 28.0)
+    else:  # preenche a largura e corta em cima/embaixo
+        assert (r.left(), r.width(), r.height()) == (0.0, 64.0, 64.0)
