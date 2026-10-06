@@ -79,7 +79,16 @@ Implementado e testado com dublês; falta conferir no uso real:
 - **Como validar:** `uv run python -m hud.tools.portrait_check prancha.png` sem pendências e o
   HUD reaberto mostrando o retrato nos estados dormindo/ouvindo/falando.
 
-## 8. Decisões em aberto
+## 8. Autoconserto e painel do Claude Code
+
+- **Por quê:** a Magui perceber um problema (serviço caiu, banco fora) e chamar o Claude Code para
+  investigar/propor o conserto, sem console aberto; e mostrar no HUD o consumo e as sessões.
+- **O que já existe:** `magi/maintenance/claude_usage.py` (só leitura dos registros locais:
+  tokens do dia por modelo, sessões ativas e rodando; incremental, ~4 ms por leitura).
+- **O que falta:** decidir os níveis e o lugar do painel — proposta com os limites de segurança em
+  `docs/design/AUTOCONSERTO.md`.
+
+## 9. Decisões em aberto
 
 - **Nome da assistente:** "Magui" (nome no código, persona e HUD) ou "Condessa" (hoje só a palavra
   de ativação).
