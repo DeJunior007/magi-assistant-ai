@@ -39,6 +39,45 @@ kind = "rss"
 url = "https://feeds.feedburner.com/ign/games-all"
 trust = 2
 
+# --- Games em português (RSS/Atom conferidos em 2026-10-06) ---------------------------------
+# The Enemy (theenemy.com.br/rss) recusava conexão; Jovem Nerd e GameVicio sem feed (404).
+
+[[sources]]
+name = "IGN Brasil"
+kind = "rss"
+url = "https://br.ign.com/feed.xml"
+trust = 2
+
+[[sources]]
+name = "GameBlast"
+kind = "rss"
+url = "https://www.gameblast.com.br/feeds/posts/default"
+trust = 2
+
+[[sources]]
+name = "Adrenaline"
+kind = "rss"
+url = "https://adrenaline.com.br/feed/"
+trust = 2
+
+[[sources]]
+name = "Eurogamer Portugal"
+kind = "rss"
+url = "https://www.eurogamer.pt/feed"
+trust = 2
+
+[[sources]]
+name = "MeuPlayStation"
+kind = "rss"
+url = "https://meups.com.br/feed/"
+trust = 1
+
+[[sources]]
+name = "Manual dos Games"
+kind = "rss"
+url = "https://manualdosgames.com/feed/"
+trust = 1
+
 # --- APIs (coletores das tarefas 6.2-6.4; ignoradas até o coletor existir) -------------------
 
 [[sources]]
