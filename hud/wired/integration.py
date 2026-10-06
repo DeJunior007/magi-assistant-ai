@@ -19,7 +19,7 @@ from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize
 from PySide6.QtGui import QPainter
 
 from . import kit
-from .data import EventLog, FpsSnapshot, FpsStats, LoadHistory, NetRate, NowPlaying
+from .data import ClaudeStats, EventLog, FpsSnapshot, FpsStats, LoadHistory, NetRate, NowPlaying
 from .main_screen import (
     NA,
     SCENE,
@@ -118,7 +118,8 @@ class WiredUI:
 
     def __init__(self, now_playing: NowPlaying | None = None, net: NetRate | None = None,
                  history: LoadHistory | None = None, fps: FpsStats | None = None,
-                 events: EventLog | None = None, mascot: Mascot | None = None):
+                 events: EventLog | None = None, mascot: Mascot | None = None,
+                 claude: ClaudeStats | None = None):
         self.mascot = mascot or make_mascot("sleeping")  # retrato da Condessa, se houver a arte
         self.main = MainScreen(self.mascot)
         self.standby = StandbyScreen(self.mascot)
@@ -137,6 +138,7 @@ class WiredUI:
         self._track: tuple | None = None
         self._led_warned = False
         self.news: deque[tuple[str, str]] = deque(maxlen=8)  # Rádio Ayanami: (HH:MM, manchete)
+        self.claude = claude  # ClaudeStats (consumo do Claude Code); None = painel sem dado
         self.snap = Snapshot()
 
     def screen(self, view: str) -> MainScreen | StandbyScreen:
@@ -173,6 +175,7 @@ class WiredUI:
             led_on=self.led_on, led_rgb=self.led_rgb, magui_state=self.magui_state,
             mouth_level=self.mouth_level, caption=self.caption, mood=self.mood)
         self.snap.news = list(self.news)
+        self.snap.claude = self.claude.view if self.claude is not None else None
         return self.snap
 
     # ---------------------------------------------------------------- LED (RGB Sync)

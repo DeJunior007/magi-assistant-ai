@@ -12,13 +12,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 BUS_NAME = "org.mpris.MediaPlayer2.spotify"
 OBJECT_PATH = "/org/mpris/MediaPlayer2"
@@ -502,3 +508,76 @@ class NowPlaying:
             self._pos_t = now
             self.status = "Paused" if self.status == "Playing" else "Playing"
         self._control("PlayPause")
+
+
+# ---------------------------------------------------------------- Claude Code (painel)
+
+AUTOFIX_STATE = Path("~/.local/share/magi/autofix/state.json").expanduser()
+
+
+@dataclass
+class ClaudeView:
+    """O que o painel "Claude Code" mostra. Campos vazios = sem dado."""
+    tokens: int | None = None  # total do dia (entrada + saída + cache)
+    output: int | None = None
+    replies: int | None = None
+    sessions: list = field(default_factory=list)  # [(projeto, rodando, minutos desde a última)]
+    running: int = 0
+    autofix: str | None = None  # linha de estado do autoconserto (state.json do núcleo)
+
+
+class ClaudeStats:
+    """Lê o consumo do Claude Code (``magi.maintenance.claude_usage``) numa thread, a cada
+    ``every`` s: a 1ª leitura dos registros leva ~1 s e não pode travar o HUD. ``view`` é o último
+    resultado (troca atômica de referência)."""
+
+    def __init__(self, every: float = 15.0, autofix_state: Path = AUTOFIX_STATE, reader=None):
+        self.every = every
+        self.autofix_state = autofix_state
+        self.view = ClaudeView()
+        self._reader = reader
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _make_reader(self):
+        root = Path(__file__).resolve().parents[2]  # hud/wired/data.py -> repositório
+        if str(root) not in sys.path:
+            sys.path.append(str(root))
+        from magi.maintenance.claude_usage import UsageReader  # só biblioteca padrão
+        return UsageReader()
+
+    def refresh(self, now: datetime | None = None) -> ClaudeView:
+        if self._reader is None:
+            self._reader = self._make_reader()
+        s = self._reader.summary()
+        now = now or datetime.now(UTC)
+        sessions = [(x.project, x.running, max(0, int((now - x.last).total_seconds() // 60)))
+                    for x in s.active[:4] if x.last is not None]
+        self.view = ClaudeView(s.tokens.total, s.tokens.output, s.tokens.replies, sessions, s.running,
+                               self._autofix())
+        return self.view
+
+    def _autofix(self) -> str | None:
+        try:
+            data = json.loads(self.autofix_state.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return str(data.get("line") or "") or None
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+
+        def loop():
+            while not self._stop.is_set():
+                try:
+                    self.refresh()
+                except Exception as e:  # noqa: BLE001 - painel é opcional
+                    log.debug("claude: leitura falhou: %s", e)
+                self._stop.wait(self.every)
+
+        self._thread = threading.Thread(target=loop, name="claude-stats", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()

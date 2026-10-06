@@ -242,3 +242,23 @@ def test_plain_json_do_busctl():
     node = {"type": "a{sv}", "data": {"xesam:artist": {"type": "as", "data": ["a"]},
                                       "mpris:length": {"type": "t", "data": 5}}}
     assert _plain(node) == {"xesam:artist": ["a"], "mpris:length": 5}
+
+
+def test_claude_stats_monta_o_painel(tmp_path):
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+
+    from wired.data import ClaudeStats
+
+    now = datetime(2026, 10, 6, 22, 0, tzinfo=UTC)
+    sess = [SimpleNamespace(project="magi-assistant-ai", running=True, last=now - timedelta(seconds=20)),
+            SimpleNamespace(project="KPCeramica", running=False, last=now - timedelta(minutes=7))]
+    summary = SimpleNamespace(tokens=SimpleNamespace(total=271_000_000, output=1_500_000, replies=1209),
+                              active=sess, running=1)
+    state = tmp_path / "state.json"
+    state.write_text('{"line": "conserto pronto: roteador (aguardando ok)"}')
+    st = ClaudeStats(autofix_state=state, reader=SimpleNamespace(summary=lambda: summary))
+    v = st.refresh(now)
+    assert (v.tokens, v.output, v.replies, v.running) == (271_000_000, 1_500_000, 1209, 1)
+    assert v.sessions == [("magi-assistant-ai", True, 0), ("KPCeramica", False, 7)]
+    assert v.autofix == "conserto pronto: roteador (aguardando ok)"
