@@ -444,6 +444,7 @@ class IntentId(StrEnum):
     NEWS_SPOILERS_OK = "news.spoilers_ok"  # slot franchise (R19.3)
     NEWS_DISLIKE = "news.dislike"  # "não curti" (R19.7)
     NEWS_MORE = "news.more"  # "mais disso"
+    NEWS_DEEPER = "news.deeper"  # "conta mais dessa": aprofunda a última notícia falada
     NEWS_DROP = "news.drop"  # obra largada, slot franchise (R19.8)
     CONFIRM_YES = "confirm.yes"  # "confirma" (R5.4)
     CONFIRM_NO = "confirm.no"  # "cancela"

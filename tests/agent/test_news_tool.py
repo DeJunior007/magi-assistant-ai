@@ -7,12 +7,15 @@ from types import SimpleNamespace
 
 import pytest
 
+import magi.agent.tools.news as news_mod
 from magi.agent.graph import GraphAgent
 from magi.agent.self_model import SelfModel
 from magi.agent.tools.news import (
+    ARG_NEXT,
     MAX_ITEMS,
     SAY_ASK_MORE,
     SAY_LAST,
+    SAY_NO_LAST,
     SAY_RADIO_DECLINED,
     NewsQuery,
     NewsQueryTool,
@@ -65,6 +68,10 @@ class FakeRepo:
 
     async def item_links(self, ids):
         return {i: [f"https://news.example/{i}/manchete-original"] for i in ids}
+
+    async def item_sources(self, item_id, limit=5):
+        return [(f"https://news.example/{item_id}/a", "Texto curto do feed sobre a notícia em questão aqui."),
+                (f"https://news.example/{item_id}/b", "")][:limit]
 
     async def franchise_prefs(self):
         return []
@@ -229,3 +236,38 @@ async def test_narracao_sem_cumprimento(tmp_path):
     q.chat = Greeter()
     res = await WhatsNewHandler(q).run(NEWS_REQ)
     assert res.speech == f"Tem uma novidade. Saiu o trailer novo. {SAY_LAST}"
+
+
+DEEPER_REQ = ActionRequest(intent=Intent(id=IntentId.NEWS_DEEPER.value), ctx=CTX, text="conta mais dessa")
+
+
+async def test_conta_mais_dessa_resume_em_python_e_volta_ao_radio(tmp_path, monkeypatch):
+    pages = {
+        "https://news.example/1/a": "",  # página bloqueada: usa o texto do feed
+        "https://news.example/1/b": (
+            "O estúdio confirmou que a sequência de Hades chega em março de 2027 para PC e consoles. "
+            "A versão final terá um novo bioma e três armas inéditas segundo a postagem oficial."
+        ),
+    }
+
+    async def fake_fetch(url, client=None):
+        return pages[url]
+
+    monkeypatch.setattr(news_mod, "fetch_article", fake_fetch)
+    monkeypatch.setattr(news_mod, "MIN_ARTICLE_CHARS", 50)
+    q, _ = query([item(1, "Hades 3 date", "Hades", priority=0.9), item(2, "Outra", "X")], tmp_path)
+    q.chat = narrator = FakeNarrator()
+    h = WhatsNewHandler(q)
+    first = await h.run(NEWS_REQ)
+    assert first.needs_confirmation
+    res = await h.run(DEEPER_REQ)
+    sent = narrator.calls[-1]
+    assert "Resumo: " in sent and "março de 2027" in sent and "Texto curto do feed" in sent
+    assert len(sent) < 1500  # só o resumo mastigado vai ao modelo
+    assert res.long_speech and res.needs_confirmation and res.speech.endswith(SAY_ASK_MORE)
+    assert res.on_confirm is not None and res.on_confirm.args[ARG_NEXT]
+
+
+async def test_conta_mais_sem_noticia_e_com_spoiler(tmp_path):
+    q, _ = query([], tmp_path)
+    assert (await WhatsNewHandler(q).run(DEEPER_REQ)).speech == SAY_NO_LAST

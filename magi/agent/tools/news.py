@@ -10,6 +10,9 @@
   ``news`` (as fontes são quase todas em inglês), e pergunta "Quer ouvir outra?"; o "sim" volta
   aqui e conta a próxima. Só a notícia falada é marcada como entregue (R20.3), e a seguinte já é
   narrada em segundo plano enquanto esta toca. Sem modelo, fala a manchete.
+- Intent local ``news.deeper`` ("conta mais dessa"): aprofunda a última notícia falada. O Python
+  junta até 5 textos dela (páginas das fontes e o texto do feed), faz um resumo extrativo
+  (``magi.news.digest``) e só esse resumo curto vai ao modelo, que narra em 5-7 frases.
 
 Tudo o que é exibido ou falado vem de :class:`magi.news.spoiler.Shown` (via ``present``): nunca a
 manchete, o resumo ou os links crus do item. A fala tem no máximo 2 frases; a lista com links vai
@@ -43,6 +46,8 @@ from magi.common.contracts import (
     ToolSpec,
     TurnContext,
 )
+from magi.news.article import fetch_article
+from magi.news.digest import digest
 from magi.news.spoiler import Display, Shown, norm, present
 
 log = logging.getLogger(__name__)
@@ -83,6 +88,20 @@ SAY_ASK_MORE = "Quer ouvir outra?"
 SAY_LAST = "Era isso por enquanto."
 SAY_RADIO_DECLINED = "Beleza, depois tem mais."
 ARG_NEXT = "next"
+#: "Conta mais dessa": quantas fontes abrir e o mínimo de texto de uma página para não usar o feed.
+DEEPER_SOURCES = 5
+MIN_ARTICLE_CHARS = 400
+DEEPER_TIMEOUT_S = 10.0
+SAY_NO_LAST = "Ainda não te contei nenhuma notícia. Fala \"novidades\" que eu começo."
+SAY_DEEPER_SPOILER = "Essa eu deixei escondida por spoiler. Se quiser, libera o spoiler dessa obra."
+SAY_NO_MORE_INFO = "Não achei mais nada sobre essa além do que eu já falei."
+DEEPER_PROMPT = (
+    "Você é a Condessa, apresentadora de um programa de rádio de games e anime, falando com o Pedro "
+    "em português do Brasil. Ele pediu para saber mais sobre a notícia abaixo. Com base só no resumo "
+    "dado, conte em 5 a 7 frases curtas e naturais para falar em voz alta os detalhes que importam "
+    "(o quê, quem, quando, onde, por quê). Traduza se precisar. Sem opinião, sem links, sem listas, "
+    "sem markdown, sem cumprimentar e sem perguntar nada no fim."
+)
 #: Cumprimento que o modelo às vezes põe no começo, mesmo pedindo para não pôr.
 _GREETING = re.compile(
     r"^(?:(?:olá|oi|e aí|fala|bom dia|boa tarde|boa noite|atenção)[,!]?\s*(?:pedro)?[,.!]\s*)+", re.I
@@ -165,6 +184,7 @@ class NewsQuery:
         self.store = store
         self.chat: Any = None  # ChatProvider da tarefa ``news`` (narração do modo rádio)
         self._ahead: tuple[int, asyncio.Task[str]] | None = None  # próxima já em narração
+        self.last: tuple[NewsItem, Shown] | None = None  # última notícia falada ("conta mais")
 
     async def _show(self, items: Sequence[NewsItem]) -> list[Shown]:
         ids = [i.id for i in items if i.id is not None]
@@ -204,6 +224,7 @@ class NewsQuery:
         text = await self._narration(item, shown)
         if item.id is not None:
             await self.repo.mark_delivered(item.id, self.now())
+        self.last = (item, shown)
         head = ""
         if first:
             n = len(items)
@@ -216,21 +237,46 @@ class NewsQuery:
                 ok=True, speech=f"{head}{text} {SAY_LAST}", full_text=full, cards=cards, long_speech=True
             )
         self._narrate_ahead(rest[0])
-        again = ActionRequest(
-            intent=Intent(id=IntentId.NEWS_WHATS_NEW.value),
-            ctx=ctx,
-            confirmed=True,
-            args={ARG_NEXT: True, ARG_DECLINED: SAY_RADIO_DECLINED, ARG_QUIET: True},
-        )
-        return ActionResult(
-            ok=True,
-            speech=f"{head}{text} {SAY_ASK_MORE}",
-            full_text=full,
-            cards=cards,
-            needs_confirmation=True,
-            on_confirm=again,
-            long_speech=True,
-        )
+        return _ask_more(ctx, f"{head}{text}", full, cards)
+
+    async def deeper(self, ctx: TurnContext) -> ActionResult:
+        """Mais detalhes da última notícia falada; no fim, volta ao rádio ("Quer ouvir outra?")."""
+        if self.last is None:
+            return ActionResult(ok=True, speech=SAY_NO_LAST, expression=Expression.CONFUSED)
+        item, shown = self.last
+        if shown.mode is not Display.ORIGINAL:
+            return ActionResult(ok=True, speech=SAY_DEEPER_SPOILER)
+        title = html.unescape(shown.title)
+        try:
+            async with asyncio.timeout(DEEPER_TIMEOUT_S):
+                texts = await self._texts(item)
+        except TimeoutError:
+            texts = []
+        summary = digest(texts, title) if texts else ""
+        if not summary:
+            return ActionResult(ok=True, speech=SAY_NO_MORE_INFO)
+        text = await self._tell(DEEPER_PROMPT, [f"Manchete: {title}", f"Resumo: {summary}"], summary)
+        full = f"{title}\n{text}"
+        link = shown.links[0] if shown.links else ""
+        cards = (CardMsg(level=CardLevel.LINK, title=shown.title, url=link),) if link else ()
+        if self.repo is not None and await self.repo.undelivered(WHATS_NEW_LEVELS, limit=1):
+            return _ask_more(ctx, text, full, cards)
+        return ActionResult(ok=True, speech=text, full_text=full, cards=cards, long_speech=True)
+
+    async def _texts(self, item: NewsItem) -> list[str]:
+        """Até ``DEEPER_SOURCES`` textos da notícia: a página de cada fonte (em paralelo) ou, se a
+        página não render texto (bloqueio, JavaScript), o texto do feed guardado."""
+        item_sources = getattr(self.repo, "item_sources", None)
+        if item.id is None or not callable(item_sources):
+            return []
+        sources = await item_sources(item.id, DEEPER_SOURCES)
+        pages = await asyncio.gather(*(fetch_article(url) for url, _ in sources))
+        texts = []
+        for (_, body), page in zip(sources, pages, strict=True):
+            text = page if len(page) >= MIN_ARTICLE_CHARS else html.unescape(body)
+            if text.strip():
+                texts.append(text)
+        return texts
 
     async def _narration(self, item: NewsItem, shown: Shown) -> str:
         ahead, self._ahead = self._ahead, None
@@ -257,22 +303,27 @@ class NewsQuery:
     async def _narrate(self, shown: Shown) -> str:
         """Notícia contada em português (2-3 frases); sem modelo ou em erro, a manchete."""
         title, summary = html.unescape(shown.title), html.unescape(shown.summary or "")
-        fallback = _sentence(title)
-        if self.chat is None:
-            return fallback
         lines = [f"Obra: {shown.franchise}"] if shown.franchise else []
         lines.append(f"Manchete: {title}")
         if summary:
             lines.append(f"Resumo: {summary}")
+        return await self._tell(NARRATE_PROMPT, lines, title)
+
+    async def _tell(self, prompt: str, lines: Sequence[str], fallback: str) -> str:
+        """Texto para falar, escrito pelo modelo da tarefa ``news``; sem modelo ou em erro,
+        ``fallback`` (manchete ou resumo extrativo)."""
+        fallback = _sentence(fallback)
+        if self.chat is None:
+            return fallback
         messages = [
-            ChatMessage(role="system", content=NARRATE_PROMPT),
+            ChatMessage(role="system", content=prompt),
             ChatMessage(role="user", content="\n".join(lines)),
         ]
         try:
             async with asyncio.timeout(NARRATE_TIMEOUT_S):
                 reply = await self.chat.chat(messages, personal=False)
         except Exception as e:  # noqa: BLE001
-            log.warning("novidades: narração indisponível (%s); falando a manchete", type(e).__name__)
+            log.warning("novidades: narração indisponível (%s); falando o texto pronto", type(e).__name__)
             return fallback
         text = _GREETING.sub("", " ".join((reply.text or "").split()))
         return _sentence(text[:1].upper() + text[1:]) if text else fallback
@@ -300,6 +351,25 @@ class NewsQuery:
             return ActionResult(ok=False, speech=SAY_NO_DB)
         say = SAY_NOTHING_TOPIC.format(topic=topic)
         return ActionResult(ok=True, speech=say, expression=Expression.CONFUSED)
+
+
+def _ask_more(ctx: TurnContext, text: str, full: str, cards: tuple[CardMsg, ...]) -> ActionResult:
+    """Fala ``text`` e pergunta "Quer ouvir outra?"; o "sim" conta a próxima do rádio."""
+    again = ActionRequest(
+        intent=Intent(id=IntentId.NEWS_WHATS_NEW.value),
+        ctx=ctx,
+        confirmed=True,
+        args={ARG_NEXT: True, ARG_DECLINED: SAY_RADIO_DECLINED, ARG_QUIET: True},
+    )
+    return ActionResult(
+        ok=True,
+        speech=f"{text} {SAY_ASK_MORE}",
+        full_text=full,
+        cards=cards,
+        needs_confirmation=True,
+        on_confirm=again,
+        long_speech=True,
+    )
 
 
 def _aware(dt: datetime) -> datetime:
@@ -334,12 +404,14 @@ class NewsQueryTool:
 class WhatsNewHandler:
     """``news.whats_new`` ("novidades?") para o ``Registry``: modo rádio (``NewsQuery.radio``)."""
 
-    intents = frozenset({IntentId.NEWS_WHATS_NEW.value})
+    intents = frozenset({IntentId.NEWS_WHATS_NEW.value, IntentId.NEWS_DEEPER.value})
 
     def __init__(self, query: NewsQuery | None = None) -> None:
         self.query = query or NewsQuery()
 
     async def run(self, req: ActionRequest) -> ActionResult:
+        if req.intent.id == IntentId.NEWS_DEEPER.value:
+            return await self.query.deeper(req.ctx)
         return await self.query.radio(req.ctx, first=not req.args.get(ARG_NEXT))
 
 

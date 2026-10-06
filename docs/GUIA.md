@@ -67,7 +67,7 @@ que ela mesma lista.
 | Memória | "lembra que eu tô jogando Elden Ring", "esquece isso" |
 | Humor | "pega leve", "pode pegar pesado" |
 | Gasto | "aumenta o teto pra 8 dólares" |
-| Notícias | "alguma novidade?", "o que saiu de novo de Frieren?", "pode dar spoiler de X", "não curti", "mais disso", "larguei X" |
+| Notícias | "alguma novidade?", "conta mais dessa", "o que saiu de novo de Frieren?", "pode dar spoiler de X", "não curti", "mais disso", "larguei X" |
 | Pesquisa | qualquer coisa recente ("quando sai o próximo Zelda?"): Gemini com Google; links vão pro HUD |
 | Tela (visão) | "que bicho é esse?", "o que tá escrito aqui?" (janela ativa); "...na tela" pega o monitor todo. Só quando você pede; a captura é apagada depois |
 | Ajuda no jogo | "como passo do boss da lua?", "manda a solução" |
@@ -127,6 +127,11 @@ Respostas faladas têm até 2 frases; a resposta completa e os links aparecem co
   outra?". "Sim" conta a próxima, "não" encerra ("Beleza, depois tem mais.") e o silêncio
   encerra calado. "Mais disso"/"não curti" valem para a notícia que acabou de tocar. Sem o
   modelo, ela fala a manchete original.
+- "**Conta mais dessa**" ("fala mais sobre essa", "aprofunda", "mais detalhes"), na hora do "Quer
+  ouvir outra?" ou depois: ela abre as páginas de até 5 fontes da notícia (ou usa o texto do feed
+  quando a página bloqueia), o Python faz um resumo extrativo (`magi/news/digest.py`) e só esse
+  resumo curto vai à IA, que conta em 5-7 frases. Depois pergunta de novo se quer outra.
+  Notícia escondida por spoiler não é aprofundada.
 - "O que saiu de novo de X?" (pela IA) traz até 5 itens; sem nada guardado, ela pesquisa na
   internet.
 - Fontes padrão em `magi/news/sources.toml`; acrescenta ou desliga em `[[news.sources]]` no config.

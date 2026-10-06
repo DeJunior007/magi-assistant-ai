@@ -511,7 +511,23 @@ intents:
       - "mais noticias assim"
       - "curti essa noticia"
       - "gostei dessa noticia"
+
+  - id: news.deeper
+    label: "contar mais dessa notícia"
+    reply: null
+    phrases:
+      - "conta mais"
+      - "conta mais dessa"
+      - "fala mais dessa"
+      - "fala mais sobre essa"
+      - "fala mais sobre isso"
+      - "me conta mais sobre essa noticia"
       - "quero saber mais disso"
+      - "quero saber mais dessa"
+      - "aprofunda"
+      - "aprofunda essa"
+      - "mais detalhes"
+      - "explica melhor essa noticia"
 
   - id: news.drop
     label: "parar de seguir {franchise}"
