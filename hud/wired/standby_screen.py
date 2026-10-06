@@ -74,6 +74,9 @@ def _lh(key: str, px: float, weight: int | None = None) -> float:
     return fm.ascent() + fm.descent()
 
 
+PORTRAIT_H = 340.0  # altura do retrato da Condessa na tela de espera
+
+
 class StandbyScreen(Screen):
     """Tela de espera."""
 
@@ -94,12 +97,20 @@ class StandbyScreen(Screen):
         self.y_status = baseline("mono", 13, TOP)
         self.y_rule1 = TOP + h1
         h3 = 1 + 18 + 72
-        gap = (BOTTOM - TOP - (h1 + 1) - 115 - h3) / 2
-        self.mid = TOP + h1 + 1 + gap
         self.y_rule2 = BOTTOM - h3
-        self.MASCOT_RECT = QRectF(COL.left(), self.mid, 200, 115)
-        self.mood = QRectF(COL.left() + 205, self.mid + 10, 12, 95)  # discreto, entre mascote e fala
-        self.talk = QRectF(COL.left() + 222, self.mid, COL.right() - COL.left() - 222, 115)
+        if getattr(self.mascot, "TALL", False):  # retrato da Condessa: grande, com a fala embaixo
+            ph, th = PORTRAIT_H, 115
+            gap = (BOTTOM - TOP - (h1 + 1) - ph - 16 - th - h3) / 2
+            self.mid = TOP + h1 + 1 + gap
+            self.MASCOT_RECT = QRectF(COL.left(), self.mid, COL.width() - 30, ph)
+            self.mood = QRectF(COL.right() - 12, self.mid + 20, 12, ph - 40)
+            self.talk = QRectF(COL.left(), self.mid + ph + 16, COL.width(), th)
+        else:
+            gap = (BOTTOM - TOP - (h1 + 1) - 115 - h3) / 2
+            self.mid = TOP + h1 + 1 + gap
+            self.MASCOT_RECT = QRectF(COL.left(), self.mid, 200, 115)
+            self.mood = QRectF(COL.left() + 205, self.mid + 10, 12, 95)  # discreto, entre mascote e fala
+            self.talk = QRectF(COL.left() + 222, self.mid, COL.right() - COL.left() - 222, 115)
         self.cover = QRectF(COL.left(), BOTTOM - 72, 72, 72)
 
     # ---------------------------------------------------------------- estático
@@ -186,7 +197,7 @@ class StandbyScreen(Screen):
             wrapped(p, r.adjusted(0, 8, 0, 0), snap.caption, px=16, line_h=24, max_lines=4)
             return
         line = "「少し眠いです…」" if snap.magui_state == "sleeping" else "「システムは正常です。」"
-        top = r.top() + (115 - _lh("jp", 16) - 8 - _lh("jp", 14)) / 2
+        top = r.top() + (r.height() - _lh("jp", 16) - 8 - _lh("jp", 14)) / 2
         text(p, r.left(), baseline("jp", 16, top), line, key="jp", px=16, max_w=r.width())
         text(p, r.left(), baseline("jp", 14, top + _lh("jp", 16) + 8), "信号は、まだ届いている。", key="jp",
              px=14, color_=TEXT_DIM, spacing=0.14, max_w=r.width())

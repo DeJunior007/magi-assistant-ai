@@ -4,6 +4,21 @@ O HUD já sabe animar um retrato em camadas (`hud/wired/portrait.py`): pisca, ol
 mexe a boca com a voz, respira de leve acordada e troca de expressão. Falta só a arte. Enquanto a
 pasta não tiver as camadas obrigatórias, o HUD continua com o rostinho vetorial.
 
+## Atalho: folha de expressões (quadros inteiros)
+
+Em vez de camadas, dá para usar uma **folha N×N de expressões** (rostos inteiros, poses
+diferentes):
+
+```
+python3 hud/tools/portrait_sheet.py FOLHA.png            # grade 4x4 por padrão
+```
+
+Ela recorta a grade, tira o fundo liso (ou só recorta, se a folha já vier transparente — um
+removedor de fundo dedicado deixa a borda do cabelo melhor), grava `frames/01.png…16.png` em
+`~/.local/share/magi/condessa/` e um `portrait.toml` com `mode = "frames"` e o mapeamento
+estado → quadro (fala alterna `[speaking] closed/open`; parada, olha para os lados com
+`[idle] glances`; dormindo, cara de sono só das 22 h às 7 h). Edite os números à vontade.
+
 ## Onde colocar
 
 `~/.local/share/magi/condessa/` (ou outra pasta em `MAGI_PORTRAIT_DIR`). Depois de copiar,
