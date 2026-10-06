@@ -23,6 +23,7 @@ import asyncio
 import contextlib
 import dataclasses
 import logging
+import time
 import unicodedata
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Mapping
 from dataclasses import dataclass
@@ -95,6 +96,11 @@ SAY_DECLINED = "Beleza."
 SAY_UNAVAILABLE = "Ainda não sei fazer isso."
 #: "Você quis dizer X?" quando o roteador não traz a frase pronta (R4.2).
 SAY_DID_YOU_MEAN = "Você quis dizer isso?"
+#: Por quanto tempo uma confirmação interrompida (nova ativação no meio da pergunta) ou expirada
+#: ainda vale para um "sim"/"não" dito no turno seguinte.
+STALE_CONFIRM_S = 20.0
+#: Respostas soltas que só fazem sentido em resposta a uma pergunta.
+_CONFIRM_INTENTS = frozenset({IntentId.CONFIRM_YES, IntentId.CONFIRM_NO})
 
 #: Folga sobre o prazo de confirmação: o satélite encerra a escuta com ``no_speech`` no prazo e
 #: o núcleo só cancela sozinho se esse aviso não chegar (satélite travado).
@@ -323,8 +329,33 @@ class TurnPipeline:
         if transcript.is_empty:
             return ActionResult(ok=False, speech=SAY_NOT_HEARD, expression=Expression.CONFUSED), None
         text = transcript.final
-        route = self.route(text, ctx)
+        route = self._settle(self.route(text, ctx))
         return await self._dispatch(text, route, ctx), route
+
+    def _settle(self, route: RouteResult) -> RouteResult:
+        """Com agente, o "você quis dizer X?" vira pergunta ao agente, que tem as mesmas
+        ferramentas e o contexto da conversa; só ação perigosa ainda pergunta (R4.2, R5.3).
+        "Sim"/"não" soltos, fora de uma confirmação, também vão ao agente: respondem ao que ele
+        perguntou no turno anterior."""
+        if self.deps.agent is None or route.intent is None:
+            return route
+        if route.kind is RouteKind.ASK and not route.intent.danger:
+            return RouteResult(RouteKind.AGENT, route.text, route.score)
+        if route.intent.id in _CONFIRM_INTENTS:
+            actions = self.deps.actions
+            if actions is None or not actions.handles(route.intent.id):
+                return RouteResult(RouteKind.AGENT, route.text, route.score)
+        return route
+
+    def confirm_answer(self, transcript: Transcript, ctx: TurnContext) -> bool | None:
+        """``True``/``False`` se a fala é só um "sim"/"não" (roteador local, nota de execução);
+        ``None`` se é outra coisa."""
+        if transcript.is_empty:
+            return None
+        route = self.route(transcript.final, ctx)
+        if route.kind is RouteKind.LOCAL and route.intent is not None and route.intent.id in _CONFIRM_INTENTS:
+            return route.intent.id == IntentId.CONFIRM_YES
+        return None
 
     async def _dispatch(self, text: str, route: RouteResult, ctx: TurnContext) -> ActionResult:
         if route.kind is RouteKind.LOCAL:
@@ -427,6 +458,8 @@ class TurnMachine:
         self._recording = False
         self._stream: Any = None  # transcrição enquanto fala da gravação atual (1.25)
         self._pending: ActionRequest | None = None
+        # confirmação interrompida/expirada e quando (``STALE_CONFIRM_S``)
+        self._stale: tuple[ActionRequest, float] | None = None
         self._offer: Offer | None = None  # pergunta proativa esperando resposta (5.4)
         self._ctx: TurnContext | None = None
         self._vote_open = False
@@ -655,6 +688,7 @@ class TurnMachine:
         self._recording = False
         self._audio.clear()
         await self._drop_stream()
+        self._keep_stale(self._pending)
         self._pending = None
         log.info("%s: confirmação expirou", self.satellite)
         if self._offer is not None:  # pergunta proativa sem resposta: dorme calado
@@ -662,6 +696,17 @@ class TurnMachine:
             await self._go(TurnState.SLEEPING)
             return
         self._start(self._deliver(await self._cancelled(), followup=False))
+
+    def _keep_stale(self, pending: ActionRequest | None) -> None:
+        """Guarda a confirmação perdida para um "sim" logo depois; ação perigosa não (R5.3)."""
+        if pending is not None and not pending.intent.danger:
+            self._stale = (pending, time.monotonic())
+
+    def _take_stale(self) -> ActionRequest | None:
+        stale, self._stale = self._stale, None
+        if stale is None or time.monotonic() - stale[1] > STALE_CONFIRM_S:
+            return None
+        return stale[0]
 
     async def _cancelled(self) -> ActionResult:
         await self._close_vote(Verdict.DENIED)
@@ -700,6 +745,15 @@ class TurnMachine:
         if followup and transcript.is_empty:
             # ruído na janela de continuação: nada de "não peguei", só volta a dormir
             await self._go(TurnState.SLEEPING)
+            return
+        stale = self._take_stale()
+        if stale is not None and (yes := self.pipeline.confirm_answer(transcript, ctx)) is not None:
+            # "sim"/"não" à pergunta que a nova ativação interrompeu (ou que expirou)
+            log.info("%s: resposta à confirmação anterior: %s", self.satellite, "sim" if yes else "não")
+            if yes:
+                await self._deliver(await self.pipeline.run_action(stale))
+            else:
+                await self._deliver(ActionResult(ok=True, speech=SAY_CANCELLED))
             return
         early = self._early_speech()
         token = EARLY_SPEECH.set(early)
@@ -816,6 +870,7 @@ class TurnMachine:
         self._recording = False
         self._audio.clear()
         await self._drop_stream()
+        self._keep_stale(self._pending)
         self._pending = None
         self._offer = None
         await self._close_vote(Verdict.DENIED)
