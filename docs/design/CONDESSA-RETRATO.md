@@ -54,9 +54,33 @@ rubor nas bochechas · gota de suor · "zz" · "?" · "!" · (opcional) lágrima
   balanço sutil do P3R;
 - **cabeça levemente inclinada** (mesma arte, 3–5°) para "pensando".
 
+### F. Olhares para o HUD (olhos + leve giro de cabeça, mesma pose)
+Ela olha para onde algo aconteceu na tela (ver `CONDESSA-PERSONA.md`):
+esquerda · esquerda-baixo · direita-cima · direita-baixo · para cima · para baixo (lendo).
+Cada um: olhos abertos e meio (para piscar olhando).
+
+### G. Reações à música (gosto próprio, de −2 a +2)
+| Afinidade | Olhos | Boca | Extra |
+| --- | --- | --- | --- |
+| +2 favorito | fechados curtindo / brilhando | sorriso aberto · cantarolando ("o" pequeno) | notas musicais ♪ · **cabeça balançando: 3 quadros** (centro, inclina esq., inclina dir.) |
+| +1 gosta | relaxados, meio fechados | sorriso fechado | — |
+| 0 aceita | neutros | neutra | — |
+| −1 não é a praia | olhar de lado | "hm" (boca torta) | sobrancelha levantada |
+| −2 aversão leve | semicerrados | careta discreta | gota de suor |
+| descoberta | arregalados de leve | "o" | "?" pequeno |
+| tolerando (favorita do Pedro) | sorriso de olhos | sorriso amarelo | — |
+
+Com fone: **fone de ouvido** como camada separada (ela coloca quando a música começa e curte).
+
+### H. Reações ao HUD/PC
+preocupada (temperatura) · concentrada (Claude Code / pensando) · orgulhosa (faxina feita,
+"fiz") · sonolenta (sessão longa / madrugada) · surpresa leve (clique no LED) · emburrada leve
+(PC travou / jogo caiu — rara e curta).
+
 **Mínimo para funcionar bem:** A + B (neutro com 3, feliz, sério, surpresa, pensativa,
 sonolenta) + C (fechada, entreaberta, aberta, sorriso fechado, sorriso aberto, "o") + D (rubor,
-"zz") ≈ **20 imagens**. Tudo da lista ≈ 35.
+"zz") ≈ **20 imagens**. Com F, G e H (olhares, música e HUD) ≈ **45**; tudo, com cabelo
+separado, fone e balanço de cabeça, ≈ **55**.
 
 ## Atalho: folha de expressões (quadros inteiros)
 
