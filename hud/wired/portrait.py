@@ -34,7 +34,9 @@ import logging
 import math
 import os
 import random
+import time
 import tomllib
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 
@@ -204,6 +206,12 @@ def _compose(assets: PortraitAssets, expr: str, eyes: str, glance: int, mouth: s
 def make_mascot(state: str = "sleeping", folder: Path | None = None) -> Mascot:
     """O retrato se a pasta tiver as camadas obrigatórias; senão o mascote vetorial."""
     folder = folder or portrait_dir()
+    if is_frames(folder):
+        try:
+            return FramePortrait(FrameAssets(folder), state)
+        except Exception as e:  # noqa: BLE001 - arte quebrada não derruba o HUD
+            log.warning("retrato em quadros indisponível (%s); usando o mascote vetorial", e)
+            return Mascot(state)
     if missing(folder):
         return Mascot(state)
     try:
@@ -215,3 +223,131 @@ def make_mascot(state: str = "sleeping", folder: Path | None = None) -> Mascot:
 
 __all__ = ["DEFAULT_DIR", "EXPRESSIONS", "Portrait", "PortraitAssets", "make_mascot", "missing",
            "portrait_dir"]
+
+
+# ---------------------------------------------------------------- quadros inteiros (folha de expressões)
+
+FRAME_IDLE_EVERY = (6.0, 14.0)  # parada: de quanto em quanto tempo olha para algum lado
+FRAME_IDLE_LEN = (1.2, 2.6)
+NIGHT_HOURS = (22, 7)  # dormindo à noite: cara de sono; de dia, neutra
+
+
+class FrameAssets:
+    """Retrato em quadros inteiros (``portrait.toml`` com ``mode = "frames"``, ver
+    ``hud/tools/portrait_sheet.py``): ``frames/NN.png`` e o mapeamento estado → quadro."""
+
+    def __init__(self, folder: Path):
+        self.folder = Path(folder)
+        cfg = tomllib.loads((self.folder / "portrait.toml").read_text(encoding="utf-8"))
+        self.fit = str(cfg.get("fit", "contain"))
+        frames = {str(k): int(v) for k, v in dict(cfg.get("frames", {})).items()}
+        speaking = dict(cfg.get("speaking", {}))
+        self.idle = [int(n) for n in dict(cfg.get("idle", {})).get("glances", [])]
+        self.state_frame = frames
+        self.talk = (int(speaking.get("closed", frames.get("listening", 1))),
+                     int(speaking.get("open", frames.get("happy", 1))))
+        self._cache: dict[int, QPixmap | None] = {}
+        first = self.frame(frames.get("listening", 1))
+        if first is None:
+            raise FileNotFoundError(f"retrato em quadros sem frames/ em {self.folder}")
+        self.size = first.size()
+
+    def frame(self, n: int) -> QPixmap | None:
+        if n not in self._cache:
+            path = self.folder / "frames" / f"{n:02d}.png"
+            pm = QPixmap(str(path)) if path.is_file() else None
+            self._cache[n] = None if pm is None or pm.isNull() else pm
+        return self._cache[n]
+
+
+def is_frames(folder: Path) -> bool:
+    toml = folder / "portrait.toml"
+    try:
+        cfg = tomllib.loads(toml.read_text(encoding="utf-8")) if toml.is_file() else {}
+    except (OSError, ValueError):
+        return False
+    return cfg.get("mode") == "frames" and (folder / "frames").is_dir()
+
+
+class FramePortrait(Mascot):
+    """`Mascot` com um quadro inteiro por estado (folha de expressões). Falando, alterna boca
+    fechada/aberta pelo volume; parada, olha para os lados de vez em quando (``[idle] glances``);
+    dormindo, cara de sono só à noite."""
+
+    TALL = True  # a tela de espera dá mais espaço (retrato grande, fala embaixo)
+
+    def __init__(self, assets: FrameAssets, state: str = "sleeping", rng: random.Random | None = None,
+                 now: float | None = None, hour: Callable[[], int] | None = None):
+        super().__init__(state, rng, now)
+        self.assets = assets
+        self.hour = hour or (lambda: time.localtime().tm_hour)
+        self._idle_at = self._now + self._rng.uniform(*FRAME_IDLE_EVERY)
+        self._idle_end = -1.0
+        self._idle_frame = 0
+
+    def _resting(self) -> bool:
+        return self.state in ("sleeping", "listening")
+
+    def _advance_idle(self, now: float) -> None:
+        if not self.assets.idle:
+            return
+        while now >= self._idle_at:
+            self._idle_end = self._idle_at + self._rng.uniform(*FRAME_IDLE_LEN)
+            self._idle_frame = self._rng.choice(self.assets.idle)
+            self._idle_at = self._idle_end + self._rng.uniform(*FRAME_IDLE_EVERY)
+            if self._idle_at <= now:
+                self._idle_at = now + self._rng.uniform(*FRAME_IDLE_EVERY)
+
+    def frame_number(self, now: float | None = None) -> int:
+        now = self._now if now is None else now
+        a = self.assets
+        if self.state == "speaking":
+            return a.talk[1] if self.mouth in ("o", "O") else a.talk[0]
+        if self._resting():
+            self._advance_idle(now)
+            if self._idle_frame and now < self._idle_end:
+                return self._idle_frame
+        if self.state == "sleeping":
+            h = self.hour()
+            night = h >= NIGHT_HOURS[0] or h < NIGHT_HOURS[1]
+            if night and "sleeping" in a.state_frame:
+                return a.state_frame["sleeping"]
+            return a.state_frame.get("listening", a.talk[0])
+        return a.state_frame.get(self.state, a.state_frame.get("listening", a.talk[0]))
+
+    def _key(self, now: float) -> tuple:
+        return (self.state, self.frame_number(now))
+
+    def _next_event(self, now: float, frame: float) -> float:
+        nxt = super()._next_event(now, frame)
+        if self._resting() and self.assets.idle:
+            nxt = min(nxt, self._idle_end if self._idle_end > now else self._idle_at)
+        return max(nxt, now + frame)
+
+    def target(self, rect: QRectF) -> QRectF:
+        sw, sh = self.assets.size.width(), self.assets.size.height()
+        k = (max if self.assets.fit == "cover" else min)(rect.width() / sw, rect.height() / sh)
+        w, h = sw * k, sh * k
+        return QRectF(rect.center().x() - w / 2, rect.center().y() - h / 2, w, h)
+
+    def paint(self, p: QPainter, rect: QRectF, accent: str | QColor, now: float | None = None) -> None:
+        now = self._now if now is None else now
+        t = self.target(rect)
+        dev = p.transform().mapRect(t)
+        pm = _scaled_frame(self.assets, self.frame_number(now), max(1, round(dev.width())),
+                           max(1, round(dev.height())))
+        if pm is None:
+            return
+        p.save()
+        p.setClipRect(rect, Qt.ClipOperation.IntersectClip)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        p.drawPixmap(t, pm, QRectF(pm.rect()))
+        p.restore()
+
+
+@lru_cache(maxsize=48)
+def _scaled_frame(assets: FrameAssets, n: int, w: int, h: int) -> QPixmap | None:
+    pm = assets.frame(n)
+    if pm is None:
+        return None
+    return pm.scaled(w, h, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)

@@ -112,3 +112,54 @@ def test_encaixe(tmp_path, fit):
         assert (r.left(), r.top(), r.width(), r.height()) == (18.0, 18.0, 28.0, 28.0)
     else:  # preenche a largura e corta em cima/embaixo
         assert (r.left(), r.width(), r.height()) == (0.0, 64.0, 64.0)
+
+
+def write_frames(folder: Path, n: int = 16) -> Path:
+    from wired.portrait import FrameAssets  # noqa: F401 - garante o import do módulo
+
+    (folder / "frames").mkdir(parents=True)
+    for k in range(1, n + 1):
+        img = QImage(32, 32, QImage.Format.Format_ARGB32)
+        img.fill(QColor(k * 10, 0, 0))
+        assert img.save(str(folder / "frames" / f"{k:02d}.png"))
+    (folder / "portrait.toml").write_text(
+        'mode = "frames"\n[frames]\nsleeping = 12\nlistening = 1\nthinking = 15\nhappy = 3\n'
+        "[speaking]\nclosed = 2\nopen = 3\n[idle]\nglances = [5, 6]\n"
+    )
+    return folder
+
+
+def test_quadros_por_estado_fala_e_noite(tmp_path):
+    from wired.portrait import FramePortrait
+
+    hour = [14]
+    m = make_mascot("listening", write_frames(tmp_path))
+    assert isinstance(m, FramePortrait) and m.TALL
+    m.hour = lambda: hour[0]
+    m._idle_at = 1e9
+    assert m.frame_number(1.0) == 1
+    m.set_expression("thinking")
+    assert m.frame_number(1.0) == 15
+    m.set_expression("alert")  # sem quadro próprio: neutra
+    assert m.frame_number(1.0) == 1
+    m.set_expression("speaking")
+    m.set_level(0.05)
+    assert m.frame_number(1.0) == 2
+    m.set_level(0.8)
+    assert m.frame_number(1.0) == 3
+    m.set_expression("sleeping")
+    assert m.frame_number(1.0) == 1  # de dia, dormindo = neutra
+    hour[0] = 23
+    assert m.frame_number(1.0) == 12  # à noite, cara de sono
+    img = render(m, 1.0)
+    assert QColor(img.pixel(32, 32)).red() == 120  # quadro 12 desenhado
+
+
+def test_olhares_quando_parada(tmp_path):
+    m = make_mascot("listening", write_frames(tmp_path))
+    m._idle_at = 10.0
+    assert m.frame_number(5.0) == 1
+    assert m.frame_number(10.5) in (5, 6)  # olhando para um lado
+    assert m.frame_number(m._idle_end + 0.01) == 1  # volta
+    m.set_expression("speaking")
+    assert m.frame_number(m._idle_at + 0.1) in (2, 3)  # falando não olha para os lados
