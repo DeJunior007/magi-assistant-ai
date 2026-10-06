@@ -9,7 +9,11 @@
   ``capacity <= battery_pct`` e sem carregar;
 - **custo**: 80% e 100% do teto mensal (``Budget.status()``), cada nível uma vez por mês e teto
   (estado em ``<data_dir>/alerts_state.json``, para não repetir ao reiniciar). O ``on_warn`` do
-  ``MonthlyBudget`` chama ``check_cost()`` na hora, sem esperar o próximo ciclo.
+  ``MonthlyBudget`` chama ``check_cost()`` na hora, sem esperar o próximo ciclo;
+- **SSD**: uso de cada disco de ``disk_paths`` (padrão "/") com aviso em ``disk_warn_pct`` (85%) e
+  de novo, mais forte, em ``disk_crit_pct`` (95%), com histerese de 3 pontos;
+- **faxina**: quando o ``magi-clean`` (timer diário, ``magi.maintenance.cleanup``) libera pelo
+  menos ``cleanup_announce_gb``, a Magui conta uma vez quanto liberou (``cleanup_state.json``).
 
 Histerese e cooldown (temperatura e bateria): o alarme abre ao cruzar o limiar de aviso e só
 fecha ao voltar além do limiar de liberação; cada abertura avisa no máximo uma vez, e nunca antes
@@ -26,6 +30,7 @@ import contextlib
 import json
 import logging
 import os
+import shutil
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -37,6 +42,8 @@ from zoneinfo import ZoneInfo
 from magi.common.config import ConfigError
 from magi.common.contracts import Budget, BudgetStatus, CardLevel, CardMsg, Expression
 from magi.core.proactive.sink import Priority, ProactiveSink
+from magi.maintenance.cleanup import STATE_FILE as CLEANUP_STATE_FILE
+from magi.maintenance.cleanup import load as cleanup_load
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +66,11 @@ class AlertsConfig:
     battery_pct: int = 15
     battery_clear_pct: int = 20
     cost: bool = True
+    disk: bool = True
+    disk_paths: tuple[str, ...] = ("/",)
+    disk_warn_pct: float = 85.0
+    disk_crit_pct: float = 95.0
+    cleanup_announce_gb: float = 0.5
     cpu_sensors: tuple[str, ...] = ("k10temp", "coretemp", "zenpower")
     gpu_sensors: tuple[str, ...] = ("amdgpu",)
     sysfs: Path = Path("/sys")
@@ -69,18 +81,19 @@ class AlertsConfig:
         d = cls()
         kw: dict[str, Any] = {}
         try:
-            for name in ("enabled", "cost"):
+            for name in ("enabled", "cost", "disk"):
                 if name in raw:
                     if not isinstance(raw[name], bool):
                         raise ConfigError(f"alerts.{name} deve ser true/false")
                     kw[name] = raw[name]
-            for name in ("poll_s", "cooldown_s", "cpu_warn_c", "cpu_clear_c", "gpu_warn_c", "gpu_clear_c"):
+            for name in ("poll_s", "cooldown_s", "cpu_warn_c", "cpu_clear_c", "gpu_warn_c", "gpu_clear_c",
+                         "disk_warn_pct", "disk_crit_pct", "cleanup_announce_gb"):
                 if name in raw:
                     kw[name] = float(raw[name])
             for name in ("battery_pct", "battery_clear_pct"):
                 if name in raw:
                     kw[name] = int(raw[name])
-            for name in ("cpu_sensors", "gpu_sensors"):
+            for name in ("cpu_sensors", "gpu_sensors", "disk_paths"):
                 if name in raw:
                     kw[name] = tuple(str(s) for s in raw[name])
             if "sysfs" in raw:
@@ -94,6 +107,8 @@ class AlertsConfig:
             raise ConfigError("alerts: *_clear_c deve ficar abaixo de *_warn_c")
         if cfg.battery_clear_pct <= cfg.battery_pct:
             raise ConfigError("alerts.battery_clear_pct deve ficar acima de battery_pct")
+        if not 0 < cfg.disk_warn_pct < cfg.disk_crit_pct <= 100:
+            raise ConfigError("alerts: 0 < disk_warn_pct < disk_crit_pct <= 100")
         return cfg
 
 
@@ -197,6 +212,27 @@ def _temp_speech(part: str, temp: float) -> str:
     return f"Ei, a {part} tá em {round(temp)} graus. Dá uma olhada aí."
 
 
+DISK_CLEAR_GAP = 3.0  # histerese do SSD: o alarme fecha 3 pontos abaixo do limiar
+CLEANUP_FRESH_S = 36 * 3600  # faxina mais velha que isso não vira aviso (PC desligado, etc.)
+
+
+def _gb(n: float) -> str:
+    gb = n / 1e9
+    return f"{gb:.0f}" if gb >= 10 else f"{gb:.1f}".replace(".", ",")
+
+
+def _disk_speech(path: str, pct: float, free: int, crit: bool) -> str:
+    where = "O SSD" if path == "/" else f"O disco {path}"
+    if crit:
+        return (f"{where} tá quase cheio: {round(pct)}% ocupado, só {_gb(free)} GB livres. "
+                "Bora liberar espaço.")
+    return f"{where} tá com {round(pct)}% ocupado, sobram {_gb(free)} GB."
+
+
+def _cleanup_speech(freed: int, free_after: int) -> str:
+    return f"Fiz uma faxina no Docker: liberei {_gb(freed)} GB. Agora tem {_gb(free_after)} GB livres no SSD."
+
+
 def _battery_speech(pct: int) -> str:
     return f"Bateria do controle em {pct}%. Bom pôr pra carregar."
 
@@ -262,6 +298,8 @@ class AlertMonitor:
         self._last: dict[str, float] = {}
         self._cost = _CostState(state_path)
         self._cost.load()
+        self._cleanup_path = state_path.parent / CLEANUP_STATE_FILE if state_path is not None else None
+        self._disk_usage = shutil.disk_usage
         self._cost_lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
 
@@ -291,6 +329,8 @@ class AlertMonitor:
         await self.check_temps()
         await self.check_batteries()
         await self.check_cost()
+        await self.check_disks()
+        await self.check_cleanup()
 
     # -- regras ---------------------------------------------------------------------------------
 
@@ -369,3 +409,55 @@ class AlertMonitor:
         await self.sink.deliver(
             f"cost:{level}", text, CardMsg(card_level, text), Priority.VOICE, expression=Expression.ALERT
         )
+
+    async def check_disks(self) -> None:
+        """Uso do SSD: aviso em ``disk_warn_pct`` e outro, mais forte, em ``disk_crit_pct``."""
+        cfg = self.cfg
+        if not cfg.disk:
+            return
+        for path in cfg.disk_paths:
+            try:
+                u = self._disk_usage(path)
+            except OSError:
+                continue
+            pct = u.used / u.total * 100 if u.total else 0.0
+            crit = self._alarm(f"disk:{path}:crit", cfg.disk_crit_pct, cfg.disk_crit_pct - DISK_CLEAR_GAP,
+                               above=True)
+            warn = self._alarm(f"disk:{path}:warn", cfg.disk_warn_pct, cfg.disk_warn_pct - DISK_CLEAR_GAP,
+                               above=True)
+            crit.update(pct)
+            warn.update(pct)
+            if self._fire(f"disk:{path}:crit", crit):
+                warn.notified = True  # o crítico já cobre o aviso
+                text = _disk_speech(path, pct, u.free, crit=True)
+                await self.sink.deliver(f"disk:{path}", text, CardMsg(CardLevel.BOMBA, text), Priority.VOICE,
+                                        expression=Expression.ALERT)
+            elif self._fire(f"disk:{path}:warn", warn):
+                text = _disk_speech(path, pct, u.free, crit=False)
+                await self.sink.deliver(f"disk:{path}", text, CardMsg(CardLevel.ALTA, text), Priority.VOICE,
+                                        expression=Expression.ALERT)
+
+    async def check_cleanup(self) -> None:
+        """Conta uma vez o resultado da última faxina do ``magi-clean``, se liberou algo que valha."""
+        path = self._cleanup_path
+        if path is None or not path.is_file():
+            return
+        data = cleanup_load(path)
+        if not data or data.get("announced"):
+            return
+        try:
+            at = datetime.fromisoformat(str(data["at"]))
+            freed, free_after = int(data["freed_bytes"]), int(data["free_bytes_after"])
+        except (KeyError, TypeError, ValueError):
+            return
+        fresh = (self._now() - at).total_seconds() <= CLEANUP_FRESH_S
+        data["announced"] = True
+        with contextlib.suppress(OSError):
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, path)
+        if not fresh or freed < self.cfg.cleanup_announce_gb * 1e9:
+            return
+        text = _cleanup_speech(freed, free_after)
+        await self.sink.deliver("cleanup", text, CardMsg(CardLevel.NORMAL, text), Priority.VOICE,
+                                expression=Expression.HAPPY)

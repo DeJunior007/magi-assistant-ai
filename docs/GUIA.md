@@ -160,6 +160,14 @@ sessão recomeça na pista. Ela nunca tira print sozinha.
 80% e 100% do teto. Fala curta + card; em call, só card. O mesmo alerta não repete antes de 15 min
 e só volta depois de esfriar (82/85 °C) ou carregar.
 
+**SSD e faxina.** Ela avisa quando o SSD passa de 85% e de novo, mais firme, em 95% (`disk_*` em
+`[alerts]`). Todo dia às 04:30 (ou ao ligar o PC, se estava desligado) o `magi-clean.timer` faz uma
+faxina no Docker: cache de build com mais de 7 dias e imagens órfãs; com o disco acima de 90%,
+todo o cache de build. **Nunca apaga volumes** (bancos e arquivos dos projetos) nem imagens com
+nome. Se liberou 0,5 GB ou mais, ela conta quanto. Rodar na mão: `systemctl --user start
+magi-clean`; resultado em `~/.local/share/magi/cleanup_state.json` e no `journalctl --user -u
+magi-clean`.
+
 **Call no Discord.** O satélite vê a captura do Discord a cada 2 s. Em call: "Condessa" desligada,
 sem conversa contínua, e o atalho **muta só o Discord** enquanto você fala com ela (restaura ao
 soltar, e se algo cair restaura ao reiniciar).
