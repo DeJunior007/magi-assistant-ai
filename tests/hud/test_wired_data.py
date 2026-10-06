@@ -253,12 +253,14 @@ def test_claude_stats_monta_o_painel(tmp_path):
     now = datetime(2026, 10, 6, 22, 0, tzinfo=UTC)
     sess = [SimpleNamespace(project="magi-assistant-ai", running=True, last=now - timedelta(seconds=20)),
             SimpleNamespace(project="KPCeramica", running=False, last=now - timedelta(minutes=7))]
-    summary = SimpleNamespace(tokens=SimpleNamespace(total=271_000_000, output=1_500_000, replies=1209),
-                              active=sess, running=1)
+    summary = SimpleNamespace(tokens=SimpleNamespace(fresh=5_800_000, output=1_500_000, replies=1209),
+                              active=sess, running=1, window_end=datetime(2026, 10, 7, 4, 0, tzinfo=UTC),
+                              window=SimpleNamespace(fresh=236_000, cache_read=31_000_000))
     state = tmp_path / "state.json"
     state.write_text('{"line": "conserto pronto: roteador (aguardando ok)"}')
     st = ClaudeStats(autofix_state=state, reader=SimpleNamespace(summary=lambda: summary))
     v = st.refresh(now)
-    assert (v.tokens, v.output, v.replies, v.running) == (271_000_000, 1_500_000, 1209, 1)
+    assert (v.tokens, v.output, v.replies, v.running) == (5_800_000, 1_500_000, 1209, 1)
+    assert (v.window_fresh, v.window_cache) == (236_000, 31_000_000) and v.window_end
     assert v.sessions == [("magi-assistant-ai", True, 0), ("KPCeramica", False, 7)]
     assert v.autofix == "conserto pronto: roteador (aguardando ok)"

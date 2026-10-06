@@ -346,9 +346,9 @@ def demo_snapshot(mode: str, rgb: str | None) -> Snapshot:
                         "março de 2027."),
               ("19:06", "O criador de Hunter x Hunter vai recusar trabalhos com prazo para cuidar da saúde."),
               ("19:05", "The Record of a Fallen Vampire vai virar anime para TV em 2027.")],
-        claude=ClaudeView(271_300_000, 1_500_000, 1209,
-                          [("magi-assistant-ai", True, 0), ("KPCeramica", False, 7)], 1,
-                          "conserto pronto: roteador · diga \"aplica\""),
+        claude=ClaudeView(5_800_000, 1_500_000, 1209,
+                          [("magi-assistant-ai", True, 0), ("KPCeramica", False, 7)], 1, None,
+                          "01:00", 236_000, 31_000_000),
         led_on=rgb is not None, led_rgb=rgb,
         magui_state="listening" if gaming else "sleeping",
     )

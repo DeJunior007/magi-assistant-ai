@@ -518,12 +518,15 @@ AUTOFIX_STATE = Path("~/.local/share/magi/autofix/state.json").expanduser()
 @dataclass
 class ClaudeView:
     """O que o painel "Claude Code" mostra. Campos vazios = sem dado."""
-    tokens: int | None = None  # total do dia (entrada + saída + cache)
+    tokens: int | None = None  # tokens novos do dia (entrada + saída + criação de cache)
     output: int | None = None
     replies: int | None = None
     sessions: list = field(default_factory=list)  # [(projeto, rodando, minutos desde a última)]
     running: int = 0
     autofix: str | None = None  # linha de estado do autoconserto (state.json do núcleo)
+    window_end: str | None = None  # fim da janela de 5 h em curso ("01:00"); None = nenhuma aberta
+    window_fresh: int = 0  # tokens novos na janela
+    window_cache: int = 0  # leitura de cache na janela (pesa bem menos)
 
 
 class ClaudeStats:
@@ -553,8 +556,9 @@ class ClaudeStats:
         now = now or datetime.now(UTC)
         sessions = [(x.project, x.running, max(0, int((now - x.last).total_seconds() // 60)))
                     for x in s.active[:4] if x.last is not None]
-        self.view = ClaudeView(s.tokens.total, s.tokens.output, s.tokens.replies, sessions, s.running,
-                               self._autofix())
+        end = s.window_end.astimezone().strftime("%H:%M") if s.window_end is not None else None
+        self.view = ClaudeView(s.tokens.fresh, s.tokens.output, s.tokens.replies, sessions, s.running,
+                               self._autofix(), end, s.window.fresh, s.window.cache_read)
         return self.view
 
     def _autofix(self) -> str | None:
