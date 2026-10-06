@@ -157,11 +157,18 @@ _NUM_SLOTS = {SlotName.VOLUME, SlotName.BRIGHTNESS, SlotName.AMOUNT}
 _PLACEHOLDER = {SlotName.COLOR: PH_COLOR, SlotName.DETAIL: PH_DETAIL} | dict.fromkeys(_NUM_SLOTS, PH_NUM)
 _FREE_SLOTS = {SlotName.GAME, SlotName.QUERY, SlotName.TEXT, SlotName.FRANCHISE}
 _TAIL_LEAD = FILLERS | {"jogo", "musica", "som"}
+#: Sobra no fim do rabo que não é nome ("uma só da Willow então", "Linkin Park por favor").
+_TAIL_END = FILLERS | {"entao", "hein", "mesmo", "por", "favor", "tambem", "ai"}
 
 _EXTRA_PEN, _LIGHT_PEN, _MISSING_PEN, _QUESTION_PEN = 7.0, 2.0, 15.0, 25.0
 _FREE_MISSING_PEN = 25.0  # num slot livre o rabo engole qualquer coisa: faltar palavra pesa mais
 _VAGUE_PEN, _UNKNOWN_GAME_PEN = 20.0, 5.0
 _VAGUE_TAIL = frozenset("isso isto em se pra para na no nele nela".split())
+#: Busca de música cujo rabo fala de outra coisa ("coloca o HUD em modo ocioso", "o LED do PC")
+#: ou é comprida demais para nome de música/artista vai ao agente.
+_OFF_MUSIC = frozenset("hud tela ocioso ociosidade led leds luz luzes rgb brilho volume painel pc computador".split())
+_OFF_MUSIC_PEN = 40.0
+_LONG_QUERY_WORDS = 6
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +516,7 @@ class LocalRouter:
         tail = list(raw[i:])
         while tail and tail[0] in _TAIL_LEAD:
             tail.pop(0)
-        while tail and tail[-1] in FILLERS:
+        while tail and tail[-1] in _TAIL_END:
             tail.pop()
         if not tail:
             return None
@@ -520,6 +527,8 @@ class LocalRouter:
             if slot is None:
                 return None
         else:
+            if tpl.free == SlotName.QUERY and (set(tail) & _OFF_MUSIC or len(tail) > _LONG_QUERY_WORDS):
+                score -= _OFF_MUSIC_PEN
             slot = Slot(name=tpl.free, value=phrase, raw=phrase, display=phrase)
         slots = [slot, *(Slot(name=n, value=v) for n, v in tpl.consts)]
         return _Candidate(score, False, spec, tuple(slots), self._label(spec, tpl, slots))
