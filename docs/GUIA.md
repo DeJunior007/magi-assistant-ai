@@ -161,7 +161,7 @@ cota gratuita custa 0 e por isso nunca recebe dado pessoal (memória, voz, humor
 
 | O quê | Onde |
 | --- | --- |
-| Código | `~/projetos/magi-assistant-ai/` |
+| Código | `~/Documentos/magi-assistant-ai/` |
 | Código do HUD em uso | `~/.local/share/gamerhud` → link para `hud/` do repo |
 | Config da Magui | `~/.config/magi/config.toml` (ou `$MAGI_CONFIG`) |
 | Config do HUD | `~/.config/gamerhud/settings.json` |

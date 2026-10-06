@@ -62,11 +62,11 @@ Implementado e testado com dublês; falta conferir no uso real:
 
 ## 6. Operação
 
-- **Mover o repo para `~/Documentos`:** mover a pasta, repontar o link
-  (`ln -sfn <novo>/hud ~/.local/share/gamerhud`), rodar `hud/install.sh` de novo (as units do
-  systemd guardam o caminho em `ExecStart`, e o atalho do menu "Gravar voz da Condessa" também) e
-  reiniciar HUD e serviços (`systemctl --user restart magi-core magi-satellite`). Validar com
-  `systemctl --user status` e abrindo o HUD.
+- **Mover o repo de lugar:** já feito uma vez (`~/projetos` → `~/Documentos`). Parar
+  `magi-core`/`magi-satellite`/`magi-news.timer`, mover a pasta, apagar o `.venv` (os scripts dele
+  guardam o caminho antigo) e rodar `hud/install.sh --start`: ele repõe o link
+  `~/.local/share/gamerhud`, as units, o atalho "Gravar voz da Condessa" e o `uv sync`. O Postgres
+  não muda (projeto compose `magi`, volume `magi_magi-pgdata`).
 - **Satélite no Raspberry Pi (futuro, R22):** o protocolo já é Wyoming + eventos `magi-*` com
   identificador de satélite; falta empacotar o `magi-satellite` para ARM e um áudio de saída no Pi.
 
