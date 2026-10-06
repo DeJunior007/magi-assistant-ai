@@ -267,6 +267,17 @@ class PgNewsRepo:
             out.setdefault(item_id, []).append(url)
         return out
 
+    async def item_sources(self, item_id: int, limit: int = 5) -> list[tuple[str, str]]:
+        """``(url, texto do feed)`` das notícias cruas de um item, mais confiável primeiro (fora do
+        contrato; "conta mais dessa")."""
+        cur = await self.conn.execute(
+            "SELECT r.url, coalesce(r.body, '') FROM news_item_sources l JOIN news_raw r ON r.id = l.raw_id"
+            " LEFT JOIN news_sources s ON s.id = r.source_id"
+            " WHERE l.item_id = %s ORDER BY s.trust DESC NULLS LAST, length(r.body) DESC NULLS LAST LIMIT %s",
+            [item_id, limit],
+        )
+        return [(url, body) for url, body in await cur.fetchall()]
+
     async def search_items(
         self, *, franchise: str | None = None, embedding: Sequence[float] | None = None, limit: int = 5
     ) -> list[NewsItem]:

@@ -532,6 +532,14 @@ async def test_pergunta_leve_nao_responde_beleza_e_silencio_dorme(make_rig) -> N
     assert rig.speaker.said[-1] == "Quer outra?"
 
 
+async def test_pergunta_leve_aceita_outro_pedido(make_rig) -> None:
+    rig = await make_rig()
+    await _ate_confirming(rig, "novidades")
+    await rig.sat.speak("abre o jogo")  # nem sim nem não: turno normal
+    assert await rig.hud.states(2) == [TH, Expression.HAPPY]
+    assert rig.actions.calls[-1].intent.id == IntentId.GAME_OPEN
+
+
 async def test_confirmacao_expira_por_tempo(make_rig) -> None:
     rig = await make_rig(confirm_timeout_ms=100, confirm_grace_ms=50)
     listen = await _ate_confirming(rig)

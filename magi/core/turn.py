@@ -806,6 +806,19 @@ class TurnMachine:
         self, audio: bytes, fmt: PcmFormat, pending: ActionRequest, ctx: TurnContext, *, stream: Any = None
     ) -> None:
         transcript = await self.pipeline.transcribe(audio, fmt, ctx, stream=stream)
+        if (
+            _quiet(pending)
+            and self.pipeline.confirm_answer(transcript, ctx) is None
+            and not self.pipeline.is_no(transcript, ctx)
+        ):
+            if transcript.is_empty:  # ruído: como silêncio, dorme calado
+                await self._go(TurnState.SLEEPING)
+                return
+            # Pergunta leve e a resposta é outra coisa ("conta mais dessa"): turno normal.
+            result = await self.pipeline.respond(transcript, ctx)
+            self._last_text, self._last_at = result.redo_text or transcript.final, ctx.started_at
+            await self._deliver(result)
+            return
         if not self.pipeline.is_yes(transcript, ctx):
             if declined := pending.args.get(ARG_DECLINED):
                 await self._deliver(ActionResult(ok=True, speech=str(declined)), followup=False)
