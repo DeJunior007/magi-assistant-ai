@@ -582,6 +582,14 @@ Fonte: `docs/design/MAGI-HANDOFF.md`, design §13. U1 e U2 em paralelo; U3 depoi
   - Orçamento: ~60k
   - Pronto: testes com plasma/kwin/appletsrc falsos (sem estado + prints → restaura; abrir 2× não sobrescreve; offscreen não chama plasma; vigia restaura; SIGTERM restaura).
 
+## Documentação
+
+- [x] **D1 Documentação de uso e mapa do projeto** — `README.md` atualizado (o que é, estado real, mapa do repositório, instalação com `hud/install.sh`, serviços, Postgres, `magi-keys`, `magi-spotify-login`); `docs/GUIA.md` com o guia de uso (ativação, conversa contínua, comandos por área, HUD, música, notícias, memória, humor, ajuda no jogo, alertas, gasto, onde fica cada coisa no PC, config e recarga, logs, Condessa, problemas comuns, custos e desempenho); `docs/PROXIMOS-PASSOS.md` com o que fica para depois (por quê, o que falta, como validar). Só documentação.
+  - Lê: `tasks.md`, `config.example.toml`, `pyproject.toml`, `hud/`, `deploy/`, `docs/spikes/S4.md`, `docs/perf/fase1.md`, `magi/core/intents.yaml`, `magi/agent/tools/`, `magi/common/`, `magi/cli/`
+  - Escreve: `README.md`, `docs/GUIA.md`, `docs/PROXIMOS-PASSOS.md`
+  - Orçamento: ~70k
+  - Pronto: caminhos, comandos e números conferidos no código, na config e no PC; testes verdes.
+
 ## Encerramento do MVP
 
 - [ ] **7.1 Medição final** — todos os RNF medidos e registrados.
