@@ -5,8 +5,11 @@
   filtra pelos últimos ``days`` (padrão 30) e responde com até 5 itens, maior prioridade e mais
   recentes primeiro. Sem nada guardado, cai para a pesquisa (3.8, ``SearchTool``) com fontes (R20.2).
   Sem ``topic``: as novidades ainda não vistas, como o "novidades?".
-- Intent local ``news.whats_new`` ("novidades?", "tem novidade?"): resposta rápida sem LLM com os
-  itens de nível bomba/alta/normal ainda não entregues (no máximo 5), marcados como entregues (R20.3).
+- Intent local ``news.whats_new`` ("novidades?", "tem novidade?"): modo rádio. Conta uma notícia
+  por vez (bomba/alta/normal ainda não entregue), narrada em português pelo modelo da tarefa
+  ``news`` (as fontes são quase todas em inglês), e pergunta "Quer ouvir outra?"; o "sim" volta
+  aqui e conta a próxima. Só a notícia falada é marcada como entregue (R20.3), e a seguinte já é
+  narrada em segundo plano enquanto esta toca. Sem modelo, fala a manchete.
 
 Tudo o que é exibido ou falado vem de :class:`magi.news.spoiler.Shown` (via ``present``): nunca a
 manchete, o resumo ou os links crus do item. A fala tem no máximo 2 frases; a lista com links vai
@@ -15,18 +18,25 @@ na legenda completa do HUD e os links como cards ``link``.
 
 from __future__ import annotations
 
+import asyncio
+import html
 import logging
+import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from magi.agent.tools.base import ToolArgsError, arg_int, arg_str
 from magi.common.contracts import (
+    ARG_DECLINED,
+    ARG_QUIET,
     ActionRequest,
     ActionResult,
     CardLevel,
     CardMsg,
+    ChatMessage,
     Expression,
+    Intent,
     IntentId,
     NewsItem,
     NewsLevel,
@@ -65,6 +75,25 @@ SAY_NO_DB = "Sem o banco de notícias, não tenho novidades guardadas."
 SAY_NOTHING = "Nada de novo por enquanto."
 SAY_NOTHING_TOPIC = "Não tenho nada guardado sobre {topic}."
 SEARCH_QUESTION = "Quais as novidades mais recentes sobre {topic}?"
+
+#: Modo rádio: quantas pendentes contar no "Tem N novidades" e o tempo máximo da narração.
+RADIO_COUNT = 50
+NARRATE_TIMEOUT_S = 6.0
+SAY_ASK_MORE = "Quer ouvir outra?"
+SAY_LAST = "Era isso por enquanto."
+SAY_RADIO_DECLINED = "Beleza, depois tem mais."
+ARG_NEXT = "next"
+#: Cumprimento que o modelo às vezes põe no começo, mesmo pedindo para não pôr.
+_GREETING = re.compile(
+    r"^(?:(?:olá|oi|e aí|fala|bom dia|boa tarde|boa noite|atenção)[,!]?\s*(?:pedro)?[,.!]\s*)+", re.I
+)
+NARRATE_PROMPT = (
+    "Você é a Condessa, apresentadora de um programa de rádio de games e anime, falando com o Pedro "
+    "em português do Brasil. Conte a notícia abaixo em 2 ou 3 frases curtas, naturais para falar em "
+    "voz alta: traduza, diga o principal (o quê, de qual obra, quando) e nada além do que está no "
+    "texto, sem opinião nem comentário seu. Sem links, sem listas, sem markdown, sem cumprimentar e "
+    "sem perguntar nada no fim."
+)
 
 
 def topic_matches(item: NewsItem, topic: str) -> bool:
@@ -134,6 +163,8 @@ class NewsQuery:
         self.search = search
         self.now = now or (lambda: datetime.now(UTC))
         self.store = store
+        self.chat: Any = None  # ChatProvider da tarefa ``news`` (narração do modo rádio)
+        self._ahead: tuple[int, asyncio.Task[str]] | None = None  # próxima já em narração
 
     async def _show(self, items: Sequence[NewsItem]) -> list[Shown]:
         ids = [i.id for i in items if i.id is not None]
@@ -160,6 +191,91 @@ class NewsQuery:
                 if i.id is not None:
                     await self.repo.mark_delivered(i.id, at)
         return render(shown, items)
+
+    async def radio(self, ctx: TurnContext, *, first: bool = True) -> ActionResult:
+        """Uma notícia narrada e "Quer ouvir outra?" (o "sim" chama de novo com ``first=False``)."""
+        if self.repo is None:
+            return ActionResult(ok=False, speech=SAY_NO_DB)
+        items = await self.repo.undelivered(WHATS_NEW_LEVELS, limit=RADIO_COUNT)
+        if not items:
+            return ActionResult(ok=True, speech=SAY_NOTHING if first else SAY_LAST)
+        item, rest = items[0], items[1:]
+        [shown] = await self._show([item])
+        text = await self._narration(item, shown)
+        if item.id is not None:
+            await self.repo.mark_delivered(item.id, self.now())
+        head = ""
+        if first:
+            n = len(items)
+            head = "Tem uma novidade. " if n == 1 else f"Tem {n if n < RADIO_COUNT else 'várias'} novidades. "
+        link = shown.links[0] if shown.links else ""
+        cards = (CardMsg(level=CardLevel.LINK if link else _card_level(item), title=shown.title, url=link),)
+        full = f"{shown.title}" + (f" — {link}" if link else "") + f"\n{text}"
+        if not rest:
+            return ActionResult(
+                ok=True, speech=f"{head}{text} {SAY_LAST}", full_text=full, cards=cards, long_speech=True
+            )
+        self._narrate_ahead(rest[0])
+        again = ActionRequest(
+            intent=Intent(id=IntentId.NEWS_WHATS_NEW.value),
+            ctx=ctx,
+            confirmed=True,
+            args={ARG_NEXT: True, ARG_DECLINED: SAY_RADIO_DECLINED, ARG_QUIET: True},
+        )
+        return ActionResult(
+            ok=True,
+            speech=f"{head}{text} {SAY_ASK_MORE}",
+            full_text=full,
+            cards=cards,
+            needs_confirmation=True,
+            on_confirm=again,
+            long_speech=True,
+        )
+
+    async def _narration(self, item: NewsItem, shown: Shown) -> str:
+        ahead, self._ahead = self._ahead, None
+        if ahead is not None:
+            if ahead[0] == item.id:
+                try:
+                    return await ahead[1]
+                except Exception:  # noqa: BLE001 - narração é opcional
+                    pass
+            else:
+                ahead[1].cancel()
+        return await self._narrate(shown)
+
+    def _narrate_ahead(self, item: NewsItem) -> None:
+        if self.chat is None or item.id is None:
+            return
+
+        async def run() -> str:
+            [shown] = await self._show([item])
+            return await self._narrate(shown)
+
+        self._ahead = (item.id, asyncio.create_task(run()))
+
+    async def _narrate(self, shown: Shown) -> str:
+        """Notícia contada em português (2-3 frases); sem modelo ou em erro, a manchete."""
+        title, summary = html.unescape(shown.title), html.unescape(shown.summary or "")
+        fallback = _sentence(title)
+        if self.chat is None:
+            return fallback
+        lines = [f"Obra: {shown.franchise}"] if shown.franchise else []
+        lines.append(f"Manchete: {title}")
+        if summary:
+            lines.append(f"Resumo: {summary}")
+        messages = [
+            ChatMessage(role="system", content=NARRATE_PROMPT),
+            ChatMessage(role="user", content="\n".join(lines)),
+        ]
+        try:
+            async with asyncio.timeout(NARRATE_TIMEOUT_S):
+                reply = await self.chat.chat(messages, personal=False)
+        except Exception as e:  # noqa: BLE001
+            log.warning("novidades: narração indisponível (%s); falando a manchete", type(e).__name__)
+            return fallback
+        text = _GREETING.sub("", " ".join((reply.text or "").split()))
+        return _sentence(text[:1].upper() + text[1:]) if text else fallback
 
     async def about(self, topic: str, days: int, ctx: TurnContext) -> ActionResult:
         """Novidades de uma obra (R20.1); sem nada guardado, pesquisa (R20.2)."""
@@ -216,7 +332,7 @@ class NewsQueryTool:
 
 
 class WhatsNewHandler:
-    """``news.whats_new`` ("novidades?") para o ``Registry``: resposta local, sem LLM."""
+    """``news.whats_new`` ("novidades?") para o ``Registry``: modo rádio (``NewsQuery.radio``)."""
 
     intents = frozenset({IntentId.NEWS_WHATS_NEW.value})
 
@@ -224,7 +340,7 @@ class WhatsNewHandler:
         self.query = query or NewsQuery()
 
     async def run(self, req: ActionRequest) -> ActionResult:
-        return await self.query.whats_new()
+        return await self.query.radio(req.ctx, first=not req.args.get(ARG_NEXT))
 
 
 def news_tools(query: NewsQuery) -> list[NewsQueryTool]:

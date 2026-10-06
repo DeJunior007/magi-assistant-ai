@@ -215,7 +215,10 @@ def compose(result: ActionResult) -> ActionResult:
     URL/lista, a fala vira "Deixei na tela." e o conteúdo vai para a legenda e os cards.
     """
     original = result.speech or ""
-    speech = short_speech(original) if original else ""
+    if result.long_speech:
+        speech = " ".join(original.split())
+    else:
+        speech = short_speech(original) if original else ""
     full = result.full_text
     if full is None and original and " ".join(original.split()) != speech:
         full = original

@@ -122,7 +122,13 @@ Respostas faladas têm até 2 frases; a resposta completa e os links aparecem co
   "pode dar spoiler de X" libera aquela obra.
 - Retorno: "não curti" / "mais disso" mexem no peso da obra da última notícia; ignorar a mesma obra
   3× seguidas também baixa; "larguei X" para de priorizar.
-- "Alguma novidade?" traz até 5 itens; sem nada guardado, ela pesquisa na internet.
+- "Alguma novidade?" é um **modo rádio**: ela conta uma notícia por vez, em português (as fontes
+  são em inglês; quem traduz e resume é o modelo da tarefa `news`), e pergunta "Quer ouvir
+  outra?". "Sim" conta a próxima, "não" encerra ("Beleza, depois tem mais.") e o silêncio
+  encerra calado. "Mais disso"/"não curti" valem para a notícia que acabou de tocar. Sem o
+  modelo, ela fala a manchete original.
+- "O que saiu de novo de X?" (pela IA) traz até 5 itens; sem nada guardado, ela pesquisa na
+  internet.
 - Fontes padrão em `magi/news/sources.toml`; acrescenta ou desliga em `[[news.sources]]` no config.
 
 ## 7. Memória, humor e ajuda no jogo

@@ -11,15 +11,21 @@ from magi.agent.graph import GraphAgent
 from magi.agent.self_model import SelfModel
 from magi.agent.tools.news import (
     MAX_ITEMS,
+    SAY_ASK_MORE,
+    SAY_LAST,
+    SAY_RADIO_DECLINED,
     NewsQuery,
     NewsQueryTool,
     WhatsNewHandler,
     topic_matches,
 )
 from magi.common.contracts import (
+    ARG_DECLINED,
+    ARG_QUIET,
     ActionRequest,
     ActionResult,
     CardLevel,
+    ChatReply,
     Intent,
     IntentId,
     NewsItem,
@@ -28,6 +34,7 @@ from magi.common.contracts import (
     WakeSource,
 )
 from magi.core.assemble import _wire_news_agent, _wire_news_query
+from magi.core.compose import compose
 from magi.news.spoiler import ReleaseStore
 
 NOW = datetime(2026, 10, 3, 12, tzinfo=UTC)
@@ -140,17 +147,57 @@ async def test_limite_de_5_ordenado(tmp_path):
     assert res.speech.startswith("Tem 5 novidades de silksong. A principal: Silksong notícia 8.")
 
 
-async def test_novidades_local_sem_llm_marca_entregues(tmp_path):
-    items = [item(i, f"Notícia {i}", "X", priority=i / 10) for i in range(1, 8)]
+class FakeNarrator:
+    """Chat da tarefa ``news``: devolve a narração "em português" da manchete recebida."""
+
+    def __init__(self, fail: bool = False) -> None:
+        self.fail = fail
+        self.calls: list[str] = []
+
+    async def chat(self, messages, *, tools=(), json_mode=False, personal):
+        user = messages[-1].content
+        self.calls.append(user)
+        if self.fail:
+            raise TimeoutError
+        title = next(line for line in user.splitlines() if line.startswith("Manchete: "))[10:]
+        return ChatReply(text=f"Saiu {title} em português")
+
+
+NEWS_REQ = ActionRequest(intent=Intent(id=IntentId.NEWS_WHATS_NEW.value), ctx=CTX, text="novidades?")
+
+
+async def test_novidades_modo_radio_uma_por_vez(tmp_path):
+    items = [item(i, f"Notícia {i}", "X", priority=i / 10) for i in range(1, 4)]
     items.append(item(9, "Guardada", "X", priority=1.0, level=NewsLevel.GUARDADA))
     q, repo = query(items, tmp_path)
+    q.chat = narrator = FakeNarrator()
     h = WhatsNewHandler(q)
-    req = ActionRequest(intent=Intent(id=IntentId.NEWS_WHATS_NEW.value), ctx=CTX, text="novidades?")
-    res = await h.run(req)
-    assert len(res.cards) == MAX_ITEMS and "Guardada" not in res.full_text
-    assert sorted(repo.delivered) == [3, 4, 5, 6, 7]
-    assert (await NewsQueryTool(q).run({}, CTX)).cards  # sobram 2
-    assert (await h.run(req)).speech == "Nada de novo por enquanto."
+    res = await h.run(NEWS_REQ)
+    assert res.speech == f"Tem 3 novidades. Saiu Notícia 3 em português. {SAY_ASK_MORE}"
+    assert res.long_speech and res.needs_confirmation and len(res.cards) == 1
+    assert repo.delivered == [3]  # só a que foi falada
+    assert res.on_confirm is not None and res.on_confirm.args[ARG_QUIET]
+    assert res.on_confirm.args[ARG_DECLINED] == SAY_RADIO_DECLINED
+    nxt = await h.run(res.on_confirm)  # "sim"
+    assert nxt.speech == f"Saiu Notícia 2 em português. {SAY_ASK_MORE}"  # sem repetir o "Tem N"
+    last = await h.run(nxt.on_confirm)
+    assert last.speech == f"Saiu Notícia 1 em português. {SAY_LAST}" and not last.needs_confirmation
+    assert sorted(repo.delivered) == [1, 2, 3] and "Guardada" not in " ".join(narrator.calls)
+    assert len(narrator.calls) == 3  # a próxima foi narrada adiantada, uma vez só
+    assert (await h.run(NEWS_REQ)).speech == "Nada de novo por enquanto."
+
+
+async def test_novidades_sem_modelo_fala_a_manchete(tmp_path):
+    q, _ = query([item(1, "Kena: Scars of Kosmora delayed to 2027", "Kena")], tmp_path)
+    q.chat = FakeNarrator(fail=True)
+    res = await WhatsNewHandler(q).run(NEWS_REQ)
+    assert res.speech == f"Tem uma novidade. Kena: Scars of Kosmora delayed to 2027. {SAY_LAST}"
+
+
+def test_fala_longa_nao_e_cortada():
+    long = ActionResult(ok=True, speech="Um. Dois. Três.", long_speech=True)
+    assert compose(long).speech == "Um. Dois. Três."
+    assert compose(ActionResult(ok=True, speech="Um. Dois. Três.")).speech == "Um. Dois."
 
 
 async def test_sem_banco(tmp_path):
@@ -165,9 +212,20 @@ def test_ficha_lista_news_query(with_repo, tmp_path):
     model = SelfModel()
     agent = GraphAgent(SimpleNamespace(), [])
     core = SimpleNamespace(repos=SimpleNamespace(news=repo), news_query=None, self_model=model,
-                           deps=SimpleNamespace(agent=agent))
+                           providers=None, deps=SimpleNamespace(agent=agent))
     found = _wire_news_query(core, [])
     assert [type(h) for h in found] == [WhatsNewHandler]
     _wire_news_agent(core)
     assert ("news_query" in model.tool_names()) is with_repo
     assert any("novidades" in g for g in model.gaps()) is not with_repo
+
+
+async def test_narracao_sem_cumprimento(tmp_path):
+    class Greeter(FakeNarrator):
+        async def chat(self, messages, *, tools=(), json_mode=False, personal):
+            return ChatReply(text="Atenção, Pedro, saiu o trailer novo")
+
+    q, _ = query([item(1, "New trailer", "X")], tmp_path)
+    q.chat = Greeter()
+    res = await WhatsNewHandler(q).run(NEWS_REQ)
+    assert res.speech == f"Tem uma novidade. Saiu o trailer novo. {SAY_LAST}"

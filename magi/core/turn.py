@@ -33,6 +33,8 @@ from typing import TYPE_CHECKING, Any
 from wyoming.audio import AudioChunk, AudioStart
 
 from magi.common.contracts import (
+    ARG_DECLINED,
+    ARG_QUIET,
     CONFIRM_TIMEOUT_MS,
     MAX_RECORDING_MS,
     STATE_EXPRESSION,
@@ -183,6 +185,10 @@ def followup_ms_from_config(raw: Mapping[str, Any] | None) -> int | None:
         log.warning("[conversation] followup_s inválido; usando %.1f s", FOLLOWUP_S)
         secs = FOLLOWUP_S
     return round(secs * 1000) if secs > 0 else None
+
+
+def _quiet(pending: ActionRequest | None) -> bool:
+    return pending is not None and bool(pending.args.get(ARG_QUIET))
 
 
 class TurnPipeline:
@@ -643,6 +649,9 @@ class TurnMachine:
             return
         if silent or pending is None:
             await self._drop_stream()
+            if _quiet(pending):
+                await self._go(TurnState.SLEEPING)
+                return
             self._start(self._deliver(await self._cancelled(), followup=False))
             return
         await self._go(TurnState.THINKING)
@@ -688,10 +697,10 @@ class TurnMachine:
         self._recording = False
         self._audio.clear()
         await self._drop_stream()
-        self._keep_stale(self._pending)
-        self._pending = None
+        pending, self._pending = self._pending, None
+        self._keep_stale(pending)
         log.info("%s: confirmação expirou", self.satellite)
-        if self._offer is not None:  # pergunta proativa sem resposta: dorme calado
+        if self._offer is not None or _quiet(pending):  # sem resposta: dorme calado
             self._offer = None
             await self._go(TurnState.SLEEPING)
             return
@@ -753,7 +762,8 @@ class TurnMachine:
             if yes:
                 await self._deliver(await self.pipeline.run_action(stale))
             else:
-                await self._deliver(ActionResult(ok=True, speech=SAY_CANCELLED))
+                say = str(stale.args.get(ARG_DECLINED) or SAY_CANCELLED)
+                await self._deliver(ActionResult(ok=True, speech=say))
             return
         early = self._early_speech()
         token = EARLY_SPEECH.set(early)
@@ -797,6 +807,9 @@ class TurnMachine:
     ) -> None:
         transcript = await self.pipeline.transcribe(audio, fmt, ctx, stream=stream)
         if not self.pipeline.is_yes(transcript, ctx):
+            if declined := pending.args.get(ARG_DECLINED):
+                await self._deliver(ActionResult(ok=True, speech=str(declined)), followup=False)
+                return
             await self._deliver(await self._cancelled())
             return
         await self._close_vote(Verdict.APPROVED)
