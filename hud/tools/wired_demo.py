@@ -215,7 +215,7 @@ def draw_scene_main(p: QPainter) -> None:
              color_=TEXT, spacing=.14)
     kit.label(p, QPointF(sr.left() + 24, sr.bottom() - 22), "the signal is still arriving.", upper=False)
     x0 = sr.right() + 22
-    kit.label(p, QPointF(x0, r.top() + 36), "magi-01 // melchior")
+    kit.label(p, QPointF(x0, r.top() + 36), "magi-01 // condessa")
     m = Mascot("listening", rng=random.Random(1), now=0.0)
     m.tick(0.0)
     m.paint(p, QRectF(x0, r.top() + 52, r.right() - 22 - x0, 150), CPU)
@@ -341,6 +341,10 @@ def demo_snapshot(mode: str, rgb: str | None) -> Snapshot:
         track=Track("Demo Track Title", "Demo Artist", "Demo Album", 2024, 102.0, 238.0,
                     playing=gaming, cover=demo_cover() if gaming else None),
         events=["[19:03:24] game.exe launched", "[19:03:41] network up 2.4 MB/s", "[19:04:10] user active"],
+        news=[("19:08", "A Bandai Namco mostrou três minutos de gameplay de Gundam Rogue Orbit, que chega em "
+                        "março de 2027."),
+              ("19:06", "O criador de Hunter x Hunter vai recusar trabalhos com prazo para cuidar da saúde."),
+              ("19:05", "The Record of a Fallen Vampire vai virar anime para TV em 2027.")],
         led_on=rgb is not None, led_rgb=rgb,
         magui_state="listening" if gaming else "sleeping",
     )

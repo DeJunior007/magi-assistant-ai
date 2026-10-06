@@ -110,7 +110,7 @@ class StandbyScreen(Screen):
         kit.draw_scanlines(p, QRectF(0, 0, 1920, 1080))
         w = text(p, TX, self.y_title, "MAGI SYSTEM", key="cond", px=40, weight=600, spacing=0.04).width()
         text(p, TX + w + 20, self.y_title, "待機中", key="jp", px=22, color_=TEXT_DIM)
-        label(p, COL.left(), self.y_status, "magi-01 // melchior", px=13)
+        label(p, COL.left(), self.y_status, "magi-01 // condessa", px=13)
         p.fillRect(QRectF(COL.left(), self.y_rule1, COL.width(), 1), color(LINE))
         p.fillRect(QRectF(COL.left(), self.y_rule2, COL.width(), 1), color(LINE))
         label(p, 160, 1080 - 70 - 3.5, "meta+m · painel completo")

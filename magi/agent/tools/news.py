@@ -89,6 +89,9 @@ SAY_ASK_MORE = "Quer ouvir outra?"
 SAY_LAST = "Era isso por enquanto."
 SAY_RADIO_DECLINED = "Beleza, depois tem mais."
 ARG_NEXT = "next"
+#: Cards do rádio vão para o painel "Rádio Magui" do HUD, com a 1ª frase da narração como manchete.
+RADIO_SOURCE = "radio"
+HEADLINE_CHARS = 140
 #: Também valem "sim" para o "Quer ouvir outra?" (sem acento; "próxima" não vira música).
 RADIO_ALSO_YES = (
     "proxima", "outra", "manda outra", "manda", "pode mandar", "passa", "pode passar", "bora",
@@ -243,7 +246,8 @@ class NewsQuery:
             n = len(items)
             head = "Tem uma novidade. " if n == 1 else f"Tem {n if n < RADIO_COUNT else 'várias'} novidades. "
         link = shown.links[0] if shown.links else ""
-        cards = (CardMsg(level=CardLevel.LINK if link else _card_level(item), title=shown.title, url=link),)
+        cards = (CardMsg(level=CardLevel.LINK if link else _card_level(item), title=_headline(text), url=link,
+                         source=RADIO_SOURCE),)
         full = f"{shown.title}" + (f" — {link}" if link else "") + f"\n{text}"
         if not rest:
             return ActionResult(
@@ -271,7 +275,7 @@ class NewsQuery:
         text = await self._tell(DEEPER_PROMPT, [f"Manchete: {title}", f"Resumo: {summary}"], summary)
         full = f"{title}\n{text}"
         link = shown.links[0] if shown.links else ""
-        cards = (CardMsg(level=CardLevel.LINK, title=shown.title, url=link),) if link else ()
+        cards = (CardMsg(level=CardLevel.LINK, title=_headline(text), url=link, source=RADIO_SOURCE),)
         if self.repo is not None and await self.repo.undelivered(WHATS_NEW_LEVELS, limit=1):
             return _ask_more(ctx, text, full, cards)
         return ActionResult(ok=True, speech=text, full_text=full, cards=cards, long_speech=True)
@@ -366,6 +370,12 @@ class NewsQuery:
             return ActionResult(ok=False, speech=SAY_NO_DB)
         say = SAY_NOTHING_TOPIC.format(topic=topic)
         return ActionResult(ok=True, speech=say, expression=Expression.CONFUSED)
+
+
+def _headline(text: str, limit: int = HEADLINE_CHARS) -> str:
+    """Primeira frase da narração (em português) como manchete do card do Rádio Magui."""
+    first = re.split(r"(?<=[.!?])\s", text.strip(), maxsplit=1)[0]
+    return first if len(first) <= limit else first[: limit - 1].rstrip(" ,;") + "…"
 
 
 def _ask_more(ctx: TurnContext, text: str, full: str, cards: tuple[CardMsg, ...]) -> ActionResult:

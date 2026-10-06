@@ -66,9 +66,10 @@ def test_hit_test_scale_4_3():
     for k in ("prev", "playpause", "next"):
         assert sc.hit_test(at(ms.BTNS[k]), SIZE) == k
         assert ms.BTNS[k].width() >= 44 and ms.BTNS[k].height() >= 44  # R23.7
-    for k in ("cpu", "gpu", "ram"):
-        assert sc.hit_test(at(ms.CARD[k]), SIZE) == f"card:{k}"
-    assert sc.hit_test(at(ms.CARD["net"]), SIZE) is None
+    for k, unit in zip(("cpu", "gpu", "ram"), ms.UNITS, strict=True):  # unidades MAGI abrem o detalhe
+        assert sc.hit_test(at(unit), SIZE) == f"card:{k}"
+    assert sc.hit_test(at(ms.CARD_NET), SIZE) is None
+    assert sc.hit_test(at(ms.RADIO), SIZE) is None
     assert sc.hit_test(QPoint(5, 5), SIZE) is None
     assert ms.LED_BTN.height() >= 44
     assert StandbyScreen().hit_test(QPoint(1000, 700), SIZE) is None
