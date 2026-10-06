@@ -248,7 +248,7 @@ def test_cliques_wired(make_hud, monkeypatch):
     assert calls == ["led", "push_to_talk"] and w.np.calls == ["Previous", "PlayPause", "Next"]
     assert w.clickable(dev(ms.BTNS["next"])) == "next"
     monkeypatch.setattr(w.procs, "poll", lambda kind: [("game", 42.0, "x")])
-    assert w.clickable(dev(ms.CARD["ram"])) == "card:ram"
+    assert w.clickable(dev(ms.UNITS[2])) == "card:ram"
     w.wired_click("card:ram")
     assert w.detail == "mem"
     w.wired_click("card:cpu")
@@ -288,3 +288,17 @@ def test_paint_por_regioes(make_hud):
     assert len(list(region)) == 2  # o paintEvent pinta cada retângulo, não o retângulo envolvente
     assert not w.grab().isNull()
     assert w.wired.hit(QPointF(-5, -5), SIZE, "full") is None
+
+
+def test_radio_magui_guarda_as_noticias_do_radio():
+    ui = WiredUI()
+
+    def radio(title, wall):
+        ui.on_card({"t": "card", "level": "link", "title": title, "url": "", "source": "radio"}, wall=wall)
+
+    radio("Saiu o trailer de Hades 3.", 0)
+    radio("Saiu o trailer de Hades 3.", 60)  # o "conta mais" repete o card: não duplica
+    ui.on_card({"t": "card", "level": "link", "title": "Fonte", "url": "https://x"})  # não é do rádio
+    radio("Gundam novo em março.", 120)
+    snap = ui.build({})
+    assert [t for _, t in snap.news] == ["Gundam novo em março.", "Saiu o trailer de Hades 3."]

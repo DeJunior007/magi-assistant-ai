@@ -13,7 +13,7 @@ redesenhar (até 30 fps acordada, 1 vez a cada 4 s dormindo). No `paintEvent`, p
 `region=event.rect()` para `paint`: o fundo sai do cache e só os grupos tocados são redesenhados.
 
 `hit_test(pos, size)` devolve "led", "prev", "playpause", "next", "card:cpu", "card:gpu",
-"card:ram" ou None (pos em pixels do dispositivo).
+"card:ram" (as unidades MELCHIOR/BALTHASAR/CASPER) ou None (pos em pixels do dispositivo).
 """
 
 from __future__ import annotations
@@ -121,6 +121,7 @@ class Snapshot:
     mouth_level: float = 0.0
     caption: str | None = None  # legenda da fala da Magui
     mood: int | None = None  # termômetro de humor 0 (pega leve) .. 4 (pode zoar), R13.7; None = sem dado
+    news: list[tuple[str, str]] = field(default_factory=list)  # Rádio Magui: (HH:MM, manchete), nova primeiro
 
 
 def led_lit(snap: Snapshot) -> bool:
@@ -514,24 +515,24 @@ class Screen:
 
 # ====================================================================== geometria do painel
 
-X1, X2, X3 = 28.0, 408.0, 1352.0  # colunas 360 | 924 | 540, gap 20
+X1, X2, X3 = 28.0, 588.0, 1532.0  # colunas 540 | 924 | 360, gap 20
 Y2, Y3 = 144.0, 1024.0  # linhas 96 | 860 | 28
-_U = (860 - 4 * 16) / 5.5  # coluna esquerda: flex 1.5 + 4×1, gap 16
-CARD_FPS = QRectF(X1, Y2, 360, _U * 1.5)
-CARD = {}
-_y = CARD_FPS.bottom() + 16
-for _k in ("cpu", "gpu", "ram", "net"):
-    CARD[_k] = QRectF(X1, _y, 360, _U)
-    _y += _U + 16
+# esquerda: MAGI system (CPU/GPU/memória, só aqui) + FPS + rede
+_RR = (860 - 20) / 2.25
+MAGI = QRectF(X1, Y2, 540, _RR * 1.25)
+_LEFT_REST = Y3 - 20 - MAGI.bottom() - 16 * 2
+CARD_FPS = QRectF(X1, MAGI.bottom() + 16, 540, _LEFT_REST * 0.55)
+CARD_NET = QRectF(X1, CARD_FPS.bottom() + 16, 540, _LEFT_REST * 0.45)
 _M = (860 - 20) / 2.45  # centro: flex 1.45 / 1
 MID_TOP = QRectF(X2, Y2, 924, _M * 1.45)
 SCENE = QRectF(X2, Y2, 1 + 922 * 1.4 / 2.4, MID_TOP.height())
 SIDE_X, SIDE_R = SCENE.right() + 22, MID_TOP.right() - 23
 HIST = QRectF(X2, MID_TOP.bottom() + 20, 544, _M)
 SPEC = QRectF(HIST.right() + 20, HIST.top(), 360, _M)
-_RR = (860 - 20) / 2.25  # direita: flex 1.25 / 1
-MAGI = QRectF(X3, Y2, 540, _RR * 1.25)
-NP = QRectF(X3, MAGI.bottom() + 20, 540, _RR)
+# direita: Now playing compacto + Rádio Magui (últimas notícias contadas)
+NP = QRectF(X3, Y2, 360, 292)
+RADIO = QRectF(X3, NP.bottom() + 20, 360, Y3 - 20 - NP.bottom() - 20)
+RADIO_ITEMS = 5
 
 # lado do mascote (flex column gap 14, a partir de top+1+22)
 _SY = Y2 + 23
@@ -560,15 +561,16 @@ def unit_columns() -> tuple[float, float, float]:
     val = width("00.0/00G", "mono", 14)
     return math.ceil(name), math.ceil(key) + 2, math.ceil(val) + 2
 
-# Now playing
-COVER_S = 170.0  # sem "a seguir": capa maior e bloco centrado no espaço abaixo do título
-_NP_TOP = NP.top() + 19 + 26.4 + 14
-NP_ROW = _NP_TOP + max(0.0, (NP.bottom() - 21 - _NP_TOP - COVER_S) / 2)
+# Now playing (compacto: capa e texto lado a lado, barra e botões embaixo)
+COVER_S = 100.0
+NP_ROW = NP.top() + 19 + 26.4 + 16
 COVER = QRectF(NP.left() + 21, NP_ROW, COVER_S, COVER_S)
-NP_X = COVER.right() + 18
+NP_X = COVER.right() + 14
 NP_R = NP.right() - 21
-BTN_Y = NP_ROW + COVER_S - 44
-BTNS = {k: QRectF(NP_X + i * 52, BTN_Y, 44, 44) for i, k in enumerate(("prev", "playpause", "next"))}
+NP_BAR = COVER.bottom() + 16
+BTN_Y = NP.bottom() - 21 - 44
+BTNS = {k: QRectF(NP.left() + 21 + i * 52, BTN_Y, 44, 44)
+        for i, k in enumerate(("prev", "playpause", "next"))}
 EQ = (10, 22, 34, 18, 40, 28, 14, 30, 38, 20, 12, 26, 16, 8)  # alturas decorativas do canvas
 
 HEADER_CLOCK = QRectF(1380, 36, 1892 - 1380, 84)
@@ -657,20 +659,22 @@ class MainScreen(Screen):
         label(p, X1, 106, "General purpose monitoring system — MAGI-01", px=13)
         text(p, 960, 82, "私は、ここにいる。", key="jp", px=16, spacing=0.2, align=C)
         label(p, 960, 102, "// i am here · node 01 online", px=11, align=C)
-        # coluna esquerda
-        for r in (CARD_FPS, *CARD.values()):
+        # coluna esquerda: MAGI system, FPS e rede
+        kit.panel(p, MAGI)
+        w = heading(p, MAGI.left() + 21, LED_BTN.top() + 32, "MAGI system", px=26).width()
+        text(p, MAGI.left() + 21 + w + 12, LED_BTN.top() + 32, "三体合議制御", key="jp", px=12,
+             color_=TEXT_DIM)
+        for r in (CARD_FPS, CARD_NET):
             kit.panel(p, r)
         heading(p, X1 + 20, CARD_FPS.top() + 43, "FPS", px=24)
         text(p, CARD_FPS.right() - 20, CARD_FPS.top() + 43, "毎秒フレーム数", key="jp", px=12,
              color_=TEXT_DIM, spacing=0.08, align=R)
-        for k, name, col in (("cpu", "CPU", CPU), ("gpu", "GPU", GPU), ("ram", "RAM", TEXT),
-                             ("net", "Network", TEXT)):
-            heading(p, X1 + 20, CARD[k].top() + 37, name, color_=col)
+        heading(p, X1 + 20, CARD_NET.top() + 37, "Network", color_=TEXT)
         # centro em cima: cena + lado do mascote
         kit.panel(p, MID_TOP)
         self._scene_frame(p, s, None)
         p.fillRect(QRectF(SCENE.right() - 1, MID_TOP.top(), 1, MID_TOP.height()), color(LINE))
-        label(p, SIDE_X, _SY + 12, "magi-01 // melchior")
+        label(p, SIDE_X, _SY + 12, "magi-01 // condessa")
         text(p, SIDE_R, _SY + 12, "人格", key="jp", px=12, color_=TEXT_DIM, align=R)
         # centro embaixo
         kit.panel(p, HIST)
@@ -688,14 +692,13 @@ class MainScreen(Screen):
         p.fillRect(QRectF(sx, HIST.top() + 182, 320, 1), color(LINE))
         w = heading(p, sx, HIST.top() + 208, "Pilots", px=16).width()
         text(p, sx + w + 10, HIST.top() + 208, "操縦者", key="jp", px=12, color_=TEXT_DIM)
-        # direita
-        kit.panel(p, MAGI)
-        w = heading(p, MAGI.left() + 21, LED_BTN.top() + 32, "MAGI system", px=26).width()
-        text(p, MAGI.left() + 21 + w + 12, LED_BTN.top() + 32, "三体合議制御", key="jp", px=12,
-             color_=TEXT_DIM)
+        # direita: Now playing e Rádio Magui
         kit.panel(p, NP)
         w = heading(p, NP.left() + 21, NP.top() + 41, "Now playing").width()
         text(p, NP.left() + 21 + w + 12, NP.top() + 41, "再生中", key="jp", px=12, color_=TEXT_DIM)
+        kit.panel(p, RADIO)
+        w = heading(p, RADIO.left() + 21, RADIO.top() + 41, "Rádio Magui").width()
+        text(p, RADIO.left() + 21 + w + 12, RADIO.top() + 41, "放送", key="jp", px=12, color_=TEXT_DIM)
         # rodapé
         w = heading(p, X1, 1043, "MAGI", px=16).width()
         label(p, X1 + w + 12, 1042, "multi agent guidance interface")
@@ -738,10 +741,7 @@ class MainScreen(Screen):
             "scene": self.scene_rects(),  # primeiro: REC e o resto do cam 01 vão por cima
             "clock": [HEADER_CLOCK, REC],
             "fps": [inner(CARD_FPS)],
-            "cpu": [QRectF(X1 + 2, CARD["cpu"].top() + 2, 356, CARD["cpu"].height() - 4)],
-            "gpu": [QRectF(X1 + 2, CARD["gpu"].top() + 2, 356, CARD["gpu"].height() - 4)],
-            "ram": [QRectF(X1 + 2, CARD["ram"].top() + 2, 356, CARD["ram"].height() - 4)],
-            "net": [QRectF(X1 + 2, CARD["net"].top() + 2, 356, CARD["net"].height() - 4)],
+            "net": [QRectF(X1 + 2, CARD_NET.top() + 2, CARD_NET.width() - 4, CARD_NET.height() - 4)],
             "mascot": [MASCOT_MAIN],
             "mood": [MOOD_MAIN],
             "talk": [TALK],
@@ -750,6 +750,7 @@ class MainScreen(Screen):
                      QRectF(SPEC.left() + 2, SPEC.top() + 214, SPEC.width() - 4, SPEC.height() - 216)],
             "magi": [QRectF(MAGI.left() + 2, LED_BTN.top() - 2, MAGI.width() - 4, MAGI.height() - 36)],
             "player": [QRectF(NP.left() + 2, NP.top() + 18, NP.width() - 4, NP.height() - 20)],
+            "radio": [inner(RADIO, 56)],
             "footer": [FOOTER],
         }
 
@@ -759,12 +760,6 @@ class MainScreen(Screen):
             return (now.strftime("%Y%m%d%H%M%S"),)
         if name == "fps":
             return (sn.fps, sn.fps_min, sn.fps_avg, sn.fps_max, tuple(sn.fps_series))
-        if name == "cpu":
-            return (sn.cpu, sn.cpu_temp, sn.cpu_label)
-        if name == "gpu":
-            return (sn.gpu, sn.gpu_temp, sn.gpu_w, sn.gpu_label)
-        if name == "ram":
-            return (sn.ram, sn.ram_txt, sn.ram_label)
         if name == "net":
             return (sn.net_down, sn.net_up, tuple(sn.net_series))
         if name == "scene":
@@ -789,6 +784,8 @@ class MainScreen(Screen):
             pos = None if t.position is None else int(t.position)
             return (t.title, t.artist, t.album, t.year, pos, t.length, t.playing,
                     t.cover.cacheKey() if t.cover is not None else None)
+        if name == "radio":
+            return tuple(sn.news)
         if name == "footer":
             return tuple(sn.events)
         return ()
@@ -834,36 +831,11 @@ class MainScreen(Screen):
         if len(vals) >= 2:
             lo, hi = min(vals), max(vals)
             pad = max(1.0, (hi - lo) * 0.15)
-            kit.sparkline(p, QRectF(x, ly + 10, 320, r.bottom() - 18 - ly - 10), vals, TEXT, 1.2,
+            kit.sparkline(p, QRectF(x, ly + 10, r.width() - 40, r.bottom() - 18 - ly - 10), vals, TEXT, 1.2,
                           vmin=max(0.0, lo - pad), vmax=hi + pad, n=max(60, len(vals)))
 
-    def _stat(self, p, r: QRectF, label_txt: str, value: str, right: str, right_col, pct, col):
-        x0, x1 = r.left() + 20, r.right() - 20
-        label(p, x1, r.top() + 37, label_txt, align=R, max_w=250)
-        ytop = r.top() + 15 + 26.4
-        gap = (r.height() - 30 - 26.4 - 48 - 10) / 2
-        yv = baseline("cond", 40, ytop + gap, 48)
-        text(p, x0, yv, value, key="cond", px=40)
-        label(p, x1, yv, right, color_=right_col, align=R)
-        kit.segments(p, QRectF(x0, r.bottom() - 15 - 10, 320, 10), 24, pct or 0.0, col)
-
-    def _g_cpu(self, p, snap, now, s):
-        t = snap.cpu_temp
-        self._stat(p, CARD["cpu"], snap.cpu_label or NA, num(snap.cpu, suffix="%"), num(t, suffix="°C"),
-                   WARN if t is not None and t >= 75 else TEXT, snap.cpu, CPU)
-
-    def _g_gpu(self, p, snap, now, s):
-        t = snap.gpu_temp
-        lb = f"{snap.gpu_label or NA} · {num(snap.gpu_w, suffix='W')}"
-        self._stat(p, CARD["gpu"], lb, num(snap.gpu, suffix="%"), num(t, suffix="°C"),
-                   WARN if t is not None and t >= 75 else TEXT, snap.gpu, GPU)
-
-    def _g_ram(self, p, snap, now, s):
-        self._stat(p, CARD["ram"], snap.ram_label or NA, num(snap.ram, suffix="%"), gb(snap.ram_txt), TEXT,
-                   snap.ram, RAM)
-
     def _g_net(self, p, snap, now, s):
-        r = CARD["net"]
+        r = CARD_NET
         x0, x1 = r.left() + 20, r.right() - 20
         up = snap.net_down is not None or snap.net_up is not None
         text(p, x1, r.top() + 37, "接続中" if up else "未接続", key="jp", px=12, color_=TEXT_DIM,
@@ -875,7 +847,7 @@ class MainScreen(Screen):
         vals = list(snap.net_series)
         if len(vals) >= 2:
             hi = max(max(vals), 1.0)
-            kit.sparkline(p, QRectF(x0, r.bottom() - 15 - 30, 320, 30), vals, TEXT_DIM, 1.0,
+            kit.sparkline(p, QRectF(x0, r.bottom() - 15 - 30, r.width() - 40, 30), vals, TEXT_DIM, 1.0,
                           vmin=0.0, vmax=hi * 1.1, n=max(60, len(vals)))
 
     # ---------------------------------------------------------------- centro
@@ -972,8 +944,6 @@ class MainScreen(Screen):
                 w = text(p, x, yb, "未接続", key="jp", px=12, color_=TEXT_DIM, spacing=0.08).width()
                 label(p, x + w + 6, yb, "— empty", upper=False)
 
-    # ---------------------------------------------------------------- direita
-
     def _g_magi(self, p, snap, now, s):
         lit = led_lit(snap)
         b = LED_BTN
@@ -1021,26 +991,26 @@ class MainScreen(Screen):
         active = t is not None and bool(t.title)
         label(p, NP.right() - 21, NP.top() + 41, "● spotify" if active else "○ spotify",
               color_=GPU if active else TEXT_DIM, upper=False, align=R)
-        draw_cover(p, COVER, t.cover if active else None, s, 46, 18, 10)
+        draw_cover(p, COVER, t.cover if active else None, s, 28, 12, 7)
         x, wdt = NP_X, NP_R - NP_X
-        y0 = NP_ROW
+        y0 = COVER.top() + 4
         if active:
-            text(p, x, baseline("cond", 28, y0, 29.4, 500), t.title, key="cond", px=28, weight=500, max_w=wdt)
-            text(p, x, baseline("mono", 13, y0 + 33.4), t.artist or NA, px=13, max_w=wdt,
+            text(p, x, baseline("cond", 22, y0, 24, 500), t.title, key="cond", px=22, weight=500, max_w=wdt)
+            text(p, x, baseline("mono", 12, y0 + 30), t.artist or NA, px=12, max_w=wdt,
                  color_=TEXT if t.artist else TEXT_DIM)
             alb = " · ".join(str(v) for v in (t.album, t.year) if v) or NA
-            label(p, x, baseline("mono", 12, y0 + 54.6), alb, upper=False, max_w=wdt)
+            label(p, x, baseline("mono", 11, y0 + 50), alb, px=11, upper=False, max_w=wdt)
         else:
-            text(p, x, baseline("cond", 28, y0, 29.4, 500), NA, key="cond", px=28, weight=500,
+            text(p, x, baseline("cond", 22, y0, 24, 500), NA, key="cond", px=22, weight=500,
                  color_=LINE_STRONG)
-            label(p, x, baseline("mono", 12, y0 + 54.6), "nada tocando", upper=False)
-        by = y0 + 76.5
-        p.fillRect(QRectF(x, by, wdt, 3), color(LINE))
+            label(p, x, baseline("mono", 11, y0 + 50), "nada tocando", px=11, upper=False)
+        bx, bw, by = NP.left() + 21, NP_R - NP.left() - 21, NP_BAR
+        p.fillRect(QRectF(bx, by, bw, 3), color(LINE))
         if active and t.position is not None and t.length:
             frac = min(1.0, max(0.0, t.position / t.length))
-            p.fillRect(QRectF(x, by, wdt * frac, 3), color(WARN))
+            p.fillRect(QRectF(bx, by, bw * frac, 3), color(WARN))
         ty = by + 3 + 6 + 11.5
-        label(p, x, ty, mmss(t.position) if active else NA, px=11)
+        label(p, bx, ty, mmss(t.position) if active else NA, px=11)
         label(p, NP_R, ty, mmss(t.length) if active else NA, px=11, align=R)
         playing = active and t.playing
         ic = color(TEXT) if active else color(TEXT_DIM)
@@ -1051,6 +1021,22 @@ class MainScreen(Screen):
         for i, h in enumerate(EQ):
             hh = h if playing else 4
             p.fillRect(QRectF(ex + i * 7, BTN_Y + 44 - hh, 4, hh), color(LINE_STRONG))
+
+    def _g_radio(self, p, snap, now, s):
+        x, wdt = RADIO.left() + 21, RADIO.width() - 42
+        y = RADIO.top() + 64
+        if not snap.news:
+            label(p, x, y + 10, "nenhuma notícia ainda", upper=False)
+            label(p, x, y + 32, 'diga "novidades"', upper=False, color_=TEXT_DIM)
+            return
+        slot = (RADIO.bottom() - 21 - y) / RADIO_ITEMS
+        for i, (hhmm, title) in enumerate(snap.news[:RADIO_ITEMS]):
+            top = y + i * slot
+            if i:
+                p.fillRect(QRectF(x, top - 8, wdt, 1), color(LINE))
+            label(p, x, top + 10, hhmm, px=11, color_=CPU if i == 0 else TEXT_DIM)
+            wrapped(p, QRectF(x, top + 18, wdt, slot - 28), title, key="mono", px=13,
+                    color_=TEXT if i == 0 else TEXT_DIM, line_h=18, max_lines=max(1, int((slot - 28) // 18)))
 
     # ---------------------------------------------------------------- rodapé
 
@@ -1065,8 +1051,8 @@ class MainScreen(Screen):
     # ---------------------------------------------------------------- cliques
 
     def hit_rects(self, snap: Snapshot | None = None) -> dict[str, QRectF]:
-        return {"led": LED_BTN, **BTNS, "card:cpu": CARD["cpu"], "card:gpu": CARD["gpu"],
-                "card:ram": CARD["ram"]}
+        # unidades MAGI abrem o detalhe por processo (antes eram os cards CPU/GPU/RAM da esquerda)
+        return {"led": LED_BTN, **BTNS, "card:cpu": UNITS[0], "card:gpu": UNITS[1], "card:ram": UNITS[2]}
 
 
 __all__ = ["MainScreen", "NA", "Pilot", "Screen", "Snapshot", "Track", "accent", "draw_mood", "led_lit",

@@ -13,6 +13,7 @@ tema novo, sem depender do QWidget, para dar para testar com fontes falsas:
 from __future__ import annotations
 
 import time
+from collections import deque
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize
 from PySide6.QtGui import QPainter
@@ -41,6 +42,7 @@ from .theme import CPU, GPU, LINE, PANEL, RAM, TEXT, TEXT_DIM, alpha, color
 CARD_DETAIL = {"card:cpu": "cpu", "card:gpu": "gpu", "card:ram": "mem"}  # alvo → ProcStats.poll
 PLAYER = ("prev", "playpause", "next")
 ALERT_LEVELS = ("bomba", "alta")  # cards da ponte que viram aviso no rodapé
+RADIO_SOURCE = "radio"  # cards das notícias contadas no modo rádio (Rádio Magui)
 DETAIL_RECT = SCENE.adjusted(1, 1, -1, -1)  # painel de detalhes cobre o "cam 01"
 DETAIL_INFO = {
     "cpu": ("Melchior", "詳細解析 · cpu por aplicativo", CPU),
@@ -134,6 +136,7 @@ class WiredUI:
         self._game: str | None = None
         self._track: tuple | None = None
         self._led_warned = False
+        self.news: deque[tuple[str, str]] = deque(maxlen=8)  # Rádio Magui: (HH:MM, manchete)
         self.snap = Snapshot()
 
     def screen(self, view: str) -> MainScreen | StandbyScreen:
@@ -169,6 +172,7 @@ class WiredUI:
             history=self.history, now_playing=self.now_playing, events=self.events,
             led_on=self.led_on, led_rgb=self.led_rgb, magui_state=self.magui_state,
             mouth_level=self.mouth_level, caption=self.caption, mood=self.mood)
+        self.snap.news = list(self.news)
         return self.snap
 
     # ---------------------------------------------------------------- LED (RGB Sync)
@@ -204,9 +208,16 @@ class WiredUI:
     def set_mood(self, v: int | None) -> None:
         self.mood = None if v is None else max(0, min(4, int(v)))
 
-    def on_card(self, card: dict) -> None:
-        if card.get("level") in ALERT_LEVELS and card.get("title"):
-            self.events.add(f"⚠ {card['title']}")
+    def on_card(self, card: dict, wall: float | None = None) -> None:
+        title = card.get("title")
+        if card.get("source") == RADIO_SOURCE and title:
+            hhmm = time.strftime("%H:%M", time.localtime(time.time() if wall is None else wall))
+            if not self.news or self.news[0][1] != title:  # "conta mais" repete o card: não duplica
+                self.news.appendleft((hhmm, title))
+            self.snap.news = list(self.news)
+            return
+        if card.get("level") in ALERT_LEVELS and title:
+            self.events.add(f"⚠ {title}")
 
     def on_connected(self, up: bool) -> None:
         if not up:
