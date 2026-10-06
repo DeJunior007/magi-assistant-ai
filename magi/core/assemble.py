@@ -517,6 +517,7 @@ async def assemble(
     if core.deps.agent is None:
         core.warn("agente indisponível: perguntas respondem 'ainda não sei fazer isso'")
     _wire_memory_agent(core)
+    await _wire_history(core)
     _wire_profile(core)
     _wire_help(core)
     _wire_news_agent(core)
@@ -704,6 +705,30 @@ def _wire_memory_agent(core: Core) -> None:
         core.self_model.tools = agent.tool_specs
 
 
+HISTORY_LOAD_TIMEOUT_S = 2.0
+
+
+async def _wire_history(core: Core) -> None:
+    """Repõe no ``GraphAgent`` a conversa recente gravada em ``turns``, para o contexto não zerar
+    quando o núcleo reinicia. Falha do banco só avisa."""
+    from datetime import UTC, datetime
+
+    from magi.agent.graph import GraphAgent, history_from_turns
+
+    agent = core.deps.agent
+    if core.deps.turns is None or not isinstance(agent, GraphAgent):
+        return
+    try:
+        turns = await asyncio.wait_for(core.deps.turns.recent(20), HISTORY_LOAD_TIMEOUT_S)
+    except Exception as e:
+        core.warn(f"histórico da conversa não carregado: {type(e).__name__}: {e}")
+        return
+    messages = history_from_turns(turns, datetime.now(UTC))
+    agent.seed_history(messages)
+    if messages:
+        log.info("histórico da conversa: %d turnos repostos do banco", len(messages) // 2)
+
+
 def _game_for_prompt(core: Core) -> Callable[[], Any]:
     """``GameContext`` do jogo aberto com a linha de ajuda (último trecho e degrau, 4.5)."""
 
@@ -770,7 +795,7 @@ def _wire_music(core: Core, found: list[ActionHandler]) -> None:
 
 
 def _wire_pick(core: Core, config: Config, found: list[ActionHandler]) -> None:
-    """"Coloca uma boa" (2.5): liga o gosto do banco e o cache de gêneros ao ``MusicPicker`` e,
+    """ "Coloca uma boa" (2.5): liga o gosto do banco e o cache de gêneros ao ``MusicPicker`` e,
     havendo chave da tarefa ``news`` (cota gratuita), classifica os gêneros em segundo plano."""
     from magi.core.music import pick
 

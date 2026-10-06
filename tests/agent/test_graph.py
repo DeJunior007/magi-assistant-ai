@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -12,6 +12,7 @@ from magi.agent.graph import (
     SAY_BUDGET,
     SAY_PROVIDER_FAILED,
     GraphAgent,
+    history_from_turns,
     short_speech,
 )
 from magi.agent.prompt import MAX_PROMPT_TOKENS, GameContext, count_message_tokens
@@ -29,6 +30,7 @@ from magi.common.contracts import (
     ToolCall,
     ToolSpec,
     TurnContext,
+    TurnRecord,
     WakeSource,
 )
 from magi.core.actions import Registry
@@ -277,3 +279,56 @@ async def test_found_memories_redo_first_call_with_them() -> None:
     assert len(chat.calls) == 2
     assert "Elden Ring" not in _system(chat.calls[0][0])
     assert "Pedro está jogando Elden Ring" in _system(chat.calls[1][0])
+
+
+def _turn(text: str, reply: str, minutes_ago: float, *, intent: str | None = None, local: bool = False):
+    at = datetime(2026, 10, 6, 12, tzinfo=UTC) - timedelta(minutes=minutes_ago)
+    return TurnRecord(
+        satellite="pc",
+        text_heard=text,
+        text_final=text,
+        at=at,
+        intent=intent,
+        routed_local=local,
+        reply=reply,
+    )
+
+
+def test_history_from_turns_keeps_recent_agent_turns_in_order():
+    now = datetime(2026, 10, 6, 12, tzinfo=UTC)
+    turns = [  # mais novo primeiro, como TurnsRepo.recent
+        _turn("abre o hud", "Abrindo o HUD.", 1, intent="hud.open", local=True),
+        _turn("e o segundo chefe?", "É a Malenia.", 2),
+        _turn("deu ruim", SAY_PROVIDER_FAILED, 3),
+        _turn("quem é o primeiro chefe?", "É o Margit.", 4),
+        _turn("bem antigo", "Resposta velha.", 5),
+    ]
+    assert history_from_turns(turns, now) == [
+        ChatMessage(role="user", content="quem é o primeiro chefe?"),
+        ChatMessage(role="assistant", content="É o Margit."),
+        ChatMessage(role="user", content="e o segundo chefe?"),
+        ChatMessage(role="assistant", content="É a Malenia."),
+    ]
+
+
+def test_history_from_turns_drops_old_and_confirmations():
+    now = datetime(2026, 10, 6, 12, tzinfo=UTC)
+    turns = [
+        _turn("sim", "Feito.", 1, intent="confirm.yes", local=True),
+        _turn("um dessecola", "Você quis dizer...?", 2, intent="hud.idle_toggle"),
+        _turn("ontem", "Coisa de ontem.", 24 * 60),
+    ]
+    assert history_from_turns(turns, now) == []
+
+
+async def test_seeded_history_goes_into_prompt_and_does_not_override():
+    agent, chat, *_ = make([ChatReply(text="Ainda é o Margit.")])
+    seed = [
+        ChatMessage(role="user", content="quem é o chefe?"),
+        ChatMessage(role="assistant", content="É o Margit."),
+    ]
+    agent.seed_history(seed)
+    agent.seed_history([ChatMessage(role="user", content="outro")])  # já tem histórico: ignora
+    await agent.answer("e aquilo que eu falei?", CTX)
+    contents = [m.content for m in chat.calls[0][0]]
+    assert "quem é o chefe?" in contents and "É o Margit." in contents and "outro" not in contents

@@ -23,6 +23,7 @@ import asyncio
 import logging
 from collections import deque
 from collections.abc import Callable, Sequence
+from datetime import datetime, timedelta
 from typing import Any, Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -40,6 +41,7 @@ from magi.common.contracts import (
     ProviderRegistry,
     ProviderTask,
     TurnContext,
+    TurnRecord,
 )
 from magi.core.compose import SpeechDraft, compose, short_speech
 from magi.core.early import EARLY_SPEECH, EarlySpeech
@@ -50,13 +52,40 @@ MAX_STEPS = 4
 #: Quanto a primeira resposta do modelo espera pelas memórias depois de chegar (1.23; RNF-05).
 MEMORY_GRACE_S = 0.3
 HISTORY_TURNS = 2
+#: Turnos do agente mais velhos que isso não voltam ao histórico quando o núcleo reinicia.
+HISTORY_MAX_AGE = timedelta(hours=1)
 
 SAY_BUDGET = "Bati o teto do mês, só comandos locais agora."
 SAY_PROVIDER_FAILED = "Não consegui falar com a nuvem agora, tenta de novo daqui a pouco."
 SAY_GAVE_UP = "Me enrolei aqui, tenta pedir de outro jeito."
 SAY_UNKNOWN_TOOL = "Ferramenta desconhecida."
 
-__all__ = ["GraphAgent", "short_speech"]
+__all__ = ["GraphAgent", "history_from_turns", "short_speech"]
+
+
+def history_from_turns(
+    turns: Sequence[TurnRecord], now: datetime, max_age: timedelta = HISTORY_MAX_AGE
+) -> list[ChatMessage]:
+    """Histórico do agente a partir de ``turns`` do banco (mais novo primeiro, como ``recent``).
+
+    Só entram turnos que foram ao agente (sem intenção local) com resposta, que não sejam as falas
+    de falha, com no máximo ``max_age``; os ``HISTORY_TURNS`` mais novos, em ordem cronológica.
+    """
+    failures = {SAY_BUDGET, SAY_PROVIDER_FAILED, SAY_GAVE_UP}
+    picked: list[TurnRecord] = []
+    for t in turns:
+        if t.intent is not None or t.routed_local or not t.reply.strip() or t.reply in failures:
+            continue
+        if not t.text_final.strip() or now - t.at > max_age:
+            continue
+        picked.append(t)
+        if len(picked) == HISTORY_TURNS:
+            break
+    messages: list[ChatMessage] = []
+    for t in reversed(picked):
+        messages.append(ChatMessage(role="user", content=t.text_final))
+        messages.append(ChatMessage(role="assistant", content=t.reply))
+    return messages
 
 
 class _State(TypedDict, total=False):
@@ -109,6 +138,11 @@ class GraphAgent:
         self.max_steps = max_steps
         self._history: deque[ChatMessage] = deque(maxlen=2 * HISTORY_TURNS)
         self._graph = self._build()
+
+    def seed_history(self, messages: Sequence[ChatMessage]) -> None:
+        """Repõe o histórico curto ao subir (ver ``history_from_turns``); só vale se ainda vazio."""
+        if not self._history:
+            self._history.extend(messages)
 
     def add_tools(self, tools: Sequence[Tool]) -> None:
         """Acrescenta ferramentas depois de montado (memória, 4.1)."""

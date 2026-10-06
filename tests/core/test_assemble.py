@@ -33,6 +33,7 @@ from magi.common.contracts import (
     SubtitleMsg,
     Transcript,
     TurnContext,
+    TurnRecord,
     TurnState,
     WakeEvent,
     WakeSource,
@@ -496,3 +497,44 @@ async def test_entrega_de_noticias_ligada_com_banco(tmp: Path) -> None:
                                catalog=catalog, agent=None)
     assert sem_banco.news is None
     await sem_banco.aclose()
+
+
+class _Turns:
+    def __init__(self, rows=None, error: Exception | None = None) -> None:
+        self.rows = rows or []
+        self.error = error
+
+    async def recent(self, limit: int = 20):
+        if self.error is not None:
+            raise self.error
+        return self.rows[:limit]
+
+
+async def test_historico_da_conversa_volta_ao_reiniciar() -> None:
+    from magi.agent.graph import GraphAgent
+    from magi.core.assemble import SwitchBudget, _wire_history
+    from magi.core.turn import TurnDeps
+
+    agent = GraphAgent(providers=None)  # type: ignore[arg-type]
+    core = Core(deps=TurnDeps(), budget=SwitchBudget(NullBudget(10)))
+    core.deps.agent = agent
+    core.deps.turns = _Turns(
+        [
+            TurnRecord(
+                satellite="pc",
+                text_heard="x",
+                text_final="quem é o chefe?",
+                at=datetime.now(UTC),
+                reply="É o Margit.",
+            )
+        ]
+    )
+    await _wire_history(core)
+    assert [m.content for m in agent._history] == ["quem é o chefe?", "É o Margit."]
+
+    quebrado = Core(deps=TurnDeps(), budget=SwitchBudget(NullBudget(10)))
+    quebrado.deps.agent = GraphAgent(providers=None)  # type: ignore[arg-type]
+    quebrado.deps.turns = _Turns(error=OSError("banco fora"))
+    await _wire_history(quebrado)
+    assert not quebrado.deps.agent._history
+    assert any("histórico da conversa" in w for w in quebrado.warnings)
