@@ -13,6 +13,8 @@ import pytest
 from wyoming.event import Event, async_read_event, async_write_event
 
 from magi.common.contracts import (
+    ARG_DECLINED,
+    ARG_QUIET,
     ActionRequest,
     ActionResult,
     AudioEnd,
@@ -102,6 +104,8 @@ class FakeRouter:
             return RouteResult(RouteKind.LOCAL, text, 100, Intent(IntentId.CONFIRM_YES))
         if t == "cancela":
             return RouteResult(RouteKind.LOCAL, text, 100, Intent(IntentId.CONFIRM_NO))
+        if t == "novidades":
+            return RouteResult(RouteKind.LOCAL, text, 100, Intent(IntentId.NEWS_WHATS_NEW))
         return RouteResult(RouteKind.AGENT, text)
 
 
@@ -113,12 +117,15 @@ class FakeActions:
         raise NotImplementedError
 
     def handles(self, intent_id: str) -> bool:
-        return intent_id in (IntentId.GAME_OPEN, IntentId.GAME_CLOSE)
+        return intent_id in (IntentId.GAME_OPEN, IntentId.GAME_CLOSE, IntentId.NEWS_WHATS_NEW)
 
     async def run(self, req: ActionRequest) -> ActionResult:
         self.calls.append(req)
         if req.intent.id == IntentId.GAME_OPEN:
             return ActionResult(ok=True, speech="Abrindo.", expression=Expression.HAPPY)
+        if req.intent.id == IntentId.NEWS_WHATS_NEW:  # pergunta leve, como o modo rádio
+            again = replace(req, confirmed=True, args={ARG_DECLINED: "Beleza.", ARG_QUIET: True})
+            return ActionResult(ok=True, speech="Quer outra?", needs_confirmation=True, on_confirm=again)
         if not req.confirmed:
             return ActionResult(
                 ok=True,
@@ -508,6 +515,21 @@ async def test_confirmacao_sem_fala_cancela(make_rig) -> None:
     assert rig.speaker.said[-1] == SAY_CANCELLED
     await rig.sat.send(PlaybackDone())
     assert await rig.hud.state() == S
+
+
+async def test_pergunta_leve_nao_responde_beleza_e_silencio_dorme(make_rig) -> None:
+    rig = await make_rig()
+    await _ate_confirming(rig, "novidades")
+    await rig.sat.speak("cancela")
+    assert await rig.hud.states(2) == [TH, SP]
+    await rig.sat.hear()
+    assert rig.speaker.said[-1] == "Beleza."
+    await rig.sat.send(PlaybackDone())
+    assert await rig.hud.state() == S
+    await _ate_confirming(rig, "novidades")
+    await rig.sat.speak("", AudioEndReason.NO_SPEECH)
+    assert await rig.hud.state() == S  # sem "Cancelado."
+    assert rig.speaker.said[-1] == "Quer outra?"
 
 
 async def test_confirmacao_expira_por_tempo(make_rig) -> None:

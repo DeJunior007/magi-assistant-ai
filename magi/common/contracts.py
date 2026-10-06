@@ -556,6 +556,12 @@ STATE_EXPRESSION: Mapping[TurnState, Expression] = {
 }
 
 
+#: ``ActionRequest.args`` de um ``on_confirm``: fala no lugar de "Cancelado." quando a resposta é
+#: "não", e ``True`` para dormir calado em silêncio/prazo (pergunta leve, ex.: "quer outra notícia?").
+ARG_DECLINED = "declined"
+ARG_QUIET = "quiet"
+
+
 @dataclass(frozen=True, slots=True)
 class ActionResult:
     """Resultado de uma ação ou do agente (R5.3-R5.5, R12.3).
@@ -569,6 +575,7 @@ class ActionResult:
     ``redo_text``: refazer o turno com este texto (correção, R3.3). O ``TurnPipeline`` trata uma
     vez só: roteia e executa o texto e junta a fala desta resposta à do turno refeito; o
     resultado final mantém ``redo_text`` como o texto efetivo do turno.
+    ``long_speech``: fala inteira, sem o corte de 2 frases (notícia no modo rádio).
     """
 
     ok: bool
@@ -580,6 +587,7 @@ class ActionResult:
     cards: tuple[CardMsg, ...] = ()
     expression: Expression | None = None
     redo_text: str | None = None
+    long_speech: bool = False
 
     def __post_init__(self) -> None:
         if self.needs_confirmation and self.on_confirm is None:

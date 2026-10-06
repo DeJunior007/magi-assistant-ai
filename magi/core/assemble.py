@@ -645,11 +645,24 @@ def _wire_news_query(core: Core, found: list[ActionHandler]) -> list[ActionHandl
         if isinstance(h, WhatsNewHandler):
             h.query.repo = h.query.repo or repo
             core.news_query = h.query
+            _news_narrator(core)
             return found
     core.news_query = NewsQuery(repo)
+    _news_narrator(core)
     if any(IntentId.NEWS_WHATS_NEW.value in h.intents for h in found):
         return found
     return [*found, WhatsNewHandler(core.news_query)]
+
+
+def _news_narrator(core: Core) -> None:
+    """Modelo da tarefa ``news`` para narrar as notícias em português no modo rádio."""
+    if core.news_query is None or core.providers is None:
+        return
+    why = _has_key_safe(core.providers, ProviderTask.NEWS.value)
+    if why is not None:
+        core.warn(f"novidades sem narração (só a manchete): {why}")
+        return
+    core.news_query.chat = core.providers.chat(ProviderTask.NEWS)
 
 
 def _wire_news_agent(core: Core) -> None:
