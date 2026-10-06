@@ -13,6 +13,7 @@ import pytest
 from wyoming.event import Event, async_read_event, async_write_event
 
 from magi.common.contracts import (
+    ARG_ALSO_YES,
     ARG_DECLINED,
     ARG_QUIET,
     ActionRequest,
@@ -124,7 +125,8 @@ class FakeActions:
         if req.intent.id == IntentId.GAME_OPEN:
             return ActionResult(ok=True, speech="Abrindo.", expression=Expression.HAPPY)
         if req.intent.id == IntentId.NEWS_WHATS_NEW:  # pergunta leve, como o modo rádio
-            again = replace(req, confirmed=True, args={ARG_DECLINED: "Beleza.", ARG_QUIET: True})
+            args = {ARG_DECLINED: "Beleza.", ARG_QUIET: True, ARG_ALSO_YES: ("proxima",)}
+            again = replace(req, confirmed=True, args=args)
             return ActionResult(ok=True, speech="Quer outra?", needs_confirmation=True, on_confirm=again)
         if not req.confirmed:
             return ActionResult(
@@ -538,6 +540,18 @@ async def test_pergunta_leve_aceita_outro_pedido(make_rig) -> None:
     await rig.sat.speak("abre o jogo")  # nem sim nem não: turno normal
     assert await rig.hud.states(2) == [TH, Expression.HAPPY]
     assert rig.actions.calls[-1].intent.id == IntentId.GAME_OPEN
+
+
+async def test_pergunta_leve_proxima_vale_sim_mesmo_depois_de_expirar(make_rig) -> None:
+    rig = await make_rig(confirm_timeout_ms=100, confirm_grace_ms=50)
+    await _ate_confirming(rig, "novidades")
+    assert await rig.hud.state() == S  # expirou calada
+    await rig.sat.wake()
+    assert await rig.hud.state() == L
+    await rig.sat.speak("Condessa, próxima.")
+    assert await rig.hud.states(2) == [TH, SP]
+    assert [c.intent.id for c in rig.actions.calls][-2:] == [IntentId.NEWS_WHATS_NEW] * 2
+    assert rig.actions.calls[-1].confirmed
 
 
 async def test_confirmacao_expira_por_tempo(make_rig) -> None:

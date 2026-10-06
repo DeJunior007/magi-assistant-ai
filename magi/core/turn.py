@@ -25,7 +25,7 @@ import dataclasses
 import logging
 import time
 import unicodedata
-from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 from wyoming.audio import AudioChunk, AudioStart
 
 from magi.common.contracts import (
+    ARG_ALSO_YES,
     ARG_DECLINED,
     ARG_QUIET,
     CONFIRM_TIMEOUT_MS,
@@ -127,6 +128,8 @@ _DISMISS_EXTRA = frozenset({"magui", "magi", "maggie", "condessa", "ei", "hey", 
 _YES_WORDS = frozenset({"confirma", "confirmo", "confirmado", "sim"})
 #: Palavras que vetam a confirmação mesmo junto de "confirma" ("não confirma").
 _NO_WORDS = frozenset({"nao", "cancela", "cancelar", "para"})
+#: Vocativos ignorados ao comparar com ``ARG_ALSO_YES`` ("Condessa, próxima").
+_WAKE_WORDS = frozenset({"condessa", "magui", "hey", "oi", "ei"})
 
 
 @dataclass(slots=True)
@@ -353,11 +356,16 @@ class TurnPipeline:
                 return RouteResult(RouteKind.AGENT, route.text, route.score)
         return route
 
-    def confirm_answer(self, transcript: Transcript, ctx: TurnContext) -> bool | None:
-        """``True``/``False`` se a fala é só um "sim"/"não" (roteador local, nota de execução);
-        ``None`` se é outra coisa."""
+    def confirm_answer(
+        self, transcript: Transcript, ctx: TurnContext, also_yes: Iterable[str] = ()
+    ) -> bool | None:
+        """``True``/``False`` se a fala é só um "sim"/"não" (roteador local, nota de execução) ou
+        uma das ``also_yes`` da pergunta ("próxima" no rádio); ``None`` se é outra coisa."""
         if transcript.is_empty:
             return None
+        words = [w for w in _normalize(transcript.final).split() if w not in _WAKE_WORDS]
+        if " ".join(words) in also_yes:
+            return True
         route = self.route(transcript.final, ctx)
         if route.kind is RouteKind.LOCAL and route.intent is not None and route.intent.id in _CONFIRM_INTENTS:
             return route.intent.id == IntentId.CONFIRM_YES
@@ -756,7 +764,8 @@ class TurnMachine:
             await self._go(TurnState.SLEEPING)
             return
         stale = self._take_stale()
-        if stale is not None and (yes := self.pipeline.confirm_answer(transcript, ctx)) is not None:
+        also = stale.args.get(ARG_ALSO_YES, ()) if stale is not None else ()
+        if stale is not None and (yes := self.pipeline.confirm_answer(transcript, ctx, also)) is not None:
             # "sim"/"não" à pergunta que a nova ativação interrompeu (ou que expirou)
             log.info("%s: resposta à confirmação anterior: %s", self.satellite, "sim" if yes else "não")
             if yes:
@@ -806,11 +815,8 @@ class TurnMachine:
         self, audio: bytes, fmt: PcmFormat, pending: ActionRequest, ctx: TurnContext, *, stream: Any = None
     ) -> None:
         transcript = await self.pipeline.transcribe(audio, fmt, ctx, stream=stream)
-        if (
-            _quiet(pending)
-            and self.pipeline.confirm_answer(transcript, ctx) is None
-            and not self.pipeline.is_no(transcript, ctx)
-        ):
+        answer = self.pipeline.confirm_answer(transcript, ctx, pending.args.get(ARG_ALSO_YES, ()))
+        if _quiet(pending) and answer is None and not self.pipeline.is_no(transcript, ctx):
             if transcript.is_empty:  # ruído: como silêncio, dorme calado
                 await self._go(TurnState.SLEEPING)
                 return
@@ -819,7 +825,7 @@ class TurnMachine:
             self._last_text, self._last_at = result.redo_text or transcript.final, ctx.started_at
             await self._deliver(result)
             return
-        if not self.pipeline.is_yes(transcript, ctx):
+        if answer is not True and not self.pipeline.is_yes(transcript, ctx):
             if declined := pending.args.get(ARG_DECLINED):
                 await self._deliver(ActionResult(ok=True, speech=str(declined)), followup=False)
                 return

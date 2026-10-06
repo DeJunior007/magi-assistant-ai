@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -23,6 +24,7 @@ from magi.agent.tools.news import (
     topic_matches,
 )
 from magi.common.contracts import (
+    ARG_ALSO_YES,
     ARG_DECLINED,
     ARG_QUIET,
     ActionRequest,
@@ -191,7 +193,7 @@ async def test_novidades_modo_radio_uma_por_vez(tmp_path):
     assert last.speech == f"Saiu Notícia 1 em português. {SAY_LAST}" and not last.needs_confirmation
     assert sorted(repo.delivered) == [1, 2, 3] and "Guardada" not in " ".join(narrator.calls)
     assert len(narrator.calls) == 3  # a próxima foi narrada adiantada, uma vez só
-    assert (await h.run(NEWS_REQ)).speech == "Nada de novo por enquanto."
+    assert (await h.run(NEWS_REQ)).speech == SAY_LAST  # rádio em andamento: acabou
 
 
 async def test_novidades_sem_modelo_fala_a_manchete(tmp_path):
@@ -271,3 +273,27 @@ async def test_conta_mais_dessa_resume_em_python_e_volta_ao_radio(tmp_path, monk
 async def test_conta_mais_sem_noticia_e_com_spoiler(tmp_path):
     q, _ = query([], tmp_path)
     assert (await WhatsNewHandler(q).run(DEEPER_REQ)).speech == SAY_NO_LAST
+
+
+async def test_conta_mais_usa_a_noticia_citada_pela_ia(tmp_path, monkeypatch):
+    async def fake_fetch(url, client=None):
+        return ""
+
+    monkeypatch.setattr(news_mod, "fetch_article", fake_fetch)
+    items = [item(1, "Radio news", "A", priority=0.9), item(2, "Vampire anime", "Vampire", priority=0.1)]
+    q, _ = query(items, tmp_path)
+    q.chat = narrator = FakeNarrator()
+    await WhatsNewHandler(q).run(NEWS_REQ)  # rádio fala a 1
+    await NewsQueryTool(q).run({"topic": "vampire"}, CTX)  # a IA fala da 2
+    await WhatsNewHandler(q).run(DEEPER_REQ)
+    assert "Manchete: Vampire anime" in narrator.calls[-1]
+
+
+async def test_proxima_noticia_no_meio_do_radio_nao_repete_cabecalho(tmp_path):
+    q, _ = query([item(i, f"Notícia {i}", "X", priority=i / 10) for i in range(1, 4)], tmp_path)
+    q.chat = FakeNarrator()
+    h = WhatsNewHandler(q)
+    assert (await h.run(NEWS_REQ)).speech.startswith("Tem 3 novidades.")
+    again = await h.run(replace(NEWS_REQ, text="próxima notícia"))
+    assert again.speech.startswith("Saiu Notícia 2")
+    assert again.on_confirm is not None and "proxima" in again.on_confirm.args[ARG_ALSO_YES]

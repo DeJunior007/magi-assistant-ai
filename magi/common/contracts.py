@@ -561,6 +561,8 @@ STATE_EXPRESSION: Mapping[TurnState, Expression] = {
 #: "não", e ``True`` para dormir calado em silêncio/prazo (pergunta leve, ex.: "quer outra notícia?").
 ARG_DECLINED = "declined"
 ARG_QUIET = "quiet"
+#: Falas que também valem "sim" para esta pergunta (sem acento, minúsculas), ex.: "proxima".
+ARG_ALSO_YES = "also_yes"
 
 
 @dataclass(frozen=True, slots=True)
