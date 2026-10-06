@@ -89,7 +89,7 @@ SAY_ASK_MORE = "Quer ouvir outra?"
 SAY_LAST = "Era isso por enquanto."
 SAY_RADIO_DECLINED = "Beleza, depois tem mais."
 ARG_NEXT = "next"
-#: Cards do rádio vão para o painel "Rádio Magui" do HUD, com a 1ª frase da narração como manchete.
+#: Cards do rádio vão para o painel "Rádio Ayanami" do HUD, com a 1ª frase da narração como manchete.
 RADIO_SOURCE = "radio"
 HEADLINE_CHARS = 140
 #: Também valem "sim" para o "Quer ouvir outra?" (sem acento; "próxima" não vira música).
@@ -373,7 +373,7 @@ class NewsQuery:
 
 
 def _headline(text: str, limit: int = HEADLINE_CHARS) -> str:
-    """Primeira frase da narração (em português) como manchete do card do Rádio Magui."""
+    """Primeira frase da narração (em português) como manchete do card do Rádio Ayanami."""
     first = re.split(r"(?<=[.!?])\s", text.strip(), maxsplit=1)[0]
     return first if len(first) <= limit else first[: limit - 1].rstrip(" ,;") + "…"
 
