@@ -68,7 +68,18 @@ Implementado e testado com dublês; falta conferir no uso real:
 - **Satélite no Raspberry Pi (futuro, R22):** o protocolo já é Wyoming + eventos `magi-*` com
   identificador de satélite; falta empacotar o `magi-satellite` para ARM e um áudio de saída no Pi.
 
-## 7. Decisões em aberto
+## 7. Retrato da Condessa
+
+- **Por quê:** o rosto do HUD ainda é o mascote vetorial. O motor do retrato em camadas (busto
+  anime: piscada, olhar, boca pela voz, respiração, 7 expressões) já existe em
+  `hud/wired/portrait.py`; falta a arte.
+- **O que falta:** gerar/desenhar as camadas conforme `docs/design/CONDESSA-RETRATO.md` e
+  copiar para `~/.local/share/magi/condessa/`. Com a arte em mãos, rever o espaço do rosto no
+  painel (hoje 260×150, pensado para o mascote).
+- **Como validar:** `uv run python -m hud.tools.portrait_check prancha.png` sem pendências e o
+  HUD reaberto mostrando o retrato nos estados dormindo/ouvindo/falando.
+
+## 8. Decisões em aberto
 
 - **Nome da assistente:** "Magui" (nome no código, persona e HUD) ou "Condessa" (hoje só a palavra
   de ativação).
