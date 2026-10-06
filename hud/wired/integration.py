@@ -42,7 +42,7 @@ from .theme import CPU, GPU, LINE, PANEL, RAM, TEXT, TEXT_DIM, alpha, color
 CARD_DETAIL = {"card:cpu": "cpu", "card:gpu": "gpu", "card:ram": "mem"}  # alvo → ProcStats.poll
 PLAYER = ("prev", "playpause", "next")
 ALERT_LEVELS = ("bomba", "alta")  # cards da ponte que viram aviso no rodapé
-RADIO_SOURCE = "radio"  # cards das notícias contadas no modo rádio (Rádio Magui)
+RADIO_SOURCE = "radio"  # cards das notícias contadas no modo rádio (Rádio Ayanami)
 DETAIL_RECT = SCENE.adjusted(1, 1, -1, -1)  # painel de detalhes cobre o "cam 01"
 DETAIL_INFO = {
     "cpu": ("Melchior", "詳細解析 · cpu por aplicativo", CPU),
@@ -136,7 +136,7 @@ class WiredUI:
         self._game: str | None = None
         self._track: tuple | None = None
         self._led_warned = False
-        self.news: deque[tuple[str, str]] = deque(maxlen=8)  # Rádio Magui: (HH:MM, manchete)
+        self.news: deque[tuple[str, str]] = deque(maxlen=8)  # Rádio Ayanami: (HH:MM, manchete)
         self.snap = Snapshot()
 
     def screen(self, view: str) -> MainScreen | StandbyScreen:

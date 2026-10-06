@@ -121,7 +121,7 @@ class Snapshot:
     mouth_level: float = 0.0
     caption: str | None = None  # legenda da fala da Magui
     mood: int | None = None  # termômetro de humor 0 (pega leve) .. 4 (pode zoar), R13.7; None = sem dado
-    news: list[tuple[str, str]] = field(default_factory=list)  # Rádio Magui: (HH:MM, manchete), nova primeiro
+    news: list[tuple[str, str]] = field(default_factory=list)  # Rádio Ayanami: (HH:MM, manchete), novas 1º
 
 
 def led_lit(snap: Snapshot) -> bool:
@@ -529,7 +529,7 @@ SCENE = QRectF(X2, Y2, 1 + 922 * 1.4 / 2.4, MID_TOP.height())
 SIDE_X, SIDE_R = SCENE.right() + 22, MID_TOP.right() - 23
 HIST = QRectF(X2, MID_TOP.bottom() + 20, 544, _M)
 SPEC = QRectF(HIST.right() + 20, HIST.top(), 360, _M)
-# direita: Now playing compacto + Rádio Magui (últimas notícias contadas)
+# direita: Now playing compacto + Rádio Ayanami (últimas notícias contadas)
 NP = QRectF(X3, Y2, 360, 292)
 RADIO = QRectF(X3, NP.bottom() + 20, 360, Y3 - 20 - NP.bottom() - 20)
 RADIO_ITEMS = 5
@@ -692,12 +692,12 @@ class MainScreen(Screen):
         p.fillRect(QRectF(sx, HIST.top() + 182, 320, 1), color(LINE))
         w = heading(p, sx, HIST.top() + 208, "Pilots", px=16).width()
         text(p, sx + w + 10, HIST.top() + 208, "操縦者", key="jp", px=12, color_=TEXT_DIM)
-        # direita: Now playing e Rádio Magui
+        # direita: Now playing e Rádio Ayanami
         kit.panel(p, NP)
         w = heading(p, NP.left() + 21, NP.top() + 41, "Now playing").width()
         text(p, NP.left() + 21 + w + 12, NP.top() + 41, "再生中", key="jp", px=12, color_=TEXT_DIM)
         kit.panel(p, RADIO)
-        w = heading(p, RADIO.left() + 21, RADIO.top() + 41, "Rádio Magui").width()
+        w = heading(p, RADIO.left() + 21, RADIO.top() + 41, "Rádio Ayanami").width()
         text(p, RADIO.left() + 21 + w + 12, RADIO.top() + 41, "放送", key="jp", px=12, color_=TEXT_DIM)
         # rodapé
         w = heading(p, X1, 1043, "MAGI", px=16).width()
