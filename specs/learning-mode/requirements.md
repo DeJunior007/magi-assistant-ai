@@ -276,5 +276,5 @@ Sem critérios no MVP. O contrato de ação (spec §5) já leva `message_id` + i
 | RNF-04 | Custo | ações + observações ≤ US$ 1/mês em uso típico (30 sessões × 40 mensagens), dentro do `[budget]` |
 | RNF-05 | Banco | só migração aditiva; nunca `DROP`/`down`/`rm` no `magi-pg` (LM-010) |
 | RNF-06 | Tela | layout pensado para 3440×1440 (ultrawide do Pedro) e funcional em 1920×1080 |
-| RNF-07 | Dependências | só o que o projeto já usa (PySide6, psycopg, providers); nada de Node/React no MVP salvo decisão P1 |
+| RNF-07 | Dependências | só o que o projeto já usa (PySide6, psycopg, providers); nada de Node/React (P1 decidida em 2026-10-07: tela dentro do `gamerhud`, QPainter) |
 | RNF-08 | Privacidade | conversas ficam no Postgres local; só o trecho + mensagem de contexto vão ao modelo cloud |

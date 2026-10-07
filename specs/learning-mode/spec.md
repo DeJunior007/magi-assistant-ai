@@ -110,8 +110,12 @@ tuple[dict, float]` (dados, custo). Implementações: `OpenAIModel` (providers a
 | Translate | sim | sim | qualquer (até 400 caracteres) |
 | Vocabulary | sim | sim | 1 a 4 palavras; acima, desabilitada |
 
-Seleção é normalizada para palavras inteiras (expande até o limite de palavra mais próximo) e
-recortada à mensagem de início. Seleção só de espaços/pontuação não abre menu.
+Seleção é feita pelo próprio HUD (P1 = A, design §4.2), sempre em palavras inteiras: clique =
+palavra sob o ponteiro; arrastar = da palavra inicial até a palavra sob o ponteiro (ponto entre
+palavras conta como a mais próxima da linha); duplo clique = frase (até `. ! ?` ou fim da
+mensagem); recortada à mensagem de início. O intervalo é `[start, end)` em caracteres da mensagem,
+sem espaços/pontuação nas pontas. Seleção só de espaços/pontuação não abre menu. Clique em área sem
+texto limpa a seleção.
 
 ### Schemas de saída (`data`)
 
@@ -166,8 +170,8 @@ com `ok = false` (LM-007). Nova `lm_action` do mesmo cliente cancela a anterior 
 
 | Tipo | Direção | Campos |
 | --- | --- | --- |
-| `lm_hello` | UI → núcleo | `{}` — a conexão se identifica como Learning; só ela recebe `lm_*` |
-| `lm_mode` | ambos | `{"on": bool}` — UI pede; núcleo confirma |
+| `lm_hello` | UI → núcleo | `{}` — a conexão se identifica como Learning (com P1 = A, o `hud_bridge` do `gamerhud`); só ela recebe `lm_*` |
+| `lm_mode` | ambos | `{"on": bool}` — UI pede (botão); núcleo confirma a todos os clientes Learning (também quando o pedido veio por voz); o `gamerhud` só troca de tela ao receber a confirmação |
 | `lm_session` | núcleo → UI | `{"id","started_at","level","track","n_msgs","obs_count"}` |
 | `lm_say` | UI → núcleo | `{"text"}` |
 | `lm_msg` | núcleo → UI | `{"id","author","source","text","at","speaking"}` |
@@ -266,9 +270,11 @@ Custos também entram na tabela `costs` existente (mesma rotina do núcleo), com
 ## 10. Sessão
 
 `lm_mode on` sem sessão aberta cria `LS-` novo; com sessão aberta há menos de `idle_end_min`,
-retoma. Fecha por `lm_mode off`, voz "end session"/"encerrar sessão", inatividade, ou desligamento
-do núcleo (`end_reason`). Reabrir a janela com sessão aberta recarrega as últimas 200 mensagens
-do banco.
+retoma. Abre por botão `[ LEARNING ]` ou voz (`learning.start`, frases PT/EN em design §10). Fecha
+por `lm_mode off` (botão `[ END SESSION ]`), voz (`learning.stop`: "end session", "encerrar aula",
+"sair do modo aula"…), inatividade, ou desligamento do núcleo (`end_reason` = `button` | `voice` |
+`idle` | `shutdown`). Reiniciar o `gamerhud` (ou reconectar) com sessão aberta volta direto à tela
+learning e recarrega as últimas 200 mensagens do banco.
 
 ## 11. Casos de borda
 
@@ -277,8 +283,14 @@ do banco.
 | Seleção atravessa mensagens | recorta na mensagem de início (SEL-001) |
 | Seleção na mensagem em fala | menu não abre até terminar |
 | Selecionar dentro do balão | não abre outro menu (sem aninhamento no MVP) |
-| Janela fecha com ação pendente | ação continua e grava; resultado vai ao cache |
-| Duas janelas Learning abertas | ambas recebem `lm_*`; ações são por janela (`id`) |
+| Sai do modo (ou o `gamerhud` cai) com ação pendente | ação continua e grava; resultado vai ao cache |
+| Dois clientes com `lm_hello` (ex.: `gamerhud` reiniciado antes da conexão velha cair) | ambos recebem `lm_*`; ações são por cliente (`id`) |
+| Voz "end session" dentro de uma frase de conversa ("the session ended late") | não encerra: a frase tem palavras sobrando e o roteador penaliza; coberto em teste |
+| `learning.start` com o modo já ligado / `learning.stop` desligado | só confirma, sem efeito |
+| Clique entre duas palavras / fim da linha | seleciona a palavra mais próxima na mesma linha |
+| Arrastar para fora da coluna da conversa | a seleção para na última palavra alcançada |
+| Rolagem do histórico com seleção aberta | menu e balão fecham |
+| Botão LEARNING com o núcleo fora | nada muda; rodapé mostra `DISCONNECTED` |
 | STT detecta português (listen=auto) | mensagem entra no histórico; observação marca `rule_key = "lang.portuguese"` só se `observe` — não corrige |
 | Mensagem do Pedro mista PT/EN | Improve trata só a parte em inglês; Translate funciona nos dois sentidos |
 | Banco cai no meio | mensagens ficam em memória (até 500) e são gravadas na volta; ações sem cache |
@@ -296,17 +308,20 @@ do banco.
 | CA-03 | ENG-001 | observação não inicia em `thinking`/`speaking`; inicia ao voltar a `listening` | [test `test_engine.py::test_gate`] |
 | CA-04 | ENG-002 | trocar `[tasks] learning_actions` muda o modelo sem mudar código (FakeModel por config) | [test `test_model.py`] |
 | CA-05 | LM-001, LM-002 | `lm_say` gera duas `lm_msg`; voz grava `heard` em `text` e `final` em `text_final` | [test `test_conversation.py`] |
+| CA-05b | LM-005 | frases de §10/design §10 em PT e EN casam `learning.start`/`learning.stop` no roteador local; 10 frases de conversa em inglês que contêm "session"/"class"/"lesson" não casam | [test `test_learning_intents.py`] |
 | CA-06 | CNV-002 | com 10 frases erradas gravadas, a resposta do agente (FakeModel de persona) não contém "you should say"/"correct form"; prompt contém o bloco de persona | [test `test_persona.py`] |
 | CA-07 | IMP-001..003 | schema improve validado; `kind=none` aceito; `why` > 240 é cortado | [test `test_analyzers.py::test_improve`] |
 | CA-08 | EXP-001, TRA-001 | explain 1–4 frases; translate com `note` só para ≤ 3 palavras | [test `test_analyzers.py`] |
 | CA-09 | VOC-001, VOC-002 | vocabulary tem os 6 campos; > 4 palavras desabilitado | [test `test_analyzers.py::test_vocab`, `test_selection.py`] |
 | CA-10 | SEL-001..003 | seleção normalizada para palavras, recortada, menu com 4 ações e Improve desabilitado em mensagem da Condessa | [test `test_selection.py`] |
-| CA-11 | SEL-002 | posição do menu dentro da coluna central em 3440×1440 e 1920×1080, nunca cobre a seleção | [test `test_layout.py`] |
+| CA-10b | SEL-001 | hit-test puro (`learning_text`, medidor falso): clique, arrasto, duplo clique, ponto entre palavras, quebra de linha, arrasto para outra mensagem e para fora da coluna dão o intervalo esperado | [test `test_learning_text.py`] |
+| CA-11 | SEL-002 | posição do menu dentro da coluna central em 3440×1440 e 1920×1080 (ou a resolução do monitor do HUD, P10), nunca cobre a seleção | [test `test_menu_layout.py`] |
 | CA-12 | LM-007 | timeout do FakeModel → `ok=false, error=timeout`; JSON inválido 2× → `invalid` | [test `test_engine.py::test_falhas`] |
 | CA-13 | LM-006 | teto estourado → `budget`, sem chamada ao modelo; custo gravado em `costs` | [test `test_engine.py::test_budget`] |
 | CA-14 | OBS-001, OBS-002 | agrupamento em 3 categorias; `recurring` criado na 2ª ocorrência do mesmo `rule_key` | [test `test_observations.py`] |
 | CA-15 | DAT-003, LM-010 | `003_learning.sql` não contém `DROP`, `vector` nem `ALTER … DROP`; aplicar 2× não faz nada | [test `test_migration.py`] |
 | CA-16 | MEM-002 | toda observação gravada tem `rule_key` não vazio e `session_id` | [test `test_repo.py`] |
 | CA-17 | UI-001 | tabela §7 coberta por teste puro de mapeamento | [test `test_state_label.py`] |
-| CA-18 | LM-005 | com Learning fechado, `gamerhud` recebe as mesmas mensagens de antes e nenhum `lm_*` | [test `test_socket.py`] |
-| CA-19 | PRN-001..004, SYS-* | revisão visual: captura 3440×1440 do estado padrão (sem balão, drawer fechado) aprovada pelo Pedro | [manual] |
+| CA-18 | LM-005 | fora do modo, nenhum `lm_*` é publicado e os clientes recebem as mesmas mensagens de antes; cliente sem `lm_hello` nunca recebe `lm_*` | [test `test_socket.py`] |
+| CA-18b | LM-005 | botão/`lm_mode` troca `full`/`idle` → `learning` e volta para a view guardada; painel e espera sem o modo pintam igual a antes (exceto o botão) e cliques antigos (LED, player, cards, rosto) seguem iguais | [test `test_learning_toggle.py`] |
+| CA-19 | PRN-001..004, SYS-* | revisão visual: captura na resolução do monitor do HUD (3440×1440 se for o ultrawide, P10) do estado padrão (sem balão, drawer fechado) e do painel/espera com o botão LEARNING, aprovada pelo Pedro | [manual] |

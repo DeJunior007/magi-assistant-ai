@@ -28,14 +28,16 @@ com o Claude Code (como `specs/condessa-engine/tasks.md`). Fases seguem o roadma
 10. **Uma tarefa = um commit**, com o ID da tarefa na mensagem.
 
 Estimativa: 1k tokens ≈ 3,5 KB de texto em português ou 4 KB de código. Tamanhos: `design.md`
-~6k, `spec.md` ~7k, `requirements.md` ~6k; uma seção 0,3–1,5k.
+~9k, `spec.md` ~8k, `requirements.md` ~6k; uma seção 0,3–1,5k.
 
 Formato de cada tarefa:
 **Lê** · **Escreve** · **Depende de** · **Orçamento** · **Pronto** (critério verificável) ·
 **Paralelo** (com quais pode rodar ao mesmo tempo).
 
-**Decisões que travam tarefas:** P1 (UI) trava LM0.3 e tudo de `hud/learning/`; P4 (banco) muda só
-o backend padrão em LM1.1; P2 (modelo) só afeta LM4.4. Ver design §16.
+**Decisões:** P1 e P8 decididas pelo Pedro em 2026-10-07 — a UI é a tela `view = "learning"`
+dentro do `gamerhud` (`hud/wired/learning_*.py`, QPainter, seleção feita pelo HUD), e o modo entra/sai
+por botão no HUD e por voz (PT e EN). Ainda abertas: P4 (banco) muda só o backend padrão em LM1.1;
+P2 (modelo) só afeta LM4.4; P10 (monitor do HUD) só as resoluções de teste/captura. Ver design §16.
 
 ---
 
@@ -57,12 +59,12 @@ o backend padrão em LM1.1; P2 (modelo) só afeta LM4.4. Ver design §16.
   - Pronto: nota com a opção escolhida e o trecho que a justifica (arquivo:linha).
   - Paralelo: LM0.1, LM0.3
 
-- [ ] **LM0.3 Spike: janela PySide6 com seleção no tema wired** *(só após o Pedro responder P1)* — script descartável em `scratch/` que abre uma janela 3440×1440 sem moldura, `QTextBrowser` só leitura com 3 mensagens do exemplo do PDF, fontes de `hud/wired/fonts.py` e cores de `theme.py`; medir: seleção nativa funciona, `selectionChanged` + posição do cursor (`cursorRect`) dão a âncora do menu, render em < 16 ms. Gravar 2 capturas.
-  - Lê: design §2, §4, §16 P1, `hud/wired/theme.py` (constantes), `hud/wired/fonts.py` (por grep `def `)
-  - Escreve: `scratch/learning_spike.py` (não versionado), nota no fim de design §4
-  - Depende de: decisão P1
-  - Orçamento: ~35k
-  - Pronto: capturas + nota "seleção ok / âncora ok / ms"; se a opção for C (web), esta tarefa vira spike de QtWebEngine e as tarefas `hud/learning/` são reescritas antes de seguir.
+- [ ] **LM0.3 Spike: seleção e hit-test dentro do gamerhud** — script descartável em `scratch/` que abre um `QWidget` com as **mesmas flags do `gamerhud`** (`FramelessWindowHint | WindowDoesNotAcceptFocus`, `WA_OpaquePaintEvent`) no monitor do HUD (`GAMERHUD_SCREEN`), pinta 3 mensagens do exemplo do PDF com fontes de `hud/wired/fonts.py` e cores de `theme.py` usando um protótipo de quebra com caixa por palavra (`QFontMetricsF.horizontalAdvance`). Medir: (1) clique cai na palavra certa, arrasto estende por palavra, duplo clique pega a frase; (2) repintar só o retângulo do histórico/sobreposição leva < 16 ms; (3) menu QPainter ancorado na última palavra; (4) **entrada de texto**: `QLineEdit` filho + tirar/devolver `WindowDoesNotAcceptFocus` em tempo de execução no KWin (pisca? perde posição? recebe teclado?) × reserva `Qt.Tool` só com o `QLineEdit` (design §4.3); (5) qual monitor e resolução é o `DP-1` (P10). Gravar 2 capturas.
+  - Lê: design §4 (inteira, com §4.1–§4.4), §16 P1/P10, `hud/wired/theme.py` (constantes), `hud/wired/fonts.py` (por grep `def `), `hud/wired/main_screen.py` (classe `Screen`, linhas ~423–560: `groups`, `group_key`, `paint`, `dirty_regions`, `scale`), `hud/gamerhud.py` (só `setWindowFlags` e `mousePressEvent`, por grep)
+  - Escreve: `scratch/learning_spike.py` (não versionado), nota curta no fim de design §4.2 (hit-test/ms) e §4.3 (caminho da entrada escolhido) e resposta factual em §16 P10
+  - Depende de: — (P1 já decidida)
+  - Orçamento: ~40k
+  - Pronto: capturas + nota "hit-test ok / repintura N ms / entrada: filho com troca de flag | reserva Tool / monitor WxH"; se nenhum caminho de entrada funcionar, parar e levar ao Pedro antes de LM1.6.
   - Paralelo: LM0.1, LM0.2
 
 ## Fase LM1 — Interface core e conversa primeiro (PDF Phase 1)
@@ -91,47 +93,55 @@ o backend padrão em LM1.1; P2 (modelo) só afeta LM4.4. Ver design §16.
   - Pronto: CA-05 verde; testes de `tests/core/test_turn*.py` continuam verdes; com `[learning] enabled = false` nada muda (teste).
   - Paralelo: LM1.5, LM3.2
 
-- [ ] **LM1.4 Entrar/sair do modo e persona** — intents de voz ("learning mode", "modo de estudo", "end session") em `intents.yaml` + frases em `i18n/en-gb.yaml`; comando `magi learning` que abre a janela; bloco de persona `prompts/persona.md` acrescentado ao system prompt só com sessão ativa. *(CNV-001, CNV-002, LM-005, design §5, §10)*
-  - Lê: design §5, §10, spec §4 (item 4), `magi/core/intents.yaml` (2 intents de exemplo, por grep), `magi/core/i18n/__init__.py` (por grep `def `), `magi/core/assemble.py` (linhas ~520–540, onde o agente é montado), `magi/cli/__init__.py`
-  - Escreve: `magi/core/intents.yaml`, `magi/core/i18n/en-gb.yaml`, `magi/learning/prompts/persona.md`, `magi/learning/persona.py`, `magi/core/assemble.py` (só a injeção), `magi/cli/learning.py`, `tests/learning/test_persona.py`
+- [ ] **LM1.4 Entrar/sair por voz e persona** — intents `learning.start` e `learning.stop` em `magi/core/intents.yaml` com as frases **em português e em inglês** da tabela de design §10 (a fala chega em PT ou EN, STT com idioma automático); ids novos em `contracts.IntentId`; ação que liga/desliga o modo (mesmo caminho do `lm_mode` do botão: cria/retoma ou fecha a sessão e confirma `lm_mode` aos clientes Learning, `end_reason = "voice"`), registrada onde as ações atuais registram seus `IntentId` (achar por grep); respostas curtas em `i18n/en-gb.yaml`; bloco de persona `prompts/persona.md` acrescentado ao system prompt só com sessão ativa. Sem comando de terminal e sem atalho global. *(CNV-001, CNV-002, LM-005, design §5, §10, P8)*
+  - Lê: design §5, §10, spec §4 (item 4), §10, §11, `magi/core/intents.yaml` (cabeçalho + 2 intents de exemplo), `magi/core/router.py` (docstring e a função de pontuação, por grep `token_set_ratio`), `magi/common/contracts.py` (classe `IntentId`), `magi/core/i18n/__init__.py` (por grep `def `), `magi/core/assemble.py` (linhas ~520–540, onde o agente é montado), API de `session.py` (LM1.3)
+  - Escreve: `magi/core/intents.yaml`, `magi/common/contracts.py` (só `IntentId`), `magi/core/i18n/en-gb.yaml`, `magi/learning/intent_action.py`, o arquivo de registro das ações (só uma linha), `magi/learning/prompts/persona.md`, `magi/learning/persona.py`, `magi/core/assemble.py` (só a injeção), `tests/learning/test_persona.py`, `tests/learning/test_learning_intents.py`
   - Depende de: LM1.3
   - Orçamento: ~45k
-  - Pronto: CA-06 verde; intents novas reconhecidas pelo roteador local em teste; sem atalho global (KGlobalAccel).
-  - Paralelo: LM1.6, LM3.3 (arquivos distintos: LM3.3 só mexe em `magi/learning/`)
+  - Pronto: CA-06 e CA-05b verdes (frases PT e EN casam; frases de conversa com "session"/"class" não casam); testes atuais do roteador continuam verdes; nenhum atalho global (KGlobalAccel) nem `magi/cli/learning.py`.
+  - Paralelo: LM1.6, LM3.3 (arquivos distintos: LM3.3 só mexe em `magi/learning/engine.py`/`wiring.py`)
 
-- [ ] **LM1.5 Janela: layout e painéis secundários** — `hud/learning/window.py` (3 colunas + topo + rodapé, design §4), `condessa_panel.py` (retrato reusando `hud/wired/mascot.py`/`portrait.py`, rótulo de estado pela tabela spec §7, nível `B2 / CONVERSATION`), `system_panel.py` (MAGI SYSTEM recolhível, `TEXT_DIM`), lógica pura de layout em `hud/learning/layout.py` (larguras por resolução, coluna central ≤ ~110 caracteres). *(PRN-001, PRN-003, UI-001, UI-002, SYS-001, SYS-002, RNF-06)*
-  - Lê: design §4, §7, spec §7, nota do LM0.3, `hud/wired/theme.py`, `hud/wired/kit.py` (assinaturas por grep), `hud/wired/mascot.py` (por grep `class \|def `)
-  - Escreve: `hud/learning/__init__.py`, `hud/learning/__main__.py`, `hud/learning/window.py`, `hud/learning/layout.py`, `hud/learning/condessa_panel.py`, `hud/learning/system_panel.py`, `tests/learning/test_layout.py`, `tests/learning/test_state_label.py`
-  - Depende de: LM0.3 (e P1)
+- [ ] **LM1.5 Tela learning: layout e painéis secundários** — `hud/wired/learning_layout.py` (puro: 3 colunas + topo + rodapé + retângulo da entrada a partir do tamanho, coluna central ≤ ~110 caracteres; acrescenta ao arquivo criado no LM2.1), `hud/wired/learning_screen.py` com `LearningScreen(Screen)` no estilo de `standby_screen.py`: `draw_static`, `groups()`, `group_key()`, `draw_group()` para `header`, `condessa` (retrato reusando o `mascot` do `WiredUI`, rótulo de estado pela tabela spec §7, nível `B2 / CONVERSATION`), `system` (MAGI SYSTEM recolhível, `TEXT_DIM`) e `footer`; botão `[ END SESSION // 終了 ]` desenhado no `header` com alvo `"learning"` no `hit_test` (a ação é ligada no LM1.7); grupos `history`/`input`/`obs`/`overlay` existem como retângulos vazios. `WiredUI.screen("learning")` em `integration.py` e `gamerhud.py` aceitando `view = "learning"` (só pintura; sem mouse ainda). *(PRN-001, PRN-003, UI-001, UI-002, SYS-001, SYS-002, RNF-06, P1)*
+  - Lê: design §4, §4.1, §7, spec §7, nota do LM0.3, `hud/wired/standby_screen.py` (inteiro, ~240 linhas: é o molde), `hud/wired/main_screen.py` (classe `Screen`, por grep `def `), `hud/wired/theme.py`, `hud/wired/kit.py` (assinaturas por grep), `hud/wired/integration.py` (`screen`, `hit`), `hud/gamerhud.py` (só onde `self.view` é lido, por grep `self.view`)
+  - Escreve: `hud/wired/learning_layout.py`, `hud/wired/learning_screen.py`, `hud/wired/integration.py` (só `screen`), `hud/gamerhud.py` (só aceitar a view), `tests/learning/test_layout.py`, `tests/learning/test_state_label.py`, `tests/learning/test_learning_screen.py` (offscreen: pinta em `QImage` sem erro; `group_key` muda só quando o dado do grupo muda)
+  - Depende de: LM0.3, LM2.1
   - Orçamento: ~55k
-  - Pronto: CA-17 verde; parte de layout do CA-11 verde; `python -m hud.learning --demo` abre com dados fixos do exemplo do PDF.
+  - Pronto: CA-17 verde; parte de layout do CA-11 verde; `tests/hud` antigos verdes; captura offscreen da tela com dados fixos do exemplo do PDF.
   - Paralelo: LM1.3, LM3.2
 
-- [ ] **LM1.6 Janela: conversa, entrada e cliente** — `conversation.py` (histórico selecionável, rótulos CONDESSA/YOU, mensagem "em fala" revelada com a lógica de `hud/speech_caption.py`, campo de texto, onda de áudio por `mouth`), `client.py` (socket, `lm_hello`, reconexão, `STATUS // CONNECTED/DISCONNECTED`), controles de sessão (start/end, mudo, falar resposta → `lm_cfg`). *(LM-001..LM-004, CTX-003)*
-  - Lê: design §4–§5, spec §4, §6, §10, `hud/speech_caption.py` (docstring + API pública por grep `def `), `hud/hud_bridge.py` (só conexão/reconexão, por grep), contratos `lm_*` (LM1.2)
-  - Escreve: `hud/learning/conversation.py`, `hud/learning/client.py`, `hud/learning/window.py` (só encaixe), `tests/learning/test_client.py`
-  - Depende de: LM1.2, LM1.5
-  - Orçamento: ~55k
-  - Pronto: teste do cliente com servidor falso (ordem de `lm_msg`, reconexão); manual: com o núcleo rodando, uma frase por voz e uma por texto aparecem no histórico e a da Condessa revela em sincronia.
+- [ ] **LM1.6 Tela learning: conversa, entrada e bridge** — `hud/wired/learning_model.py` (puro: estado da tela alimentado por **todos** os `lm_*` de spec §6 — `lm_session`/`lm_msg`/`lm_mode`/`lm_obs`/`lm_result` por `id` — mais `state`/`mouth`, para LM3.4/LM4.3 não precisarem mexer nele; ordem das mensagens, rolagem, mensagem "em fala" revelada com a lógica de `hud/speech_caption.py`); grupos `history` (pinta as caixas de `learning_text.wrap`, rótulos CONDESSA/YOU) e `input` (moldura, onda de áudio por `mouth`, `STATUS // CONNECTED/DISCONNECTED`) na `LearningScreen`; **entrada de texto** pelo caminho escolhido no LM0.3 (`QLineEdit` filho posicionado no retângulo `input` × escala, visível só na view learning, troca de `WindowDoesNotAcceptFocus` ao entrar/sair — ou a reserva `Qt.Tool`), Enter → `lm_say`; no `gamerhud`, um despachante único: com `view == "learning"`, press/move/release/duplo clique/roda vão para `WiredUI.learning_mouse(kind, pos)` (as próximas tarefas só mexem na `LearningScreen`); `hud/hud_bridge.py` manda `lm_hello` ao conectar, entrega todos os `lm_*` ao `learning_model` e expõe `send_lm(tipo, campos)` (`lm_say`, `lm_mode`, `lm_cfg`, `lm_action`). *(LM-001..LM-004, CTX-003, P1)*
+  - Lê: design §4.1–§4.3, §5, §9, spec §4, §6, §10, nota do LM0.3, `hud/speech_caption.py` (docstring + API pública por grep `def `), `hud/hud_bridge.py` (laço de leitura e `send_cmd`, por grep), `hud/gamerhud.py` (eventos de mouse ~1470–1530 e `setWindowFlags`), contratos `lm_*` (LM1.2), API de `learning_text.py` (LM2.1) e `learning_screen.py` (LM1.5) por grep `def `
+  - Escreve: `hud/wired/learning_model.py`, `hud/wired/learning_screen.py` (grupos `history`/`input`), `hud/wired/integration.py` (só `learning_mouse`), `hud/gamerhud.py` (despachante de mouse + entrada), `hud/hud_bridge.py`, `tests/learning/test_learning_model.py`, `tests/learning/test_bridge.py`
+  - Depende de: LM1.2, LM1.5, LM2.1
+  - Orçamento: ~60k
+  - Pronto: testes com servidor falso (ordem de `lm_msg`, reconexão, `lm_hello` só do `gamerhud`) verdes; `tests/hud` antigos verdes; manual: com o núcleo rodando e a view forçada em `learning`, uma frase por voz e uma digitada aparecem no histórico e a da Condessa revela em sincronia; painel e espera continuam sem foco de teclado.
   - Paralelo: LM1.4, LM3.3
+
+- [ ] **LM1.7 Botão LEARNING e troca de tela** — botão `[ LEARNING // 学習 ]` no painel (`MainScreen`, coluna da Condessa abaixo de `TALK`) e na espera (`StandbyScreen`, linha acima de `y_rule2`), `[ END SESSION // 終了 ]` já desenhado pelo LM1.5 no cabeçalho da `LearningScreen` (design §4.4), todos com alvo `"learning"` no `hit_test`; `gamerhud.wired_click("learning")` → `send_lm("lm_mode", on=…)`; ao receber `lm_mode` confirmado, guarda a view atual (`full`/`idle`) e vai para `learning` com a cortina; `lm_mode off` volta à view guardada; Meta+M durante o modo só muda a view de retorno; com o núcleo fora, rodapé mostra `DISCONNECTED` e nada muda. Lógica de troca pura (`learning_toggle(view_atual, retorno, msg) -> (view, retorno)`) em `integration.py`. *(LM-005, P8)*
+  - Lê: design §4.4, §10, spec §6 (`lm_mode`), §10, §11, `hud/wired/main_screen.py` (`hit_test`, `TALK`, `SIDE_X`, por grep), `hud/wired/standby_screen.py` (`hit_test`/`groups`, `y_rule2`), `hud/wired/integration.py` (`hit`), `hud/gamerhud.py` (`wired_click` e a troca de view ~1240–1400, por grep `new_view`)
+  - Escreve: `hud/wired/main_screen.py` (só o botão), `hud/wired/standby_screen.py` (só o botão), `hud/wired/integration.py` (só `hit` + `learning_toggle`), `hud/gamerhud.py` (só `wired_click` e a troca), `tests/learning/test_learning_toggle.py`
+  - Depende de: LM1.5, LM1.6
+  - Orçamento: ~40k
+  - Pronto: CA-18b verde; `tests/hud` antigos verdes; manual: botão no painel e na espera entra no modo, END volta para a tela de onde saiu; voz (LM1.4) faz o mesmo.
+  - Paralelo: LM2.2, LM4.1 (LM1.7 não escreve `learning_screen.py`)
 
 ## Fase LM2 — Seleção contextual (PDF Phase 2)
 
-- [ ] **LM2.1 Lógica pura de seleção e posição do menu** — normalizar para palavras inteiras, recortar à mensagem de início, disponibilidade por ação (spec §5, tabela), posição do menu/balão sem cobrir a seleção nem sair da janela. Sem Qt. *(SEL-001, SEL-002, VOC-002, P7)*
-  - Lê: spec §5 (disponibilidade), §11, design §4 (menu e balão), contrato `Selection` (LM0.1)
-  - Escreve: `hud/learning/selection.py`, `tests/learning/test_selection.py`, `tests/learning/test_layout.py` (só os casos de menu; se LM1.5 estiver aberta junto, usar `test_menu_layout.py`)
-  - Depende de: LM0.1
-  - Orçamento: ~25k
-  - Pronto: CA-10 e a parte de menu do CA-11 verdes.
+- [ ] **LM2.1 Lógica pura de texto, hit-test, seleção e posição do menu** — `hud/wired/learning_text.py` sem Qt: `wrap(messages, width, measure)` → linhas e `WordBox(message_id, start, end, rect)` com medidor injetado; `hit(boxes, ponto)`; clique = palavra, arrasto = intervalo de palavras, duplo clique = frase; recorte à mensagem de início; disponibilidade por ação (spec §5, tabela; Improve desabilitado em mensagem da Condessa — P7); `hud/wired/learning_layout.py` com só `menu_rect`/`bubble_rect` (sem cobrir a seleção nem sair da tela). *(SEL-001, SEL-002, VOC-002, P1, P7)*
+  - Lê: spec §5 (disponibilidade e regra de seleção), §11, design §4, §4.2, contrato `Selection` (LM0.1), nota do LM0.3
+  - Escreve: `hud/wired/learning_text.py`, `hud/wired/learning_layout.py` (só menu/balão), `tests/learning/test_learning_text.py`, `tests/learning/test_selection.py`, `tests/learning/test_menu_layout.py`
+  - Depende de: LM0.1, LM0.3
+  - Orçamento: ~35k
+  - Pronto: CA-10, CA-10b e a parte de menu do CA-11 verdes, tudo sem importar PySide6.
   - Paralelo: LM1.1, LM1.2, LM3.1
 
-- [ ] **LM2.2 Menu flutuante e balão (com dados falsos)** — `selection_menu.py` (popup pequeno: `selected: "…"`, ✦ Improve, ? Explain, ⇄ Translate, ◇ Vocabulary; teclado ↑↓/Enter/Esc) e `bubble.py` (estados: carregando ≤ 100 ms, resultado por `kind`, erro com retry; "more ▸" do Vocabulary); fecha ao clicar fora/mudar seleção; destaque da seleção enquanto aberto. Resultados vindos de um provedor falso local. *(SEL-001..003, IMP-001, VOC-002, LM-007, RNF-02, RNF-03)*
-  - Lê: design §4, spec §5 (schemas e balão), §11, API de `selection.py` (LM2.1), API de `conversation.py` (LM1.6, por grep `def `)
-  - Escreve: `hud/learning/selection_menu.py`, `hud/learning/bubble.py`, `hud/learning/conversation.py` (só o sinal de seleção), `tests/learning/test_bubble_model.py` (lógica pura de formatação por kind)
+- [ ] **LM2.2 Seleção na tela, menu e balão (com dados falsos)** — na `LearningScreen`: `learning_mouse` aplica `learning_text` (destaque lilás translúcido no grupo `history`; mensagem em fala não abre menu) e, ao soltar, abre o grupo `overlay`; `hud/wired/learning_overlay.py` desenha em QPainter o menu (`selected: "…"`, ✦ Improve, ? Explain, ⇄ Translate, ◇ Vocabulary; hover; ↑↓/Enter/Esc só se a entrada do LM0.3 deixou o HUD com foco) e o balão (carregando ≤ 100 ms, resultado por `kind`, erro com retry, "more ▸" do Vocabulary); fecha ao clicar fora, Esc, nova seleção ou rolagem; repinta só `history`/`overlay`. Resultados de um provedor falso local. *(SEL-001..003, IMP-001, VOC-002, LM-007, RNF-02, RNF-03)*
+  - Lê: design §4, §4.2, spec §5 (schemas e balão), §11, APIs de `learning_text.py`/`learning_layout.py` (LM2.1), `learning_screen.py` e `learning_model.py` (LM1.6) por grep `def `
+  - Escreve: `hud/wired/learning_overlay.py`, `hud/wired/learning_screen.py` (só seleção/`overlay`), `tests/learning/test_bubble_model.py` (lógica pura de formatação por kind e itens do menu)
   - Depende de: LM1.6, LM2.1
-  - Orçamento: ~45k
-  - Pronto: teste de formatação verde; manual com `--demo`: selecionar "I make" mostra o menu e o balão Improve do mockup.
-  - Paralelo: LM4.1, LM4.3
+  - Orçamento: ~50k
+  - Pronto: teste de formatação verde; manual com dados fixos: clicar e arrastar "I make" mostra o menu e o balão Improve do mockup em ≤ 50 ms após soltar; duplo clique pega a frase.
+  - Paralelo: LM1.7, LM4.1
 
 ## Fase LM3 — Ações ativas (PDF Phase 3)
 
@@ -159,13 +169,13 @@ o backend padrão em LM1.1; P2 (modelo) só afeta LM4.4. Ver design §16.
   - Pronto: CA-12, CA-13 verdes; teste de cache (2ª ação igual não chama o modelo).
   - Paralelo: LM1.4, LM1.6
 
-- [ ] **LM3.4 Balão com resultados reais** — trocar o provedor falso do LM2.2 por `lm_action`/`lm_result` via `client.py`; correlação por `id`; "retry"; timeout de UI 12 s. *(SEL-001..003, IMP-*, EXP-001, TRA-001, VOC-*, LM-007)*
-  - Lê: spec §5–§6, APIs de `bubble.py`, `client.py`, `selection_menu.py` (por grep `def `)
-  - Escreve: `hud/learning/bubble.py`, `hud/learning/client.py` (só `lm_action`/`lm_result`), `tests/learning/test_client.py` (casos de ação)
+- [ ] **LM3.4 Balão com resultados reais** — trocar o provedor falso do LM2.2 por `lm_action`/`lm_result` via `hud_bridge`; correlação por `id`; "retry"; timeout de UI 12 s. *(SEL-001..003, IMP-*, EXP-001, TRA-001, VOC-*, LM-007)*
+  - Lê: spec §5–§6, APIs de `learning_overlay.py`, `learning_model.py`, `hud_bridge.send_lm` (por grep `def `)
+  - Escreve: `hud/wired/learning_overlay.py`, `tests/learning/test_overlay_action.py` (correlação por `id`, retry, timeout de 12 s — lógica pura)
   - Depende de: LM2.2, LM3.3
   - Orçamento: ~35k
-  - Pronto: teste do cliente com servidor falso verde; manual *(gasta API)*: as 4 ações no exemplo do PDF respondem em ≤ 4 s.
-  - Paralelo: LM4.2
+  - Pronto: `test_overlay_action.py` verde; manual *(gasta API)*: as 4 ações no exemplo do PDF respondem em ≤ 4 s.
+  - Paralelo: LM4.2, LM4.3
 
 ## Fase LM4 — Engine assíncrono de observações (PDF Phase 4)
 
@@ -185,13 +195,13 @@ o backend padrão em LM1.1; P2 (modelo) só afeta LM4.4. Ver design §16.
   - Pronto: CA-01 verde; se falhar, a tarefa para e propõe tirar o worker para processo à parte (design §1), sem implementar.
   - Paralelo: LM3.4, LM4.3
 
-- [ ] **LM4.3 Indicador e drawer de observações** — `observations.py`: `OBSERVATIONS [nn] ▾` recolhido por padrão; drawer na coluna direita com VOCABULARY / GRAMMAR / RECURRING; clique rola até a mensagem e destaca uma vez; contador atualiza sem animação piscante; botão `[ VIEW LEARNING PROFILE ]` desabilitado ("coming later"). Lógica de agrupamento pura e testada. *(OBS-001, OBS-002, PRN-003, PRN-004, UI-003)*
-  - Lê: design §4, §11, spec §6 (`lm_obs`), §9 (itens 4–6), API de `conversation.py` (rolar/destacar, por grep), `condessa_panel.py` (encaixe)
-  - Escreve: `hud/learning/observations.py`, `hud/learning/window.py` (só encaixe), `tests/learning/test_obs_view.py`
+- [ ] **LM4.3 Indicador e drawer de observações** — `hud/wired/learning_obs.py` (grupo `obs` da `LearningScreen`, QPainter): `OBSERVATIONS [nn] ▾` recolhido por padrão; drawer na coluna direita com VOCABULARY / GRAMMAR / RECURRING; clique rola até a mensagem e destaca uma vez; contador atualiza sem animação piscante; botão `[ VIEW LEARNING PROFILE ]` desabilitado ("coming later"). Lógica de agrupamento pura e testada. *(OBS-001, OBS-002, PRN-003, PRN-004, UI-003)*
+  - Lê: design §4.1, §11, spec §6 (`lm_obs`), §9 (itens 4–6), APIs de `learning_model.py` (rolar/destacar) e `learning_screen.py` (grupos, `learning_mouse`) por grep `def `
+  - Escreve: `hud/wired/learning_obs.py`, `hud/wired/learning_screen.py` (só grupo `obs` e clique nele), `tests/learning/test_obs_view.py`
   - Depende de: LM1.6 (pode usar `lm_obs` falso antes do LM4.1)
   - Orçamento: ~40k
-  - Pronto: teste de agrupamento/contagem verde; manual com `--demo`: `[03]` com repository/deploy/assistant, Past tense, Prepositions.
-  - Paralelo: LM2.2, LM4.1, LM4.2
+  - Pronto: teste de agrupamento/contagem verde; manual com dados fixos: `[03]` com repository/deploy/assistant, Past tense, Prepositions.
+  - Paralelo: LM3.4, LM4.2 (não junto do LM2.2: ambos mexem em `learning_screen.py`)
 
 - [ ] **LM4.4 Spike opcional: Qwen local** *(só se o Pedro aprovar P2; gasta disco/GPU)* — medir Ollama ou llama.cpp com Qwen 7B–14B na GPU: latência do `observe` no exemplo do PDF, VRAM, efeito na latência da conversa e em jogo; implementar `OllamaModel` só se a medição passar. Não trocar o padrão da config sem o Pedro.
   - Lê: design §6 (Modelo), §16 P2, spec §3 (`LearningModel`), `model.py`
@@ -203,10 +213,10 @@ o backend padrão em LM1.1; P2 (modelo) só afeta LM4.4. Ver design §16.
 
 ## Fechamento do MVP
 
-- [ ] **LMF.1 Ponta a ponta e revisão visual** — roteiro manual: entrar no modo por voz, 3 trocas (voz e texto) com o exemplo do PDF, selecionar "I make" → Improve/Explain/Translate, "authentication" → Vocabulary, abrir/fechar observações, encerrar sessão; conferir `learning_*` no banco (só `SELECT`); captura 3440×1440 do estado padrão e do estado com balão para o Pedro aprovar (CA-19). Atualizar a classificação dos requisitos que mudaram.
+- [ ] **LMF.1 Ponta a ponta e revisão visual** — roteiro manual: entrar no modo pelo botão do painel e sair por voz em português; entrar por voz em inglês ("learning mode") a partir da espera, 3 trocas (voz e texto) com o exemplo do PDF, selecionar "I make" → Improve/Explain/Translate, "authentication" → Vocabulary, abrir/fechar observações, encerrar sessão; conferir `learning_*` no banco (só `SELECT`); captura na resolução do monitor do HUD (P10) do estado padrão, do estado com balão e do painel/espera com o botão para o Pedro aprovar (CA-19). Atualizar a classificação dos requisitos que mudaram.
   - Lê: requirements.md (Critérios de sucesso), spec §12
   - Escreve: `specs/learning-mode/requirements.md` (só classificações), capturas em `docs/img/learning-*.png` se o Pedro quiser versionar
-  - Depende de: LM1.4, LM3.4, LM4.2, LM4.3
+  - Depende de: LM1.4, LM1.7, LM3.4, LM4.2, LM4.3
   - Orçamento: ~30k
   - Pronto: roteiro todo ok; CA-19 aprovado pelo Pedro.
   - Paralelo: —
@@ -215,18 +225,21 @@ o backend padrão em LM1.1; P2 (modelo) só afeta LM4.4. Ver design §16.
 
 | Onda | Tarefas que podem rodar juntas |
 | --- | --- |
-| 1 | LM0.1, LM0.2, LM0.3 (LM0.3 só com P1 decidida) |
+| 1 | LM0.1, LM0.2, LM0.3 |
 | 2 | LM1.1, LM1.2, LM2.1, LM3.1 |
 | 3 | LM1.3, LM1.5, LM3.2 |
 | 4 | LM1.4, LM1.6, LM3.3 |
-| 5 | LM2.2, LM4.1, LM4.3 |
-| 6 | LM3.4, LM4.2 (LM4.4 opcional em qualquer onda após LM3.1) |
+| 5 | LM1.7, LM2.2, LM4.1 |
+| 6 | LM3.4, LM4.2, LM4.3 (LM4.4 opcional em qualquer onda após LM3.1) |
 | 7 | LMF.1 |
 
-Duas tarefas da mesma onda nunca escrevem o mesmo arquivo, exceto: `tests/learning/test_layout.py`
-(LM2.1 usa `test_menu_layout.py` se rodar junto de LM1.5 — já estão em ondas diferentes no plano),
-`hud/learning/window.py` (LM1.6 e LM4.3 só fazem "encaixe"; ondas 4 e 5) e `magi/learning/engine.py`
-/ `wiring.py` (LM3.3 → LM4.1, sequenciais).
+Duas tarefas da mesma onda nunca escrevem o mesmo arquivo. Arquivos com mais de um dono, sempre em
+ondas diferentes: `hud/wired/learning_layout.py` (LM2.1 menu/balão → LM1.5 colunas),
+`hud/wired/learning_screen.py` (LM1.5 → LM1.6 → LM2.2 → LM4.3, cada uma só nos seus grupos),
+`hud/gamerhud.py` e `hud/wired/integration.py` (LM1.5 → LM1.6 → LM1.7), `hud/wired/learning_overlay.py`
+(LM2.2 → LM3.4), `magi/common/contracts.py` (LM1.2 → LM1.4, só `IntentId`) e `magi/learning/engine.py`
+/ `wiring.py` (LM3.3 → LM4.1). O `gamerhud` é um processo só: toda tarefa que mexe em `hud/` roda
+`tests/hud` antes e depois.
 
 ## Fora do MVP (FUTURE — sem tarefas)
 
@@ -244,22 +257,28 @@ Duas tarefas da mesma onda nunca escrevem o mesmo arquivo, exceto: `tests/learni
 
 Ver design §15. Os que afetam a ordem das tarefas:
 
-1. **P1 sem resposta trava toda a UI** (LM0.3, LM1.5, LM1.6, LM2.2, LM3.4, LM4.3). O núcleo
-   (LM1.1–LM1.4, LM3.x, LM4.1–LM4.2) anda sem ela.
-2. **LM0.2 pode mostrar que o `gamerhud` cai com tipo desconhecido** → LM1.2 implementa `lm_hello`
+1. **Seleção e entrada dentro do `gamerhud` (P1 = A)** — sem seleção nativa e com a janela sem
+   foco de teclado. O LM0.3 mede hit-test e o caminho da entrada antes de qualquer tarefa de UI; se
+   nenhum caminho de entrada servir, para e volta ao Pedro. A lógica de seleção é pura (LM2.1) e
+   testada sem Qt; o núcleo (LM1.1–LM1.4, LM3.x, LM4.1–LM4.2) anda independente.
+2. **Mexer no `gamerhud` em uso** (LM1.5–LM1.7) → mouse/teclado novos só agem com
+   `view == "learning"`; `tests/hud` antes e depois; captura do painel/espera no LMF.1.
+3. **LM0.2 pode mostrar que o `gamerhud` cai com tipo desconhecido** → LM1.2 implementa `lm_hello`
    obrigatoriamente (já é a proposta).
-3. **LM4.2 pode reprovar o p95** → parar e propor worker em processo separado (nova tarefa).
-4. **LM1.3 mexe no `TurnPipeline` em uso** → rodar `tests/core` antes e depois; gancho atrás de
+4. **LM4.2 pode reprovar o p95** → parar e propor worker em processo separado (nova tarefa).
+5. **LM1.3 mexe no `TurnPipeline` em uso** → rodar `tests/core` antes e depois; gancho atrás de
    `[learning] enabled`.
-5. **Custo das observações** maior que o previsto → `observe_daily_max` menor ou `observe = false`
+6. **Custo das observações** maior que o previsto → `observe_daily_max` menor ou `observe = false`
    até haver modelo local (P2).
-6. **STT corrige a gramática** (Corrector/`listen = auto`) → Improve usa `heard`; validar em LMF.1.
+7. **STT corrige a gramática** (Corrector/`listen = auto`) → Improve usa `heard`; validar em LMF.1.
 
 ## Perguntas em aberto
 
-Ver design §16 (P1–P9). Resumo do impacto: **P1** (UI PySide6 × React) trava a UI inteira;
+Ver design §16 (P1–P10). **Decididas em 2026-10-07:** **P1** = tela "learning" dentro do
+`gamerhud` (QPainter, seleção pelo HUD); **P8** = botão no HUD + voz em PT e EN, sem atalho global.
+Resumo do impacto das abertas:
 **P2** (Qwen local × cloud) só LM4.4 e o padrão de `[tasks] learning_observe`; **P3** (nível) só o
 valor exibido; **P4** (Postgres × JSONL, `public` × schema próprio) só o backend padrão de LM1.1;
 **P5** (idioma das explicações) só prompts de LM3.2; **P6** (falar o balão) nada no MVP;
-**P7** (Improve em mensagem da Condessa) só LM2.1; **P8** (como entrar) LM1.4; **P9**
-(inatividade) só um valor de config.
+**P7** (Improve em mensagem da Condessa) só LM2.1; **P9** (inatividade) só um valor de config;
+**P10** (monitor do HUD) só as resoluções de teste e captura (LM0.3 responde).
