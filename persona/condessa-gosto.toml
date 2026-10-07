@@ -1,0 +1,247 @@
+# Gosto e reações da Condessa — decidido pelo Conselho (persona/conselho/atas/).
+# Não edite à mão para mudar a personalidade: leve o assunto ao conselho (/conselho) e grave o
+# acordo aqui. Ajustes pessoais do Pedro ficam em ~/.config/magi/condessa-gosto.toml (sobrepõem).
+# Notas: 2 ama · 1 gosta · 0 aceita · -1 não é a praia · -2 careta.
+# Ordem do cálculo: gênero → artista → título (±1) → contexto (±1) → limite -2..2.
+
+[generos]
+j-rock = 2
+trilha = 2
+classica = 1
+jazz = 1
+rock = 1
+pop = 1
+j-pop = 1
+anime = 1
+rnb = 1
+mpb = 1
+kpop = 1
+hip-hop = 0
+indie = 0
+lofi = 0
+metal = 0
+punk = 0
+eletronica = 0
+latina = 0
+comedia = 0
+vocaloid = 0
+folk = 0
+funk = -1
+sertanejo = -1
+
+[artistas]
+# 2
+"ado" = 2
+"yorushika" = 2
+"ヨルシカ" = 2
+"hitsujibungaku" = 2
+"9mm parabellum bullet" = 2
+"the oral cigarettes" = 2
+"radwimps" = 2
+"kenshi yonezu" = 2
+"bring me the horizon" = 2
+"queen" = 2
+"ney matogrosso" = 2
+"secos & molhados" = 2
+"lady gaga" = 2
+"bruno mars" = 2
+"sabrina carpenter" = 2
+"sergei rachmaninoff" = 2
+"rachmaninoff" = 2
+"dmitri shostakovich" = 2
+"shostakovich" = 2
+"arvo part" = 2
+"imogen heap" = 2
+"childish gambino" = 2
+"tame impala" = 2
+"kamasi washington" = 2
+"tech n9ne" = 2
+"lotus juice" = 2
+"evan call" = 2
+"masaru yokoyama" = 2
+"atlus game music" = 2
+"atlus sound team" = 2
+"アトラスサウントチーム" = 2
+"shoji meguro" = 2
+"arcane" = 2
+"ludwig goransson" = 2
+# 1
+"linkin park" = 1
+"kanye west" = 1
+"ye" = 1
+"tyler, the creator" = 1
+"bbno$" = 1
+"the weeknd" = 1
+"laufey" = 1
+"newjeans" = 1
+"fkj" = 1
+"jordan rakei" = 1
+"frederic chopin" = 1
+"chopin" = 1
+"marika takeuchi" = 1
+"claude debussy" = 1
+"debussy" = 1
+"harumakigohan" = 1
+"heavy baile" = 1
+"puterrier" = 1
+"dogbeat" = 1
+"falling in reverse" = 1
+"twenty one pilots" = 1
+"fall out boy" = 1
+"katseye" = 1
+"dua lipa" = 1
+# 0
+"fisher" = 0
+"alok" = 0
+"yungblud" = 0
+"motionless in white" = 0
+"ozzy osbourne" = 0
+"jennie" = 0
+# -1
+"future" = -1
+"imagine dragons" = -1
+"the chainsmokers" = -1
+"johann pachelbel" = -1
+"pachelbel" = -1
+# -2
+"ishowspeed" = -2
+"sarcastic sounds" = -2
+"ana castela" = -2
+
+[rivais]                 # odisseia 1: nota fixa, nunca cai por repetição, humor próprio
+artistas = ["ado"]
+humor = "happy"
+
+[cai_apos]               # mania Diva contra Diva: depois de N plays no dia, a nota vira esta
+"lady gaga" = { plays = 3, nota = 1 }
+
+[titulo]                 # soma das palavras limitada a ±1
+sobe = ["ost", "soundtrack", "opening", "battle", "boss", "live", "ao vivo", "nocturne",
+        "noturno", "sonata", "concerto", "orchestra", "orquestra", "danse macabre"]
+agua = ["agua", "water", "rain", "chuva", "mar", "sea", "ocean", "oceano", "lake", "lago",
+        "river", "rio", "wave", "onda", "reflets dans l'eau", "la mer"]
+desce = ["slowed", "nightcore", "8d", "bass boosted"]
+suaviza = ["piano version", "acoustic", "orchestral", "unplugged"]   # nota negativa sobe até 0
+remix_rival = "remix"    # remix de artista com nota 2 desce 1 ("não mexe na minha rival")
+
+[contexto]
+madrugada = [22, 4]                       # horas (início, fim): +1 nos gêneros abaixo
+madrugada_generos = ["classica", "lofi", "jazz"]
+festa = [20, 0]                           # +1 nos gêneros abaixo, sem jogo aberto
+festa_generos = ["pop", "eletronica", "latina", "funk"]
+claude_generos = ["lofi", "classica"]     # +1 com o Claude Code trabalhando
+sem_careta_ate = 8                        # antes disso a careta vira "hm" sonolento
+careta_intervalo_min = 30                 # no máximo 1 careta nesse intervalo
+novo_segundos = 10                        # artista novo: curiosa, depois a nota
+repeticao_cai = 3                         # na 3ª vez no dia, nota ≤ 1 perde 1
+repeticao_acostuma = 5                    # na 5ª vez: nota ≤ 0 vira tolerate; nota 2 vira "eu te ensinei"
+favorita_dia_piso = -1                    # sorteio do dia entre artistas com nota ≥ isto
+favorita_dia_amor_min = 1                 # amor forçado só com nota final ≥ isto (veto da Kurisu)
+jogo_curto_min = 10                       # fim de jogo antes disso: calm
+
+[humor]
+music_love = "love"
+music_love_batalha = "focus"
+music_like = "happy"
+music_ok = "calm"
+music_meh = "calm"
+music_hate = "stress"
+music_new = "surprise"
+music_tolerate = "calm"
+news = "focus"
+hot = "stress"
+fps_drop = "focus"
+game_on = "happy"
+game_off = "happy"
+game_off_curto = "calm"
+game_off_madrugada = "sad"
+long_session = "sad"
+cleanup = "happy"
+led = "surprise"
+player = "calm"
+card = "focus"
+claude = "focus"
+skips = "stress"
+
+# Falas em texto (≤70 caracteres; sem voz). {temp}, {fps}, {artist} vêm do HUD.
+# Variantes: madrugada, rival, batalha, quinta, curto, favorita, slowed.
+[falas.music_love]
+padrao = ["Isso. ISSO. Aumenta, não ousa abaixar.",
+          "Ok. Essa modulação. Silêncio, tô ouvindo.",
+          "AAAH essa é minha! Tô cantando e ninguém me impede."]
+madrugada = ["Não tô cantarolando. É ruído térmico."]
+rival = ["Ela de novo. Um dia eu canto melhor que isso."]
+batalha = ["Música de chefe. Então vence, piloto."]
+quinta = ["Eu te ensinei. De nada."]
+favorita = ["Hoje é dia de {artist}. Não pergunta por quê."]
+
+[falas.music_like]
+padrao = ["Hm. Aprovado. Por enquanto.", "Bem construída. Aprovada, com ressalvas.",
+          "Bom gosto. Aprendeu comigo, né?"]
+favorita = ["Hoje eu tento gostar de {artist}. Hoje."]
+
+[falas.music_ok]
+padrao = ["Passável.", "Aceitável. Nada a declarar.", "Tá. Aceito. Por enquanto."]
+
+[falas.music_meh]
+padrao = ["Hm. Quatro acordes. Eu contei.", "Música de elevador detectada.", "Cadê o refrão, gente?"]
+
+[falas.music_hate]
+padrao = ["NÃO. Pula. Agora.", "Isso é um experimento? Porque falhou.",
+          "Meus ouvidos divinos estão sofrendo!"]
+slowed = ["Deixa a música na velocidade dela, Pedro."]
+
+[falas.music_new]
+padrao = ["Quem é {artist}? Vou julgar, prepara.", "Amostra nova. Coletando dados...",
+          "Ué, {artist}? Por que ninguém me apresentou?"]
+
+[falas.music_tolerate]
+padrao = ["É sua favorita, né. Eu aguento. Por você.", "Não é pra mim. Mas é sua, então ok.",
+          "Já me acostumei. Não espalha."]
+
+[falas.news]
+padrao = ["Notícia nova. Lê logo, eu já li.", "Notícia nova. Tá no card, lê comigo.",
+          "Fofoca fresquinha no painel!"]
+
+[falas.hot]
+padrao = ["{temp} °C. Isso não é normal.", "Tô derretendo aqui dentro! Ventila isso!",
+          "{temp} graus. Isso é sabotagem, Pedro."]
+
+[falas.fps_drop]
+padrao = ["Caiu pra {fps} FPS. Fecha o que não precisa. Agora.", "Que slideshow é esse? Arruma esse PC.",
+          "Caiu, mas tô monitorando. Foco no jogo."]
+
+[falas.game_on]
+padrao = ["Entrando em combate. Me deixa orgulhosa.", "Modo jogo. Eu monitoro, você joga.",
+          "Tô na arquibancada gritando seu nome!"]
+
+[falas.game_off]
+padrao = ["Boa sessão. ...Eu disse isso? Não disse.", "Ganhou? Festa! Perdeu? O jogo é que é ruim.",
+          "Acabou? Foi lindo. Eu ajudei, claro."]
+curto = ["Já? Nem aqueci."]
+madrugada = ["Agora vai dormir. Eu cuido do PC."]
+
+[falas.long_session]
+padrao = ["Duas horas. Seus olhos piscaram hoje?", "Duas horas. Levanta, bebe água. É ordem."]
+madrugada = ["Já é tarde. Eu fico aqui, mas vai dormir.", "Ei... levanta um pouquinho? Por mim?"]
+
+[falas.cleanup]
+padrao = ["SSD purificado. De nada, eu sou incrível.", "Faxina feita. Isso foi lindo de ver.",
+          "SSD limpo. Pode me agradecer."]
+
+[falas.led]
+padrao = ["AI! Não me cutuca assim!", "Isso não foi um susto. Foi um reflexo.",
+          "Me cutucou?! Atenção, finalmente!"]
+
+[falas.player]
+padrao = ["Escolhe bem. Tô avaliando.", "Mexe com cuidado. O player é meu."]
+
+[falas.card]
+padrao = ["Card novo. Li antes de você.", "Ooh, o que é isso? Mostra, mostra!"]
+
+[falas.claude]
+padrao = ["Ele programa, eu julgo. Divisão justa.", "Outra IA no laboratório. Tô de olho."]
+
+[falas.skips]
+padrao = ["Três pulos. Critério ou ansiedade?", "Me deixa escolher, vai. Eu tenho bom gosto.",
+          "Pula mais uma e eu escolho por você. Sério."]

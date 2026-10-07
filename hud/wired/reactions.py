@@ -6,45 +6,30 @@ linha de texto na legenda). Nada aqui chama IA nem fala em voz alta.
 efeito desenhado em código e por quanto tempo. O retrato só a usa parado (dormindo de dia ou
 ouvindo); falando/pensando, a reação é descartada.
 
-Gosto musical: ``docs/design/CONDESSA-PERSONA.md``. Gêneros por artista vêm do cache do núcleo
-(``~/.local/share/magi/artist-genres.json``); ajustes em ``~/.config/magi/condessa-gosto.toml``::
-
-    [artistas]          # afinidade -2..2 por artista (nome como no player)
-    "Ado" = 2
-    [generos]           # sobrescreve a tabela padrão
-    funk = -1
-    [falas]
-    musica = false      # sem comentários de música (o rosto continua)
-    geral = true
+Gosto, regras e falas: ``persona/condessa-gosto.toml``, decidido pelo Conselho da Condessa
+(``persona/conselho/``). Gêneros por artista vêm do cache do núcleo
+(``~/.local/share/magi/artist-genres.json``). O Pedro sobrepõe o que quiser em
+``~/.config/magi/condessa-gosto.toml`` (mesmo formato; ``[falas] musica = false`` desliga os
+comentários de música; ``[pedro] favoritas = ["artista", ...]`` nunca levam careta).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import random
+import re
 import time
 import tomllib
 import unicodedata
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+COUNCIL_FILE = Path(__file__).resolve().parents[2] / "persona" / "condessa-gosto.toml"
 GENRES_FILE = Path.home() / ".local/share/magi/artist-genres.json"
 CLEANUP_FILE = Path.home() / ".local/share/magi/cleanup_state.json"
 TASTE_FILE = Path.home() / ".config/magi/condessa-gosto.toml"
 SEEN_FILE = Path.home() / ".local/state/magi/condessa-artistas.json"
-
-# afinidade por gênero (vocabulário do artist-genres.json)
-GENRE_AFFINITY = {
-    "trilha": 2, "anime": 2, "vocaloid": 1, "j-rock": 1, "j-pop": 1, "lofi": 1, "indie": 1,
-    "rnb": 1, "mpb": 1, "jazz": 1, "classica": 1, "folk": 1,
-    "pop": 0, "hip-hop": 0, "rock": 0, "eletronica": 0, "funk": 0, "kpop": 0, "latina": 0,
-    "punk": 0, "comedia": 0,
-    "metal": -1, "sertanejo": -1,
-}
-CALM = {"lofi", "classica", "jazz", "folk", "trilha", "mpb"}
-LOVED_WORDS = ("ost", "soundtrack", "opening", "original sound", "city pop", "persona", "nier",
-               "final fantasy", "shoegaze")
-SOFTEN_WORDS = ("instrumental", "orchestra", "orquestra", "piano", "acoustic", "jazz")
-HATED_WORDS = ("sped up", "speed up", "nightcore", "spedup")
 
 HOT_C, COOL_C = 85.0, 78.0  # temperatura: entra em "quente" e só sai abaixo de COOL_C
 FPS_DROP = 0.6  # FPS abaixo de 60% da média por 2 leituras seguidas
@@ -53,6 +38,8 @@ SKIP_WINDOW = 40.0  # "próxima" até 40 s depois da faixa começar conta como p
 LINE_GAP = 4 * 60.0  # entre duas falas de texto quaisquer
 MUSIC_LINE_GAP = 20 * 60.0  # entre comentários de música
 LINE_SECS = 7.0
+CLICK_TALK = 0.25  # chance de comentar um clique comum (player, card)
+_SPLIT = re.compile(r"\s*(?:,|&|/|;| feat\.? | ft\.? | x | e )\s*")
 
 
 @dataclass(frozen=True)
@@ -74,23 +61,24 @@ REACTIONS: dict[str, Reaction] = {
     "music_love": R("music_love", "B5", "C13", "player", "love", "notes", 9.0, True, 2),
     "music_like": R("music_like", "B2", "C5", "player", "happy", None, 6.0, True, 1),
     "music_ok": R("music_ok", None, None, "player", "calm", None, 2.5, False, 1),
-    "music_meh": R("music_meh", "F1", "C11", "player", "sad", None, 4.0, False, 1),
+    "music_meh": R("music_meh", "F1", "C11", "player", "calm", None, 4.0, False, 1),
     "music_hate": R("music_hate", "B7", "C12", "player", "stress", "sweat", 4.5, False, 2),
-    "music_new": R("music_new", "B9", "C7", "player", "surprise", "question", 4.0, False, 2),
+    "music_new": R("music_new", "B9", "C7", "player", "surprise", "question", 10.0, False, 2),
     "music_tolerate": R("music_tolerate", "B4", "C14", "player", "calm", None, 4.0, False, 1),
     "news": R("news", None, "C7", "radio", "focus", None, 3.5, False, 1),
     "hot": R("hot", None, "C8", "magi", "stress", "sweat", 6.0, False, 3),
-    "fps_drop": R("fps_drop", None, "C11", "fps", "stress", None, 3.5, False, 2),
+    "fps_drop": R("fps_drop", None, "C11", "fps", "focus", None, 3.5, False, 2),
     "game_on": R("game_on", "B4", "C6", "fps", "happy", None, 4.0, False, 2),
-    "game_off": R("game_off", "B4", "C5", "fps", "calm", None, 3.0, False, 1),
-    "long_session": R("long_session", "B14", "C1", None, "sleepy", None, 8.0, False, 1),
+    "game_off": R("game_off", "B4", "C5", "fps", "happy", None, 3.0, False, 1),
+    "long_session": R("long_session", "B14", "C1", None, "sad", None, 8.0, False, 1),
     "cleanup": R("cleanup", "B4", "C10", None, "happy", "blush", 6.0, False, 2),
     "led": R("led", "B9", "C7", "led", "surprise", "bang", 2.5, False, 2),
     "player": R("player", None, None, "player", "calm", None, 1.8, False, 1),
     "card": R("card", None, None, "magi", "focus", None, 2.0, False, 1),
     "claude": R("claude", "B13", "C1", "claude", "focus", None, 5.0, False, 1),
-    "skips": R("skips", "B13", "C10", "player", "calm", "question", 5.0, False, 2),
+    "skips": R("skips", "B13", "C10", "player", "stress", "question", 5.0, False, 2),
 }
+MUSIC_BY_NOTE = {2: "music_love", 1: "music_like", 0: "music_ok", -1: "music_meh", -2: "music_hate"}
 MOOD_OF_STATE = {"happy": "happy", "alert": "stress", "confused": "sad", "thinking": "focus"}
 
 # para onde fica cada painel, visto do retrato (nome do olhar do portrait.toml)
@@ -114,81 +102,175 @@ def _load_json(path: Path) -> dict:
         return {}
 
 
-class Taste:
-    """Afinidade −2..2 de uma faixa: gêneros do artista + palavras do título + ajustes do Pedro."""
+def _load_toml(path: Path) -> dict:
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
 
-    def __init__(self, genres_file: Path | None = None, taste_file: Path | None = None):
+
+def _has(text: str, words) -> bool:
+    return any(re.search(rf"(?<!\w){re.escape(norm(w))}(?!\w)", text) for w in words)
+
+
+def _in_hours(hour: int, span) -> bool:
+    a, b = int(span[0]), int(span[1])
+    return a <= hour < b if a < b else (hour >= a or hour < b)
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """Nota final de uma faixa e o porquê (para a reação e a fala certas)."""
+    note: int
+    artist: str = ""  # chave normalizada do artista reconhecido ("" = nenhum)
+    genres: tuple[str, ...] = ()
+    rival: bool = False
+    slowed: bool = False
+    known: bool = False
+
+
+class Taste:
+    """Gosto da Condessa: acordo do conselho + ajustes do Pedro, relidos quando os arquivos mudam."""
+
+    def __init__(self, genres_file: Path | None = None, taste_file: Path | None = None,
+                 council_file: Path | None = None):
         self.genres_file = genres_file or GENRES_FILE
         self.taste_file = taste_file or TASTE_FILE
+        self.council_file = council_file or COUNCIL_FILE
         self._mtimes: tuple = ()
         self.genres: dict[str, list[str]] = {}
+        self.cfg: dict = {}
+        self.table: dict[str, int] = {}
         self.artists: dict[str, int] = {}
-        self.table = dict(GENRE_AFFINITY)
         self.lines = {"musica": True, "geral": True}
+        self.pedro: set[str] = set()
+
+    # ------------------------------------------------------------ carga
 
     def _reload(self) -> None:
-        mt = tuple(p.stat().st_mtime if p.exists() else 0 for p in (self.genres_file, self.taste_file))
+        files = (self.genres_file, self.taste_file, self.council_file)
+        mt = tuple(p.stat().st_mtime if p.exists() else 0 for p in files)
         if mt == self._mtimes:
             return
         self._mtimes = mt
         raw = _load_json(self.genres_file)
         self.genres = {norm(k): list(v.get("genres") or ()) for k, v in raw.items() if isinstance(v, dict)}
-        cfg: dict = {}
-        if self.taste_file.exists():
-            try:
-                cfg = tomllib.loads(self.taste_file.read_text(encoding="utf-8"))
-            except (OSError, tomllib.TOMLDecodeError):
-                cfg = {}
+        council, mine = _load_toml(self.council_file), _load_toml(self.taste_file)
+        cfg = {k: dict(v) if isinstance(v, dict) else v for k, v in council.items()}
+        for k, v in mine.items():  # o Pedro sobrepõe tabela a tabela
+            cfg[k] = (cfg.get(k, {}) | v) if isinstance(v, dict) and isinstance(cfg.get(k), dict) else v
+        self.cfg = cfg
+        self.table = {str(k): int(v) for k, v in dict(cfg.get("generos", {})).items()}
         self.artists = {norm(k): int(v) for k, v in dict(cfg.get("artistas", {})).items()}
-        self.table = dict(GENRE_AFFINITY) | {str(k): int(v) for k, v in dict(cfg.get("generos", {})).items()}
-        falas = {str(k): bool(v) for k, v in dict(cfg.get("falas", {})).items()}
-        self.lines = {"musica": True, "geral": True} | falas
+        falas = dict(cfg.get("falas", {}))
+        self.lines = {"musica": True, "geral": True} | {k: v for k, v in falas.items() if isinstance(v, bool)}
+        self.pedro = {norm(a) for a in dict(cfg.get("pedro", {})).get("favoritas", [])}
+
+    def section(self, name: str) -> dict:
+        self._reload()
+        return dict(self.cfg.get(name, {}))
+
+    def ctx(self, key: str, default):
+        return self.section("contexto").get(key, default)
+
+    def lines_for(self, key: str) -> dict[str, list[str]]:
+        self._reload()
+        table = dict(self.cfg.get("falas", {})).get(key, {})
+        return {k: list(v) for k, v in dict(table).items()} if isinstance(table, dict) else {}
+
+    def mood(self, key: str, default: str) -> str:
+        return str(self.section("humor").get(key, default))
+
+    # ------------------------------------------------------------ artista
+
+    def artist_key(self, artist: str) -> str:
+        """Primeiro nome reconhecido em "A, B feat. C" (a string inteira primeiro)."""
+        self._reload()
+        whole = norm(artist or "")
+        for cand in [whole, *_SPLIT.split(whole)]:
+            if cand and (cand in self.artists or cand in self.genres):
+                return cand
+        return ""
 
     def known(self, artist: str) -> bool:
+        return bool(self.artist_key(artist))
+
+    def base(self, key: str) -> int:
+        """Nota do artista sem título nem contexto (gênero → ajuste por artista)."""
         self._reload()
-        return norm(artist) in self.genres or norm(artist) in self.artists
+        if key in self.artists:
+            return max(-2, min(2, self.artists[key]))
+        vals = [self.table.get(g, 0) for g in self.genres.get(key, [])]
+        return max(vals) if vals else 0
+
+    def candidates(self, floor: int) -> list[str]:
+        self._reload()
+        return sorted(k for k in set(self.artists) | set(self.genres) if self.base(k) >= floor)
+
+    # ------------------------------------------------------------ nota
+
+    def verdict(self, title: str, artist: str, hour: int = 12, plays: int = 1, gaming: bool = False,
+                claude: bool = False) -> Verdict:
+        """gênero → artista → título (±1) → contexto (±1) → limite -2..2."""
+        key = self.artist_key(artist)
+        genres = tuple(self.genres.get(key, ()))
+        note = self.base(key) if key else 0
+        rival = key in {norm(a) for a in self.section("rivais").get("artistas", [])}
+        t = norm(title or "")
+        tw = self.section("titulo")
+        slowed = _has(t, tw.get("desce", []))
+        if rival:
+            return Verdict(2, key, genres, True, slowed, True)
+        up = _has(t, tw.get("sobe", [])) or _has(t, tw.get("agua", []))
+        down = slowed or (note == 2 and _has(t, [tw.get("remix_rival", "remix")]))
+        note += max(-1, min(1, int(up) - int(down)))
+        if note < 0 and _has(t, tw.get("suaviza", [])):
+            note = 0
+        bonus = 0
+        g = set(genres)
+        if _in_hours(hour, self.ctx("madrugada", [22, 4])) and g & set(self.ctx("madrugada_generos", [])):
+            bonus = 1
+        party = g & set(self.ctx("festa_generos", []))
+        if not gaming and party and _in_hours(hour, self.ctx("festa", [20, 0])):
+            bonus = 1
+        if claude and g & set(self.ctx("claude_generos", [])):
+            bonus = 1
+        if plays >= int(self.ctx("repeticao_cai", 3)) and note <= 1:
+            bonus -= 1
+        note = max(-2, min(2, note + max(-1, min(1, bonus))))
+        drop = self.section("cai_apos").get(key)
+        if isinstance(drop, dict) and plays >= int(drop.get("plays", 99)):
+            note = min(note, int(drop.get("nota", note)))
+        return Verdict(note, key, genres, False, slowed, bool(key))
 
     def affinity(self, title: str, artist: str, hour: int = 12) -> int:
-        self._reload()
-        a, t = norm(artist or ""), norm(title or "")
-        if any(w in t for w in HATED_WORDS):
-            return -2
-        if a in self.artists:
-            return max(-2, min(2, self.artists[a]))
-        genres = self.genres.get(a, [])
-        vals = [self.table.get(g, 0) for g in genres]
-        v = max(vals) if vals else 0
-        if any(w in t for w in LOVED_WORDS):
-            v = 2
-        elif v < 0 and any(w in t for w in SOFTEN_WORDS):
-            v = 1  # metal instrumental/orquestrado sobe
-        if hour >= 23 or hour < 6:  # tarde da noite: prefere coisa calma
-            if set(genres) & CALM:
-                v += 1
-            elif set(genres) & {"metal", "eletronica", "punk", "funk"}:
-                v -= 1
-        return max(-2, min(2, v))
+        return self.verdict(title, artist, hour).note
 
 
 class Reactor:
     def __init__(self, taste: Taste | None = None, cleanup_file: Path | None = None,
-                 seen_file: Path | None = None, clock=time.time):
+                 seen_file: Path | None = None, clock=time.time, rng: random.Random | None = None):
         self.taste = taste or Taste()
         self.cleanup_file = cleanup_file or CLEANUP_FILE
         self.seen_file = seen_file or SEEN_FILE
         self.clock = clock
+        self.rng = rng or random.Random()
         self.current: Reaction | None = None
         self.until = 0.0
         self.line: str | None = None
         self.line_until = 0.0
         self._last_line = -1e9
+        self._last_line_prio = 0
         self._last_music_line = -1e9
+        self._last_hate = -1e9
         self._cooldown: dict[str, float] = {}
         self._prev = None
         self._track: tuple | None = None
         self._track_at = 0.0
+        self._pending: tuple | None = None  # (quando, track, chave, variante, humor): depois do "?"
         self._plays: dict[tuple, int] = {}
-        self._plays_day = ""
+        self._day = ""
+        self._fav_used = False
         self._skips = 0
         self._hot = False
         self._low_fps = 0
@@ -196,7 +278,7 @@ class Reactor:
         self._long_done = False
         self._cleanup_at = self._cleanup_stamp()
         self._claude_running = 0
-        self._seen: set[str] = set(_load_json(seen_file).get("artists", [])) if seen_file else set()
+        self._seen: set[str] = set(_load_json(self.seen_file).get("artists", []))
 
     # ------------------------------------------------------------ saída
 
@@ -216,9 +298,20 @@ class Reactor:
 
     # ------------------------------------------------------------ disparo
 
+    def pick(self, key: str, variant: str | None = None, **fmt) -> str | None:
+        table = self.taste.lines_for(key)
+        opts = (table.get(variant) if variant else None) or table.get("padrao") or []
+        if not opts:
+            return None
+        try:
+            return self.rng.choice(opts).format(**fmt)
+        except (KeyError, IndexError, ValueError):
+            return None
+
     def fire(self, key: str, now: float, line: str | None = None, cooldown: float = 0.0,
-             music: bool = False) -> Reaction | None:
-        r = REACTIONS[key]
+             music: bool = False, mood: str | None = None, talk: bool = True) -> Reaction | None:
+        base = REACTIONS[key]
+        r = replace(base, mood=mood or self.taste.mood(key, base.mood))
         if now < self._cooldown.get(key, -1e9):
             return None
         cur = self.active(now)
@@ -226,33 +319,42 @@ class Reactor:
             return None
         self._cooldown[key] = now + cooldown
         self.current, self.until = r, now + r.dur
-        if line and self.taste.lines.get("musica" if music else "geral", True):
-            gap_ok = now - self._last_line >= LINE_GAP
+        if talk and line and self.taste.lines.get("musica" if music else "geral", True):
+            gap_ok = now - self._last_line >= LINE_GAP or r.prio > self._last_line_prio
             if gap_ok and (not music or now - self._last_music_line >= MUSIC_LINE_GAP):
                 self.line, self.line_until, self._last_line = line, now + LINE_SECS, now
+                self._last_line_prio = r.prio
                 if music:
                     self._last_music_line = now
                 self.current = replace(r, line=line)
         return self.current
 
+    def say(self, key: str, now: float, variant: str | None = None, cooldown: float = 0.0,
+            mood: str | None = None, **fmt) -> Reaction | None:
+        return self.fire(key, now, self.pick(key, variant, **fmt), cooldown, mood=mood)
+
     # ------------------------------------------------------------ entradas
 
     def on_click(self, target: str, now: float) -> None:
         if target == "led":
-            self.fire("led", now, cooldown=3.0)
+            self.say("led", now, cooldown=3.0)
         elif target == "next":
             if self._track is not None and now - self._track_at <= SKIP_WINDOW:
                 self._skips += 1
             if self._skips >= 3:
                 self._skips = 0
-                self.fire("skips", now, "Tá difícil, hein? Diz \"coloca uma boa\" que eu escolho.",
-                          cooldown=600.0)
+                self.say("skips", now, cooldown=600.0)
                 return
-            self.fire("player", now)
+            self._click("player", now)
         elif target in ("prev", "playpause"):
-            self.fire("player", now)
+            self._click("player", now)
         elif target.startswith("card:"):
-            self.fire("card", now)
+            self._click("card", now)
+
+    def _click(self, key: str, now: float) -> None:
+        """Clique comum: ela sempre olha; comenta só de vez em quando (1 em 4)."""
+        line = self.pick(key) if self.rng.random() < CLICK_TALK else None
+        self.fire(key, now, line)
 
     def observe(self, snap, now: float, hour: int | None = None) -> None:
         """Compara o Snapshot com o anterior e dispara o que mudou (chamado a 1 Hz)."""
@@ -264,34 +366,41 @@ class Reactor:
             self._game_since = now if snap.gaming else None
             return
         if snap.news and (not prev.news or snap.news[0] != prev.news[0]):
-            self.fire("news", now, cooldown=20.0)
+            self.say("news", now, cooldown=20.0)
         hot = self._is_hot(snap, self._hot)
         if hot and not self._hot:
             t = max(x for x in (snap.cpu_temp, snap.gpu_temp) if x is not None)
-            self.fire("hot", now, f"Tá esquentando aqui: {t:.0f} °C.", cooldown=300.0)
+            self.say("hot", now, cooldown=300.0, temp=f"{t:.0f}")
         self._hot = hot
+        night = _in_hours(hour, self.taste.ctx("madrugada", [22, 4]))
         if snap.gaming and not prev.gaming:
             self._game_since, self._long_done = now, False
-            self.fire("game_on", now, cooldown=30.0)
+            self.say("game_on", now, cooldown=30.0)
         elif prev.gaming and not snap.gaming:
+            took = now - (self._game_since if self._game_since is not None else now)
+            if took < 60 * float(self.taste.ctx("jogo_curto_min", 10)):
+                self.say("game_off", now, "curto", 30.0, self.taste.mood("game_off_curto", "calm"))
+            elif night and self._long_done:
+                self.say("game_off", now, "madrugada", 30.0, self.taste.mood("game_off_madrugada", "sad"))
+            else:
+                self.say("game_off", now, cooldown=30.0)
             self._game_since = None
-            self.fire("game_off", now, cooldown=30.0)
         if snap.fps is not None and snap.fps_avg and snap.fps < FPS_DROP * snap.fps_avg:
             self._low_fps += 1
             if self._low_fps == 2:
-                self.fire("fps_drop", now, cooldown=90.0)
+                self.say("fps_drop", now, cooldown=90.0, fps=f"{snap.fps:.0f}")
         else:
             self._low_fps = 0
         if self._game_since is not None and not self._long_done and now - self._game_since >= LONG_SESSION:
             self._long_done = True
-            self.fire("long_session", now, "Duas horas direto… bebe uma água, vai.")
+            self.say("long_session", now, "madrugada" if night else None)
         stamp = self._cleanup_stamp()
         if stamp != self._cleanup_at:
             self._cleanup_at = stamp
-            self.fire("cleanup", now, "Fiz a faxina do SSD.", cooldown=60.0)
+            self.say("cleanup", now, cooldown=60.0)
         running = getattr(snap.claude, "running", 0) or 0
         if running > self._claude_running:
-            self.fire("claude", now, cooldown=120.0)
+            self.say("claude", now, cooldown=120.0)
         self._claude_running = running
 
     # ------------------------------------------------------------ detalhes
@@ -304,44 +413,86 @@ class Reactor:
     def _cleanup_stamp(self) -> str | None:
         return _load_json(self.cleanup_file).get("at") if self.cleanup_file else None
 
+    def favorite_of_day(self) -> str:
+        """Favorita do Dia: sorteada pela data entre artistas com nota ≥ o piso do acordo."""
+        pool = self.taste.candidates(int(self.taste.ctx("favorita_dia_piso", -1)))
+        if not pool:
+            return ""
+        h = int(hashlib.sha1(self._day.encode()).hexdigest(), 16)
+        return pool[h % len(pool)]
+
     def _music(self, snap, now: float, hour: int, first: bool = False) -> None:
         tr = snap.track
         key = (tr.title, tr.artist) if tr is not None and getattr(tr, "title", None) else None
-        if key == self._track:
-            return
-        self._track, self._track_at = key, now
-        if key is None or first or snap.gaming and snap.fps is not None:  # jogando: quase não reage
-            return
+        if key != self._track:
+            self._track, self._track_at, self._pending = key, now, None
+            if key is not None and not first:
+                self._new_track(key, snap, now, hour)
+        if self._pending and now >= self._pending[0] and self._pending[1] == self._track:
+            _, _, rkey, variant, mood, fmt = self._pending
+            self._pending = None
+            self.fire(rkey, now, self.pick(rkey, variant, **fmt), music=True, mood=mood)
+
+    def _new_track(self, key: tuple, snap, now: float, hour: int) -> None:
         title, artist = key[0] or "", key[1] or ""
         day = time.strftime("%Y%m%d", time.localtime(self.clock()))
-        if day != self._plays_day:
-            self._plays, self._plays_day = {}, day
-        self._plays[key] = n = self._plays.get(key, 0) + 1
-        a = self.taste.affinity(title, artist, hour)
-        if n >= 3 and a < 2:
-            a -= 1  # a mesma faixa de novo e de novo
+        if day != self._day:
+            self._plays, self._day, self._fav_used = {}, day, False
+        self._plays[key] = plays = self._plays.get(key, 0) + 1
+        gaming = bool(snap.gaming)
+        claude = bool(getattr(snap.claude, "running", 0))
+        v = self.taste.verdict(title, artist, hour, plays, gaming, claude)
+        rkey, variant, mood = self._decide(v, plays, gaming, hour, now)
+        if rkey is None:
+            return
+        fmt = {"artist": artist}
         new = bool(artist) and norm(artist) not in self._seen
         if new:
             self._remember(artist)
-        if new and a >= 0 and not self.taste.known(artist):
-            self.fire("music_new", now, f"Quem é {artist}? Não conhecia.", music=True)
-        elif a >= 2:
-            self.fire("music_love", now, "Agora sim.", music=True)
-        elif a == 1:
-            self.fire("music_like", now)
-        elif a == 0:
-            self.fire("music_ok", now)
-        elif a == -1:
-            self.fire("music_meh", now)
-        else:
-            line = "Sped up? Respeita a música, Pedro." if any(
-                w in norm(title) for w in HATED_WORDS) else "Hm… não é minha praia."
-            self.fire("music_hate", now, line, music=True)
+        if new and v.note >= 0 and not v.known and not gaming:
+            self.fire("music_new", now, self.pick("music_new", artist=artist), music=True)
+            self._pending = (now + float(self.taste.ctx("novo_segundos", 10)), key, rkey, variant, mood, fmt)
+            return
+        line = self.pick(rkey, variant, **fmt)
+        talk = not gaming or variant == "batalha"  # jogando, só a fala de chefe passa
+        self.fire(rkey, now, line, music=True, mood=mood, talk=talk)
+
+    def _decide(self, v: Verdict, plays: int, gaming: bool, hour: int,
+                now: float) -> tuple[str | None, str | None, str | None]:
+        """Reação (chave, variante da fala, humor) para o veredito, pelas regras do acordo."""
+        note, night = v.note, _in_hours(hour, self.taste.ctx("madrugada", [22, 4]))
+        if gaming and note not in (2, -2):
+            return None, None, None  # jogando: o rosto só reage aos extremos
+        if note <= -1 and v.artist and v.artist in self.taste.pedro:
+            return "music_tolerate", None, None
+        if v.artist and v.artist == self.favorite_of_day() and not self._fav_used:
+            self._fav_used = True
+            boosted = min(2, note + 1)
+            if boosted >= int(self.taste.ctx("favorita_dia_amor_min", 1)):
+                return "music_love", "favorita", None
+            return "music_like", "favorita", None
+        if plays >= int(self.taste.ctx("repeticao_acostuma", 5)):
+            if note == 2:
+                return "music_love", "quinta", "love"
+            if note <= 0:
+                return "music_tolerate", None, None
+        if note == 2:
+            if v.rival:
+                return "music_love", "rival", self.taste.section("rivais").get("humor", "happy")
+            if gaming and "trilha" in v.genres:
+                return "music_love", "batalha", self.taste.mood("music_love_batalha", "focus")
+            return "music_love", "madrugada" if night else None, None
+        if note == -2:
+            early = hour < int(self.taste.ctx("sem_careta_ate", 8))
+            recent = now - self._last_hate < 60 * float(self.taste.ctx("careta_intervalo_min", 30))
+            if early or recent:
+                return "music_meh", None, "sleepy" if early else None
+            self._last_hate = now
+            return "music_hate", "slowed" if v.slowed else None, None
+        return MUSIC_BY_NOTE[note], None, None
 
     def _remember(self, artist: str) -> None:
         self._seen.add(norm(artist))
-        if self.seen_file is None:
-            return
         try:
             self.seen_file.parent.mkdir(parents=True, exist_ok=True)
             self.seen_file.write_text(json.dumps({"artists": sorted(self._seen)}, ensure_ascii=False),

@@ -1,5 +1,8 @@
 # Condessa — personagem, gosto musical e reações
 
+> **Substituído** por `persona/condessa.md` e `persona/condessa-gosto.toml`, decididos pelo Conselho
+> da Condessa (`persona/conselho/`). Este rascunho fica só como histórico.
+
 Rascunho para o Pedro revisar. A persona falada (`magi/agent/persona.md`) continua valendo; isto
 dá a ela um "eu" que aparece no **rosto do HUD** e, de vez em quando, numa frase curta.
 
