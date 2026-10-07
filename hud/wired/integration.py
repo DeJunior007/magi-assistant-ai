@@ -19,7 +19,17 @@ from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize
 from PySide6.QtGui import QPainter
 
 from . import kit
-from .data import ClaudeStats, EventLog, FpsSnapshot, FpsStats, LoadHistory, NetRate, NowPlaying
+from .data import (
+    ClaudeStats,
+    EventLog,
+    FpsSnapshot,
+    FpsStats,
+    LoadHistory,
+    NetRate,
+    NowPlaying,
+    SelfUsage,
+    SelfView,
+)
 from .main_screen import (
     NA,
     SCENE,
@@ -75,7 +85,7 @@ def build_snapshot(data: dict, *, spec=(), pads=(), gaming: bool = False, fps: F
                    now_playing: NowPlaying | None = None, events: EventLog | None = None,
                    led_on: bool = False, led_rgb: str | None = None, magui_state: str = "sleeping",
                    mouth_level: float = 0.0, caption: str | None = None, mood: int | None = None,
-                   now: float | None = None) -> Snapshot:
+                   self_usage: SelfView | None = None, now: float | None = None) -> Snapshot:
     """Snapshot das telas. `data` = `Sensors.data`; `spec` = `system_info()`; `pads` = `controllers()`.
     Sem GPU (`vram_txt == "--"`) as leituras de GPU/VRAM viram None ("– –", R23.3)."""
     d = data or {}
@@ -99,6 +109,7 @@ def build_snapshot(data: dict, *, spec=(), pads=(), gaming: bool = False, fps: F
         magui_state=magui_state if magui_state in EXPRESSIONS else "sleeping",
         mouth_level=mouth_level, caption=caption or None,
         mood=None if mood is None else max(0, min(4, int(mood))),
+        self_usage=self_usage,
     )
     if net is not None:
         snap.net_down, snap.net_up = net.down, net.up
@@ -121,7 +132,7 @@ class WiredUI:
     def __init__(self, now_playing: NowPlaying | None = None, net: NetRate | None = None,
                  history: LoadHistory | None = None, fps: FpsStats | None = None,
                  events: EventLog | None = None, mascot: Mascot | None = None,
-                 claude: ClaudeStats | None = None):
+                 claude: ClaudeStats | None = None, self_usage: SelfUsage | None = None):
         self.mascot = mascot or make_mascot("sleeping")  # retrato da Condessa, se houver a arte
         self.main = MainScreen(self.mascot)
         self.standby = StandbyScreen(self.mascot)
@@ -141,6 +152,7 @@ class WiredUI:
         self._led_warned = False
         self.news: deque[tuple[str, str]] = deque(maxlen=8)  # Rádio Ayanami: (HH:MM, manchete)
         self.claude = claude  # ClaudeStats (consumo do Claude Code); None = painel sem dado
+        self.self_usage = self_usage or SelfUsage()  # o que a própria Condessa gasta (linha no MAGI)
         self.snap = Snapshot()
         self.reactor = Reactor()  # reações dela ao HUD, à música e aos cliques (só rosto/texto)
 
@@ -159,6 +171,7 @@ class WiredUI:
         self.history.push(data.get("cpu"), data.get("gpu") if has_gpu else None, data.get("ram"), wall)
         self.fps.push(fps, mono)
         self.now_playing.tick(mono)
+        self.self_usage.poll(mono)
         if game != self._game:
             if game:
                 self.events.add(f"jogo detectado: {game}")
@@ -177,7 +190,8 @@ class WiredUI:
             data, spec=spec, pads=pads, gaming=gaming, fps=self.fps.snapshot(), net=self.net,
             history=self.history, now_playing=self.now_playing, events=self.events,
             led_on=self.led_on, led_rgb=self.led_rgb, magui_state=self.magui_state,
-            mouth_level=self.mouth_level, caption=self.caption, mood=self.mood)
+            mouth_level=self.mouth_level, caption=self.caption, mood=self.mood,
+            self_usage=self.self_usage.view)
         self.snap.news = list(self.news)
         self.snap.claude = self.claude.view if self.claude is not None else None
         self._react(time.monotonic())

@@ -585,3 +585,172 @@ class ClaudeStats:
 
     def stop(self) -> None:
         self._stop.set()
+
+
+# ---------------------------------------------------------------- consumo da própria Condessa
+
+# nomes (basename do executável/script) dos processos dela: núcleo (com o Kokoro dentro),
+# satélite, rádio, o HUD e o vigia do HUD; os filhos deles entram junto
+SELF_NAMES = frozenset(("magi-core", "magi-satellite", "magi-ayanami", "gamerhud.py", "gamerhud-watch.py"))
+_VRAM_UNITS = {"B": 1, "KiB": 1024, "MiB": 1024 ** 2, "GiB": 1024 ** 3}
+
+
+@dataclass
+class SelfView:
+    """O que a Condessa gasta da máquina. `cpu`/`gpu` ficam None até a 2ª leitura (precisam de delta)."""
+    cpu: float | None = None  # % de um núcleo, somado (passa de 100 com vários núcleos)
+    cpu_total: float | None = None  # % do total de CPUs
+    ram_mb: float = 0.0  # soma do VmRSS
+    gpu: float | None = None  # % do tempo de GPU (soma dos engines, limitado a 100)
+    vram_mb: float = 0.0  # soma do drm-memory-vram, clientes DRM sem repetição
+    procs: int = 0
+
+
+def _stat_fields(raw: str) -> list[str]:
+    """Campos de `/proc/<pid>/stat` depois do `comm` (que pode ter espaço e parêntese)."""
+    return raw[raw.rfind(")") + 2:].split()
+
+
+def _drm_info(raw: str) -> tuple[tuple[str, str], int, int] | None:
+    """fdinfo de um FD de DRM → ((pdev, client-id), ns somados dos engines, bytes de VRAM)."""
+    kv = {}
+    for line in raw.splitlines():
+        k, sep, v = line.partition(":")
+        if sep and k.startswith("drm-"):
+            kv[k] = v.strip()
+    cid = kv.get("drm-client-id")
+    if cid is None:
+        return None
+    ns = 0
+    for k, v in kv.items():
+        if k.startswith("drm-engine-") and not k.startswith("drm-engine-capacity-"):
+            n, _, unit = v.partition(" ")
+            if unit.strip() == "ns" and n.isdigit():
+                ns += int(n)
+    vram = 0
+    n, _, unit = (kv.get("drm-memory-vram") or kv.get("drm-resident-vram") or "0").partition(" ")
+    if n.isdigit():
+        vram = int(n) * _VRAM_UNITS.get(unit.strip() or "B", 1)
+    return (kv.get("drm-pdev", ""), cid), ns, vram
+
+
+class SelfUsage:
+    """CPU, RAM, tempo de GPU e VRAM dos processos da Condessa, só lendo `/proc` (chamado no poll
+    de 1 Hz do HUD). A árvore de processos e os FDs de DRM são redescobertos a cada `rescan` s;
+    entre uma e outra só se leem `stat`/`status` dos membros e o `fdinfo` dos FDs de DRM. Processo
+    que some ou nega leitura é ignorado."""
+
+    def __init__(self, proc: str = "/proc", rescan: float = 5.0, uid: int | None = None,
+                 names: frozenset[str] = SELF_NAMES, hz: int | None = None, ncpu: int | None = None):
+        self.proc = proc
+        self.rescan = rescan
+        self.uid = os.getuid() if uid is None else uid
+        self.names = names
+        self.hz = hz or os.sysconf("SC_CLK_TCK")
+        self.ncpu = ncpu or os.cpu_count() or 1
+        self.view: SelfView | None = None
+        self._pids: list[str] = []
+        self._drm: dict[str, list[str]] = {}  # pid → FDs de DRM
+        self._scan_at: float | None = None
+        self._prev: tuple[float, dict[tuple[str, str], int], dict[tuple, int]] | None = None
+
+    def _read(self, *parts: str) -> str | None:
+        try:
+            with open(os.path.join(self.proc, *parts), encoding="utf-8", errors="replace") as f:
+                return f.read()
+        except OSError:
+            return None
+
+    def _is_self(self, pid: str) -> bool:
+        raw = self._read(pid, "cmdline")
+        if not raw:
+            return False
+        args = [os.path.basename(a) for a in raw.split("\0")[:2]]
+        if args[0] in self.names:  # executável direto
+            return True
+        # interpretador + script; "grep magi-core" e afins não contam
+        return args[0].startswith("python") and len(args) > 1 and args[1] in self.names
+
+    def _scan(self) -> None:
+        """Raízes (cmdline casa) do usuário e seus descendentes; FDs de DRM de cada um."""
+        try:
+            entries = [e for e in os.listdir(self.proc) if e.isdigit()]
+        except OSError:
+            entries = []
+        parent: dict[str, str] = {}
+        roots = []
+        for pid in entries:
+            try:
+                if os.stat(os.path.join(self.proc, pid)).st_uid != self.uid:
+                    continue
+            except OSError:
+                continue
+            raw = self._read(pid, "stat")
+            if raw is None:
+                continue
+            parent[pid] = _stat_fields(raw)[1]
+            if self._is_self(pid):
+                roots.append(pid)
+        children: dict[str, list[str]] = {}
+        for pid, pp in parent.items():
+            children.setdefault(pp, []).append(pid)
+        seen: set[str] = set()
+        todo = list(roots)
+        while todo:
+            pid = todo.pop()
+            if pid not in seen:
+                seen.add(pid)
+                todo += children.get(pid, [])
+        self._pids = sorted(seen, key=int)
+        self._drm = {}
+        for pid in self._pids:
+            try:
+                fds = os.listdir(os.path.join(self.proc, pid, "fdinfo"))
+            except OSError:
+                continue
+            drm = [fd for fd in fds if "drm-client-id" in (self._read(pid, "fdinfo", fd) or "")]
+            if drm:
+                self._drm[pid] = sorted(drm, key=lambda x: int(x) if x.isdigit() else 0)
+
+    def poll(self, now: float | None = None) -> SelfView | None:
+        now = time.monotonic() if now is None else now
+        if self._scan_at is None or now - self._scan_at >= self.rescan:
+            self._scan()
+            self._scan_at = now
+        ticks: dict[tuple[str, str], int] = {}  # (pid, starttime) → utime + stime
+        ram_kb = 0
+        for pid in self._pids:
+            raw = self._read(pid, "stat")
+            if raw is None:
+                continue
+            f = _stat_fields(raw)
+            try:
+                ticks[(pid, f[19])] = int(f[11]) + int(f[12])
+            except (IndexError, ValueError):
+                continue
+            for line in (self._read(pid, "status") or "").splitlines():
+                if line.startswith("VmRSS:"):
+                    ram_kb += int(line.split()[1])
+                    break
+        clients: dict[tuple, tuple[int, int]] = {}  # (pdev, client-id) → (ns, vram)
+        for pid, fds in self._drm.items():
+            for fd in fds:
+                info = _drm_info(self._read(pid, "fdinfo", fd) or "")
+                if info is not None:
+                    clients.setdefault(info[0], info[1:])
+        if not ticks:
+            self.view, self._prev = None, None
+            return None
+        gpu_ns = {k: ns for k, (ns, _) in clients.items()}
+        view = SelfView(ram_mb=ram_kb / 1024, vram_mb=sum(v for _, v in clients.values()) / 1024 ** 2,
+                        procs=len(ticks))
+        if self._prev is not None and now > self._prev[0]:
+            dt = now - self._prev[0]
+            d_ticks = sum(max(0, t - self._prev[1][k]) for k, t in ticks.items() if k in self._prev[1])
+            view.cpu = 100.0 * d_ticks / self.hz / dt
+            view.cpu_total = view.cpu / self.ncpu
+            d_ns = sum(max(0, ns - self._prev[2][k]) for k, ns in gpu_ns.items() if k in self._prev[2])
+            view.gpu = min(100.0, 100.0 * d_ns / (dt * 1e9))
+        self._prev = (now, ticks, gpu_ns)
+        self.view = view
+        return view

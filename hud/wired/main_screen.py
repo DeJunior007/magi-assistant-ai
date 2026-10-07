@@ -125,6 +125,7 @@ class Snapshot:
     mood: int | None = None  # termômetro de humor 0 (pega leve) .. 4 (pode zoar), R13.7; None = sem dado
     news: list[tuple[str, str]] = field(default_factory=list)  # Rádio Ayanami: (HH:MM, manchete), novas 1º
     claude: Any = None  # data.ClaudeView: consumo e sessões do Claude Code; None = sem dado
+    self_usage: Any = None  # data.SelfView: cpu/ram/gpu/vram dos processos da Condessa; None = sem dado
 
 
 def led_lit(snap: Snapshot) -> bool:
@@ -597,8 +598,10 @@ TALK = QRectF(SIDE_X - 2, CHIP_TOP - 2, SIDE_R - SIDE_X + 4, MID_TOP.bottom() - 
 
 # MAGI system
 LED_BTN = QRectF(MAGI.right() - 21 - 150, MAGI.top() + 19, 150, 44)
-_UNIT_H = (MAGI.height() - 38 - 44 - 36) / 3
+SELF_H = 26.0  # linha "Condessa" (consumo dela) sob as três unidades
+_UNIT_H = (MAGI.height() - 38 - 44 - 36 - SELF_H) / 3
 UNITS = [QRectF(MAGI.left() + 21, LED_BTN.bottom() + 12 + i * (_UNIT_H + 12), 498, _UNIT_H) for i in range(3)]
+SELF_ROW = QRectF(MAGI.left() + 21, UNITS[-1].bottom() + 4, 498, SELF_H)  # acaba 15 px acima da borda
 UNIT_NAMES = (("Melchior", "magi·1 // cpu"), ("Balthasar", "magi·2 // gpu"), ("Casper", "magi·3 // memory"))
 UNIT_KEYS = ("負荷 load", "温度 temp", "映像 vram", "主記 ram")
 UNIT_GAP = 12.0  # entre nome | barras | selo
@@ -683,6 +686,25 @@ def _bolt(p: QPainter, c: QPointF, col: QColor) -> None:
     path.closeSubpath()
     p.drawPath(path)
     p.restore()
+
+
+def mb(v: float | None) -> str:
+    """MB → "610 MB" / "1.2 GB" (arredondado a 10 MB, para a linha não piscar à toa)."""
+    if v is None:
+        return NA
+    if v >= 1000:
+        return f"{v / 1024:.1f} GB"
+    return f"{round(v, -1):.0f} MB"
+
+
+def self_line(snap: Snapshot) -> list[tuple[str, str]] | None:
+    """Linha "Condessa" do MAGI system: [(rótulo, valor)] já arredondados (é também a chave do
+    grupo) ou None sem dado."""
+    u = snap.self_usage
+    if u is None:
+        return None
+    return [("cpu", num(u.cpu, suffix="%")), ("ram", mb(u.ram_mb)), ("gpu", num(u.gpu, suffix="%")),
+            ("vram", mb(u.vram_mb))]
 
 
 def talk_lines(snap: Snapshot) -> tuple[list[str], str]:
@@ -807,7 +829,9 @@ class MainScreen(Screen):
             "history": [QRectF(HIST.left() + 2, HIST.top() + 50, HIST.width() - 4, HIST.height() - 52)],
             "spec": [QRectF(SPEC.left() + 2, SPEC.top() + 50, SPEC.width() - 4, 128),
                      QRectF(SPEC.left() + 2, SPEC.top() + 214, SPEC.width() - 4, SPEC.height() - 216)],
-            "magi": [QRectF(MAGI.left() + 2, LED_BTN.top() - 2, MAGI.width() - 4, MAGI.height() - 36)],
+            "magi": [QRectF(MAGI.left() + 2, LED_BTN.top() - 2, MAGI.width() - 4,
+                            UNITS[-1].bottom() + 2 - (LED_BTN.top() - 2))],
+            "self": [SELF_ROW],
             "player": [QRectF(NP.left() + 2, NP.top() + 18, NP.width() - 4, NP.height() - 20)],
             "radio": [inner(RADIO, 56)],
             "claude": [inner(CLAUDE, 56)],
@@ -837,6 +861,8 @@ class MainScreen(Screen):
         if name == "magi":
             return (led_lit(sn), accent(sn).rgb(), sn.cpu, sn.cpu_temp, sn.gpu, sn.gpu_temp,
                     sn.vram, sn.vram_txt, sn.ram, sn.ram_txt)
+        if name == "self":
+            return tuple(self_line(sn) or ())
         if name == "player":
             t = sn.track
             if t is None:
@@ -1042,6 +1068,22 @@ class MainScreen(Screen):
                 kit.segments(p, QRectF(seg_x, cy - 6, seg_w, 12), 20, v or 0.0, t.seg, warn_from=wf)
                 text(p, vx, cy + 5, val, px=14, align=R, color_=TEXT if v is not None else TEXT_DIM)
             kit.seal(p, QRectF(seal_x, r.top() + 1, 70, r.height() - 2), t.color)
+
+    def _g_self(self, p, snap, now, s):
+        """Rodapé do MAGI system: o que a própria Condessa gasta (CPU/RAM/GPU/VRAM)."""
+        pairs = self_line(snap)
+        if pairs is None:
+            return
+        r = SELF_ROW
+        yb = r.center().y() + 4.5
+        x = r.left() + 15 + label(p, r.left() + 15, yb, "condessa", color_=TEXT).width() + 8
+        text(p, x, yb, "自己", key="jp", px=12, color_=TEXT_DIM, spacing=0.08)
+        x = r.right() - 15
+        for i, (k, v) in enumerate(reversed(pairs)):
+            x -= text(p, x, yb + 0.5, v, px=13, color_=TEXT, align=R).width() + 6
+            x -= label(p, x, yb, k, align=R).width()
+            if i < len(pairs) - 1:
+                x -= 10 + label(p, x - 10, yb, "·", align=R).width() + 10
 
     def _g_player(self, p, snap, now, s):
         t = snap.track

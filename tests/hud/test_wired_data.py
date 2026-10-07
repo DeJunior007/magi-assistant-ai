@@ -11,6 +11,7 @@ from wired.data import (
     LoadHistory,
     NetRate,
     NowPlaying,
+    SelfUsage,
     _plain,
     fmt_rate,
     normalize_art_url,
@@ -264,3 +265,70 @@ def test_claude_stats_monta_o_painel(tmp_path):
     assert (v.window_fresh, v.window_cache) == (236_000, 31_000_000) and v.window_end
     assert v.sessions == [("magi-assistant-ai", True, 0), ("KPCeramica", False, 7)]
     assert v.autofix == "conserto pronto: roteador (aguardando ok)"
+
+
+# ---------------------------------------------------------------- consumo da Condessa (/proc falso)
+
+
+def fake_proc(root, pid, cmd, *, ppid=1, ticks=(0, 0), rss_kb=None, start=100, fdinfo=None, uid_ok=True):
+    """`/proc/<pid>` sintético: cmdline, stat (utime/stime/starttime), status (VmRSS) e fdinfo."""
+    d = root / str(pid)
+    (d / "fdinfo").mkdir(parents=True, exist_ok=True)
+    (d / "cmdline").write_bytes("\0".join(cmd).encode() + b"\0")
+    rest = ["S", str(ppid)] + ["0"] * 9 + [str(ticks[0]), str(ticks[1])] + ["0"] * 6 + [str(start), "0"]
+    (d / "stat").write_text(f"{pid} (proc (x)) " + " ".join(rest) + "\n")
+    (d / "status").write_text("Name:\tx\n" + (f"VmRSS:\t  {rss_kb} kB\n" if rss_kb is not None else ""))
+    for fd, txt in (fdinfo or {}).items():
+        (d / "fdinfo" / str(fd)).write_text(txt)
+
+
+def drm(cid, gfx_ns, vram, unit="KiB", compute_ns=0):
+    return (f"pos:\t0\nflags:\t02\ndrm-driver:\tamdgpu\ndrm-client-id:\t{cid}\ndrm-pdev:\t0000:04:00.0\n"
+            f"drm-engine-gfx:\t{gfx_ns} ns\ndrm-engine-compute:\t{compute_ns} ns\n"
+            f"drm-memory-vram:\t{vram} {unit}\ndrm-resident-vram:\t{vram} {unit}\n")
+
+
+def test_self_usage_cpu_ram_gpu_vram(tmp_path):
+    venv = "/repo/.venv/bin/"
+    fake_proc(tmp_path, 10, ["/repo/.venv/bin/python3", venv + "magi-core"], ticks=(100, 50), rss_kb=512_000)
+    fake_proc(tmp_path, 11, ["/usr/bin/ffmpeg", "-i", "x"], ppid=10, ticks=(10, 0), rss_kb=10_240)  # filho
+    fake_proc(tmp_path, 20, ["python3", "/home/u/.local/share/gamerhud/gamerhud.py"], ticks=(20, 0),
+              rss_kb=102_400, fdinfo={5: drm(7, 1_000_000_000, 81_920), 6: drm(7, 1_000_000_000, 81_920),
+                                      7: drm(8, 0, 10, "MiB")})
+    fake_proc(tmp_path, 30, ["python3", "/x/gamerhud-watch.py"], ticks=(0, 0), rss_kb=20_480)
+    fake_proc(tmp_path, 40, ["/usr/bin/firefox"], ticks=(9999, 0), rss_kb=9_999_999,
+              fdinfo={3: drm(99, 5_000_000_000, 999_999)})  # de fora
+    fake_proc(tmp_path, 41, ["grep", "magi-core"], ticks=(5, 0), rss_kb=1000)  # só cita o nome
+    (tmp_path / "self").mkdir()  # entradas não numéricas são ignoradas
+    su = SelfUsage(str(tmp_path), rescan=60, hz=100, ncpu=4)
+    v = su.poll(0.0)
+    assert v.procs == 4 and v.cpu is None and v.gpu is None  # 1ª leitura: sem delta
+    assert v.ram_mb == pytest.approx((512_000 + 10_240 + 102_400 + 20_480) / 1024)
+    assert v.vram_mb == pytest.approx(80 + 10)  # client 7 aparece em 2 FDs e conta uma vez
+    # 2 s depois: +100 ticks no núcleo, +20 no filho, +80 no HUD = 200 ticks = 2 s de CPU em 2 s
+    fake_proc(tmp_path, 10, ["/repo/.venv/bin/python3", venv + "magi-core"], ticks=(180, 70), rss_kb=512_000)
+    fake_proc(tmp_path, 11, ["/usr/bin/ffmpeg"], ppid=10, ticks=(30, 0), rss_kb=10_240)
+    fake_proc(tmp_path, 20, ["python3", "/home/u/.local/share/gamerhud/gamerhud.py"], ticks=(100, 0),
+              rss_kb=102_400, fdinfo={5: drm(7, 1_300_000_000, 81_920, compute_ns=100_000_000),
+                                      6: drm(7, 1_300_000_000, 81_920, compute_ns=100_000_000),
+                                      7: drm(8, 0, 10, "MiB")})
+    v = su.poll(2.0)
+    assert v.cpu == pytest.approx(100.0)  # 1 núcleo inteiro
+    assert v.cpu_total == pytest.approx(25.0)
+    assert v.gpu == pytest.approx(20.0)  # (300 + 100) ms de engine em 2 s; sem contar o FD repetido
+    assert su.view is v
+
+
+def test_self_usage_tolera_processo_que_some(tmp_path):
+    import shutil
+    fake_proc(tmp_path, 10, ["python3", "/r/.venv/bin/magi-satellite"], ticks=(10, 0), rss_kb=1024)
+    su = SelfUsage(str(tmp_path), rescan=60, hz=100)
+    assert su.poll(0.0).procs == 1
+    shutil.rmtree(tmp_path / "10")
+    assert su.poll(1.0) is None and su.view is None
+    assert SelfUsage(str(tmp_path / "nada")).poll(0.0) is None
+    # processo novo (mesmo pid, outro starttime) não gera delta falso; o rescan acha o novo
+    fake_proc(tmp_path, 10, ["python3", "/r/.venv/bin/magi-ayanami"], ticks=(500, 0), rss_kb=1024, start=999)
+    su.rescan = 0
+    assert su.poll(2.0).cpu is None
+    assert su.poll(3.0).cpu == pytest.approx(0.0)

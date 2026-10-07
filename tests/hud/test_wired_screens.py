@@ -1,5 +1,6 @@
 import re
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -182,3 +183,30 @@ def test_chip_de_estado_ouvindo_e_pensando():
         render(sc, idle, size)
         assert any(r.intersects(QRect(0, 0, 1280, 720)) for r in sc.dirty_regions(heard, NOW, size))
         assert _focus_px(render(cls(), heard, size)) > _focus_px(render(cls(), idle, size)) + 20
+
+
+def test_linha_condessa_no_magi():
+    from wired.data import SelfView
+    snap = full_snapshot(caption=None, self_usage=SelfView(cpu=9.4, ram_mb=1248.6, gpu=3.2, vram_mb=212.0))
+    assert ms.self_line(snap) == [("cpu", "9%"), ("ram", "1.2 GB"), ("gpu", "3%"), ("vram", "210 MB")]
+    assert ms.self_line(full_snapshot()) is None
+    # cabe no painel MAGI, abaixo das unidades
+    assert ms.SELF_ROW.top() >= ms.UNITS[-1].bottom() and ms.SELF_ROW.bottom() <= ms.MAGI.bottom() - 14
+    s = 4 / 3
+    box = QRect(round(ms.SELF_ROW.left() * s), round(ms.SELF_ROW.top() * s), round(ms.SELF_ROW.width() * s),
+                round(ms.SELF_ROW.height() * s))
+
+    def lit(img):
+        bg = img.pixelColor(box.left() + 2, box.top() + 2)
+        return sum(img.pixelColor(x, y) != bg for x in range(box.left(), box.right(), 2)
+                   for y in range(box.top(), box.bottom(), 2))
+
+    assert lit(render(MainScreen(), full_snapshot())) == 0  # None: nada desenhado
+    assert lit(render(MainScreen(), snap)) > 50
+    # muda só a 1ª casa depois do arredondamento: nada a redesenhar; mudou o número: só a linha
+    sc = MainScreen()
+    render(sc, snap)
+    same = replace(snap, self_usage=SelfView(cpu=9.1, ram_mb=1250.0, gpu=3.4, vram_mb=209.0))
+    assert sc.dirty_regions(same, NOW, SIZE) == []
+    other = replace(snap, self_usage=SelfView(cpu=14.0, ram_mb=1250.0, gpu=3.4, vram_mb=209.0))
+    assert sc.dirty_regions(other, NOW, SIZE) == [ms.dev_rect(ms.SELF_ROW, s)]
