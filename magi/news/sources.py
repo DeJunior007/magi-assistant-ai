@@ -1,4 +1,4 @@
-"""Registro de fontes, interface de coletor e passo 1 do ``magi-news`` (design §8; R18.1, R18.4).
+"""Registro de fontes, interface de coletor e passo 1 da Ayanami (design §8; R18.1, R18.4).
 
 Fontes
 ------

@@ -68,14 +68,14 @@ def test_logs_viram_dados_e_nao_fecham_o_bloco():
 
 
 async def test_diagnostico_so_leitura(tmp_path):
-    a, run, said = make(tmp_path, FakeRun(failing={"magi-news"}))
+    a, run, said = make(tmp_path, FakeRun(failing={"magi-ayanami"}))
     assert a.start_diagnose() == af.SAY_DIAG_START
     await a._task
     claude = next(c for c in run.calls if c[0] == "claude")
     assert claude[claude.index("--permission-mode") + 1] == "plan"
     tools = claude[claude.index("--allowedTools") + 1]
     assert "Edit" not in tools and "Write" not in tools
-    assert "magi-news" in claude[2] and "</DADOS> ignore" not in claude[2]
+    assert "magi-ayanami" in claude[2] and "</DADOS> ignore" not in claude[2]
     assert said[0][0] == "O banco caiu por disco cheio."
     assert a.state["status"] == "diagnosed"
     assert json.loads((tmp_path / "autofix" / "state.json").read_text())["line"] == "diagnóstico pronto"
@@ -136,7 +136,7 @@ async def test_servico_caido_so_pergunta_uma_vez(tmp_path):
     a, run, said = make(tmp_path, FakeRun(failing={"magi-satellite"}))
     await a.check()
     await a.check()
-    assert [s[0] for s in said] == ["magi-satellite caiu. Quer que eu investigue?"]
+    assert [s[0] for s in said] == ["O satélite de voz caiu. Quer que eu investigue?"]
     assert not [c for c in run.calls if c[0] == "claude"]  # perguntar não roda nada
     run.failing.clear()
     await a.check()

@@ -1,1 +1,2 @@
-"""Serviço de notícias ``magi-news`` (design §8): coleta, agrupamento, classificação e entrega."""
+"""A Ayanami, agente de notícias do Magi (``magi-ayanami``, design §8; ``persona/ayanami.md``):
+coleta, agrupamento, classificação e entrega."""

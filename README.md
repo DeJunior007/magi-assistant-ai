@@ -41,7 +41,7 @@ p90 1,17 s (todos dentro da meta); pergunta ao agente p90 **3,39 s** (meta 3 s, 
 | `magi/core/` | `magi-core`: serviço Wyoming, turno, STT/TTS, roteador local (`intents.yaml`), ações (jogos, HUD, volume, RGB, Spotify), música, alertas, entrega de notícias, recarga do config |
 | `magi/agent/` | Agente LangGraph, persona (`persona.md`), ficha de autoconhecimento e ferramentas (`tools/`) |
 | `magi/memory/` | Repositórios do Postgres: memórias, correções, custos, gosto musical, humor, perfil, ajuda no jogo; migrações |
-| `magi/news/` | `magi-news`: coletores (RSS, Steam, AniList, Reddit, scraping), agrupamento, classificação, anti-spoiler, prioridade; fontes em `sources.toml` |
+| `magi/news/` | **Ayanami**, o agente de notícias (`magi-ayanami`, persona em `persona/ayanami.md`): coletores (RSS, Steam, AniList, Reddit, scraping), agrupamento, classificação, anti-spoiler, prioridade; fontes em `sources.toml` |
 | `magi/providers/` | Provedores OpenAI e Gemini, rodízio de chaves (KeyPool) e registro por tarefa |
 | `magi/common/` | Config (`config.py`), chaves (`secrets.py`), contratos e eventos do protocolo |
 | `magi/cli/` | `magi-keys` e `magi-spotify-login` |
@@ -74,7 +74,7 @@ O instalador:
    `magi-pg`, `127.0.0.1:54329`, 256 MB) se ainda não estiver rodando.
 3. Copia `config.example.toml` para `~/.config/magi/config.toml` se ele não existir.
 4. Gera as units em `~/.config/systemd/user/` (trocando `@REPO@` pelo caminho do repo) e habilita
-   `magi-satellite`, `magi-core` e `magi-news.timer` (coleta de notícias a cada 2 h).
+   `magi-satellite`, `magi-core` e `magi-ayanami.timer` (a Ayanami coleta notícias a cada 2 h).
 
 Depois:
 

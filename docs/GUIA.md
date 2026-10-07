@@ -113,7 +113,7 @@ Respostas faladas têm até 2 frases; a resposta completa e os links aparecem co
 
 ## 6. Notícias e spoiler
 
-- `magi-news` roda a cada 2 h (timer systemd): Steam News dos jogos instalados, AniList da sua
+- A **Ayanami** (`magi-ayanami`, o agente de notícias, no Gemini) roda a cada 2 h (timer systemd): Steam News dos jogos instalados, AniList da sua
   lista, Reddit (r/anime, r/Games), RSS e scraping. Agrupa a mesma notícia de várias fontes,
   classifica e prioriza.
 - Entrega: **bomba** = frase + card (voz só fora de call); **alta** = só card. No máximo 2 por hora
@@ -195,8 +195,8 @@ cota gratuita custa 0 e por isso nunca recebe dado pessoal (memória, voz, humor
 | Coisas de sessão | `$XDG_RUNTIME_DIR/magi/` = `/run/user/1000/magi/` (`hud.sock`, estado do ducking e do mudo do Discord) |
 | Banco | Postgres + pgvector no Docker: container `magi-pg`, `127.0.0.1:54329`, volume `magi-pgdata` |
 | Chaves | KWallet (Secret Service), serviço **`magi-assistant`**: `openai-1`, `gemini-1`…, `spotify-client-id`, `spotify-token`, `reddit-client-id`, `reddit-client-secret`. Ver com `uv run magi-keys list` |
-| Serviços | `~/.config/systemd/user/magi-satellite.service`, `magi-core.service`, `magi-news.service` + `magi-news.timer` |
-| Logs | `journalctl --user -u magi-core -u magi-satellite -u magi-news`; HUD em `~/.cache/gamerhud/hud.log` |
+| Serviços | `~/.config/systemd/user/magi-satellite.service`, `magi-core.service`, `magi-ayanami.service` + `magi-ayanami.timer` (Ayanami) |
+| Logs | `journalctl --user -u magi-core -u magi-satellite -u magi-ayanami`; HUD em `~/.cache/gamerhud/hud.log` |
 | App de gravação | menu: "Gravar voz da Condessa" |
 
 ## 10. Config

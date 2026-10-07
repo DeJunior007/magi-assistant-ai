@@ -207,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         status = "pulada (sem coletor)" if s.skipped else (f"ERRO {s.error}" if s.error else "ok")
         log.info("%-20s %-7s %3d lidos %3d novos %3d repetidos %5.1fs %s",
                  s.name, s.kind, s.fetched, s.new, s.duplicates, s.seconds, status)
-    print(f"magi-news: {report.summary()}")
+    print(f"ayanami: {report.summary()}")
     ran = [s for s in report.sources if not s.skipped]
     return 1 if ran and all(s.error for s in ran) else 0
 

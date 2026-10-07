@@ -1,6 +1,6 @@
 """Relatório de uso real: as métricas de sucesso do PRD (tarefas 7.1/7.2) a partir do banco.
 
-Uso: ``uv run python -m tools.uso [--dias 14] [--dsn ...]``
+Uso: ``magi-uso [--dias 14] [--dsn ...]`` (de qualquer pasta; ou ``uv run magi-uso`` no repositório)
 
 - **Uso:** interações por dia com uso (meta: ≥ 5 por dia de jogo depois de 2 semanas).
 - **Entendimento:** correções a cada 20 interações (meta: < 1) e turnos sem texto/"não peguei".

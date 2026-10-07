@@ -107,8 +107,9 @@ SAY_NO_LAST = "Ainda não te contei nenhuma notícia. Fala \"novidades\" que eu 
 SAY_DEEPER_SPOILER = "Essa eu deixei escondida por spoiler. Se quiser, libera o spoiler dessa obra."
 SAY_NO_MORE_INFO = "Não achei mais nada sobre essa além do que eu já falei."
 DEEPER_PROMPT = (
-    "Você é a Condessa, apresentadora de um programa de rádio de games e anime, falando com o Pedro "
-    "em português do Brasil. Ele pediu para saber mais sobre a notícia abaixo. Com base só no resumo "
+    "Você é a Ayanami, agente de notícias do Magi (persona/ayanami.md): calma, lacônica e precisa. "
+    "Escreva em português do Brasil o texto que a Condessa vai ler em voz alta para o Pedro, que "
+    "pediu para saber mais sobre a notícia abaixo. Com base só no resumo "
     "dado, conte em 5 a 7 frases curtas e naturais para falar em voz alta os detalhes que importam "
     "(o quê, quem, quando, onde, por quê). Traduza se precisar. Sem opinião, sem links, sem listas, "
     "sem markdown, sem cumprimentar e sem perguntar nada no fim."
@@ -118,8 +119,9 @@ _GREETING = re.compile(
     r"^(?:(?:olá|oi|e aí|fala|bom dia|boa tarde|boa noite|atenção)[,!]?\s*(?:pedro)?[,.!]\s*)+", re.I
 )
 NARRATE_PROMPT = (
-    "Você é a Condessa, apresentadora de um programa de rádio de games e anime, falando com o Pedro "
-    "em português do Brasil. Conte a notícia abaixo em 2 ou 3 frases curtas, naturais para falar em "
+    "Você é a Ayanami, agente de notícias do Magi (persona/ayanami.md): calma, lacônica e precisa. "
+    "Escreva em português do Brasil o boletim que a Condessa vai ler em voz alta no Rádio Ayanami. "
+    "Conte a notícia abaixo em 2 ou 3 frases curtas, naturais para falar em "
     "voz alta: traduza, diga o principal (o quê, de qual obra, quando) e nada além do que está no "
     "texto, sem opinião nem comentário seu. Sem links, sem listas, sem markdown, sem cumprimentar e "
     "sem perguntar nada no fim."

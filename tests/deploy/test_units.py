@@ -64,14 +64,14 @@ def test_render_usa_caminho_real_do_repo(tmp_path: Path) -> None:
     out = _render(tmp_path)
     names = sorted(p.name for p in out.iterdir())
     assert names == [
+        "magi-ayanami.service",
+        "magi-ayanami.timer",
         "magi-clean.service",
         "magi-clean.timer",
         "magi-core.service",
-        "magi-news.service",
-        "magi-news.timer",
         "magi-satellite.service",
     ]
-    for name in (*SERVICES, "magi-news", "magi-clean"):
+    for name in (*SERVICES, "magi-ayanami", "magi-clean"):
         u = _unit(out / f"{name}.service")
         assert u["Service"]["ExecStart"] == f'"{REPO}/.venv/bin/{name}"'
         assert u["Service"]["WorkingDirectory"] == str(REPO)
@@ -81,7 +81,7 @@ def test_render_usa_caminho_real_do_repo(tmp_path: Path) -> None:
 @pytest.mark.skipif(not shutil.which("systemd-analyze"), reason="sem systemd-analyze")
 def test_systemd_analyze_verify(tmp_path: Path) -> None:
     out = _render(tmp_path)
-    for name in (*SERVICES, "magi-news", "magi-clean"):
+    for name in (*SERVICES, "magi-ayanami", "magi-clean"):
         if not (REPO / ".venv" / "bin" / name).exists():
             pytest.skip("sem .venv com os executáveis (rode uv sync)")
     r = subprocess.run(
@@ -121,7 +121,7 @@ def test_dry_run_mostra_e_nao_escreve(tmp_path: Path) -> None:
 def test_dry_run_start_inicia(tmp_path: Path) -> None:
     out = _dry_run(tmp_path, "--start", "--no-hud")
     assert "+ systemctl --user restart magi-satellite.service magi-core.service" in out
-    assert "+ systemctl --user start magi-news.timer magi-clean.timer" in out
+    assert "+ systemctl --user start magi-ayanami.timer magi-clean.timer" in out
     assert "HUD" not in out
 
 

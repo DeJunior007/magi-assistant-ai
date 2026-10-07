@@ -1376,7 +1376,7 @@ class Progress:
 
 @runtime_checkable
 class NewsRepo(Protocol):
-    """Tabelas de notícias do §7 (R18-R20). Entrega: o ``magi-news`` grava ``level`` nos itens; o
+    """Tabelas de notícias do §7 (R18-R20). Entrega: a Ayanami grava ``level`` nos itens; o
     núcleo consulta ``undelivered`` e marca ``mark_delivered`` (não há socket entre os dois)."""
 
     async def sources(self) -> list[NewsSource]: ...

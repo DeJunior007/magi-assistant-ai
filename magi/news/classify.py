@@ -1,4 +1,4 @@
-"""Passo 3 do ``magi-news``: classificar itens agrupados (design §8, R18.6, R19.1).
+"""Passo 3 da Ayanami (``magi-ayanami``): classificar itens agrupados (design §8, R18.6, R19.1).
 
 Em lotes (uma chamada de chat por lote, ``json_mode=True``, ``personal=False``, provedor da tarefa
 ``news``), cada item ainda sem ``kind`` recebe franquia canônica, tipo, spoiler (sim/não e de quê),

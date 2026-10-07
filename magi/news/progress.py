@@ -17,7 +17,7 @@ Grava na tabela ``progress`` (via ``NewsRepo.set_progress``):
   a Web API da Steam pede chave e o cache local (``appcache/stats/*.bin``) é binário e sem
   formato público.
 
-Cada sincronização regrava todas as linhas com ``updated_at`` = agora; o ``magi-news`` usa o
+Cada sincronização regrava todas as linhas com ``updated_at`` = agora; a Ayanami (``magi-ayanami``) usa o
 maior ``updated_at`` para rodar no máximo uma vez a cada ``progress_interval_h`` (padrão 6 h).
 Opções em ``[news]``: ``progress`` (padrão ``true``), ``progress_interval_h``, ``steam_root``.
 """
@@ -236,7 +236,7 @@ async def update_if_due(
     settings: Mapping[str, Any],
     now: datetime,
 ) -> ProgressReport | None:
-    """Passo de progresso do ``magi-news``: ``None`` se desligado ou ainda no intervalo."""
+    """Passo de progresso da Ayanami (``magi-ayanami``): ``None`` se desligado ou ainda no intervalo."""
     if not settings.get("progress", True):
         return None
     hours = settings.get("progress_interval_h")

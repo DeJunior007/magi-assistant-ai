@@ -1,6 +1,6 @@
 """Entrega de notícias pelo núcleo (tarefa 6.10; design §8 passo 5; R19.5, R19.6, R19.8).
 
-O ``magi-news`` grava ``level`` nos itens (``magi.news.priority``); este laço leve, no núcleo, lê
+A Ayanami (``magi-ayanami``) grava ``level`` nos itens (``magi.news.priority``); este laço leve, no núcleo, lê
 de tempos em tempos as bombas e altas ainda não entregues (``NewsRepo.undelivered``), passa tudo
 pelo anti-spoiler (``magi.news.spoiler.present``: só :class:`Shown` é exibido, nunca o item cru)
 e entrega pelo :class:`ProactiveSink`:

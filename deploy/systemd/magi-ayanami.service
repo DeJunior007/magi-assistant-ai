@@ -1,0 +1,18 @@
+# Ayanami: o agente de notícias (Gemini). Uma rodada de coleta, agrupamento, verificação,
+# anti-spoiler e prioridade (design §8; persona/ayanami.md). Unit de usuário, disparada por
+# magi-ayanami.timer. Template: @REPO@ é trocado pelo caminho real do repositório por
+# hud/install.sh, que instala esta unit e o timer em ~/.config/systemd/user/.
+[Unit]
+Description=Ayanami: agente de notícias do Magi
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO@
+ExecStart="@REPO@/.venv/bin/magi-ayanami"
+# Cada fonte tem teto próprio; isto só segura travas inesperadas. 5 min de folga porque no boot
+# a rede ainda sobe devagar (uma rodada de 2026-10-07 estourou os 2 min antigos).
+TimeoutStartSec=300
+Nice=10
+IOSchedulingClass=idle

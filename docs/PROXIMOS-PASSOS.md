@@ -43,13 +43,13 @@ Implementado e testado com dublês; falta conferir no uso real:
 | Tarefa | O que é |
 | --- | --- |
 | 4.6 Frases de ouro, rodada 2 | Ampliar as frases de teste com 2 semanas de turnos reais (RNF-07: ≥ 95% de acerto em comandos conhecidos). |
-| 7.1 Medição final | Medir todos os RNF e registrar em `docs/perf/mvp.md`. O uso sai de `uv run python -m tools.uso` (métricas do PRD direto do banco); com 4 dias (2026-10-07): 24,5 interações/dia, 0,2 correção a cada 20, 2 pulos em 18 escolhas, custo projetado US$ 3,04 de 5. |
+| 7.1 Medição final | Medir todos os RNF e registrar em `docs/perf/mvp.md`. O uso sai de `magi-uso` (métricas do PRD direto do banco); com 4 dias (2026-10-07): 24,5 interações/dia, 0,2 correção a cada 20, 2 pulos em 18 escolhas, custo projetado US$ 3,04 de 5. |
 | 7.2 Métricas do PRD | Conferir as métricas de sucesso do PRD depois de 2 semanas de uso. **Precisa do Pedro.** |
 
 ## 6. Operação
 
 - **Mover o repo de lugar:** já feito uma vez (`~/projetos` → `~/Documentos`). Parar
-  `magi-core`/`magi-satellite`/`magi-news.timer`, mover a pasta, apagar o `.venv` (os scripts dele
+  `magi-core`/`magi-satellite`/`magi-ayanami.timer`, mover a pasta, apagar o `.venv` (os scripts dele
   guardam o caminho antigo) e rodar `hud/install.sh --start`: ele repõe o link
   `~/.local/share/gamerhud`, as units, o atalho "Gravar voz da Condessa" e o `uv sync`. O Postgres
   não muda (projeto compose `magi`, volume `magi_magi-pgdata`).
@@ -76,7 +76,7 @@ Implementado e testado com dublês; falta conferir no uso real:
 ## 8. Autoconserto — retomado (2026-10-07)
 
 Níveis 0 e 1 implementados (ver `docs/design/AUTOCONSERTO.md`). **Como validar:** derrubar um
-serviço de propósito (`systemctl --user stop magi-news` e um `kill -9` no `magi-satellite`), ouvir
+serviço de propósito (`systemctl --user stop magi-ayanami` e um `kill -9` no `magi-satellite`), ouvir
 a pergunta, dizer "sim", ver o diagnóstico no card; depois "prepara um conserto" num bug simples
 de teste e "aplica o conserto" para ver o vigia reiniciar (e desfazer, se quebrar).
 

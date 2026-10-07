@@ -45,7 +45,9 @@ dependencies = [
 [project.scripts]
 magi-satellite = "magi.satellite.__main__:main"
 magi-core = "magi.core.service:main"
-magi-news = "magi.news.__main__:main"
+magi-ayanami = "magi.news.__main__:main"  # Ayanami: o agente de notícias
+magi-news = "magi.news.__main__:main"  # nome antigo, mantido para scripts
+magi-uso = "magi.maintenance.uso:main"  # métricas do PRD a partir do banco
 magi-clean = "magi.maintenance.cleanup:main"
 magi-keys = "magi.cli.keys:main"
 magi-spotify-login = "magi.cli.spotify_login:main"

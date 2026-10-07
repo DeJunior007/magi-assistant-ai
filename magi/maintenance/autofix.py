@@ -46,7 +46,10 @@ log = logging.getLogger(__name__)
 
 REPO = Path(__file__).resolve().parents[2]
 SERVICES = ("magi-core", "magi-satellite")
-WATCHED = ("magi-core", "magi-satellite", "magi-news", "magi-clean")
+WATCHED = ("magi-core", "magi-satellite", "magi-ayanami", "magi-clean")
+#: Como ela chama cada serviço em voz alta.
+FRIENDLY = {"magi-core": "O núcleo", "magi-satellite": "O satélite de voz",
+            "magi-ayanami": "A Ayanami", "magi-clean": "A faxina"}
 GUARD_WAIT_S = 30.0
 DIAG_TIMEOUT_S = 8 * 60.0
 FIX_TIMEOUT_S = 20 * 60.0
@@ -426,7 +429,7 @@ class Autofix:
         for svc in sorted(failing - self._offered):
             self._offered.add(svc)
             offer = self.offer_factory(self._accept_offer) if self.offer_factory else None
-            await self._say(SAY_OFFER.format(svc=svc), offer=offer)
+            await self._say(SAY_OFFER.format(svc=FRIENDLY.get(svc, svc)), offer=offer)
             break
 
     async def _accept_offer(self) -> ActionResult:

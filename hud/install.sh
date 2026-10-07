@@ -116,7 +116,7 @@ UNITS_SRC="$REPO_DIR/deploy/systemd"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 MAGI_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/magi/config.toml"
 SERVICES=(magi-satellite.service magi-core.service)
-UNIT_FILES=(magi-satellite.service magi-core.service magi-news.service magi-news.timer
+UNIT_FILES=(magi-satellite.service magi-core.service magi-ayanami.service magi-ayanami.timer
             magi-clean.service magi-clean.timer)
 
 run() {  # executa, ou só mostra no --dry-run
@@ -155,8 +155,13 @@ install_magui() {
     else
         render_units "$UNIT_DIR"
     fi
+    # magi-news virou Ayanami (magi-ayanami): desliga e remove as units antigas, se houver
+    if [ -e "$UNIT_DIR/magi-news.timer" ] || [ -e "$UNIT_DIR/magi-news.service" ]; then
+        run systemctl --user disable --now magi-news.timer
+        run rm -f "$UNIT_DIR/magi-news.timer" "$UNIT_DIR/magi-news.service"
+    fi
     run systemctl --user daemon-reload
-    run systemctl --user enable "${SERVICES[@]}" magi-news.timer magi-clean.timer
+    run systemctl --user enable "${SERVICES[@]}" magi-ayanami.timer magi-clean.timer
 
     echo "== Magui: Postgres (container magi-pg)"
     # Só sobe se não estiver rodando; nunca derruba nem remove (o banco é compartilhado).
@@ -182,7 +187,7 @@ install_magui() {
     if [ "$START" = 1 ]; then
         echo "== Magui: iniciando serviços"
         run systemctl --user restart "${SERVICES[@]}"
-        run systemctl --user start magi-news.timer magi-clean.timer
+        run systemctl --user start magi-ayanami.timer magi-clean.timer
     fi
 }
 
