@@ -55,6 +55,7 @@ magi-spotify-login = "magi.cli.spotify_login:main"
 
 [dependency-groups]
 dev = [
+    "pillow>=12.3.0",  # testes do recorte da arte da Condessa (hud/tools/condessa_build.py)
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "ruff>=0.6",
