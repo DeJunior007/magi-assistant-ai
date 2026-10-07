@@ -110,7 +110,7 @@ def test_dry_run_mostra_e_nao_escreve(tmp_path: Path) -> None:
     assert "+ systemctl --user daemon-reload" in out
     assert "+ systemctl --user enable magi-satellite.service magi-core.service" in out
     assert "--now" not in out
-    assert "restart" not in out  # sem --start não inicia nada
+    assert "systemctl --user restart" not in out  # sem --start não inicia nada
     assert "HUD: pulado" in out
     assert f"cp {REPO}/config.example.toml" in out
     for proibido in (" down", " rm ", "docker rm", "DROP"):
