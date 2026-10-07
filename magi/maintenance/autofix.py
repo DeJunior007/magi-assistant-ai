@@ -29,6 +29,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -109,9 +110,12 @@ Run = Callable[[Sequence[str], Path, float], Awaitable[tuple[int, str]]]
 
 async def run_cmd(cmd: Sequence[str], cwd: Path, timeout: float) -> tuple[int, str]:
     """Roda ``cmd`` (sem shell) e devolve (código, stdout+stderr); estouro de tempo = (124, ...)."""
+    env = dict(os.environ)  # o serviço do systemd não tem ~/.local/bin (claude, uv) no PATH
+    env["PATH"] = f"{Path.home() / '.local/bin'}:{env.get('PATH', '/usr/bin:/bin')}"
     proc = await asyncio.create_subprocess_exec(
-        *cmd, cwd=str(cwd), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        *cmd, cwd=str(cwd), env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
     )
+
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout)
     except TimeoutError:

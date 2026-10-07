@@ -590,6 +590,7 @@ def _autofix(core: Core, config: Config) -> Any:
         config.paths.data_dir / "autofix", claude=claude, model=str(cfg.get("model", "sonnet")),
         max_runs=int(cfg.get("max_runs", 3)), deliver=core.proactive.deliver,
         offer_factory=lambda accept: Offer(accept=accept),
+        busy=lambda: bool(core.game is not None and core.game.running()),  # jogando: depois
     )
     if core.alerts is not None:
         core.alerts.autofix = autofix
