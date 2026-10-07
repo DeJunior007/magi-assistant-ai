@@ -1485,9 +1485,9 @@ class HUD(QWidget):
         super().closeEvent(e)
 
     def mouseDoubleClickEvent(self, e):
-        if self.clickable(e.position()):
-            return   # o 1º clique já agiu; duplo clique em área clicável não fecha o HUD
-        QApplication.quit()
+        # Duplo clique não fecha mais o HUD: dois cliques rápidos em notícias/rede derrubavam tudo.
+        # Para fechar: pkill -f gamerhud/gamerhud.py (o HUD sobe sozinho no login).
+        return
 
     def resizeEvent(self, e):
         super().resizeEvent(e)

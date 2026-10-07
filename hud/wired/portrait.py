@@ -363,7 +363,8 @@ def _scaled_frame(assets: FrameAssets, n: int, w: int, h: int) -> QPixmap | None
 # ---------------------------------------------------------------- partes (2.5D)
 
 PARTS_ORDER = ("back", "tail_l", "tail_r", "arm_l", "arm_r", "body", "head")
-PARTS_FPS = 60.0  # acordada: respira, balança o cabelo, olha
+PARTS_FPS = 60.0  # movimento rápido: falando, pensando, piscando, reagindo, olhar/cabeça indo
+PARTS_FPS_IDLE = 40.0  # parada: só respiração e cabelo lento (ciclos de 2 s+), 40 já fica liso
 PARTS_FPS_SLEEP = 6.0  # dormindo à noite: só respira (barato); de dia parada segue a 60
 BREATH_PERIOD = 4.2
 GAZE_EVERY = (6.0, 14.0)
@@ -625,6 +626,13 @@ class PartsPortrait(Mascot):
         self._valley = 0.0  # menor volume desde a última sílaba
         self._syll = 0
 
+    def _fast(self, now: float, head_target: tuple[float, float]) -> bool:
+        """Precisa de 60 fps agora? (fala, pensando, piscada, reação ou olhar/cabeça em trânsito)"""
+        if self.state in ("speaking", "thinking") or self.blinking(now) or self._reacting(now) is not None:
+            return True
+        moving_head = abs(head_target[0] - self._head[0]) + abs(head_target[1] - self._head[1]) > 0.4
+        return moving_head or self._think_k > 0.02
+
     def thinking(self, now: float) -> bool:
         """Pensando de verdade, ou "falando" em silêncio (frase de espera dita, ferramenta rodando)."""
         if self.state == "thinking":
@@ -787,7 +795,10 @@ class PartsPortrait(Mascot):
             tgt = (think[1], think[2])
         self._head[0] += (tgt[0] - self._head[0]) * GAZE_EASE
         self._head[1] += (tgt[1] - self._head[1]) * GAZE_EASE
-        fps = PARTS_FPS_SLEEP if self.sleeping and self._night() else PARTS_FPS
+        if self.sleeping and self._night():
+            fps = PARTS_FPS_SLEEP
+        else:
+            fps = PARTS_FPS if self._fast(now, tgt) else PARTS_FPS_IDLE
         frame = 1.0 / fps
         if now - self._last_tick < frame - 1e-6:
             return False, self._last_tick + frame

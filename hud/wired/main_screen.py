@@ -502,7 +502,9 @@ class Screen:
         """Avança o mascote; (retângulo a redesenhar ou None, próximo prazo em monotonic)."""
         size = size or QSize(round(W), round(H))
         redraw, nxt = self.mascot.tick(mono)
-        return (dev_rect(self.MASCOT_RECT, self.scale(size)) if redraw else None), nxt
+        # só a área do rosto (sem a faixa do humor ao lado: ela não muda a cada quadro)
+        rect = getattr(self, "MASCOT_DIRTY", None) or self.MASCOT_RECT
+        return (dev_rect(rect, self.scale(size)) if redraw else None), nxt
 
     def scene_tick(self, mono: float | None = None, size: QSize | None = None) -> tuple[list[QRect], float]:
         """Avança o cenário animado (fios, janelas, névoa, pássaro); (retângulos a redesenhar,
@@ -553,7 +555,7 @@ RADIO_CARD_H = 56.0
 
 # lado do mascote (flex column gap 14, a partir de top+1+22)
 _SY = Y2 + 23
-MASCOT_MAIN = QRectF(SIDE_X, _SY + 15.8 + 14, SIDE_R - SIDE_X, 210)  # cabe o retrato da Condessa
+MASCOT_MAIN = QRectF(SIDE_X, _SY + 15.8 + 14, SIDE_R - SIDE_X, 252)  # retrato da Condessa (+20%)
 CHIP_TOP = MASCOT_MAIN.bottom() + 14
 MOOD_MAIN = QRectF(SIDE_R - 24, MASCOT_MAIN.top() + 4, 24, MASCOT_MAIN.height() - 8)  # à direita do mascote
 TALK = QRectF(SIDE_X - 2, CHIP_TOP - 2, SIDE_R - SIDE_X + 4, MID_TOP.bottom() - CHIP_TOP - 20)
@@ -666,6 +668,8 @@ class MainScreen(Screen):
     """Painel completo (Main.dc.html)."""
 
     MASCOT_RECT = MASCOT_MAIN
+    MASCOT_DIRTY = QRectF(MASCOT_MAIN.left(), MASCOT_MAIN.top(), MOOD_MAIN.left() - 4 - MASCOT_MAIN.left(),
+                          MASCOT_MAIN.height())
 
     # ---------------------------------------------------------------- estático
 

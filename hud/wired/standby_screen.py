@@ -74,7 +74,7 @@ def _lh(key: str, px: float, weight: int | None = None) -> float:
     return fm.ascent() + fm.descent()
 
 
-PORTRAIT_H = 340.0  # altura do retrato da Condessa na tela de espera
+PORTRAIT_H = 408.0  # altura do retrato da Condessa na tela de espera (+20%)
 
 
 class StandbyScreen(Screen):

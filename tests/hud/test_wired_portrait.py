@@ -218,17 +218,23 @@ def test_partes_olhar_move_a_cabeca(tmp_path):
     assert m.eyes_id(50.0) == "F1" and m._head[0] < -5  # olhou para a esquerda e a cabeça foi junto
 
 
-def test_partes_parada_de_dia_anima_a_60(tmp_path):
-    from wired.portrait import PARTS_FPS, PARTS_FPS_SLEEP, PartsAssets, PartsPortrait
+def test_partes_ritmo_adaptativo(tmp_path):
+    from wired.portrait import PARTS_FPS, PARTS_FPS_IDLE, PARTS_FPS_SLEEP, PartsAssets, PartsPortrait
     write_parts(tmp_path)
     m = PartsPortrait(PartsAssets(tmp_path), "sleeping")
     m.hour = lambda: 14
+    m._blink_at = 1e9
     _, nxt = m.tick(100.0)
-    assert nxt - 100.0 == pytest.approx(1 / PARTS_FPS)
+    assert nxt - 100.0 == pytest.approx(1 / PARTS_FPS_IDLE)  # parada de dia: 40 fps, nada de 6
+    m.set_expression("speaking")
+    m._last_tick = -1e9
+    _, nxt = m.tick(150.0)
+    assert nxt - 150.0 == pytest.approx(1 / PARTS_FPS)  # falando: 60
+    m.set_expression("sleeping")
     m.hour = lambda: 2
     m._last_tick = -1e9
     _, nxt = m.tick(200.0)
-    assert nxt - 200.0 == pytest.approx(1 / PARTS_FPS_SLEEP)
+    assert nxt - 200.0 == pytest.approx(1 / PARTS_FPS_SLEEP)  # dormindo à noite: 6
 
 
 def test_partes_reacao_olha_e_muda_o_fundo(tmp_path):
