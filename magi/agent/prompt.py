@@ -75,6 +75,7 @@ class GameContext:
     session_minutes: int | None = None
     help_topic: str | None = None
     help_step: HelpStep | None = None
+    steam: str | None = None  # horas e conquistas lidas do disco (magi.core.steam_local)
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +175,8 @@ def game_section(game: GameContext | None) -> str | None:
     if game.session_minutes is not None:
         head += f", sessão de {max(game.session_minutes, 0)} min"
     lines = ["## Jogo agora", head + "."]
+    if game.steam:
+        lines.append(f"Na Steam: {game.steam[:160]}.")
     help_line = _help_line(game)
     if help_line:
         lines.append(help_line)

@@ -308,6 +308,7 @@ class Core:
     news_query: Any = None  # magi.agent.tools.news.NewsQuery (6.12): "novidades?" e news_query
     mood: Any = None  # magi.memory.mood.MoodTracker (4.3)
     help: Any = None  # magi.memory.help.HelpTracker (4.5): degrau da ajuda no jogo
+    steam: Any = None  # magi.core.steam_local.SteamLocal: horas e conquistas lidas do disco
     profile: Any = None  # magi.memory.profile.ProfileUpdater (4.2): perfil 1×/dia + vocab do STT
     game: Any = None  # magi.core.game_context.GameWatcher (1.21): jogo aberto; varre em ``start_proactive``
     game_task: asyncio.Task[Any] | None = None
@@ -478,6 +479,9 @@ async def assemble(
         game_raw = config.raw.get("game") if isinstance(config.raw, dict) else None
         custom = game_raw.get("custom") if isinstance(game_raw, dict) else None
         catalog = SteamCatalog(custom=custom_games(custom))
+        from magi.core.steam_local import SteamLocal
+
+        core.steam = SteamLocal()  # só com o catálogo real (testes passam um catálogo dublê)
     core.catalog = catalog
     core.game = _game_watcher(config, catalog)
     core.deps.router = LocalRouter(catalog)
@@ -750,6 +754,15 @@ def _game_for_prompt(core: Core) -> Callable[[], Any]:
     def game() -> Any:
         ctx = core.game.game_context()
         running = core.game.running()
+        if ctx is not None and running is not None and getattr(running, "appid", None) and core.steam:
+            from dataclasses import replace
+
+            try:
+                line = core.steam.stats(running.appid).summary()
+            except Exception:  # disco da Steam mudando no meio da leitura: segue sem a linha
+                log.debug("steam: sem horas/conquistas de %s", running.appid, exc_info=True)
+                line = ""
+            ctx = replace(ctx, steam=line or None)
         if core.help is None or ctx is None or running is None:
             return ctx
         from magi.memory.help import game_key
@@ -775,12 +788,23 @@ def _wire_help(core: Core) -> None:
     if repo is None:
         repo = InMemoryHelpLogRepo()
     embeds = core.providers is not None and _has_key_safe(core.providers, "embeddings") is None
-    core.help = HelpTracker(repo, provider_embed(core.providers) if embeds else None)
+    idle = None
+    if core.steam is not None:
+        steam = core.steam
+
+        async def idle(appid: int) -> float | None:  # minutos sem conquista nova (4.5)
+            return steam.idle_minutes(appid)
+
+    core.help = HelpTracker(repo, provider_embed(core.providers) if embeds else None, achievements_idle=idle)
     raw = getattr(getattr(core.providers, "config", None), "raw", None) or {}
     name = str((raw.get("user") or {}).get("name") or "") if isinstance(raw, dict) else ""
     private = (name,) if name else ()
     search = next(iter(search_tools(core.providers, private_terms=private)), None)
     agent.add_tools(help_tools(core.help, core.game.running, search, private_terms=private))
+    if core.steam is not None:
+        from magi.agent.tools.steam import SteamGameTool
+
+        agent.add_tools([SteamGameTool(core.steam, core.game.running)])
     if core.self_model is not None:
         core.self_model.tools = agent.tool_specs
 
