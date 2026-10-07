@@ -4,6 +4,19 @@ O HUD já sabe animar um retrato em camadas (`hud/wired/portrait.py`): pisca, ol
 mexe a boca com a voz, respira de leve acordada e troca de expressão. Falta só a arte. Enquanto a
 pasta não tiver as camadas obrigatórias, o HUD continua com o rostinho vetorial.
 
+## Montagem atual (2.5D em partes)
+
+```
+python3 hud/tools/condessa_build.py ~/Downloads/Condessa      # gera ~/.local/share/magi/condessa
+```
+
+Lê as imagens nomeadas pelo ID da checklist (fundo verde, qualquer tamanho quadrado), recorta pelo
+verde, gera as partes (cabelo de trás, marias-chiquinhas, braços, corpo, cabeça até a gola, franja),
+os remendos de olhos e bocas e o fone, e um `portrait.toml` com `mode = "parts"` (estado → olhos,
+boca e piscada; fala pelo volume; olhares). O HUD usa `wired.portrait.PartsPortrait`: respiração,
+cabelo em pêndulo, olhar com parallax e efeitos em código (rubor, zz, ?, !). Reabra o HUD depois de
+remontar.
+
 ## Lista completa estilo Persona 3 Reload (rosto solo, camadas)
 
 O retrato do P3R é **uma pose só** (busto de frente ou levemente 3/4, enquadramento fixo) e o que

@@ -163,3 +163,55 @@ def test_olhares_quando_parada(tmp_path):
     assert m.frame_number(m._idle_end + 0.01) == 1  # volta
     m.set_expression("speaking")
     assert m.frame_number(m._idle_at + 0.1) in (2, 3)  # falando não olha para os lados
+
+
+def write_parts(folder: Path) -> Path:
+    files = ["parts/head.png", "parts/body.png", "parts/back.png", "eyes/B1.png", "eyes/B2.png",
+             "eyes/B3.png",
+             "eyes/B4.png", "eyes/B14.png", "eyes/F1.png", "mouth/C1.png", "mouth/C2.png", "mouth/C3.png",
+             "mouth/C6.png"]
+    for rel in files:
+        (folder / rel).parent.mkdir(parents=True, exist_ok=True)
+        img = QImage(16, 16, QImage.Format.Format_ARGB32)
+        img.fill(QColor(200, 100, 100))
+        assert img.save(str(folder / rel))
+    (folder / "portrait.toml").write_text(
+        'mode = "parts"\n[states]\n'
+        'listening = { eyes = "B1", mouth = "C1", blink = ["B2", "B3"] }\n'
+        'happy = { eyes = "B4", mouth = "C6", blink = ["B4", "B4"] }\n'
+        'sleeping = { eyes = "B14", mouth = "C1", blink = ["B15", "B15"] }\n'
+        '[speech]\nmouths = ["C1", "C2", "C3"]\n[gaze]\nleft = { eyes = "F1", dx = -6, dy = 0 }\n'
+    )
+    return folder
+
+
+def test_partes_olhos_boca_e_noite(tmp_path):
+    from wired.portrait import PartsPortrait
+
+    hour = [12]
+    m = make_mascot("listening", write_parts(tmp_path))
+    assert isinstance(m, PartsPortrait) and m.TALL
+    m.hour = lambda: hour[0]
+    m._blink_at, m._gaze_at = 100.0, 1e9
+    assert (m.eyes_id(1.0), m.mouth_id()) == ("B1", "C1")
+    assert m.eyes_id(100.0 + BLINK_LEN * 0.1) == "B2" and m.eyes_id(100.0 + BLINK_LEN * 0.5) == "B3"
+    m.set_expression("speaking")
+    m.set_level(0.3)
+    assert m.mouth_id() == "C2"
+    m.set_level(0.9)
+    assert m.mouth_id() == "C3"
+    m.set_expression("sleeping")
+    assert m.eyes_id(1.0) == "B1"  # de dia, dormindo = parada e respirando
+    hour[0] = 23
+    assert m.eyes_id(1.0) == "B14"  # à noite; sem B15 ainda, usa a sonolenta
+    assert m.tick(5.0)[0] and render(m, 5.0) is not None
+
+
+def test_partes_olhar_move_a_cabeca(tmp_path):
+    m = make_mascot("listening", write_parts(tmp_path))
+    m.hour = lambda: 12
+    m._blink_at, m._gaze_at = 1e9, 0.0
+    for i in range(40):
+        m.tick(1.0 + i)
+        m._gaze_end = 1e9
+    assert m.eyes_id(50.0) == "F1" and m._head[0] < -5  # olhou para a esquerda e a cabeça foi junto
