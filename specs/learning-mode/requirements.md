@@ -126,6 +126,21 @@ num indicador recolhível — sem nunca atrasar a resposta da conversa.
 | LM-008 | O idioma de saída das ações DEVE seguir a regra: Translate em PT-BR; Improve, Explain e Vocabulary em inglês simples, com opção de config para PT-BR. | CURRENT DECISION (proposta; P5) |
 | LM-009 | O nível exibido (ex.: `B2 · CONVERSATION`) vem de config manual no MVP. | CURRENT DECISION (proposta; P3) |
 | LM-010 | Nenhuma operação do Learning Mode DEVE executar `docker compose down`, `docker rm` ou `DROP` no `magi-pg` (compartilhado); só migrações aditivas. | REQUIREMENT |
+| LM-011 | QUANDO a sessão for encerrada (botão `END SESSION`, voz ou inatividade), a tela de origem (painel gamer ou espera) DEVE mostrar por um tempo um cartão discreto `LAST SESSION // NN` com duração, nº de mensagens, nº de observações, o que foi praticado e as palavras novas; o resumo DEVE ser gerado sem LLM a partir das observações da sessão, sem atrasar a saída, e ficar persistido para o futuro Learning Profile. | REQUIREMENT (decisão do Pedro, 2026-10-07) |
+| LM-012 | No balão do Vocabulary, o Pedro DEVE poder guardar a palavra/expressão (com a frase de origem e o significado) na lista pessoal dele, ver se ela já está guardada e desfazer. | REQUIREMENT (decisão do Pedro, 2026-10-07) |
+| LM-013 | Ao abrir o modo, um seletor pequeno (não modal de tela cheia) DEVE oferecer o tema da conversa: Free talk (padrão), Tech interview, Talk about the game I'm playing e Today's news; o tema vira contexto do prompt da sessão e pode ser trocado durante a aula. | REQUIREMENT (decisão do Pedro, 2026-10-07) |
+| LM-014 | O tema DEVE poder ser escolhido/trocado por voz, em PT e EN ("let's talk about the game", "vamos falar do jogo"…). | REQUIREMENT (decisão do Pedro, 2026-10-07) |
+| LM-015 | O retrato da Condessa na tela learning DEVE ter o mesmo tamanho do retrato do painel gamer (`MASCOT_MAIN`, 302 de altura no quadro de 1920). | CURRENT DECISION (Pedro, 2026-10-07) |
+
+1. O cartão DEVE sumir sozinho após `summary_show_s` (60 s) ou ao ser clicado, e NÃO DEVE ter nota, pontuação, streak ou comparação com outras sessões (PDF §12, sem gamificação). *(LM-011)*
+2. QUANDO a sessão terminar sem nenhuma mensagem do Pedro, o resumo DEVE ser gravado, mas o cartão NÃO DEVE aparecer. *(LM-011)*
+3. SE o banco estiver fora no encerramento, ENTÃO o resumo DEVE ser calculado do que está em memória e gravado na volta do banco. *(LM-011, DAT-001)*
+4. A lista de palavras DEVE usar tabela nova `learning_saved_words` (aditiva, sem `vector`) e NÃO DEVE ter quiz, revisão ou repetição espaçada no MVP. *(LM-012, DAT-003, LM-010)*
+5. Guardar só DEVE existir no balão do Vocabulary com resultado `ok`; guardar de novo uma palavra já guardada não duplica. *(LM-012)*
+6. Os temas Game e News DEVEM usar só o que o núcleo já tem (jogo aberto, horas e conquistas da Steam; boletim do Rádio Ayanami) sem chamada de LLM nem rede para montar o contexto, e sem marcar notícia como entregue. *(LM-013)*
+7. SE o tema pedido não tiver dados (nenhum jogo, nenhuma notícia), ENTÃO a sessão DEVE seguir em Free talk e o seletor DEVE dizer o porquê numa linha. *(LM-013)*
+8. Os comandos de tema por voz só DEVEM valer com sessão ativa; fora dela o roteador se comporta como antes. *(LM-014, LM-005)*
+9. O tema NÃO DEVE virar lição nem roteiro: a Condessa continua em conversa (CNV-002, PRN-002), só muda o assunto. *(LM-013)*
 
 ## Grupo SEL — Seleção contextual (PDF §6)
 
@@ -219,7 +234,7 @@ Sem critérios no MVP. O contrato de ação (spec §5) já leva `message_id` + i
 | ID | Texto (PDF) | Classe |
 | --- | --- | --- |
 | DAT-001 | Utilizar PostgreSQL + pgvector executados localmente via Docker. | CURRENT DIRECTION (o `magi-pg` já existe) |
-| DAT-002 | Entidades previstas: users, sessions, messages, corrections, vocabulary, grammar_patterns, learning_progress, observations. | CURRENT DIRECTION — MVP só sessions, messages, observations, action_results (design §8); o resto é Fase 5 (FUTURE) |
+| DAT-002 | Entidades previstas: users, sessions, messages, corrections, vocabulary, grammar_patterns, learning_progress, observations. | CURRENT DIRECTION — MVP só sessions, messages, observations, action_results e saved_words (design §8); o resto é Fase 5 (FUTURE) |
 | DAT-003 | pgvector MUST ser usado somente quando houver necessidade real e explícita de busca semântica. | REQUIREMENT |
 | — | Uso de contêineres locais para persistência (PDF §15). | CURRENT DECISION |
 | — | Malha completa de banco PostgreSQL/pgvector (PDF §12). | FUTURE (fora do ciclo) |
@@ -265,6 +280,8 @@ Sem critérios no MVP. O contrato de ação (spec §5) já leva `message_id` + i
 - Redesign da identidade visual da base MAGI (o Learning Mode reusa o tema wired).
 - Ask Condessa (ASK-001), memória longitudinal (MEM-001), Learning Profile (UI-003, Fase 7),
   personalização da pedagogia pelo nível (Fase 8).
+- Revisão das palavras salvas (quiz, repetição espaçada) e leitura dos resumos de sessão — o MVP
+  só guarda a lista (LM-012) e os resumos (LM-011) para o Learning Profile.
 
 ## Requisitos não funcionais
 

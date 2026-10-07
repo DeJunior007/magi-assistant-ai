@@ -76,7 +76,10 @@ magi/learning/
     improve.py  explain.py  translate.py  vocabulary.py  observe.py
   prompts/          # *.md com os prompts (texto do usuário sempre em bloco de dados)
   repo.py           # learning_sessions/messages/observations/action_results
-  session.py        # ciclo de sessão (start/end/inatividade), IDs LS-
+  session.py        # ciclo de sessão (start/end/inatividade), IDs LS-, tema atual, dispara o resumo
+  topic.py          # Topic → TopicContext (jogo/Steam, Rádio Ayanami, entrevista) — LM-013
+  summary.py        # PURO: SessionSummary a partir de mensagens/observações/salvas — LM-011
+  prompts/topics/   # interview.md, game.md, news.md
 magi/memory/migrations/003_learning.sql
 hud/wired/                # tela "learning" DENTRO do gamerhud (P1 = A); nada de janela própria
   learning_layout.py      # PURO: retângulos das 3 colunas, topo/rodapé, entrada, posição do menu/balão
@@ -87,8 +90,10 @@ hud/wired/                # tela "learning" DENTRO do gamerhud (P1 = A); nada de
   learning_screen.py      # LearningScreen(Screen): grupos, group_key, draw_group (QPainter)
   learning_overlay.py     # menu de seleção + balão de resultado (grupo "overlay", QPainter)
   learning_obs.py         # indicador OBSERVATIONS [nn] + drawer (agrupamento puro + pintura)
+  learning_topic.py       # seletor de tema: lógica pura + pintura (grupo "topic") — LM-013
+  learning_summary.py     # cartão LAST SESSION: formatação/validade puras + pintura — LM-011
   integration.py          # screen("learning"), hit() com os alvos novos
-  main_screen.py, standby_screen.py   # só o botão LEARNING (alvo "learning")
+  main_screen.py, standby_screen.py   # botão LEARNING (alvo "learning") + grupo do cartão LAST SESSION
 hud/gamerhud.py           # view "learning", mouse (press/move/release/duplo/roda), QLineEdit, troca de foco
 hud/hud_bridge.py         # lm_hello ao conectar; lm_* → learning_model; envia lm_say/lm_action/lm_mode/lm_cfg
 tests/learning/
@@ -124,7 +129,7 @@ barra de topo, com rodapé fino:
 | Região | Conteúdo | Prioridade (PRN-001) |
 | --- | --- | --- |
 | Centro (≈ 50–55% da largura) | Cabeçalho da sessão; histórico (rótulo `CONDESSA` em lilás `CPU #b392f0`, `YOU` em `TEXT_DIM`, texto em `TEXT`); onda de áudio; status; **campo de texto** (acréscimo LM-001, ausente no mockup) | Primária |
-| Direita (≈ 20%) | Retrato da Condessa, estado (`TEACHING`, `LISTENING`…), nível `B2 / CONVERSATION`; abaixo, `OBSERVATIONS [03]` recolhível; botão Learning Profile | Secundária |
+| Direita (≈ 20%) | Retrato da Condessa **no mesmo tamanho do painel gamer** (LM-015), estado (`TEACHING`, `LISTENING`…), nível `B2 / CONVERSATION`; abaixo, `OBSERVATIONS [03]` recolhível; botão Learning Profile | Secundária |
 | Esquerda (≈ 20%) | MAGI SYSTEM (Melchior/Balthasar/Casper, recolhível a uma linha), bloco de sessão (`ENGLISH // B2 · CONVERSATION`, `SPEAKING ● ACTIVE`, `LISTENING ● READY`, mic com nível), NETWORK | Secundária, `TEXT_DIM` (SYS-001) |
 | Topo / rodapé | Título japonês + inglês, frase "私は、ここにいる。", data/hora; rodapé com log de uma linha | Decorativa |
 
@@ -132,6 +137,14 @@ barra de topo, com rodapé fino:
 (legibilidade) e centralizada; a sobra vai para margens das colunas laterais, não para esticar o
 texto. Cantos superiores ficam sem elementos críticos (preferência registrada do Pedro).
 Tema: paleta do wired (roxo Catppuccin/Eva), sem animação piscante, brilho só em linhas.
+
+**Retrato (LM-015, decisão de 2026-10-07):** o retrato da tela learning usa exatamente o tamanho
+do retrato do painel gamer: `MASCOT_MAIN` em `hud/wired/main_screen.py` (largura `SIDE_R − SIDE_X`,
+**302 de altura** no quadro de 1920; antes 252). `learning_layout.py` importa `MASCOT_MAIN.size()`
+em vez de copiar números, e a coluna direita tem largura mínima = largura do retrato + margens (se
+faltar espaço, a coluna central cede, nunca o retrato encolhe). Na escala do HUD (2560×1440,
+×1,333) o retrato fica com ~403 px de altura. O resto da coluna (estado, nível, observações) vem
+abaixo dele.
 
 **Menu e balão (SEL-002):** o menu é uma **sobreposição desenhada em QPainter** (grupo `overlay`
 da `LearningScreen`, não um popup Qt) ancorada no fim da seleção (como no mockup:
@@ -222,6 +235,48 @@ Nenhum atalho global de teclado (P8).
 Nenhum dos três fica em canto superior. O alvo de clique é `"learning"` (`hit_test` de cada tela,
 tratado em `gamerhud.wired_click`). Posição exata conferida no LM0.3 sem mover nada que já existe.
 
+### 4.5 Seletor de tema (LM-013, LM-014)
+
+Chip `TOPIC // FREE TALK ▾` no cabeçalho da sessão (coluna central, ao lado de
+`ENGLISH SESSION // CONVERSATION 01`). Em sessão nova, abre sozinho uma **lista curta ancorada no
+chip** (grupo `topic` da `LearningScreen`, QPainter, ~320 de largura na base 1920, 4 linhas), por
+cima do topo do histórico — nunca tela cheia, nunca modal:
+
+```
+TOPIC ▾
+ ● Free talk
+ ○ Tech interview
+ ○ Talk about the game I'm playing     Hades II · 2 h today
+ ○ Today's news                        5 items · Rádio Ayanami
+```
+
+Fecha ao escolher, ao clicar fora, em `topic_picker_s` (10 s), ou quando o Pedro fala/digita; ficar
+sem escolha = Free talk (nenhum `lm_topic` é enviado). O chip reabre a lista a qualquer momento. A
+dica à direita das linhas Game/News vem do núcleo no `lm_session` só se for barata (opcional; sem
+ela, a linha aparece sem dica). Fallback (`detail`) aparece no chip em `TEXT_DIM`:
+`TOPIC // FREE TALK · no game detected`. Lógica pura (aberto/fechado, item sob o mouse, timeout) em
+`hud/wired/learning_topic.py`, pintura no mesmo arquivo.
+
+### 4.6 Cartão LAST SESSION (LM-011)
+
+Grupo novo `lm_summary` nas telas de origem (`MainScreen` e `StandbyScreen`), desenhado só
+enquanto há resumo válido. Cartão discreto, borda fina `TEXT_DIM`, texto `TEXT_DIM`/`TEXT`, sem
+brilho nem animação:
+
+```
+LAST SESSION // 01                                    ×
+24 MIN · 38 MSGS · 6 OBS · FREE TALK
+PRACTISED   Recurring: Prepositions · Past tense
+NEW WORDS   repository · deploy · assistant ★  +2
+```
+
+Posição (P13): ancorado ao botão `[ LEARNING // 学習 ]` — no painel, na coluna da Condessa logo
+abaixo do botão; na espera, acima de `y_rule2`. Pode sobrepor temporariamente o que estiver embaixo
+(nunca o retrato nem o player). Alvo `"lm_summary"` no `hit_test` (clique fecha). Formatação e
+validade (`visible(now)`) puras em `hud/wired/learning_summary.py`; o resumo e o instante de
+chegada ficam no `learning_model` (que já recebe todo `lm_*`), e o `WiredUI` só decide se o cartão está visível. Para sumir no tempo certo sem timer
+contínuo, o `gamerhud` agenda um `QTimer.singleShot(summary_show_s)` que só marca o grupo sujo.
+
 ## 5. Conversa por texto e voz (LM-001..LM-003)
 
 - **Voz:** nada muda no caminho do áudio. No fim do turno, o núcleo emite `lm_msg` para o Pedro
@@ -236,6 +291,17 @@ tratado em `gamerhud.wired_click`). Posição exata conferida no LM0.3 sem mover
 - **Persona:** ao entrar no modo, o núcleo acrescenta ao prompt do agente um bloco "Learning Mode"
   (conversa natural em en-GB, perguntas abertas, sem correção explícita — CNV-002). Não troca o
   modelo do agente (`gpt-5.4-mini`).
+
+### 5.1 Tema da sessão (LM-013, LM-014)
+
+`magi/learning/topic.py`: `async build(requested: Topic) -> TopicContext` (spec §10.1). Lê só
+fontes que o núcleo já mantém: `GameWatcher` (jogo aberto) e o caminho do `SteamGameTool`
+(`magi/agent/tools/steam.py`, `describe`) para horas/conquistas; `NewsRepo` (o mesmo do Rádio
+Ayanami, `magi/agent/tools/news.py`/`magi/news/`) em leitura, **sem** `mark_delivered`. Modelos de
+texto em `magi/learning/prompts/topics/{interview,game,news}.md`. O tema atual fica na sessão
+(`session.py`); `persona.py` (LM1.4) compõe persona + `<topic_context>` no system prompt a cada
+turno. Voz: intents `learning.topic.*` (§10), registradas só com sessão ativa. O tema é assunto,
+não roteiro: nenhuma lição, nenhuma pontuação (PRN-002).
 
 ## 6. Learning Engine (ENG-001, ENG-002)
 
@@ -286,6 +352,11 @@ franquias). DDL em spec §8.
 | `learning_messages` | histórico (autor, texto, origem voz/texto, `heard`) | messages |
 | `learning_observations` | achados do background (`category`, `rule_key`, trecho, sugestão) | observations (+ base de corrections/grammar_patterns) |
 | `learning_action_results` | cache/registro das ações | — (apoio) |
+| `learning_saved_words` | lista pessoal de palavras/expressões guardadas no balão Vocabulary (LM-012); desfazer = `removed_at` | vocabulary (parcial; a tabela completa segue Fase 5) |
+
+`learning_sessions` ganha `topic`, `topics` (LM-013) e `summary` (jsonb, LM-011). O resumo lê só
+`learning_sessions`, a contagem de `learning_messages`, `learning_observations` e
+`learning_saved_words` da sessão — nada de LLM.
 
 Fica para a Fase 5 (FUTURE): `users`, `vocabulary`, `grammar_patterns`, `learning_progress`
 como tabelas próprias. Sem `vector` (DAT-003); MEM-001 poderá começar por `rule_key` sem
@@ -299,7 +370,8 @@ escolha é uma linha de config (P4).
 ## 9. Socket HUD (mensagens `lm_*`)
 
 Novas mensagens no padrão de `magi/common/contracts.py` (JSON de uma linha, campo `t`):
-`lm_mode`, `lm_say`, `lm_msg`, `lm_action`, `lm_result`, `lm_obs`, `lm_session`. Formatos em
+`lm_mode`, `lm_say`, `lm_msg`, `lm_action`, `lm_result`, `lm_obs`, `lm_session`, `lm_cfg`, `lm_topic`,
+`lm_save`, `lm_saved`, `lm_summary`. `lm_summary` é a única enviada depois do `lm_mode off`. Formatos em
 spec §6. Atenção: `decode_hud` (`magi/common/events.py`) **levanta `HudDecodeError` para tipo desconhecido**;
 antes de emitir `lm_*` é preciso confirmar que o cliente do `gamerhud` registra e ignora o erro
 (sem derrubar a conexão) ou enviar `lm_*` só ao cliente que se anunciou como Learning (task LM1.2).
@@ -323,11 +395,19 @@ teclado e sem comando de terminal no MVP.
   | --- | --- | --- |
   | `learning.start` | "modo aula", "modo de estudo", "vamos estudar inglês", "bora estudar inglês", "aula de inglês", "começar a aula" | "learning mode", "english class", "english lesson", "start the lesson", "let's study english" |
   | `learning.stop` | "encerrar aula", "encerra a aula", "sair do modo aula", "sair do modo de estudo", "fim da aula" | "end session", "end the class", "end the lesson", "exit learning mode", "stop learning mode" |
+  | `learning.topic.free` *(só com sessão)* | "conversa livre", "tema livre", "vamos falar de qualquer coisa" | "free talk", "let's just chat", "change the subject" |
+  | `learning.topic.interview` *(só com sessão)* | "entrevista técnica", "simular entrevista", "vamos treinar entrevista" | "tech interview", "interview practice", "let's do a mock interview" |
+  | `learning.topic.game` *(só com sessão)* | "vamos falar do jogo", "falar do jogo que estou jogando", "conversar sobre o jogo" | "let's talk about the game", "talk about the game I'm playing", "let's talk about my game" |
+  | `learning.topic.news` *(só com sessão)* | "vamos falar das notícias", "conversar sobre as notícias de hoje" | "let's talk about the news", "talk about today's news" |
 
   Os ids entram em `contracts.IntentId`; a resposta curta vem do i18n no idioma da aula (inglês:
   "Learning mode on. Let's talk." / "Session ended. Good job."). `learning.start` com o modo já
   ligado e `learning.stop` com ele desligado só confirmam, sem efeito.
 - **Inatividade:** 20 min sem mensagem (P9) → `lm_mode off`, sessão fechada.
+- **Resumo ao sair (LM-011):** em qualquer fechamento, o núcleo confirma `lm_mode off` primeiro e
+  só depois calcula o resumo (`summary.py`, sem LLM, timeout de leitura 2 s), grava em
+  `learning_sessions.summary` e manda `lm_summary`; o `gamerhud`, já de volta à view guardada,
+  mostra o cartão (§4.6). A saída nunca espera o resumo.
 - **Troca de tela:** `lm_mode on` → o `gamerhud` guarda a view atual (`full`/`idle`) e vai para
   `learning` com a cortina; `lm_mode off` → volta para a view guardada. Meta+M durante o modo só
   muda a view de retorno. O modo nunca é ligado sem gesto do Pedro.
@@ -341,6 +421,15 @@ padrão. Expandido vira um drawer na própria coluna com três grupos: **VOCABUL
 ou bem usadas, ex.: `+ repository`, `+ deploy`), **GRAMMAR** (ex.: `Past tense`), **RECURRING**
 (ex.: `Prepositions`, 2+ na sessão). Clicar num item rola o histórico até a mensagem e pisca o
 destaque uma vez (sem animação contínua).
+
+
+### 11.1 Guardar palavra (LM-012)
+
+No balão do Vocabulary, canto superior direito: `☆ SAVE` → `★ SAVED` (lilás `CPU`). Clique de novo
+desfaz. A UI manda só o `action_id`; o núcleo monta a entrada a partir do resultado em cache e da
+mensagem (spec §10.3) e grava em `learning_saved_words`. A lista não aparece em lugar nenhum no MVP
+além da estrela e do ★ no cartão `LAST SESSION`; ela é a base do Learning Profile e da revisão
+futura (FUTURE).
 
 ## 12. Erros e degradação
 
@@ -409,6 +498,10 @@ precisam dela; isso não é a "malha completa" que o PDF tira do ciclo.
 | P8 | **Como entrar no modo:** voz, comando, atalho, botão no HUD wired? Atalho global exige cuidado (KGlobalAccel derruba a sessão KDE). | **Decidido em 2026-10-07 (Pedro): botão no HUD + voz.** Botão `[ LEARNING // 学習 ]` no painel e na espera, `[ END SESSION // 終了 ]` na tela learning (§4.4); intents `learning.start`/`learning.stop` em `intents.yaml` com frases em inglês e português (§10). Sem atalho global e sem comando de terminal. | LM1.4, LM1.7 |
 | P9 | **Fim de sessão por inatividade:** 20 min está bom? | 20 min, config. | LM1.2 |
 | P10 | **Monitor da tela learning:** o `gamerhud` abre em `GAMERHUD_SCREEN` (padrão `DP-1`) com escala largura/1920. Esse monitor é o ultrawide 3440×1440 do mockup? Se não for, a aula fica no monitor do HUD (P1 = A) e RNF-06/CA-11/CA-19 passam a usar a resolução dele. | Seguir o monitor do HUD; LM0.3 registra qual é e a resolução. | LM0.3, LM1.5, LMF.1 |
+| P11 | **Abertura do tema:** ao escolher um tema ≠ Free talk, a Condessa puxa o assunto com uma pergunta (1 turno do agente, custo de conversa) ou espera o Pedro falar? | Puxa, uma pergunta aberta, só quando o estado volta a `listening`; cancelada se o Pedro falar antes (spec §10.1 item 5). | LM1.8 |
+| P12 | **Tema Game sem jogo aberto:** usar o último jogo fechado (o `GameWatcher` viu nas últimas 6 h) ou cair direto em Free talk? | Último jogo fechado nas últimas 6 h, com a frase "you were playing …"; sem nenhum → Free talk + `no game detected`. | LM1.8 |
+| P13 | **Lugar do cartão LAST SESSION no painel gamer** (coluna da Condessa já está cheia com o retrato de 302): abaixo do botão LEARNING sobrepondo por 60 s, ou no lugar do card do rádio/notícias? | Abaixo do botão LEARNING, sobrepondo temporariamente (nunca retrato/player); LM4.6 decide com captura e o Pedro aprova no CA-19. | LM4.6 |
+| P14 | **Tech interview:** entrevista de qual vaga/stack? | Genérica de engenharia de software (backend/Python, sistemas, trade-offs), nível pleno/sênior; config `[learning] interview_role` se ele quiser fixar. | LM1.8 |
 
 > **P10 respondida (2026-10-07):** o HUD fica no monitor **DP-1, 2560×1440** (o de cima, escala
 > largura/1920 = 1,333); o ultrawide 3440×1440 (DP-2) é o principal, onde o Pedro joga. Testes e
