@@ -163,6 +163,12 @@ install_magui() {
     run systemctl --user daemon-reload
     run systemctl --user enable "${SERVICES[@]}" magi-ayanami.timer magi-clean.timer
 
+    echo "== Magui: comandos condessa-start / condessa-off / condessa-restart em ~/.local/bin"
+    local n
+    for n in condessa condessa-start condessa-off condessa-restart; do
+        run ln -sf "$REPO_DIR/tools/condessa" "$HOME/.local/bin/$n"
+    done
+
     echo "== Magui: Postgres (container magi-pg)"
     # Só sobe se não estiver rodando; nunca derruba nem remove (o banco é compartilhado).
     local running

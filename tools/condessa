@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Liga, desliga e reinicia a Condessa inteira (Magi + HUD). Instalado como condessa-start,
+# condessa-off e condessa-restart (links em ~/.local/bin para este arquivo; hud/install.sh cria).
+#
+#   condessa-start            sobe só o que estiver fora: banco, núcleo, satélite, timers, HUD, vigia
+#   condessa-off [--db]       derruba tudo; o banco (magi-pg) fica no ar, a não ser com --db
+#                             (docker stop: nunca remove container nem volume)
+#   condessa-restart          off + start (o banco não é reiniciado)
+#   condessa status           mostra o que está no ar
+set -u
+
+SERVICES=(magi-core magi-satellite)
+TIMERS=(magi-ayanami.timer magi-clean.timer)
+HUD="$HOME/.local/share/gamerhud/gamerhud.py"
+WATCH="$HOME/.local/share/gamerhud/gamerhud-watch.py"
+WATCH_UNIT='app-gamerhud\x2dwatch@autostart.service'
+REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd -P)"
+
+running() { pgrep -f "^(/usr/bin/)?python3 $1" >/dev/null; }
+
+db_up() {
+    if [ "$(docker inspect -f '{{.State.Running}}' magi-pg 2>/dev/null)" = true ]; then
+        return 0
+    fi
+    echo "· banco: subindo magi-pg"
+    docker start magi-pg >/dev/null 2>&1 \
+        || docker compose -f "$REPO/deploy/docker-compose.yml" up -d >/dev/null
+}
+
+start() {
+    db_up
+    for s in "${SERVICES[@]}" "${TIMERS[@]}"; do
+        systemctl --user is-active --quiet "$s" || { echo "· subindo $s"; systemctl --user start "$s"; }
+    done
+    running "$WATCH" || { echo "· subindo o vigia de jogos"; setsid -f python3 "$WATCH" >/dev/null 2>&1 </dev/null; }
+    running "$HUD" || { echo "· abrindo o HUD"; setsid -f python3 "$HUD" >/dev/null 2>&1 </dev/null; }
+    sleep 2
+    status
+}
+
+off() {
+    if running "$HUD"; then echo "· fechando o HUD"; pkill -f "^(/usr/bin/)?python3 $HUD"; fi
+    systemctl --user stop "$WATCH_UNIT" 2>/dev/null
+    if running "$WATCH"; then echo "· parando o vigia de jogos"; pkill -f "^(/usr/bin/)?python3 $WATCH"; fi
+    echo "· parando ${SERVICES[*]} ${TIMERS[*]}"
+    systemctl --user stop "${TIMERS[@]}" "${SERVICES[@]}"
+    if [ "${1:-}" = "--db" ]; then
+        echo "· parando o banco (magi-pg)"
+        docker stop magi-pg >/dev/null
+    fi
+    status
+}
+
+status() {
+    local s
+    for s in "${SERVICES[@]}" "${TIMERS[@]}"; do
+        printf '  %-20s %s\n' "$s" "$(systemctl --user is-active "$s")"
+    done
+    printf '  %-20s %s\n' "banco (magi-pg)" \
+        "$( [ "$(docker inspect -f '{{.State.Running}}' magi-pg 2>/dev/null)" = true ] && echo active || echo inactive)"
+    printf '  %-20s %s\n' "HUD" "$(running "$HUD" && echo active || echo inactive)"
+    printf '  %-20s %s\n' "vigia de jogos" "$(running "$WATCH" && echo active || echo inactive)"
+}
+
+case "$(basename "$0")" in
+    condessa-start) cmd=start ;;
+    condessa-off) cmd=off ;;
+    condessa-restart) cmd=restart ;;
+    *) cmd="${1:-status}"; shift || true ;;
+esac
+
+case "$cmd" in
+    start) start ;;
+    off|stop) off "$@" ;;
+    restart) off; echo; start ;;
+    status) status ;;
+    *) sed -n '2,10p' "${BASH_SOURCE[0]}"; exit 1 ;;
+esac
