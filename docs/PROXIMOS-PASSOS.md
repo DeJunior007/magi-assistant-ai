@@ -33,7 +33,7 @@ Implementado e testado com dublês; falta conferir no uso real:
 
 | Lacuna | Por quê / o que falta | Como validar |
 | --- | --- | --- |
-| Conquistas da Steam na ajuda no jogo (4.5) | Não há leitura local simples (cache binário; Web API pede chave + steamid). O gancho `achievements_idle` existe, mas o núcleo não liga nenhum, então "travado" só usa pedidos repetidos e tempo. | Ligar uma fonte de conquistas e ver o degrau pular para dica direta depois de muito tempo sem conquista. |
+| ~~Conquistas da Steam (4.5)~~ | **Feito (2026-10-07):** `magi/core/steam_local.py` lê horas e conquistas do disco; linha no prompt, gancho `achievements_idle` ligado e ferramenta `steam_game`. | "quantas horas eu tenho no Persona?"; travado há muito sem conquista pula para a dica direta. |
 | Tags da Steam via SteamSpy | Gênero do jogo (sugestão de música, "coloca uma boa") vem de serviço de terceiro (cache em `~/.cache/magi/steam-tags.json`); pode sair do ar ou mudar. | Trocar por fonte oficial ou aceitar o risco; teste: jogo novo recebe tags. |
 | "A seguir" no Now playing | O bloco fica escondido: a fila do Spotify precisaria de um escopo novo no OAuth. | Pedir o escopo, refazer `magi-spotify-login` e ver a próxima faixa no HUD. |
 | Limites da memória sem calibração | `MIN_SCORE 0,35` (busca), `FORGET_MIN_SCORE 0,45` ("esquece"), `DUPLICATE_SCORE 0,93` (duplicata) foram escolhidos sem dados reais. | Revisar com 2 semanas de memórias reais: lembranças irrelevantes ou duplicadas indicam ajuste. |
@@ -43,7 +43,7 @@ Implementado e testado com dublês; falta conferir no uso real:
 | Tarefa | O que é |
 | --- | --- |
 | 4.6 Frases de ouro, rodada 2 | Ampliar as frases de teste com 2 semanas de turnos reais (RNF-07: ≥ 95% de acerto em comandos conhecidos). |
-| 7.1 Medição final | Medir todos os RNF e registrar em `docs/perf/mvp.md`. |
+| 7.1 Medição final | Medir todos os RNF e registrar em `docs/perf/mvp.md`. O uso sai de `uv run python -m tools.uso` (métricas do PRD direto do banco); com 4 dias (2026-10-07): 24,5 interações/dia, 0,2 correção a cada 20, 2 pulos em 18 escolhas, custo projetado US$ 3,04 de 5. |
 | 7.2 Métricas do PRD | Conferir as métricas de sucesso do PRD depois de 2 semanas de uso. **Precisa do Pedro.** |
 
 ## 6. Operação
