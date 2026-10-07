@@ -1461,12 +1461,14 @@ class Router(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class Game:
-    """Jogo instalado da Steam (R5.1, R15.5). ``aliases``: apelidos aprendidos."""
+    """Jogo instalado da Steam (R5.1, R15.5). ``aliases``: apelidos aprendidos. ``command``: jogo
+    fora da Steam (``[[game.custom]]``), aberto por esse comando em vez de ``steam://``."""
 
     appid: int
     name: str
     install_dir: str = ""
     aliases: tuple[str, ...] = ()
+    command: str = ""
 
 
 @runtime_checkable

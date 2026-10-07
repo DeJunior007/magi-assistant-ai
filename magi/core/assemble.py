@@ -473,9 +473,11 @@ async def assemble(
     from magi.core.router import LocalRouter
 
     if catalog is None:
-        from magi.core.catalog import SteamCatalog
+        from magi.core.catalog import SteamCatalog, custom_games
 
-        catalog = SteamCatalog()
+        game_raw = config.raw.get("game") if isinstance(config.raw, dict) else None
+        custom = game_raw.get("custom") if isinstance(game_raw, dict) else None
+        catalog = SteamCatalog(custom=custom_games(custom))
     core.catalog = catalog
     core.game = _game_watcher(config, catalog)
     core.deps.router = LocalRouter(catalog)
@@ -791,6 +793,9 @@ def _game_watcher(config: Config, catalog: GameCatalog) -> Any:
     raw = config.raw.get("game") if isinstance(config.raw, dict) else None
     known = (raw or {}).get("known_processes") if isinstance(raw, dict) else None
     known = {str(k): str(v) for k, v in known.items()} if isinstance(known, dict) else {}
+    for entry in (raw or {}).get("custom", []) if isinstance(raw, dict) else []:  # [[game.custom]] process
+        if isinstance(entry, dict) and entry.get("process") and entry.get("name"):
+            known.setdefault(str(entry["process"]), str(entry["name"]))
     return GameWatcher(catalog, SteamTags(config.paths.cache_dir / CACHE_FILE), known_processes=known)
 
 

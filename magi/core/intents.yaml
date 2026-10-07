@@ -22,6 +22,10 @@ intents:
       - "bora jogar {game}"
       - "quero jogar {game}"
       - "vamos jogar {game}"
+      - "bora de {game}"
+      - "bora bater {game}"
+      - "vamos bater {game}"
+      - "partiu {game}"
 
   - id: game.close
     label: "fechar o jogo"
