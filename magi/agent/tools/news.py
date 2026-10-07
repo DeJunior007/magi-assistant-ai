@@ -47,6 +47,7 @@ from magi.common.contracts import (
     ToolSpec,
     TurnContext,
 )
+from magi.core import i18n
 from magi.news.article import fetch_article
 from magi.news.digest import digest
 from magi.news.spoiler import Display, Shown, norm, present
@@ -108,7 +109,7 @@ SAY_DEEPER_SPOILER = "Essa eu deixei escondida por spoiler. Se quiser, libera o 
 SAY_NO_MORE_INFO = "Não achei mais nada sobre essa além do que eu já falei."
 DEEPER_PROMPT = (
     "Você é a Ayanami, agente de notícias do Magi (persona/ayanami.md): calma, lacônica e precisa. "
-    "Escreva em português do Brasil o texto que a Condessa vai ler em voz alta para o Pedro, que "
+    "Escreva em {language} o texto que a Condessa vai ler em voz alta para o Pedro, que "
     "pediu para saber mais sobre a notícia abaixo. Com base só no resumo "
     "dado, conte em 5 a 7 frases curtas e naturais para falar em voz alta os detalhes que importam "
     "(o quê, quem, quando, onde, por quê). Traduza se precisar. Sem opinião, sem links, sem listas, "
@@ -116,11 +117,13 @@ DEEPER_PROMPT = (
 )
 #: Cumprimento que o modelo às vezes põe no começo, mesmo pedindo para não pôr.
 _GREETING = re.compile(
-    r"^(?:(?:olá|oi|e aí|fala|bom dia|boa tarde|boa noite|atenção)[,!]?\s*(?:pedro)?[,.!]\s*)+", re.I
+    r"^(?:(?:olá|oi|e aí|fala|bom dia|boa tarde|boa noite|atenção|hello|hi|hey"
+    r"|good (?:morning|afternoon|evening))[,!]?\s*(?:pedro)?[,.!]\s*)+",
+    re.I,
 )
 NARRATE_PROMPT = (
     "Você é a Ayanami, agente de notícias do Magi (persona/ayanami.md): calma, lacônica e precisa. "
-    "Escreva em português do Brasil o boletim que a Condessa vai ler em voz alta no Rádio Ayanami. "
+    "Escreva em {language} o boletim que a Condessa vai ler em voz alta no Rádio Ayanami. "
     "Conte a notícia abaixo em 2 ou 3 frases curtas, naturais para falar em "
     "voz alta: traduza, diga o principal (o quê, de qual obra, quando) e nada além do que está no "
     "texto, sem opinião nem comentário seu. Sem links, sem listas, sem markdown, sem cumprimentar e "
@@ -335,7 +338,7 @@ class NewsQuery:
         if self.chat is None:
             return fallback
         messages = [
-            ChatMessage(role="system", content=prompt),
+            ChatMessage(role="system", content=prompt.format(language=i18n.language_name())),
             ChatMessage(role="user", content="\n".join(lines)),
         ]
         try:

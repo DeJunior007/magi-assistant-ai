@@ -99,6 +99,14 @@ cache_dir = "~/.cache/magi"
 followup   = true
 followup_s = 3.0
 
+[speech]
+# Idioma em que a Condessa FALA (legenda, voz e avisos); você continua falando português.
+# "pt-br" (padrão) = como sempre. "en-gb" = inglês britânico: as frases fixas do código são
+# traduzidas pela tabela magi/core/i18n/en-gb.yaml (frase sem entrada sai em português e vai ao
+# log como "sem tradução") e o agente e o Rádio Ayanami passam a responder em inglês.
+# Ajuste também tasks.tts.instructions (sotaque/idioma da voz). Exige reiniciar o núcleo.
+language = "pt-br"
+
 [satellite]
 # Fim de fala (1.26), lido ao iniciar o satélite. Corta cedo demais? Aumente end_silence_ms.
 end_silence_ms    = 1000   # silêncio que encerra a frase

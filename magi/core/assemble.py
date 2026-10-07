@@ -58,7 +58,7 @@ from magi.common.contracts import (
     SubtitleMsg,
     Usage,
 )
-from magi.core import actions
+from magi.core import actions, i18n
 from magi.core.actions import games, hud, spotify_mpris, system
 from magi.core.corrections import Corrections
 from magi.core.corrections import handlers as correction_handlers
@@ -368,6 +368,7 @@ def _budget_warner(hud_sink: HudSink) -> Callable[[BudgetStatus], Awaitable[None
         pct = round(status.fraction * 100)
         text = f"Gasto do mês em {pct}% do teto (US$ {status.spent_usd:.2f} de {status.cap_usd:.2f})."
         log.warning("%s", text)
+        text = i18n.tr(text)
         await hud_sink.send(CardMsg(CardLevel.ALTA, text))
         await hud_sink.send(SubtitleMsg(text))
 
@@ -421,6 +422,7 @@ async def assemble(
     agent: AgentFactory | None = default_agent,
 ) -> Core:
     """Monta o núcleo. Nunca levanta por peça faltando: avisa e degrada."""
+    i18n.configure((config.raw.get("speech") or {}).get("language", i18n.DEFAULT))
     budget = SwitchBudget(NullBudget(config.budget.monthly_usd))
     core = Core(deps=TurnDeps(save_audio=utterance_saver(config)), budget=budget)
 

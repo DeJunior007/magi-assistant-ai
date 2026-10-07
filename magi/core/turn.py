@@ -79,6 +79,7 @@ from magi.common.contracts import (
 )
 from magi.core.compose import compose, subtitle
 from magi.core.early import EARLY_SPEECH, EarlySpeech
+from magi.core.i18n import tr_result
 from magi.core.utterance import UtteranceSaver, normalize_pcm16
 
 if TYPE_CHECKING:
@@ -861,9 +862,11 @@ class TurnMachine:
         """Mostra e fala a resposta. Estado de partida: ``thinking`` ou ``confirming``.
         ``followup``: ao terminar, abre a janela de continuação (1.20). A resposta passa por
         ``compose`` (3.6): fala ≤ 2 frases sem URL, legenda completa e cards de links.
-        ``early`` (1.24): se o agente já começou a falar, o que falta da fala entra no mesmo envio."""
+        ``early`` (1.24): se o agente já começou a falar, o que falta da fala entra no mesmo envio.
+        Depois do ``compose``, a fala vai para o idioma de ``[speech] language`` (``magi.core.i18n``);
+        as frases do agente já vêm no idioma e passam iguais, então ``early.missing`` segue valendo."""
         self._followup = followup
-        result = compose(result)
+        result = tr_result(compose(result))
         if result.needs_confirmation:
             self._pending = result.on_confirm
             if result.dangerous:

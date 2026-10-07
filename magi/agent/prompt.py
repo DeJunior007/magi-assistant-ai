@@ -24,6 +24,7 @@ from functools import cache
 from pathlib import Path
 
 from magi.common.contracts import MEMORY_TOP_K, MOOD_MAX, MOOD_MIN, ChatMessage, HelpStep, Memory
+from magi.core import i18n
 
 MAX_PROMPT_TOKENS = 1_800
 SELF_MAX_TOKENS = 300
@@ -127,10 +128,24 @@ def truncate_to_tokens(text: str, max_tokens: int) -> str:
 # ---------------------------------------------------------------------------------------------
 
 
+#: Linha somada à persona quando a fala não é em português (``[speech] language``).
+LANGUAGE_LINE = (
+    "Idioma: responda sempre em {name}, mesmo que o Pedro fale português (ele entende inglês). "
+    "Nomes próprios e títulos de jogos, músicas e obras ficam como são. Nada de markdown."
+)
+
+
 @cache
-def load_persona() -> str:
-    """Texto fixo da persona (``persona.md``)."""
+def _persona_file() -> str:
     return PERSONA_PATH.read_text(encoding="utf-8").strip()
+
+
+def load_persona() -> str:
+    """Texto fixo da persona (``persona.md``) + a linha de idioma se a fala não for ``pt-br``."""
+    text = _persona_file()
+    if i18n.language() == i18n.DEFAULT:
+        return text
+    return f"{text}\n\n{LANGUAGE_LINE.format(name=i18n.language_name())}"
 
 
 def self_section(about: str | None) -> str | None:

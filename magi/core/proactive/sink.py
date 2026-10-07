@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import logging
 import time
 from collections.abc import Awaitable, Callable, Iterable
@@ -30,6 +31,7 @@ from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from magi.common.contracts import ActionResult, CardMsg, Expression, HudSink, SubtitleMsg
+from magi.core.i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -130,8 +132,12 @@ class ProactiveSink:
         expression: Expression | None = None,
         offer: Offer | None = None,
     ) -> Outcome:
-        """Entrega um aviso (ver docstring do módulo). Não espera a fala terminar."""
+        """Entrega um aviso (ver docstring do módulo). Não espera a fala terminar. Fala e título
+        do card saem no idioma de ``[speech] language`` (``magi.core.i18n``)."""
+        speech = tr(speech)
         if card is not None:
+            if (title := tr(card.title)) != card.title:
+                card = dataclasses.replace(card, title=title)
             await self.hud.send(card)
         targets = self._targets()
         if priority is Priority.SCREEN or not targets or any(t.in_call for t in targets):
