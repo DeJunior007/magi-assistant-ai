@@ -40,8 +40,9 @@ from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap, QRadialGradient
 
 from .mascot import BLINK_LEN, EXPRESSIONS, FPS_AWAKE, Mascot
 
@@ -362,7 +363,7 @@ def _scaled_frame(assets: FrameAssets, n: int, w: int, h: int) -> QPixmap | None
 # ---------------------------------------------------------------- partes (2.5D)
 
 PARTS_ORDER = ("back", "tail_l", "tail_r", "arm_l", "arm_r", "body", "head")
-PARTS_FPS = 30.0  # acordada: respira, balança o cabelo, olha
+PARTS_FPS = 60.0  # acordada: respira, balança o cabelo, olha
 PARTS_FPS_SLEEP = 6.0  # dormindo: só respira (barato)
 BREATH_PERIOD = 4.2
 GAZE_EVERY = (6.0, 14.0)
@@ -370,6 +371,9 @@ GAZE_LEN = (1.5, 3.2)
 GAZE_EASE = 0.18  # quanto a cabeça anda em direção ao olhar a cada quadro
 TAIL_PIVOTS = {"tail_l": (330.0, 110.0), "tail_r": (700.0, 110.0)}
 HEAD_PIVOT = (512.0, 140.0)
+NECK_PIVOT = (512.0, 660.0)  # a cabeça inclina a partir do pescoço
+MOUTH_LEVELS = (0.18, 0.72)  # fala: abaixo = fechada; até o 2º = entreaberta; acima = aberta (pico)
+MOUTH_HOLD = 0.07  # cada boca fica no ar pelo menos isto (s), sem piscar
 BLUSH = "#ff6f8e"
 
 
@@ -408,13 +412,99 @@ class PartsAssets:
         return self.pix(rel) is not None
 
 
+GLOW_R = 470.0
+
+
+@lru_cache(maxsize=8)
+def _glow(accent: str, side: int) -> QPixmap:
+    """Brilho radial pré-renderizado (o gradiente a cada quadro custava ~0,8 ms)."""
+    pm = QPixmap(side, side)
+    pm.fill(Qt.GlobalColor.transparent)
+    g = QRadialGradient(QPointF(side / 2, side / 2), side / 2)
+    c0, c1 = QColor(accent), QColor(accent)
+    c0.setAlphaF(0.30)
+    c1.setAlphaF(0.0)
+    g.setColorAt(0, c0)
+    g.setColorAt(1, c1)
+    q = QPainter(pm)
+    q.setPen(Qt.PenStyle.NoPen)
+    q.setBrush(g)
+    q.drawEllipse(QRectF(0, 0, side, side))
+    q.end()
+    return pm
+
+
+BACKDROP_FPS = 12.0
+
+
+def _render_backdrop(accent: QColor, side: int, now: float) -> QPixmap:
+    pm = QPixmap(side, side)
+    pm.fill(Qt.GlobalColor.transparent)
+    q = QPainter(pm)
+    q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    q.scale(side / 1024, side / 1024)
+    glow = _glow(accent.name(), max(1, round(side * GLOW_R * 2 / 1024)))
+    q.drawPixmap(QRectF(512 - GLOW_R, 430 - GLOW_R, GLOW_R * 2, GLOW_R * 2), glow, QRectF(glow.rect()))
+    for i, r in enumerate((250, 340, 430)):
+        c = QColor(accent)
+        c.setAlphaF(0.30 - i * 0.07)
+        q.setPen(QPen(c, 3.0))
+        ang = math.radians(now * (4 + i * 2) * (1 if i % 2 == 0 else -1))
+        pts = [QPointF(512 + r * math.cos(ang + k * math.pi / 3), 430 + r * math.sin(ang + k * math.pi / 3))
+               for k in range(7)]
+        q.drawPolyline(pts)
+    q.end()
+    return pm
+
+
+@lru_cache(maxsize=64)
+def _head_group(assets: PartsAssets, eyes: str, mouth: str, side: int) -> tuple[QPixmap, QRectF] | None:
+    """Cabeça + olhos + boca numa imagem só, na caixa da cabeça (giram juntos: uma rotação só)."""
+    head = _scaled_part(assets, "parts/head.png", side)
+    if head is None:
+        return None
+    hpm, hbox = head
+    pm = QPixmap(hpm.size())
+    pm.fill(Qt.GlobalColor.transparent)
+    q = QPainter(pm)
+    q.drawPixmap(0, 0, hpm)
+    k = side / 1024
+    for rel in (f"eyes/{eyes}.png", f"mouth/{mouth}.png"):
+        part = _scaled_part(assets, rel, side)
+        if part is not None:
+            ppm, pbox = part
+            q.drawPixmap(round((pbox.left() - hbox.left()) * k), round((pbox.top() - hbox.top()) * k), ppm)
+    q.end()
+    return pm, hbox
+
+
+def _alpha_box(img: QImage) -> tuple[int, int, int, int] | None:
+    """Caixa (x0, y0, x1, y1) dos pixels com alfa, ou None se vazia."""
+    img = img.convertToFormat(QImage.Format.Format_ARGB32)
+    w, h = img.width(), img.height()
+    arr = np.frombuffer(img.constBits(), np.uint8).reshape(h, img.bytesPerLine())[:, : w * 4]
+    alpha = arr[:, 3::4] > 4
+    rows, cols = np.where(alpha.any(axis=1))[0], np.where(alpha.any(axis=0))[0]
+    if not len(rows):
+        return None
+    return int(cols[0]), int(rows[0]), int(cols[-1]) + 1, int(rows[-1]) + 1
+
+
 @lru_cache(maxsize=128)
-def _scaled_part(assets: PartsAssets, rel: str, side: int) -> QPixmap | None:
+def _scaled_part(assets: PartsAssets, rel: str, side: int) -> tuple[QPixmap, QRectF] | None:
+    """Camada no tamanho do dispositivo, recortada na caixa útil, e onde ela cai no quadro de 1024
+    (desenhar só a caixa, e não o quadro inteiro transparente, corta o custo por quadro)."""
     pm = assets.pix(rel)
     if pm is None:
         return None
-    return pm.scaled(side, side, Qt.AspectRatioMode.IgnoreAspectRatio,
-                     Qt.TransformationMode.SmoothTransformation)
+    scaled = pm.scaled(side, side, Qt.AspectRatioMode.IgnoreAspectRatio,
+                       Qt.TransformationMode.SmoothTransformation)
+    box = _alpha_box(scaled.toImage())
+    if box is None:
+        return None
+    x0, y0, x1, y1 = box
+    k = 1024 / side
+    return scaled.copy(x0, y0, x1 - x0, y1 - y0), QRectF(x0 * k, y0 * k, (x1 - x0) * k, (y1 - y0) * k)
 
 
 class PartsPortrait(Mascot):
@@ -433,6 +523,9 @@ class PartsPortrait(Mascot):
         self._gaze: dict | None = None
         self._head = [0.0, 0.0]  # deslocamento atual da cabeça (px do quadro de 1024)
         self._last_tick = -math.inf
+        self._mouth = "C1"
+        self._mouth_since = -math.inf
+        self._bd: tuple | None = None  # fundo em cache: (chave, quando, pixmap)
 
     # -- estado
     def _night(self) -> bool:
@@ -472,13 +565,17 @@ class PartsPortrait(Mascot):
             return str(self._gaze.get("eyes", cfg.get("eyes", "B1")))
         return str(cfg.get("eyes", "B1"))
 
-    def mouth_id(self) -> str:
-        if self.state == "speaking":
-            mouths = self.assets.speech
-            lvl = self.level
-            i = 0 if lvl < 0.15 else (1 if lvl < 0.5 else 2)
-            return mouths[min(i, len(mouths) - 1)]
-        return str(self._state_cfg().get("mouth", "C1"))
+    def mouth_id(self, now: float | None = None) -> str:
+        if self.state != "speaking":
+            return str(self._state_cfg().get("mouth", "C1"))
+        now = self._now if now is None else now
+        mouths = self.assets.speech
+        lvl = self.level
+        i = 0 if lvl < MOUTH_LEVELS[0] else (1 if lvl < MOUTH_LEVELS[1] else 2)
+        want = mouths[min(i, len(mouths) - 1)]
+        if want != self._mouth and now - self._mouth_since >= MOUTH_HOLD:
+            self._mouth, self._mouth_since = want, now
+        return self._mouth
 
     # -- relógio
     def tick(self, now: float | None = None) -> tuple[bool, float]:
@@ -508,7 +605,10 @@ class PartsPortrait(Mascot):
         side = max(1, round(p.transform().mapRect(t).width()))
         breath = math.sin(2 * math.pi * now / BREATH_PERIOD)
         hx, hy = self._head
-        head_dy = 2.0 * breath
+        talk = self.level if self.state == "speaking" else 0.0
+        head_dy = 2.0 * breath + 3.0 * talk  # falando, a cabeça acompanha a voz
+        tilt = 0.6 * math.sin(now * 0.5) + 0.25 * math.sin(now * 1.3 + 0.7)  # inclinação lenta
+        sway = 1.5 * math.sin(now * 0.35)  # o corpo balança de leve para os lados
         p.save()
         p.setClipRect(rect, Qt.ClipOperation.IntersectClip)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
@@ -516,33 +616,57 @@ class PartsPortrait(Mascot):
         p.scale(k, k)
 
         def draw(rel: str, dx: float = 0.0, dy: float = 0.0, angle: float = 0.0,
-                 pivot: tuple[float, float] = HEAD_PIVOT) -> None:
-            pm = _scaled_part(self.assets, rel, side)
-            if pm is None:
+                 pivot: tuple[float, float] = HEAD_PIVOT, head: bool = False,
+                 part: tuple[QPixmap, QRectF] | None = None) -> None:
+            part = part if part is not None else _scaled_part(self.assets, rel, side)
+            if part is None:
                 return
+            pm, box = part
             p.save()
+            if head:  # cabeça, olhos, boca, franja: giram juntos a partir do pescoço
+                p.translate(*NECK_PIVOT)
+                p.rotate(tilt)
+                p.translate(-NECK_PIVOT[0], -NECK_PIVOT[1])
             p.translate(dx, dy)
             if angle:
                 p.translate(*pivot)
                 p.rotate(angle)
                 p.translate(-pivot[0], -pivot[1])
-            p.drawPixmap(QRectF(0, 0, 1024, 1024), pm, QRectF(pm.rect()))
+            p.drawPixmap(box, pm, QRectF(pm.rect()))
             p.restore()
 
+        self._backdrop(p, now, QColor(accent), -0.9 * hx - 0.8 * sway, -0.7 * hy - 0.5 * head_dy)
         # ordem: cabelo de trás, marias-chiquinhas, braços, corpo, cabeça; as mechas que caem na frente
         # dos ombros vêm da franja (desenhada por último)
-        draw("parts/back.png", -0.4 * hx, -0.3 * hy + 1.5 * breath, 0.25 * math.sin(now * 0.7))
+        draw("parts/back.png", -0.4 * hx + 0.5 * sway, -0.3 * hy + 1.5 * breath,
+             0.3 * math.sin(now * 0.7) + 0.4 * tilt, head=False)
         for name, phase in (("tail_l", 0.0), ("tail_r", 1.3)):
-            draw(f"parts/{name}.png", 0.6 * hx, 0.6 * hy + head_dy, 1.4 * math.sin(now * 1.05 + phase),
+            swing = 1.8 * math.sin(now * 1.05 + phase) + 0.5 * math.sin(now * 2.3 + phase * 2)
+            draw(f"parts/{name}.png", 0.6 * hx + sway, 0.6 * hy + head_dy, swing + 0.6 * tilt,
                  TAIL_PIVOTS[name])
-        draw("parts/arm_l.png", 0, 3.5 * breath)
-        draw("parts/arm_r.png", 0, 3.5 * breath)
-        draw("parts/body.png", 0, 3.0 * breath)
-        draw("parts/head.png", hx, hy + head_dy)
-        draw(f"eyes/{self.eyes_id(now)}.png", hx, hy + head_dy)
-        draw(f"mouth/{self.mouth_id()}.png", hx, hy + head_dy)
-        draw("parts/bangs.png", 1.25 * hx, 1.2 * hy + head_dy, 0.5 * math.sin(now * 1.3), (512.0, 100.0))
+        draw("parts/arm_l.png", sway, 3.5 * breath)
+        draw("parts/arm_r.png", sway, 3.5 * breath)
+        draw("parts/body.png", sway, 3.0 * breath)
+        group = _head_group(self.assets, self.eyes_id(now), self.mouth_id(now), side)
+        if group is not None:
+            draw("", hx + sway, hy + head_dy, head=True, part=group)
+        draw("parts/bangs.png", 1.25 * hx + sway, 1.2 * hy + head_dy, 0.6 * math.sin(now * 1.3),
+             (512.0, 100.0), head=True)
         self._effects(p, now, QColor(accent), hx, hy + head_dy)
+        p.restore()
+
+    def _backdrop(self, p: QPainter, now: float, accent: QColor, bx: float, by: float) -> None:
+        """Fundo com parallax: brilho e hexágonos finos que andam ao contrário dela (profundidade).
+        Desenhado numa imagem a ``BACKDROP_FPS`` (gira devagar); a cada quadro só é deslocado."""
+        side = max(1, round(p.transform().m11() * 1024))
+        key = (accent.name(), side)
+        if self._bd is None or self._bd[0] != key or now - self._bd[1] >= 1 / BACKDROP_FPS:
+            self._bd = (key, now, _render_backdrop(accent, side, now))
+        pm = self._bd[2]
+        origin = p.transform().map(QPointF(bx, by))
+        p.save()
+        p.resetTransform()
+        p.drawPixmap(round(origin.x()), round(origin.y()), pm)
         p.restore()
 
     def _effects(self, p: QPainter, now: float, accent: QColor, hx: float, hy: float) -> None:
