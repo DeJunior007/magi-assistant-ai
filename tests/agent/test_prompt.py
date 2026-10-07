@@ -65,8 +65,9 @@ def test_persona_tem_cerca_de_500_tokens():
     # Teto 560 (era 520): a 3.9 juntou a regra "nunca afirmar capacidade sem ferramenta" (~40 tokens).
     # Teto 580: linha do apelido "Condessa" (ativação e vocativo, ~30 tokens).
     # Teto 660: linha de jeito e gosto decidida pelo Conselho da Condessa (~75 tokens).
+    # Teto 700: regra da frase de espera antes de ferramenta demorada e resposta em lotes (~45).
     tokens = estimate_tokens(load_persona())
-    assert 400 <= tokens <= 660
+    assert 400 <= tokens <= 700
 
 
 def test_persona_cobre_os_tracos():

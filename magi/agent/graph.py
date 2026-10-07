@@ -12,9 +12,11 @@ frases, ``full_text``, cards).
 
 Fala por frase (1.24): com um ``EarlySpeech`` do turno em ``EARLY_SPEECH`` e um chat com
 ``chat_stream``, o modelo responde em streaming e cada frase falada que fecha (``SpeechDraft``)
-já vai para o TTS enquanto o resto ainda é gerado. Se o modelo pede ferramenta, nada é falado.
-Na primeira chamada (em paralelo com a busca de memórias) as frases ficam retidas até a busca
-decidir: se ela traz memórias, a chamada é refeita e o rascunho, descartado.
+já vai para o TTS enquanto o resto ainda é gerado. O texto que vem antes de uma chamada de
+ferramenta vira frase de espera (falada na hora, fora do limite da resposta: ``EarlySpeech``):
+"deixa eu ver…" ou a parte do pedido que já dá para responder. Na primeira chamada (em paralelo
+com a busca de memórias) as frases ficam retidas até a busca decidir: se ela traz memórias, a
+chamada é refeita e o rascunho, descartado.
 """
 
 from __future__ import annotations
@@ -200,14 +202,7 @@ class GraphAgent:
                         voice.discard()
                     return with_mem, await _call(chat, with_mem, tools, _Voice.current())
             if voice is not None:
-                if (
-                    first.done()
-                    and not first.cancelled()
-                    and first.exception() is None
-                    and first.result().tool_calls
-                ):
-                    voice.discard()  # texto antes da chamada de ferramenta não é falado
-                voice.release()
+                voice.release()  # frase de espera antes da ferramenta também sai (já marcada)
             return messages, await first
         finally:
             for task in (first, mem_task):
@@ -367,6 +362,8 @@ class _Voice:
         self._early = early
         self._held: list[str] | None = [] if held else None
         self._dead = False
+        self._interim = False
+        self.said: list[str] = []
         self.draft = SpeechDraft()
 
     @classmethod
@@ -387,6 +384,11 @@ class _Voice:
     def discard(self) -> None:
         self._dead = True
 
+    def interim(self) -> None:
+        """Esta chamada terminou em ferramenta: o que ela falou (e o que ainda falar) é de espera."""
+        self._interim = True
+        self._early.mark_interim(self.said)
+
     def _say(self, found: list[str]) -> None:
         if self._dead:
             return
@@ -395,6 +397,9 @@ class _Voice:
             return
         for sentence in found:
             self._early.say(sentence)
+            self.said.append(sentence)
+        if self._interim:
+            self._early.mark_interim(found)
 
 
 async def _call(
@@ -405,8 +410,9 @@ async def _call(
     if voice is None or stream is None:
         return await chat.chat(messages, tools=tools, personal=True)
     reply = await stream(messages, tools=tools, personal=True, on_text=voice.push)
-    if not reply.tool_calls:
-        voice.finish(reply.text)
+    if reply.tool_calls:
+        voice.interim()  # antes do finish: a frase sem ponto final também conta como de espera
+    voice.finish(reply.text)
     return reply
 
 

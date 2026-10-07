@@ -251,3 +251,27 @@ def test_partes_reacao_olha_e_muda_o_fundo(tmp_path):
         m.tick(10.0 + k / 60)
     assert m._env > 0.9  # a voz expande o fundo
     assert MOOD_COLORS["calm"] is None
+
+
+def test_partes_pensando_e_pausa_na_fala(tmp_path):
+    from wired.portrait import PONDER_AFTER, PartsAssets, PartsPortrait
+
+    write_parts(tmp_path)
+    for extra in ("eyes/B13.png", "eyes/F6.png"):
+        img = QImage(16, 16, QImage.Format.Format_ARGB32)
+        img.fill(QColor(200, 100, 100))
+        assert img.save(str(tmp_path / extra))
+    m = PartsPortrait(PartsAssets(tmp_path), "thinking", now=0.0)
+    m.hour = lambda: 14
+    m._blink_at = 1e9  # sem piscada no meio do teste
+    seen = {m.eyes_id(t / 10) for t in range(0, 120)}
+    assert {"B13", "F6", "F1"} <= seen  # o olhar vaga (só entre os olhares com arte)
+    assert m.mood(1.0) == "focus"
+    m.set_expression("speaking")
+    m.set_level(0.6)
+    m.tick(10.0)
+    assert not m.thinking(10.0) and m.mouth_id(10.0) != "C1"
+    m.set_level(0.0)
+    assert not m.thinking(10.0 + PONDER_AFTER / 2)  # pausa curta entre frases: segue falando
+    assert m.thinking(10.0 + PONDER_AFTER + 0.1)  # silêncio longo: esperando a ferramenta
+    assert m.mouth_id(10.0 + PONDER_AFTER + 0.1) == "C1"

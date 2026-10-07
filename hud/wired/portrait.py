@@ -443,6 +443,13 @@ TINT_EASE = 0.6  # s para o fundo chegar à cor nova
 VOICE_ATTACK, VOICE_RELEASE = 0.05, 0.35  # s: o fundo cresce rápido com a voz e volta devagar
 VOICE_GROW = 0.10  # até +10% de tamanho na voz mais alta
 BOB_HZ = 1.6  # balanço de cabeça na música favorita (~96 bpm)
+# pensando (e a pausa no meio da fala, esperando ferramenta): o olhar vaga e a cabeça inclina
+THINK_CYCLE = (("B13", 4.0, -3.0), ("F4", 5.0, -3.0), ("B13", 4.0, -3.0), ("F6", 6.0, 0.0),
+               ("F1", -6.0, 0.0), ("F7", 0.0, 3.0))
+THINK_STEP = 1.3  # s em cada olhar
+THINK_TILT = 2.2  # graus a mais de inclinação
+PONDER_AFTER = 1.0  # s de silêncio "falando" até virar cara de pensando
+DOTS_AFTER = 0.8  # s pensando até as reticências aparecerem
 
 
 def _render_backdrop(accent: QColor, side: int, now: float, env: float = 0.0, mood: float = 0.0) -> QPixmap:
@@ -560,6 +567,25 @@ class PartsPortrait(Mascot):
         self._moodk = 0.0  # 0 calma .. 1 humor forte (o brilho do fundo acende)
         self._tick_at: float | None = None
         self.accent = QColor("#b4a0e6")
+        self._voice_at = -math.inf  # última vez que a voz passou do ruído
+        self._think_since: float | None = None
+        self._think_k = 0.0  # 0..1, suaviza a entrada e a saída da cara de pensando
+
+    def thinking(self, now: float) -> bool:
+        """Pensando de verdade, ou "falando" em silêncio (frase de espera dita, ferramenta rodando)."""
+        if self.state == "thinking":
+            return True
+        return self.state == "speaking" and self.level < 0.05 and now - self._voice_at > PONDER_AFTER
+
+    def _think_look(self, now: float) -> tuple[str, float, float] | None:
+        if not self.thinking(now):
+            return None
+        for _ in THINK_CYCLE:  # pula olhares sem arte
+            eyes, dx, dy = THINK_CYCLE[int(now / THINK_STEP) % len(THINK_CYCLE)]
+            if self.assets.has(f"eyes/{eyes}.png"):
+                return eyes, dx, dy
+            now += THINK_STEP
+        return None
 
     def _reacting(self, now: float):
         """A reação em curso, se ela está parada (falando/pensando, a fala manda)."""
@@ -580,6 +606,8 @@ class PartsPortrait(Mascot):
         r = self._reacting(now)
         if r is not None:
             return r.mood
+        if self.thinking(now):
+            return "focus"
         if self.state == "sleeping" and self._night():
             return "sleepy"
         from .reactions import MOOD_OF_STATE
@@ -620,6 +648,9 @@ class PartsPortrait(Mascot):
             half, closed = (cfg.get("blink") or ["B2", "B3"])[:2]
             t = (now - self._blink_at) / BLINK_LEN
             return closed if 1 / 3 <= t < 2 / 3 else half
+        think = self._think_look(now)
+        if think is not None:
+            return think[0]
         r = self._reacting(now)
         if r is not None:
             if r.eyes and self.assets.has(f"eyes/{r.eyes}.png"):
@@ -638,6 +669,8 @@ class PartsPortrait(Mascot):
             if r is not None and r.mouth and self.assets.has(f"mouth/{r.mouth}.png"):
                 return r.mouth
             return str(self._state_cfg().get("mouth", "C1"))
+        if self.thinking(now):
+            return "C1"  # pausa esperando a ferramenta: boca fechada, não um "o" no meio da fala
         mouths = self.assets.speech
         lvl = self.level
         i = 0 if lvl < MOUTH_LEVELS[0] else (1 if lvl < MOUTH_LEVELS[1] else 2)
@@ -658,8 +691,19 @@ class PartsPortrait(Mascot):
         tau = VOICE_ATTACK if want > self._env else VOICE_RELEASE
         self._env += (want - self._env) * (1 - math.exp(-dt / tau)) if dt else 0.0
         self._ease_tint(now, dt)
+        if self.level >= 0.05:
+            self._voice_at = now
+        think = self._think_look(now)
+        if think is not None and self._think_since is None:
+            self._think_since = now
+        elif think is None:
+            self._think_since = None
+        if dt:
+            self._think_k += ((1.0 if think else 0.0) - self._think_k) * (1 - math.exp(-dt / 0.35))
         gaze = self._look_gaze(self._reacting(now)) or self._gaze
         tgt = (float(gaze.get("dx", 0)), float(gaze.get("dy", 0))) if gaze else (0.0, 0.0)
+        if think is not None:
+            tgt = (think[1], think[2])
         self._head[0] += (tgt[0] - self._head[0]) * GAZE_EASE
         self._head[1] += (tgt[1] - self._head[1]) * GAZE_EASE
         fps = PARTS_FPS_SLEEP if self.sleeping and self._night() else PARTS_FPS
@@ -685,6 +729,7 @@ class PartsPortrait(Mascot):
         head_dy = 2.0 * breath + 3.0 * talk  # falando, a cabeça acompanha a voz
         tilt = 0.6 * math.sin(now * 0.5) + 0.25 * math.sin(now * 1.3 + 0.7)  # inclinação lenta
         sway = 1.5 * math.sin(now * 0.35)  # o corpo balança de leve para os lados
+        tilt += THINK_TILT * self._think_k  # pensando: cabeça de lado
         r = self._reacting(now)
         if r is not None and r.bob:  # curtindo a música: a cabeça vai no ritmo
             fade = min(1.0, (self.reaction_until - now) / 1.0, 1.0)
@@ -736,6 +781,8 @@ class PartsPortrait(Mascot):
         self._effects(p, now, QColor(accent), hx, hy + head_dy)
         if r is not None and r.effect:
             self._reaction_effect(p, now, r.effect, hx, hy + head_dy)
+        if self._think_since is not None and now - self._think_since >= DOTS_AFTER:
+            self._dots(p, now, hx, hy + head_dy)
         p.restore()
 
     def _ease_tint(self, now: float, dt: float) -> None:
@@ -776,6 +823,19 @@ class PartsPortrait(Mascot):
             cx, cy = origin.x() + side * 512 / 1024, origin.y() + side * 430 / 1024
             w = side * grow
             p.drawPixmap(QRectF(cx - w * 512 / 1024, cy - w * 430 / 1024, w, w), pm, QRectF(pm.rect()))
+        p.restore()
+
+    def _dots(self, p: QPainter, now: float, hx: float, hy: float) -> None:
+        """Reticências pulsando ao lado da cabeça (pensando / esperando a ferramenta)."""
+        p.save()
+        p.setPen(Qt.PenStyle.NoPen)
+        for i in range(3):
+            ph = (now * 1.6 - i * 0.22) % 1.0
+            lift = 10 * math.sin(math.pi * ph) if ph < 0.5 else 0.0
+            c = QColor(self.tint())
+            c.setAlphaF(0.45 + 0.55 * (lift / 10))
+            p.setBrush(c)
+            p.drawEllipse(QPointF(780 + i * 38 + hx, 250 - lift + hy), 13, 13)
         p.restore()
 
     def _reaction_effect(self, p: QPainter, now: float, kind: str, hx: float, hy: float) -> None:

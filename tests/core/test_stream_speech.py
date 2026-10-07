@@ -200,8 +200,9 @@ class Providers:
         return self._chat
 
 
-async def test_ferramenta_nao_fala_antes_e_resposta_final_fala():
-    chat = StreamChat([((), (ToolCall("c1", "nao_existe", {}),)), (("Achei. ", "São oito."), ())])
+async def test_frase_de_espera_antes_da_ferramenta_e_resposta_final_inteira():
+    chat = StreamChat([(("Deixa eu ver", " aqui"), (ToolCall("c1", "nao_existe", {}),)),
+                       (("Achei. ", "São oito."), ())])
     said: list[str] = []
 
     async def play(texts: AsyncIterator[str]) -> None:
@@ -214,9 +215,28 @@ async def test_ferramenta_nao_fala_antes_e_resposta_final_fala():
         result = await GraphAgent(Providers(chat)).answer("quantas patas", CTX)
     finally:
         EARLY_SPEECH.reset(token)
-    assert chat.spoken_at_call == [0, 0]  # nada falado antes da 2ª chamada
+    assert chat.spoken_at_call == [0, 1]  # a frase de espera saiu antes da 2ª chamada
+    assert early.interim == ["Deixa eu ver aqui"]
     await early.finish(early.missing(result.speech))
-    assert said == ["Achei.", "São oito."]
+    assert said == ["Deixa eu ver aqui", "Achei.", "São oito."]  # a espera não come a resposta
+
+
+async def test_sem_ferramenta_continua_com_duas_frases():
+    chat = StreamChat([(("Uma. ", "Duas. ", "Três."), ())])
+    said: list[str] = []
+
+    async def play(texts: AsyncIterator[str]) -> None:
+        said.extend([t async for t in texts])
+
+    early = EarlySpeech(play)
+    chat.early = early
+    token = EARLY_SPEECH.set(early)
+    try:
+        result = await GraphAgent(Providers(chat)).answer("conta", CTX)
+    finally:
+        EARLY_SPEECH.reset(token)
+    await early.finish(early.missing(result.speech))
+    assert said == ["Uma.", "Duas."] and early.interim == []
 
 
 # -- turno ponta a ponta ----------------------------------------------------------------------

@@ -7,6 +7,11 @@ abre um único envio de áudio ao satélite) e as seguintes entram na fila do me
 ``_deliver`` chama ``finish`` com as frases da fala final que ainda não saíram (``missing``) e o
 envio termina com ``audio-stop``. Sem ``EARLY_SPEECH`` (avisos, confirmações, testes antigos) o
 caminho é o de antes: fala só depois da resposta inteira.
+
+Frases de espera: o texto que o modelo escreve antes de chamar uma ferramenta ("deixa eu ver as
+conquistas…", ou a parte do pedido que ele já sabe responder) também é falado na hora, e o agente
+o marca com ``mark_interim``. Essas frases têm cota própria (``INTERIM_MAX``) e não contam no
+limite da resposta final, que continua com até ``max_sentences`` frases.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ from magi.core.compose import SPEECH_MAX_SENTENCES, sentences, speech_key
 EARLY_SPEECH: ContextVar[EarlySpeech | None] = ContextVar("magi_early_speech", default=None)
 
 Play = Callable[[AsyncIterator[str]], Awaitable[None]]
+INTERIM_MAX = 2  # frases de espera por turno (antes das ferramentas)
 
 
 class EarlySpeech:
@@ -30,6 +36,7 @@ class EarlySpeech:
         self._play = play
         self.max_sentences = max_sentences
         self.spoken: list[str] = []
+        self.interim: list[str] = []  # das faladas, as de espera (não contam no limite)
         self._queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._task: asyncio.Task[None] | None = None
         self._closed = False
@@ -40,13 +47,20 @@ class EarlySpeech:
 
     def say(self, sentence: str) -> None:
         """Fala ``sentence`` (a primeira abre o envio). Depois de ``finish``/``cancel``, ignora."""
-        if self._closed or len(self.spoken) >= self.max_sentences or not sentence.strip():
+        final = len(self.spoken) - len(self.interim)
+        if self._closed or final >= self.max_sentences or not sentence.strip():
             return
         self.spoken.append(sentence)
         self._queue.put_nowait(sentence)
         if self._task is None:
             loop = asyncio.get_running_loop()
             self._task = loop.create_task(self._play(self._sentences()), name="early-speech")
+
+    def mark_interim(self, said: Iterable[str]) -> None:
+        """As frases ``said`` (já faladas) eram de espera: saem do limite da resposta final."""
+        for sentence in said:
+            if sentence in self.spoken and len(self.interim) < INTERIM_MAX:
+                self.interim.append(sentence)
 
     def missing(self, speech: str) -> list[str]:
         """Frases de ``speech`` que ainda não foram faladas."""
