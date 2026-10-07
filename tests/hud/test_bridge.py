@@ -20,6 +20,7 @@ from magi.common.contracts import (
     Expression,
     MoodMsg,
     MouthMsg,
+    SpeechMsg,
     StateMsg,
     SubtitleMsg,
     Verdict,
@@ -101,8 +102,8 @@ class FakeCore:
 class Recorder:
     def __init__(self, bridge: hud_bridge.HudBridge) -> None:
         self.events: list[tuple] = []
-        for name in ("message", "stateChanged", "subtitle", "mouth", "mood", "vote", "card", "detail",
-                     "connectedChanged"):
+        for name in ("message", "stateChanged", "subtitle", "speech", "mouth", "mood", "vote", "card",
+                     "detail", "connectedChanged"):
             getattr(bridge, name).connect(lambda *a, n=name: self.events.append((n, *a)))
 
     def of(self, name: str) -> list[tuple]:
@@ -138,6 +139,8 @@ def test_delivers_every_message_type(bridge, sock_path):
         StateMsg(Expression.LISTENING),
         SubtitleMsg("Oi", full="Oi, tudo bem?"),
         SubtitleMsg("Só curta"),
+        SpeechMsg("Oi, tudo bem?", dur=1.5, i=0),
+        SpeechMsg("Sem duração.", i=1),
         MouthMsg(0.42),
         MoodMsg(3),
         VoteMsg(Verdict.PENDING, label="Fechar Elden Ring"),
@@ -155,6 +158,7 @@ def test_delivers_every_message_type(bridge, sock_path):
     assert rec.of("message") == [(m.to_dict(),) for m in msgs]
     assert rec.of("stateChanged") == [("listening",)]
     assert rec.of("subtitle") == [("Oi", "Oi, tudo bem?"), ("Só curta", "")]
+    assert rec.of("speech") == [("Oi, tudo bem?", 1.5, 0), ("Sem duração.", -1.0, 1)]
     assert rec.of("mouth") == [(pytest.approx(0.42),)]
     assert rec.of("mood") == [(3,)]
     assert rec.of("vote") == [("pending", "Fechar Elden Ring"), ("approved", "")]
@@ -258,6 +262,9 @@ VALID = [
     '{"t":"state","v":"listening"}',
     '{"t":"subtitle","text":"oi","full":"oi, tudo?"}',
     '{"t":"subtitle","text":"oi","full":null}',
+    '{"t":"speech","text":"oi.","dur":1.23456,"i":2}',
+    '{"t":"speech","text":"oi.","dur":2}',
+    '{"t":"speech","text":"oi.","dur":null,"i":0}',
     '{"t":"mouth","v":0.4242}',
     '{"t":"mouth","v":3}',
     '{"t":"mouth","v":-1}',
@@ -277,6 +284,7 @@ INVALID = [
     "", "nada", "[]", '"state"', '{"t":1}', '{"t":"x"}',
     '{"t":"state"}', '{"t":"state","v":"bravo"}', '{"t":"state","v":1}',
     '{"t":"subtitle"}', '{"t":"subtitle","text":1}',
+    '{"t":"speech"}', '{"t":"speech","text":"a","dur":-1}', '{"t":"speech","text":"a","i":true}',
     '{"t":"mouth","v":"0.4"}', '{"t":"mouth","v":true}',
     '{"t":"mood","v":5}', '{"t":"mood","v":-1}', '{"t":"mood","v":2.0}', '{"t":"mood","v":true}',
     '{"t":"vote","verdict":"talvez"}', '{"t":"vote"}',

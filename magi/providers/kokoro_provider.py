@@ -36,6 +36,9 @@ DEFAULT_DIR = "~/.cache/magi/kokoro"
 
 
 class KokoroBackend:
+    #: Sintetiza a frase inteira antes do primeiro pedaço: a duração sai antes de tocar (legenda).
+    whole_sentence = True
+
     def __init__(self, pcfg: ProviderConfig) -> None:
         self.dir = Path(str(pcfg.options.get("model_dir", DEFAULT_DIR))).expanduser()
         self._model: Any = None

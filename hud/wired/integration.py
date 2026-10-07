@@ -243,6 +243,16 @@ class WiredUI:
     def set_caption(self, txt: str | None) -> None:
         self.caption = txt or None
 
+    def caption_rects(self, txt: str | None, view: str, size: QSize) -> list[QRect]:
+        """Legenda que se escreve conforme ela fala (várias vezes por segundo): troca só o texto,
+        sem remontar o Snapshot, e devolve os retângulos do grupo da fala a redesenhar (vazio =
+        não mudou)."""
+        txt = txt or None
+        if txt == self.caption and txt == self.snap.caption:
+            return []
+        self.caption = self.snap.caption = txt
+        return self.screen(view).group_rects("talk", size)
+
     def set_mood(self, v: int | None) -> None:
         self.mood = None if v is None else max(0, min(4, int(v)))
 

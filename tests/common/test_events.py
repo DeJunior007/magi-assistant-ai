@@ -126,6 +126,8 @@ HUD_MESSAGES = [
     *(c.StateMsg(e) for e in c.Expression),
     c.SubtitleMsg(text="Abrindo Elden Ring."),
     c.SubtitleMsg(text="É o Miyazaki.", full="É o Miyazaki, diretor da FromSoftware.\nLinha 2"),
+    c.SpeechMsg("Abrindo Elden Ring.", dur=1.84, i=0),
+    c.SpeechMsg("Frase em streaming.", i=2),
     c.MouthMsg(0.42),
     *(c.MoodMsg(v) for v in range(c.MOOD_MIN, c.MOOD_MAX + 1)),
     *(c.VoteMsg(v) for v in c.Verdict),
@@ -152,6 +154,9 @@ def test_hud_wire_format_matches_design():
     assert json.loads(ev.encode_hud(c.StateMsg(c.Expression.LISTENING))) == {"t": "state", "v": "listening"}
     assert json.loads(ev.encode_hud(c.SubtitleMsg("a", "b"))) == {"t": "subtitle", "text": "a", "full": "b"}
     assert json.loads(ev.encode_hud(c.MouthMsg(0.42))) == {"t": "mouth", "v": 0.42}
+    speech = c.SpeechMsg("Oi.", dur=1.23456, i=1)
+    assert json.loads(ev.encode_hud(speech)) == {"t": "speech", "text": "Oi.", "dur": 1.235, "i": 1}
+    assert json.loads(ev.encode_hud(c.SpeechMsg("Oi."))) == {"t": "speech", "text": "Oi.", "i": 0}
     assert json.loads(ev.encode_hud(c.MoodMsg(2))) == {"t": "mood", "v": 2}
     assert json.loads(ev.encode_hud(c.VoteMsg(c.Verdict.DENIED))) == {"t": "vote", "verdict": "denied"}
     card = c.CardMsg(c.CardLevel.ALTA, "T", "U")
@@ -176,6 +181,10 @@ def test_hud_wire_format_matches_design():
         '{"t": "card", "level": "alta"}',
         '{"t": "vote", "verdict": "maybe"}',
         '{"t": "cmd", "name": 3}',
+        '{"t": "speech"}',
+        '{"t": "speech", "text": "a", "dur": "1"}',
+        '{"t": "speech", "text": "a", "dur": -1}',
+        '{"t": "speech", "text": "a", "i": 1.5}',
     ],
 )
 def test_hud_invalid_lines(line):

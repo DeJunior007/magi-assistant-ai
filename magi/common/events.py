@@ -48,6 +48,7 @@ from magi.common.contracts import (
     SatelliteHello,
     SatelliteStatus,
     SatelliteToCore,
+    SpeechMsg,
     StateMsg,
     StopPlayback,
     SubtitleMsg,
@@ -301,6 +302,14 @@ def _hud_subtitle(d: Mapping[str, Any]) -> SubtitleMsg:
     return SubtitleMsg(text=_h(d, "text", str), full=_h(d, "full", str, None))
 
 
+def _hud_speech(d: Mapping[str, Any]) -> SpeechMsg:
+    dur = _h(d, "dur", _NUM, None)
+    i = _h(d, "i", int, 0)
+    if (dur is not None and dur < 0) or i < 0:
+        raise HudDecodeError(f"fala com dur/i negativo: {dur!r}/{i!r}")
+    return SpeechMsg(text=_h(d, "text", str), dur=None if dur is None else float(dur), i=i)
+
+
 def _hud_mouth(d: Mapping[str, Any]) -> MouthMsg:
     return MouthMsg(float(_h(d, "v", _NUM)))
 
@@ -333,6 +342,7 @@ def _hud_detail(d: Mapping[str, Any]) -> DetailMsg:
 _HUD_DECODERS: dict[str, Callable[[Mapping[str, Any]], HudMessage]] = {
     StateMsg.T: _hud_state,
     SubtitleMsg.T: _hud_subtitle,
+    SpeechMsg.T: _hud_speech,
     MouthMsg.T: _hud_mouth,
     MoodMsg.T: _hud_mood,
     VoteMsg.T: _hud_vote,

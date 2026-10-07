@@ -534,6 +534,11 @@ class Screen:
                 out += [dev_rect(r, s) for r in rects]
         return out
 
+    def group_rects(self, name: str, size: QSize | None = None) -> list[QRect]:
+        """Retângulos (dispositivo) do grupo ``name``: para invalidar só ele (ex.: a legenda)."""
+        s = self.scale(size or QSize(round(W), round(H)))
+        return [dev_rect(r, s) for r in self.groups().get(name, ())]
+
     def mascot_tick(self, mono: float | None = None, size: QSize | None = None) -> tuple[QRect | None, float]:
         """Avança o mascote; (retângulo a redesenhar ou None, próximo prazo em monotonic)."""
         size = size or QSize(round(W), round(H))

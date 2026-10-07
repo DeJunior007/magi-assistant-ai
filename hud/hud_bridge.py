@@ -97,6 +97,15 @@ def _m_subtitle(d: dict[str, Any]) -> dict[str, Any]:
     return _opt({"t": "subtitle", "text": _field(d, "text", str)}, full=_field(d, "full", str, None))
 
 
+def _m_speech(d: dict[str, Any]) -> dict[str, Any]:
+    dur = _field(d, "dur", (int, float), None)
+    i = _field(d, "i", int, 0)
+    if (dur is not None and dur < 0) or i < 0:
+        raise DecodeError(f"fala com dur/i negativo: {dur!r}/{i!r}")
+    out = {"t": "speech", "text": _field(d, "text", str), "i": i}
+    return _opt(out, dur=None if dur is None else round(float(dur), 3))
+
+
 def _m_mouth(d: dict[str, Any]) -> dict[str, Any]:
     v = float(_field(d, "v", (int, float)))
     return {"t": "mouth", "v": round(min(1.0, max(0.0, v)), 3)}
@@ -139,6 +148,7 @@ def _m_detail(d: dict[str, Any]) -> dict[str, Any]:
 _MIN_DECODERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "state": _m_state,
     "subtitle": _m_subtitle,
+    "speech": _m_speech,
     "mouth": _m_mouth,
     "mood": _m_mood,
     "vote": _m_vote,
@@ -215,6 +225,7 @@ class HudBridge(QObject):
       message(dict)          toda mensagem válida, já normalizada
       stateChanged(str)      expressão do rosto: sleeping, listening, thinking, ...
       subtitle(str, str)     legenda curta e resposta completa
+      speech(str, float, int) frase começando a tocar: texto, duração em s (-1 = sem) e índice
       mouth(float)           nível da boca 0..1 (~20/s enquanto fala)
       mood(int)              termômetro 0..4
       vote(str, str)         veredito (pending/approved/denied) e rótulo da ação
@@ -226,6 +237,7 @@ class HudBridge(QObject):
     message = Signal(dict)
     stateChanged = Signal(str)
     subtitle = Signal(str, str)
+    speech = Signal(str, float, int)
     mouth = Signal(float)
     mood = Signal(int)
     vote = Signal(str, str)
@@ -264,6 +276,7 @@ class HudBridge(QObject):
         self._dispatch: dict[str, Callable[[dict[str, Any]], None]] = {
             "state": lambda m: self.stateChanged.emit(m["v"]),
             "subtitle": lambda m: self.subtitle.emit(m["text"], m.get("full") or ""),
+            "speech": lambda m: self.speech.emit(m["text"], float(m.get("dur", -1.0)), int(m.get("i", 0))),
             "mouth": lambda m: self.mouth.emit(float(m["v"])),
             "mood": lambda m: self.mood.emit(int(m["v"])),
             "vote": lambda m: self.vote.emit(m["verdict"], m.get("label") or ""),

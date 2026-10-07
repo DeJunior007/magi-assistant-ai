@@ -35,6 +35,7 @@ sys.path.insert(0, HERE)
 import orgb  # noqa: E402
 import hud_bridge  # noqa: E402
 from face import Face  # noqa: E402
+from speech_caption import SpeechCaption  # noqa: E402
 from wired.data import ClaudeStats  # noqa: E402
 from wired.integration import CARD_DETAIL, WiredUI, rgb_hex  # noqa: E402
 
@@ -1110,11 +1111,16 @@ class HUD(QWidget):
         self.face_timer = QTimer(self, timeout=self.face_tick)
         self.face_timer.setSingleShot(True)
         self.face_timer.setTimerType(Qt.PreciseTimer)
+        # legenda que se escreve conforme ela fala: timer próprio, só enquanto revela
+        self.speech_caption = SpeechCaption()
+        self.caption_timer = QTimer(self, timeout=self.caption_tick)
+        self.caption_timer.setSingleShot(True)
         self.bridge = bridge if bridge is not None else hud_bridge.HudBridge(parent=self)
         b = self.bridge
         b.stateChanged.connect(self.on_face_state)
         b.mouth.connect(self.on_face_mouth)
         b.subtitle.connect(self.on_face_subtitle)
+        b.speech.connect(self.on_face_speech)
         b.detail.connect(self.on_bridge_detail)
         b.mood.connect(self.on_bridge_mood)
         b.vote.connect(self.on_bridge_vote)
@@ -1152,6 +1158,8 @@ class HUD(QWidget):
             self.face.set_state(expr)
         except ValueError:
             return
+        self.speech_caption.on_state(expr, time.monotonic())
+        self.caption_tick()
         if self.wired:
             self.wired.set_state(expr)
             self.wired_refresh()
@@ -1159,16 +1167,44 @@ class HUD(QWidget):
 
     def on_face_mouth(self, level):
         self.face.set_mouth_level(level)
+        if self.speech_caption.on_mouth(time.monotonic()):   # o áudio começou: a estimativa parte daqui
+            self.caption_tick()
         if self.wired:
             self.wired.set_mouth(level)
         self.face_tick()
 
     def on_face_subtitle(self, text, full=""):
-        self.face.set_subtitle(text)
+        self.speech_caption.on_subtitle(text)
+        self.caption_tick()
         if self.wired:
-            self.wired.set_caption(text)
             self.wired_refresh()
         self.face_tick()
+
+    def on_face_speech(self, text, dur=-1.0, index=0):
+        """Frase começando a tocar no satélite: a legenda passa a revelá-la no tempo do áudio."""
+        self.speech_caption.on_speech(text, dur if dur and dur > 0 else None, time.monotonic())
+        self.caption_tick()
+
+    def caption_tick(self):
+        """Legenda que se escreve conforme ela fala: troca só o texto e redesenha só o grupo da
+        fala (wired) ou o rosto, no ritmo das palavras (até 30 Hz); parada, o timer para."""
+        now = time.monotonic()
+        sc = self.speech_caption
+        txt = sc.text(now)
+        if self.wired:
+            rects = self.wired.caption_rects(txt, self.view, self.size())
+            if rects and not self.trans and self.isVisible() and self.width() > 1:
+                for r in rects:
+                    self.update(r)
+        if txt != self.face.subtitle:
+            self.face.set_subtitle(txt)
+            if not self.wired:
+                self.face_tick()
+        deadline = sc.deadline(now)
+        if deadline is None:
+            self.caption_timer.stop()
+        else:
+            self.caption_timer.start(max(1, math.ceil((deadline - now) * 1000)))
 
     def on_bridge_connected(self, up):
         if up and self.wired:   # voltou: some a interferência do retrato
@@ -1176,6 +1212,8 @@ class HUD(QWidget):
         if not up:   # núcleo fora do ar: a Magui dorme e a legenda some
             self.face.set_state("sleeping")
             self.face.set_subtitle("")
+            self.speech_caption = SpeechCaption()
+            self.caption_timer.stop()
             if self.wired:
                 self.wired.on_connected(False)
                 self.wired_refresh()

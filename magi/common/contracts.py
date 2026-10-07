@@ -14,8 +14,8 @@ Mapa rápido
   ``to_event(msg) -> wyoming Event`` e ``from_event(event) -> msg``.
 - Núcleo: ``Transcript``, ``Slot``, ``Intent``, ``RouteResult``, ``TurnContext``,
   ``ActionRequest``, ``ActionResult``, ids canônicos em ``IntentId`` e ``SlotName``.
-- HUD (§6): ``StateMsg``, ``SubtitleMsg``, ``MouthMsg``, ``MoodMsg``, ``VoteMsg``, ``CardMsg``,
-  ``CmdMsg``, ``DetailMsg``. JSON de uma linha via ``magi.common.events.encode_hud`` /
+- HUD (§6): ``StateMsg``, ``SubtitleMsg``, ``SpeechMsg``, ``MouthMsg``, ``MoodMsg``, ``VoteMsg``,
+  ``CardMsg``, ``CmdMsg``, ``DetailMsg``. JSON de uma linha via ``magi.common.events.encode_hud`` /
   ``decode_hud`` (ou ``msg.to_json()``).
 - Provedores (§4.7): ``SttProvider``, ``TtsProvider``, ``ChatProvider``, ``VisionProvider``,
   ``EmbeddingProvider``, ``SearchProvider``, ``ProviderRegistry``, ``KeyPool``, ``Budget``.
@@ -653,6 +653,25 @@ class SubtitleMsg(_HudMsg):
 
 
 @dataclass(frozen=True, slots=True)
+class SpeechMsg(_HudMsg):
+    """núcleo -> HUD ``{"t":"speech","text":"…","dur":1.84,"i":0}``: a frase ``i`` do turno
+    começa a tocar agora e dura ``dur`` segundos (legenda que se escreve conforme ela fala).
+    ``dur`` omitido quando ``None`` (TTS em streaming: o HUD estima pela velocidade da fala).
+    Não substitui ``subtitle``: ele continua levando a legenda inteira e a resposta completa."""
+
+    T: ClassVar[str] = "speech"
+    text: str
+    dur: float | None = None
+    i: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"t": self.T, "text": self.text, "i": self.i}
+        if self.dur is not None:
+            d["dur"] = round(float(self.dur), 3)
+        return d
+
+
+@dataclass(frozen=True, slots=True)
 class MouthMsg(_HudMsg):
     """satélite -> núcleo -> HUD ``{"t":"mouth","v":0.42}``: nível da boca 0..1 (R17.2)."""
 
@@ -774,7 +793,9 @@ class DetailMsg(_HudMsg):
         return {"t": self.T, "v": self.v.value}
 
 
-HudMessage = StateMsg | SubtitleMsg | MouthMsg | MoodMsg | VoteMsg | CardMsg | CmdMsg | DetailMsg
+HudMessage = (
+    StateMsg | SubtitleMsg | SpeechMsg | MouthMsg | MoodMsg | VoteMsg | CardMsg | CmdMsg | DetailMsg
+)
 
 
 # ---------------------------------------------------------------------------------------------

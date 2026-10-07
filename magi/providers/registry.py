@@ -234,6 +234,12 @@ class GuardedTts(_Guarded):
         #: Voz de ``[tasks].tts.voice`` ("" = padrão do backend); entra na chave do cache de frases.
         self.voice = str(self._ctx.options.get("voice") or "")
 
+    @property
+    def whole_sentence(self) -> bool:
+        """O backend entrega cada frase inteira de uma vez (Kokoro): a duração do áudio é
+        conhecida antes de tocar, e a legenda do HUD acompanha a fala com ela."""
+        return bool(getattr(self._backend, "whole_sentence", False))
+
     def synthesize(self, text: str | AsyncIterable[str], *, personal: bool) -> AsyncIterator[bytes]:
         self._check_personal(personal)  # recusa já na chamada, antes de consumir o texto
         return self._stream(text, personal)

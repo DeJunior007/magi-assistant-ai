@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import inspect
 import logging
 import time
 import unicodedata
@@ -62,6 +63,7 @@ from magi.common.contracts import (
     SatelliteLink,
     SatelliteStatus,
     Speaker,
+    SpeechMsg,
     StateMsg,
     StopPlayback,
     SttProvider,
@@ -481,6 +483,9 @@ class TurnMachine:
         self._in_call = False
         self._last_text: str | None = None
         self._last_at: datetime | None = None
+        # legenda sincronizada: avisos de frase de uma fala interrompida não chegam ao HUD
+        self._speech_gen = 0
+        self._hud_tasks: set[asyncio.Task[None]] = set()
 
     # -- consulta ------------------------------------------------------------------------------
 
@@ -573,7 +578,7 @@ class TurnMachine:
         self._offer = offer
         await self._go(TurnState.SPEAKING, expression)
         # A volta a ``sleeping`` vem com ``playback-done`` (ou erro, via ``_guard``).
-        self._start(speaker.say(said.speech, self.link, personal=False))
+        self._start(speaker.say(said.speech, self.link, personal=False, **self._captions(speaker.say)))
         return True
 
     async def close(self) -> None:
@@ -801,7 +806,7 @@ class TurnMachine:
         async def play(texts: AsyncIterator[str]) -> None:
             if self._state is not TurnState.SPEAKING:
                 await self._go(TurnState.SPEAKING)
-            await say_stream(texts, self.link, personal=True)
+            await say_stream(texts, self.link, personal=True, **self._captions(say_stream))
 
         return EarlySpeech(play)
 
@@ -885,9 +890,29 @@ class TurnMachine:
         if result.speech and speaker is not None:
             await self._go(TurnState.SPEAKING, result.expression)
             # Último passo da tarefa: a continuação vem com ``playback-done`` (ou nova ativação).
-            await speaker.say(result.speech, self.link, personal=True)
+            await speaker.say(result.speech, self.link, personal=True, **self._captions(speaker.say))
             return
         await self._after_speaking()
+
+    def _captions(self, speak: Callable[..., Any]) -> dict[str, Any]:
+        """``on_sentence`` para o ``say``/``say_stream`` do speaker, se ele aceitar: cada frase,
+        ao começar a tocar, vai ao HUD como ``speech`` (texto, duração, índice) e a legenda se
+        escreve conforme ela fala. Speaker sem o parâmetro (fakes, antigos): nada muda."""
+        try:
+            if "on_sentence" not in inspect.signature(speak).parameters:
+                return {}
+        except (TypeError, ValueError):
+            return {}
+        gen = self._speech_gen
+
+        def on_sentence(text: str, dur: float | None, index: int) -> None:
+            if gen != self._speech_gen:
+                return  # fala interrompida: o aviso agendado ficou para trás
+            task = asyncio.get_running_loop().create_task(self.hud.send(SpeechMsg(text, dur, index)))
+            self._hud_tasks.add(task)
+            task.add_done_callback(self._hud_tasks.discard)
+
+        return {"on_sentence": on_sentence}
 
     def _cancel_timer(self) -> None:
         if self._timer is not None and self._timer is not asyncio.current_task():
@@ -896,6 +921,7 @@ class TurnMachine:
 
     async def _cancel_work(self) -> None:
         """Cancela tarefa e prazo em curso e descarta gravação e confirmação pendentes."""
+        self._speech_gen += 1
         self._cancel_timer()
         task, self._task = self._task, None
         if task is not None and task is not asyncio.current_task() and not task.done():

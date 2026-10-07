@@ -15,6 +15,11 @@
   regravadas cortadas na primeira leitura).
 - ``say_stream`` (1.24): frases que vão chegando (fala por frase do agente) num único envio
   ``audio-start`` … ``audio-stop``, uma atrás da outra.
+- Legenda sincronizada: com ``on_sentence`` (``say``/``say_stream``), cada frase avisa quando começa
+  a tocar no satélite, com a duração do áudio (``_Playhead``). O envio vai mais rápido que o tempo
+  real, então o "começa a tocar" é estimado: fim das frases anteriores ou agora, o que vier depois.
+  Duração conhecida antes de tocar = frase do cache ou provedor que sintetiza a frase inteira de uma
+  vez (``whole_sentence``, ex.: Kokoro); TTS em streaming avisa sem duração (``None``).
 - Erro do TTS não trava o turno: o envio termina (``audio-stop``) com o que saiu até ali, para o
   satélite responder ``playback-done``; a legenda já foi para o HUD.
 """
@@ -40,6 +45,8 @@ log = logging.getLogger(__name__)
 
 PHRASES_FILE = Path(__file__).with_name("phrases.yaml")
 DEFAULT_CACHE_MAX_BYTES = 64 * 1024 * 1024
+#: Aviso de frase começando a tocar: (texto, duração em s ou ``None``, índice no envio).
+OnSentence = Callable[[str, float | None, int], None]
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 _SPACES = re.compile(r"\s+")
 #: Limiar do silêncio inicial (1.24): |amostra| abaixo de -50 dBFS (16 bits: ~104) é silêncio.
@@ -266,29 +273,68 @@ class PhraseSpeaker:
 
     # -- Speaker -----------------------------------------------------------------------------
 
-    async def say(self, text: str, link: SatelliteLink, *, personal: bool) -> None:
+    async def say(
+        self, text: str, link: SatelliteLink, *, personal: bool, on_sentence: OnSentence | None = None
+    ) -> None:
         text = _SPACES.sub(" ", text).strip()
         if not text:
             return
         self._start_warm()
         provider = self.provider()
-        await link.play(self._speak(provider, text, personal), provider.output_format)
+        await link.play(self._speak_all(provider, _one(text), personal, on_sentence), provider.output_format)
 
-    async def say_stream(self, texts: AsyncIterable[str], link: SatelliteLink, *, personal: bool) -> None:
+    async def say_stream(
+        self,
+        texts: AsyncIterable[str],
+        link: SatelliteLink,
+        *,
+        personal: bool,
+        on_sentence: OnSentence | None = None,
+    ) -> None:
         """Fala as frases de ``texts`` conforme chegam, num único envio ao satélite (1.24)."""
         self._start_warm()
         provider = self.provider()
-        await link.play(self._speak_all(provider, texts, personal), provider.output_format)
+        await link.play(self._speak_all(provider, texts, personal, on_sentence), provider.output_format)
 
     async def _speak_all(
-        self, provider: TtsProvider, texts: AsyncIterable[str], personal: bool
+        self,
+        provider: TtsProvider,
+        texts: AsyncIterable[str],
+        personal: bool,
+        on_sentence: OnSentence | None = None,
     ) -> AsyncIterator[bytes]:
-        async for raw in texts:
-            text = _SPACES.sub(" ", raw).strip()
-            if not text:
-                continue
-            async for pcm in self._speak(provider, text, personal):
-                yield pcm
+        clock = _Playhead(provider.output_format, on_sentence) if on_sentence is not None else None
+        whole = bool(getattr(provider, "whole_sentence", False))
+        try:
+            async for raw in texts:
+                text = _SPACES.sub(" ", raw).strip()
+                if not text:
+                    continue
+                audio = self._speak(provider, text, personal)
+                if clock is None:
+                    async for pcm in audio:
+                        yield pcm
+                    continue
+                known: int | None = None
+                if whole or self._in_cache(provider, text):
+                    # o áudio da frase sai inteiro de uma vez: junta para saber a duração antes de tocar
+                    parts = [pcm async for pcm in audio]
+                    known = sum(map(len, parts))
+                    audio = _replay(parts)
+                first = True
+                async for pcm in audio:
+                    if first:
+                        clock.start(text, known)
+                        first = False
+                    clock.advance(len(pcm))
+                    yield pcm
+        except BaseException:
+            if clock is not None:
+                clock.cancel()  # interrompida: as frases que ainda iam "começar" não avisam mais
+            raise
+
+    def _in_cache(self, provider: TtsProvider, text: str) -> bool:
+        return self.phrases.cacheable(text) and self.key(text, provider) in self.cache
 
     async def _speak(self, provider: TtsProvider, text: str, personal: bool) -> AsyncIterator[bytes]:
         """PCM de uma frase: do cache se houver; senão do TTS (e vai para o cache se for frase
@@ -391,3 +437,54 @@ async def _chunks(pcm: bytes, fmt: PcmFormat) -> AsyncIterator[bytes]:
     step = max(fmt.bytes_for_ms(CHUNK_MS), fmt.width * fmt.channels)
     for i in range(0, len(pcm), step):
         yield pcm[i : i + step]
+
+
+async def _one(text: str) -> AsyncIterator[str]:
+    yield text
+
+
+async def _replay(parts: list[bytes]) -> AsyncIterator[bytes]:
+    for pcm in parts:
+        yield pcm
+
+
+class _Playhead:
+    """Relógio da reprodução no satélite para a legenda sincronizada.
+
+    O envio ao satélite vai mais rápido que o tempo real (ele enfileira), então a frase ``n``
+    começa a tocar quando as anteriores acabam ou agora, se o satélite já esvaziou a fila. Nesse
+    instante (``call_later``) avisa ``on_sentence(texto, duração, índice)``. ``advance`` soma o
+    áudio enviado; ``cancel`` descarta os avisos ainda agendados (interrupção)."""
+
+    def __init__(self, fmt: PcmFormat, on_sentence: OnSentence) -> None:
+        self._bps = max(1, fmt.rate * fmt.width * fmt.channels)
+        self._on = on_sentence
+        self._end = 0.0  # loop.time() em que o áudio já enviado termina de tocar
+        self._index = 0
+        self._handles: list[asyncio.TimerHandle] = []
+
+    def start(self, text: str, nbytes: int | None) -> None:
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        begin = max(now, self._end)
+        self._end = begin
+        dur = None if nbytes is None else nbytes / self._bps
+        index, self._index = self._index, self._index + 1
+        if begin - now < 0.005:
+            self._fire(text, dur, index)
+        else:
+            self._handles.append(loop.call_later(begin - now, self._fire, text, dur, index))
+
+    def advance(self, nbytes: int) -> None:
+        self._end += nbytes / self._bps
+
+    def cancel(self) -> None:
+        for handle in self._handles:
+            handle.cancel()
+        self._handles.clear()
+
+    def _fire(self, text: str, dur: float | None, index: int) -> None:
+        try:
+            self._on(text, dur, index)
+        except Exception as e:  # noqa: BLE001 - legenda nunca trava a fala
+            log.warning("aviso de frase falhou (%s): %s", type(e).__name__, e)
