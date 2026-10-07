@@ -25,5 +25,5 @@ def _reacoes_isoladas(tmp_path, monkeypatch):
     """As reações da Condessa nunca leem nem gravam os arquivos reais (gosto, artistas, faxina)."""
     from wired import reactions
 
-    for name in ("GENRES_FILE", "CLEANUP_FILE", "TASTE_FILE", "SEEN_FILE"):
+    for name in ("GENRES_FILE", "CLEANUP_FILE", "TASTE_FILE", "SEEN_FILE", "FAVORITES_FILE"):
         monkeypatch.setattr(reactions, name, tmp_path / "reacoes" / name.lower())

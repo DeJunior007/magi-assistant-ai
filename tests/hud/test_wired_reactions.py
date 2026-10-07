@@ -90,6 +90,19 @@ def test_careta_rara_e_nunca_de_manha(tmp_path):
     assert play(r, "w", "Ana Castela", 3.0 + 31 * 60).name == "music_hate"
 
 
+def test_favoritas_do_spotify(tmp_path, monkeypatch):
+    from wired import reactions
+
+    fav = tmp_path / "fav.json"
+    fav.write_text(json.dumps({"artists": ["Lucca e Mateus"], "tracks": [["Bonita", "Ana Castela"]]}))
+    monkeypatch.setattr(reactions, "FAVORITES_FILE", fav)
+    r = make(tmp_path)
+    r.observe(snap(), 0.0, 15)
+    assert play(r, "x", "Lucca e Mateus", 1.0).name == "music_tolerate"  # artista favorito dele
+    assert play(r, "Bonita", "Ana Castela", 2.0).name == "music_tolerate"  # faixa favorita dele
+    assert play(r, "Outra", "Ana Castela", 3.0 + 31 * 60).name == "music_hate"
+
+
 def test_favorita_do_pedro_e_jogando(tmp_path):
     r = make(tmp_path, '[pedro]\nfavoritas = ["Ana Castela"]\n')
     r.observe(snap(), 0.0, 15)

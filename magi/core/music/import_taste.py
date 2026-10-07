@@ -50,6 +50,10 @@ RECENT_PLAY = 0.02  # 50 execuções = 1 artista em 1º no prazo curto
 REFRESH_S = 24 * 3600.0  # reimportação 1×/dia
 CHECK_S = 3600.0
 STATE_FILE = "taste-import.json"
+FAVORITES_FILE = "pedro-favoritas.json"  # lido pelo HUD: favorita do Pedro nunca leva careta
+FAVORITE_ARTISTS = 20
+FAVORITE_RANGES = ("short_term", "medium_term")
+FAVORITE_TRACKS = 20  # por prazo
 
 
 class SpotifyGetter(Protocol):
@@ -173,6 +177,27 @@ async def import_if_empty(repo: Any, api: SpotifyApi | None = None) -> ImportRep
             await api.aclose()
 
 
+def favorites(rep: ImportReport) -> dict[str, list]:
+    """Os artistas de maior peso e as faixas do topo recente/médio: o que o HUD trata como
+    "favorita do Pedro" (a Condessa tolera em vez de fazer careta)."""
+    artists = [e.artist for e in rep.entries[:FAVORITE_ARTISTS]]
+    tracks: list[list[str]] = []
+    for rng in FAVORITE_RANGES:
+        for t in (rep.data.top_tracks.get(rng) or [])[:FAVORITE_TRACKS]:
+            names = [n for a in t.get("artists") or [] if (n := (a.get("name") or "").strip())]
+            title = (t.get("name") or "").strip()
+            if title and names and [title, names[0]] not in tracks:
+                tracks.append([title, names[0]])
+    return {"artists": artists, "tracks": tracks}
+
+
+def save_favorites(path: Path, rep: ImportReport, at: float) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"at": at, **favorites(rep)}, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
+
+
 def last_import(state_path: Path) -> float | None:
     """Epoch da última importação gravada em ``state_path`` (``None`` se não houver)."""
     try:
@@ -196,12 +221,15 @@ async def import_if_stale(
     now: Callable[[], float] = time.time,
     max_age_s: float = REFRESH_S,
 ) -> ImportReport | None:
-    """Reimporta se a tabela está vazia ou a última importação tem mais de ``max_age_s``.
-    Grava a data só quando algo foi importado. Nunca levanta (roda em segundo plano)."""
+    """Reimporta se a tabela está vazia, a última importação tem mais de ``max_age_s`` ou ainda
+    não há o arquivo de favoritas do HUD. Grava a data (e as favoritas) só quando algo foi
+    importado. Nunca levanta (roda em segundo plano)."""
     own = api is None
+    fav_path = state_path.with_name(FAVORITES_FILE)
     try:
         last = last_import(state_path)
-        if last is not None and now() - last < max_age_s and await repo.count() > 0:
+        fresh = last is not None and now() - last < max_age_s
+        if fresh and fav_path.exists() and await repo.count() > 0:
             return None
         if own:
             api = SpotifyApi()
@@ -211,6 +239,7 @@ async def import_if_stale(
         rep = await import_taste(api, repo)
         if rep.entries:
             _save_last(state_path, now())
+            save_favorites(fav_path, rep, now())
         return rep
     except Exception:
         log.exception("gosto: reimportação falhou")

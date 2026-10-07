@@ -10,7 +10,8 @@ Gosto, regras e falas: ``persona/condessa-gosto.toml``, decidido pelo Conselho d
 (``persona/conselho/``). Gêneros por artista vêm do cache do núcleo
 (``~/.local/share/magi/artist-genres.json``). O Pedro sobrepõe o que quiser em
 ``~/.config/magi/condessa-gosto.toml`` (mesmo formato; ``[falas] musica = false`` desliga os
-comentários de música; ``[pedro] favoritas = ["artista", ...]`` nunca levam careta).
+comentários de música; ``[pedro] favoritas = ["artista", ...]`` nunca levam careta). As
+favoritas do Spotify chegam sozinhas pelo núcleo (``~/.local/share/magi/pedro-favoritas.json``).
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ GENRES_FILE = Path.home() / ".local/share/magi/artist-genres.json"
 CLEANUP_FILE = Path.home() / ".local/share/magi/cleanup_state.json"
 TASTE_FILE = Path.home() / ".config/magi/condessa-gosto.toml"
 SEEN_FILE = Path.home() / ".local/state/magi/condessa-artistas.json"
+FAVORITES_FILE = Path.home() / ".local/share/magi/pedro-favoritas.json"  # do Spotify, pelo núcleo
 
 HOT_C, COOL_C = 85.0, 78.0  # temperatura: entra em "quente" e só sai abaixo de COOL_C
 FPS_DROP = 0.6  # FPS abaixo de 60% da média por 2 leituras seguidas
@@ -134,10 +136,12 @@ class Taste:
     """Gosto da Condessa: acordo do conselho + ajustes do Pedro, relidos quando os arquivos mudam."""
 
     def __init__(self, genres_file: Path | None = None, taste_file: Path | None = None,
-                 council_file: Path | None = None):
+                 council_file: Path | None = None, favorites_file: Path | None = None):
         self.genres_file = genres_file or GENRES_FILE
         self.taste_file = taste_file or TASTE_FILE
         self.council_file = council_file or COUNCIL_FILE
+        self.favorites_file = favorites_file or FAVORITES_FILE
+        self.pedro_tracks: set[tuple[str, str]] = set()
         self._mtimes: tuple = ()
         self.genres: dict[str, list[str]] = {}
         self.cfg: dict = {}
@@ -149,7 +153,7 @@ class Taste:
     # ------------------------------------------------------------ carga
 
     def _reload(self) -> None:
-        files = (self.genres_file, self.taste_file, self.council_file)
+        files = (self.genres_file, self.taste_file, self.council_file, self.favorites_file)
         mt = tuple(p.stat().st_mtime if p.exists() else 0 for p in files)
         if mt == self._mtimes:
             return
@@ -165,7 +169,10 @@ class Taste:
         self.artists = {norm(k): int(v) for k, v in dict(cfg.get("artistas", {})).items()}
         falas = dict(cfg.get("falas", {}))
         self.lines = {"musica": True, "geral": True} | {k: v for k, v in falas.items() if isinstance(v, bool)}
-        self.pedro = {norm(a) for a in dict(cfg.get("pedro", {})).get("favoritas", [])}
+        fav = _load_json(self.favorites_file)
+        mine_fav = dict(cfg.get("pedro", {})).get("favoritas", [])
+        self.pedro = {norm(a) for a in [*mine_fav, *fav.get("artists", [])]}
+        self.pedro_tracks = {(norm(t[0]), norm(t[1])) for t in fav.get("tracks", []) if len(t) >= 2}
 
     def section(self, name: str) -> dict:
         self._reload()
@@ -192,6 +199,12 @@ class Taste:
             if cand and (cand in self.artists or cand in self.genres):
                 return cand
         return ""
+
+    def pedro_favorite(self, title: str, artist: str) -> bool:
+        """Faixa ou artista entre os favoritos do Pedro (Spotify ou ajuste dele)."""
+        key = self.artist_key(artist) or norm(artist or "")
+        first = _SPLIT.split(norm(artist or ""))[0] if artist else ""
+        return key in self.pedro or (norm(title or ""), first) in self.pedro_tracks
 
     def known(self, artist: str) -> bool:
         return bool(self.artist_key(artist))
@@ -449,7 +462,8 @@ class Reactor:
         gaming = bool(snap.gaming)
         claude = bool(getattr(snap.claude, "running", 0))
         v = self.taste.verdict(title, artist, hour, plays, gaming, claude)
-        rkey, variant, mood = self._decide(v, plays, gaming, hour, now)
+        pedro = self.taste.pedro_favorite(title, artist)
+        rkey, variant, mood = self._decide(v, plays, gaming, hour, now, pedro)
         if rkey is None:
             return
         fmt = {"artist": artist}
@@ -464,13 +478,13 @@ class Reactor:
         talk = not gaming or variant == "batalha"  # jogando, só a fala de chefe passa
         self.fire(rkey, now, line, music=True, mood=mood, talk=talk)
 
-    def _decide(self, v: Verdict, plays: int, gaming: bool, hour: int,
-                now: float) -> tuple[str | None, str | None, str | None]:
+    def _decide(self, v: Verdict, plays: int, gaming: bool, hour: int, now: float,
+                pedro: bool = False) -> tuple[str | None, str | None, str | None]:
         """Reação (chave, variante da fala, humor) para o veredito, pelas regras do acordo."""
         note, night = v.note, _in_hours(hour, self.taste.ctx("madrugada", [22, 4]))
         if gaming and note not in (2, -2):
             return None, None, None  # jogando: o rosto só reage aos extremos
-        if note <= -1 and v.artist and v.artist in self.taste.pedro:
+        if note <= -1 and pedro:
             return "music_tolerate", None, None
         if v.artist and v.artist == self.favorite_of_day() and not self._fav_used:
             self._fav_used = True

@@ -235,3 +235,23 @@ async def test_import_if_stale_once_a_day(tmp_path):
     assert repo.upserts == 2
     repo.n = 0  # tabela vazia: importa mesmo com data recente
     assert await it.import_if_stale(repo, state, FakeApi(), now=now) is not None
+
+
+class TopApi:
+    async def get(self, path, params=None):
+        if path == "/me/top/artists":
+            return {"items": [{"name": "Ado"}, {"name": "Ana Castela"}]}
+        if path == "/me/top/tracks" and (params or {}).get("time_range") == "short_term":
+            return {"items": [{"name": "Usseewa", "artists": [{"name": "Ado"}]}]}
+        return {"items": []}
+
+
+async def test_favoritas_do_pedro_vao_para_o_hud(tmp_path):
+    state = tmp_path / "d" / it.STATE_FILE
+    repo = FakeTaste(5)
+    assert await it.import_if_stale(repo, state, TopApi(), now=lambda: 100.0) is not None
+    fav = json.loads((tmp_path / "d" / it.FAVORITES_FILE).read_text())
+    assert fav["artists"][:2] == ["Ado", "Ana Castela"]
+    assert ["Usseewa", "Ado"] in fav["tracks"]
+    (tmp_path / "d" / it.FAVORITES_FILE).unlink()  # sem o arquivo do HUD: importa mesmo com data recente
+    assert await it.import_if_stale(repo, state, TopApi(), now=lambda: 200.0) is not None
