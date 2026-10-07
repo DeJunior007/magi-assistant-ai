@@ -197,9 +197,10 @@ def test_partes_olhos_boca_e_noite(tmp_path):
     assert m.eyes_id(100.0 + BLINK_LEN * 0.1) == "B2" and m.eyes_id(100.0 + BLINK_LEN * 0.5) == "B3"
     m.set_expression("speaking")
     m.set_level(0.3)
-    assert m.mouth_id() == "C2"
+    assert m.mouth_id(10.0) == "C2"  # fala normal: entreaberta
     m.set_level(0.9)
-    assert m.mouth_id() == "C3"
+    assert m.mouth_id(10.03) == "C2"  # segura a boca por 70 ms (sem piscar)
+    assert m.mouth_id(10.1) == "C3"  # aberta só no pico
     m.set_expression("sleeping")
     assert m.eyes_id(1.0) == "B1"  # de dia, dormindo = parada e respirando
     hour[0] = 23

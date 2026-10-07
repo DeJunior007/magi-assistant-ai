@@ -36,7 +36,7 @@ FADE_BOTTOM = 0.14  # o busto some aos poucos embaixo (sem corte reto no painel)
 NECK_X = (370, 660)  # abaixo do queixo a cabeça (P5) fica só com pescoço e gola
 CHIN_Y = 560
 ARMS = ("P7", "P8")
-LOW_ARM_Y = 820  # abaixo disto o braço pode aparecer mesmo onde a base mostra cabelo
+ARM_TOP_Y = 740  # os braços só aparecem abaixo disto (acima, o ombro é do corpo)
 PARTS = {"P1": "back", "P2": "tail_l", "P3": "tail_r", "P7": "arm_l", "P8": "arm_r", "P6": "body",
          "E1": "bangs"}
 
@@ -114,16 +114,11 @@ def not_shirt(base: Image.Image) -> np.ndarray:
 
 
 def arm_area(base: Image.Image) -> np.ndarray:
-    """Onde um braço pode aparecer: perto de pele de braço na base ou no trecho baixo (escondido pelo
-    cabelo), nunca sobre a camisa. Corta ombros que a IA desenhou altos demais."""
-    a = np.asarray(base).astype(np.int32)
-    r, g, b = a[..., 0], a[..., 1], a[..., 2]
-    y = np.arange(SIZE)[:, None]
-    skin = (r > 190) & (g > 140) & (b > 110) & (r > g) & (g > b) & (r - b > 30) & (y > CHIN_Y + 60)
-    near = Image.fromarray((skin * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(25))
-    near = np.asarray(near.filter(ImageFilter.GaussianBlur(6))).astype(np.float32) / 255
-    low = np.clip((y.astype(np.float32) - LOW_ARM_Y) / 40, 0, 1) * np.ones((1, SIZE), np.float32)
-    return np.maximum(near, low) * not_shirt(base)
+    """Onde um braço pode aparecer: abaixo do ombro (o ombro já vem inteiro no corpo, P6) e nunca
+    sobre a camisa. Corta ombros que a IA desenhou altos demais (viravam borrão entre as mechas)."""
+    y = np.arange(SIZE, dtype=np.float32)[:, None]
+    below = np.clip((y - ARM_TOP_Y) / 30, 0, 1) * np.ones((1, SIZE), np.float32)
+    return below * not_shirt(base)
 
 
 def neck_only() -> np.ndarray:
