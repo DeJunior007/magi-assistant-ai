@@ -36,12 +36,14 @@ from .main_screen import (
 )
 from .mascot import EXPRESSIONS, Mascot
 from .portrait import make_mascot
+from .reactions import Reactor
 from .standby_screen import StandbyScreen
 from .theme import CPU, GPU, LINE, PANEL, RAM, TEXT, TEXT_DIM, alpha, color
 
 CARD_DETAIL = {"card:cpu": "cpu", "card:gpu": "gpu", "card:ram": "mem"}  # alvo → ProcStats.poll
 PLAYER = ("prev", "playpause", "next")
 ALERT_LEVELS = ("bomba", "alta")  # cards da ponte que viram aviso no rodapé
+IDLE_STATES = ("sleeping", "listening")  # parada: as reações do HUD aparecem no rosto
 RADIO_SOURCE = "radio"  # cards das notícias contadas no modo rádio (Rádio Ayanami)
 DETAIL_RECT = SCENE.adjusted(1, 1, -1, -1)  # painel de detalhes cobre o "cam 01"
 DETAIL_INFO = {
@@ -140,8 +142,10 @@ class WiredUI:
         self.news: deque[tuple[str, str]] = deque(maxlen=8)  # Rádio Ayanami: (HH:MM, manchete)
         self.claude = claude  # ClaudeStats (consumo do Claude Code); None = painel sem dado
         self.snap = Snapshot()
+        self.reactor = Reactor()  # reações dela ao HUD, à música e aos cliques (só rosto/texto)
 
     def screen(self, view: str) -> MainScreen | StandbyScreen:
+        self.mascot.layout = "idle" if view == "idle" else "main"
         return self.standby if view == "idle" else self.main
 
     # ---------------------------------------------------------------- dados (1 Hz)
@@ -176,7 +180,24 @@ class WiredUI:
             mouth_level=self.mouth_level, caption=self.caption, mood=self.mood)
         self.snap.news = list(self.news)
         self.snap.claude = self.claude.view if self.claude is not None else None
+        self._react(time.monotonic())
         return self.snap
+
+    def _react(self, mono: float) -> None:
+        r = self.reactor
+        r.observe(self.snap, mono)
+        if self.magui_state not in IDLE_STATES:
+            r.cancel()
+        self.mascot.react(r.active(mono), r.until)
+        if self.caption is None and self.magui_state in IDLE_STATES:
+            self.snap.caption = r.caption(mono)  # a fala dela (texto, sem voz)
+
+    def on_click(self, target: str, mono: float | None = None) -> None:
+        """Clique do Pedro no HUD: ela olha para lá (e às vezes comenta em texto)."""
+        mono = time.monotonic() if mono is None else mono
+        self.reactor.on_click(target, mono)
+        if self.magui_state in IDLE_STATES:
+            self.mascot.react(self.reactor.active(mono), self.reactor.until)
 
     # ---------------------------------------------------------------- LED (RGB Sync)
 

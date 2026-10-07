@@ -42,7 +42,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap, QRadialGradient
+from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
 
 from .mascot import BLINK_LEN, EXPRESSIONS, FPS_AWAKE, Mascot
 
@@ -394,7 +394,8 @@ class PartsAssets:
         cfg = tomllib.loads((self.folder / "portrait.toml").read_text(encoding="utf-8"))
         self.states: dict[str, dict] = {str(k): dict(v) for k, v in dict(cfg.get("states", {})).items()}
         self.speech = [str(m) for m in dict(cfg.get("speech", {})).get("mouths", ["C1", "C2", "C3"])]
-        self.gazes = [dict(v) for v in dict(cfg.get("gaze", {})).values()]
+        self.gaze_by_name = {str(k): dict(v) for k, v in dict(cfg.get("gaze", {})).items()}
+        self.gazes = list(self.gaze_by_name.values())
         self._cache: dict[str, QPixmap | None] = {}
         head = self.pix("parts/head.png")
         if head is None:
@@ -416,13 +417,13 @@ GLOW_R = 470.0
 
 
 @lru_cache(maxsize=8)
-def _glow(accent: str, side: int) -> QPixmap:
+def _glow(accent: str, side: int, strength: float = 0.30) -> QPixmap:
     """Brilho radial pré-renderizado (o gradiente a cada quadro custava ~0,8 ms)."""
     pm = QPixmap(side, side)
     pm.fill(Qt.GlobalColor.transparent)
     g = QRadialGradient(QPointF(side / 2, side / 2), side / 2)
     c0, c1 = QColor(accent), QColor(accent)
-    c0.setAlphaF(0.30)
+    c0.setAlphaF(strength)
     c1.setAlphaF(0.0)
     g.setColorAt(0, c0)
     g.setColorAt(1, c1)
@@ -435,20 +436,28 @@ def _glow(accent: str, side: int) -> QPixmap:
 
 
 BACKDROP_FPS = 12.0
+# cor do fundo pelo humor (None = cor de acento do HUD)
+MOOD_COLORS = {"calm": None, "happy": "#f2a7c3", "love": "#ff8fb8", "stress": "#e8604a",
+               "sad": "#6f8fe0", "focus": "#5fd0e0", "surprise": "#f0d070", "sleepy": "#7a6aa8"}
+TINT_EASE = 0.6  # s para o fundo chegar à cor nova
+VOICE_ATTACK, VOICE_RELEASE = 0.05, 0.35  # s: o fundo cresce rápido com a voz e volta devagar
+VOICE_GROW = 0.10  # até +10% de tamanho na voz mais alta
+BOB_HZ = 1.6  # balanço de cabeça na música favorita (~96 bpm)
 
 
-def _render_backdrop(accent: QColor, side: int, now: float) -> QPixmap:
+def _render_backdrop(accent: QColor, side: int, now: float, env: float = 0.0, mood: float = 0.0) -> QPixmap:
+    """``env``: voz (0..1) acende os anéis; ``mood``: 0 calma .. 1 humor forte (brilho mais intenso)."""
     pm = QPixmap(side, side)
     pm.fill(Qt.GlobalColor.transparent)
     q = QPainter(pm)
     q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     q.scale(side / 1024, side / 1024)
-    glow = _glow(accent.name(), max(1, round(side * GLOW_R * 2 / 1024)))
+    glow = _glow(accent.name(), max(1, round(side * GLOW_R * 2 / 1024)), round(0.30 + 0.25 * mood, 2))
     q.drawPixmap(QRectF(512 - GLOW_R, 430 - GLOW_R, GLOW_R * 2, GLOW_R * 2), glow, QRectF(glow.rect()))
     for i, r in enumerate((250, 340, 430)):
         c = QColor(accent)
-        c.setAlphaF(0.30 - i * 0.07)
-        q.setPen(QPen(c, 3.0))
+        c.setAlphaF(min(1.0, (0.30 - i * 0.07) * (1 + 1.2 * env + 0.6 * mood)))  # voz/humor acendem
+        q.setPen(QPen(c, 3.0 + 2.0 * env))
         ang = math.radians(now * (4 + i * 2) * (1 if i % 2 == 0 else -1))
         pts = [QPointF(512 + r * math.cos(ang + k * math.pi / 3), 430 + r * math.sin(ang + k * math.pi / 3))
                for k in range(7)]
@@ -546,6 +555,36 @@ class PartsPortrait(Mascot):
         self._mouth = "C1"
         self._mouth_since = -math.inf
         self._bd: tuple | None = None  # fundo em cache: (chave, quando, pixmap)
+        self._tint: list[float] | None = None  # cor atual do fundo (r, g, b), vai até a do humor
+        self._env = 0.0  # envelope da voz (0..1): o fundo expande junto
+        self._moodk = 0.0  # 0 calma .. 1 humor forte (o brilho do fundo acende)
+        self._tick_at: float | None = None
+        self.accent = QColor("#b4a0e6")
+
+    def _reacting(self, now: float):
+        """A reação em curso, se ela está parada (falando/pensando, a fala manda)."""
+        r = self.reaction
+        if r is None or now >= self.reaction_until or not self._resting():
+            return None
+        return r
+
+    def _look_gaze(self, r) -> dict | None:
+        if r is None or not r.look:
+            return None
+        from .reactions import LOOK_DIRS
+
+        name = LOOK_DIRS.get(self.layout, LOOK_DIRS["main"]).get(r.look)
+        return self.assets.gaze_by_name.get(name) if name else None
+
+    def mood(self, now: float) -> str:
+        r = self._reacting(now)
+        if r is not None:
+            return r.mood
+        if self.state == "sleeping" and self._night():
+            return "sleepy"
+        from .reactions import MOOD_OF_STATE
+
+        return MOOD_OF_STATE.get(self.state, "calm")
 
     # -- estado
     def _night(self) -> bool:
@@ -562,7 +601,7 @@ class PartsPortrait(Mascot):
         return self.assets.states.get(st) or self.assets.states.get("listening") or {}
 
     def _advance_gaze(self, now: float) -> None:
-        if not self.assets.gazes or not self._resting():
+        if not self.assets.gazes or not self._resting() or self._reacting(now) is not None:
             self._gaze = None
             return
         if self._gaze is not None and now >= self._gaze_end:
@@ -581,14 +620,24 @@ class PartsPortrait(Mascot):
             half, closed = (cfg.get("blink") or ["B2", "B3"])[:2]
             t = (now - self._blink_at) / BLINK_LEN
             return closed if 1 / 3 <= t < 2 / 3 else half
+        r = self._reacting(now)
+        if r is not None:
+            if r.eyes and self.assets.has(f"eyes/{r.eyes}.png"):
+                return r.eyes
+            look = self._look_gaze(r)
+            if look is not None:
+                return str(look.get("eyes", cfg.get("eyes", "B1")))
         if self._gaze is not None:
             return str(self._gaze.get("eyes", cfg.get("eyes", "B1")))
         return str(cfg.get("eyes", "B1"))
 
     def mouth_id(self, now: float | None = None) -> str:
-        if self.state != "speaking":
-            return str(self._state_cfg().get("mouth", "C1"))
         now = self._now if now is None else now
+        if self.state != "speaking":
+            r = self._reacting(now)
+            if r is not None and r.mouth and self.assets.has(f"mouth/{r.mouth}.png"):
+                return r.mouth
+            return str(self._state_cfg().get("mouth", "C1"))
         mouths = self.assets.speech
         lvl = self.level
         i = 0 if lvl < MOUTH_LEVELS[0] else (1 if lvl < MOUTH_LEVELS[1] else 2)
@@ -603,7 +652,14 @@ class PartsPortrait(Mascot):
         self._now = now
         self._advance(now)
         self._advance_gaze(now)
-        tgt = (float(self._gaze.get("dx", 0)), float(self._gaze.get("dy", 0))) if self._gaze else (0.0, 0.0)
+        dt = 0.0 if self._tick_at is None else max(0.0, min(0.25, now - self._tick_at))
+        self._tick_at = now
+        want = self.level if self.state == "speaking" else 0.0
+        tau = VOICE_ATTACK if want > self._env else VOICE_RELEASE
+        self._env += (want - self._env) * (1 - math.exp(-dt / tau)) if dt else 0.0
+        self._ease_tint(now, dt)
+        gaze = self._look_gaze(self._reacting(now)) or self._gaze
+        tgt = (float(gaze.get("dx", 0)), float(gaze.get("dy", 0))) if gaze else (0.0, 0.0)
         self._head[0] += (tgt[0] - self._head[0]) * GAZE_EASE
         self._head[1] += (tgt[1] - self._head[1]) * GAZE_EASE
         fps = PARTS_FPS_SLEEP if self.sleeping and self._night() else PARTS_FPS
@@ -629,6 +685,12 @@ class PartsPortrait(Mascot):
         head_dy = 2.0 * breath + 3.0 * talk  # falando, a cabeça acompanha a voz
         tilt = 0.6 * math.sin(now * 0.5) + 0.25 * math.sin(now * 1.3 + 0.7)  # inclinação lenta
         sway = 1.5 * math.sin(now * 0.35)  # o corpo balança de leve para os lados
+        r = self._reacting(now)
+        if r is not None and r.bob:  # curtindo a música: a cabeça vai no ritmo
+            fade = min(1.0, (self.reaction_until - now) / 1.0, 1.0)
+            beat = math.sin(2 * math.pi * BOB_HZ * now)
+            tilt += 2.4 * fade * beat
+            head_dy += 2.5 * fade * abs(beat)
         p.save()
         p.setClipRect(rect, Qt.ClipOperation.IntersectClip)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
@@ -655,7 +717,8 @@ class PartsPortrait(Mascot):
             p.drawPixmap(box, pm, QRectF(pm.rect()))
             p.restore()
 
-        self._backdrop(p, now, QColor(accent), -0.9 * hx - 0.8 * sway, -0.7 * hy - 0.5 * head_dy)
+        self.accent = QColor(accent)
+        self._backdrop(p, now, -0.9 * hx - 0.8 * sway, -0.7 * hy - 0.5 * head_dy)
         # ordem: cabelo de trás, marias-chiquinhas, braços, corpo, cabeça; as mechas que caem na frente
         # dos ombros vêm da franja (desenhada por último)
         draw("parts/back.png", -0.4 * hx + 0.5 * sway, -0.3 * hy + 1.5 * breath,
@@ -671,20 +734,87 @@ class PartsPortrait(Mascot):
         draw("parts/bangs.png", 1.25 * hx + sway, 1.2 * hy + head_dy, 0.6 * math.sin(now * 1.3),
              (512.0, 100.0), head=True)
         self._effects(p, now, QColor(accent), hx, hy + head_dy)
+        if r is not None and r.effect:
+            self._reaction_effect(p, now, r.effect, hx, hy + head_dy)
         p.restore()
 
-    def _backdrop(self, p: QPainter, now: float, accent: QColor, bx: float, by: float) -> None:
+    def _ease_tint(self, now: float, dt: float) -> None:
+        hexc = MOOD_COLORS.get(self.mood(now)) or self.accent.name()
+        c = QColor(hexc)
+        want = [c.redF(), c.greenF(), c.blueF()]
+        if self._tint is None or not dt:
+            self._tint = self._tint or want
+            return
+        k = 1 - math.exp(-dt / TINT_EASE)
+        self._tint = [a + (b - a) * k for a, b in zip(self._tint, want, strict=True)]
+        self._moodk += ((0.0 if self.mood(now) == "calm" else 1.0) - self._moodk) * k
+
+    def tint(self) -> QColor:
+        """Cor atual do fundo, em degraus (o brilho em cache não é refeito a cada quadro)."""
+        r, g, b = (self._tint or [self.accent.redF(), self.accent.greenF(), self.accent.blueF()])
+        q = lambda v: min(255, round(v * 255 / 6) * 6)  # noqa: E731
+        return QColor(q(r), q(g), q(b))
+
+    def _backdrop(self, p: QPainter, now: float, bx: float, by: float) -> None:
         """Fundo com parallax: brilho e hexágonos finos que andam ao contrário dela (profundidade).
-        Desenhado numa imagem a ``BACKDROP_FPS`` (gira devagar); a cada quadro só é deslocado."""
+        Muda de cor com o humor e cresce com a voz. Desenhado numa imagem a ``BACKDROP_FPS``
+        (gira devagar); a cada quadro só é deslocado (e, falando, escalado)."""
         side = max(1, round(p.transform().m11() * 1024))
-        key = (accent.name(), side)
-        if self._bd is None or self._bd[0] != key or now - self._bd[1] >= 1 / BACKDROP_FPS:
-            self._bd = (key, now, _render_backdrop(accent, side, now))
+        tint = self.tint()
+        key = (tint.name(), side, round(self._env * 4), round(self._moodk * 4))
+        if self._bd is None or self._bd[0] != key and now - self._bd[1] >= 1 / 30 \
+                or now - self._bd[1] >= 1 / BACKDROP_FPS:
+            self._bd = (key, now, _render_backdrop(tint, side, now, self._env, round(self._moodk * 4) / 4))
         pm = self._bd[2]
         origin = p.transform().map(QPointF(bx, by))
+        grow = 1.0 + VOICE_GROW * self._env
         p.save()
         p.resetTransform()
-        p.drawPixmap(round(origin.x()), round(origin.y()), pm)
+        if grow < 1.004:
+            p.drawPixmap(round(origin.x()), round(origin.y()), pm)
+        else:  # expande a partir do centro do brilho
+            cx, cy = origin.x() + side * 512 / 1024, origin.y() + side * 430 / 1024
+            w = side * grow
+            p.drawPixmap(QRectF(cx - w * 512 / 1024, cy - w * 430 / 1024, w, w), pm, QRectF(pm.rect()))
+        p.restore()
+
+    def _reaction_effect(self, p: QPainter, now: float, kind: str, hx: float, hy: float) -> None:
+        """Efeitos da reação (quadro de 1024): suor, notas, ?, !, rubor. Somem no fim."""
+        from . import fonts
+
+        alpha = max(0.0, min(1.0, (self.reaction_until - now) / 0.6))
+        p.save()
+        p.setOpacity(alpha)
+        if kind == "sweat":  # gota escorrendo ao lado da testa
+            x, y = 330 + hx, 300 + hy + 18 * ((now * 0.5) % 1.0)
+            path = QPainterPath(QPointF(x, y - 30))
+            path.cubicTo(QPointF(x + 19, y - 4), QPointF(x + 26, y + 16), QPointF(x, y + 16))
+            path.cubicTo(QPointF(x - 26, y + 16), QPointF(x - 19, y - 4), QPointF(x, y - 30))
+            p.setPen(QPen(QColor("#2a3550"), 3))
+            p.setBrush(QColor(150, 200, 255, 210))
+            p.drawPath(path)
+        elif kind == "notes":  # notas subindo e sumindo
+            for i in range(3):
+                ph = (now / 2.4 + i / 3) % 1.0
+                c = QColor("#ffd6e6")
+                c.setAlphaF(max(0.0, 1.0 - ph))
+                p.setPen(c)
+                p.setFont(fonts.font("cond", 80 + i * 12, 700))
+                x = 760 + i * 40 + 18 * math.sin(now * 2 + i)
+                p.drawText(QPointF(x + hx, 330 - 160 * ph + hy), "♪" if i % 2 else "♫")
+        elif kind in ("question", "bang"):
+            sc = 1.0 + 0.08 * math.sin(now * 6)
+            p.setPen(QColor("#e8b04a") if kind == "bang" else self.tint())
+            p.setFont(fonts.font("cond", 100 * sc, 700))
+            p.drawText(QPointF(770 + hx, 250 + hy), "!" if kind == "bang" else "?")
+        elif kind == "blush":
+            c = QColor(BLUSH)
+            c.setAlphaF(0.6)
+            p.setPen(QPen(c, 5))
+            for cx in (420.0, 610.0):
+                for i in range(4):
+                    x = cx + hx + i * 14
+                    p.drawLine(QPointF(x, 515 + hy), QPointF(x + 12, 495 + hy))
         p.restore()
 
     def _effects(self, p: QPainter, now: float, accent: QColor, hx: float, hy: float) -> None:

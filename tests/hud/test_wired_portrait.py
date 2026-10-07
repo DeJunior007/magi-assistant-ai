@@ -229,3 +229,25 @@ def test_partes_parada_de_dia_anima_a_60(tmp_path):
     m._last_tick = -1e9
     _, nxt = m.tick(200.0)
     assert nxt - 200.0 == pytest.approx(1 / PARTS_FPS_SLEEP)
+
+
+def test_partes_reacao_olha_e_muda_o_fundo(tmp_path):
+    from wired.portrait import MOOD_COLORS, PartsAssets, PartsPortrait
+    from wired.reactions import REACTIONS
+
+    write_parts(tmp_path)
+    m = PartsPortrait(PartsAssets(tmp_path), "listening", now=0.0)
+    m.hour = lambda: 14
+    m.react(REACTIONS["hot"], 5.0)
+    assert m.eyes_id(1.0) == "F1"  # olha para o MAGI system (à esquerda)
+    assert m.mood(1.0) == "stress"
+    for k in range(120):
+        m.tick(1.0 + k / 60)
+    assert m.tint().red() > 200  # o fundo foi para o vermelho
+    assert m.mood(6.0) == "calm"  # acabou a reação
+    m.set_expression("speaking")
+    m.set_level(1.0)
+    for k in range(30):
+        m.tick(10.0 + k / 60)
+    assert m._env > 0.9  # a voz expande o fundo
+    assert MOOD_COLORS["calm"] is None

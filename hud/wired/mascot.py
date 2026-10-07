@@ -87,6 +87,9 @@ class Mascot:
         self._force = False
         self._last_key: tuple | None = None
         self._last_draw = -math.inf
+        self.reaction = None  # reactions.Reaction em curso (só o retrato em partes usa)
+        self.reaction_until = 0.0
+        self.layout = "main"  # "main" (painel) ou "idle" (espera): para onde fica cada painel
 
     # ------------------------------------------------------------ entrada
 
@@ -103,6 +106,12 @@ class Mascot:
 
     def set_level(self, level: float) -> None:
         self.level = min(1.0, max(0.0, float(level)))
+
+    def react(self, reaction, until: float) -> None:
+        """Reação ao HUD/música (``wired.reactions``) até ``until`` (monotonic); None limpa."""
+        if reaction is not self.reaction:
+            self._dirty = True
+        self.reaction, self.reaction_until = reaction, until
 
     set_state = set_expression  # mesma API do face.py
     set_mouth_level = set_level

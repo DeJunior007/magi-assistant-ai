@@ -1462,7 +1462,10 @@ class HUD(QWidget):
             self.open_detail(target)
 
     def wired_click(self, target):
-        """Cliques do tema wired: LED → RGB Sync, player → MPRIS, cards → detalhes por processo."""
+        """Cliques do tema wired: LED → RGB Sync, player → MPRIS, cards → detalhes por processo.
+        A Condessa olha para onde o Pedro clicou (wired.reactions)."""
+        self.wired.on_click(target)
+        self.face_tick()
         if target == "face":
             self.bridge.send_cmd("push_to_talk")
         elif target == "led":
