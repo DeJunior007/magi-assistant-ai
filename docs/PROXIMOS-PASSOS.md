@@ -68,29 +68,42 @@ Implementado e testado com dublês; falta conferir no uso real:
 - **Satélite no Raspberry Pi (futuro, R22):** o protocolo já é Wyoming + eventos `magi-*` com
   identificador de satélite; falta empacotar o `magi-satellite` para ARM e um áudio de saída no Pi.
 
-## 7. Retrato da Condessa
+## 7. Condessa no HUD (retrato 2.5D, reações e conselho)
 
-- **Por quê:** o rosto do HUD ainda é o mascote vetorial. O motor do retrato em camadas (busto
-  anime: piscada, olhar, boca pela voz, respiração, 7 expressões) já existe em
-  `hud/wired/portrait.py`; falta a arte.
-- **O que falta:** gerar/desenhar as camadas conforme `docs/design/CONDESSA-RETRATO.md` e
-  copiar para `~/.local/share/magi/condessa/`. Com a arte em mãos, rever o espaço do rosto no
-  painel (hoje 260×150, pensado para o mascote).
-- **Como validar:** `uv run python -m hud.tools.portrait_check prancha.png` sem pendências e o
-  HUD reaberto mostrando o retrato nos estados dormindo/ouvindo/falando.
+- **Feito:** retrato 2.5D em partes a 60 fps (respiração, cabelo em pêndulo, olhar com parallax,
+  boca pela voz, fundo com parallax que muda de cor pelo humor e cresce com a voz); reações só no
+  rosto ao HUD, à música e aos cliques (`hud/wired/reactions.py`); personalidade e gosto decididos
+  pelo **Conselho da Condessa** (`persona/`, comando `/conselho`).
+- **O que falta:**
+  - **B15** (olhos totalmente fechados, dormindo): gerar e rodar `hud/tools/condessa_build.py`.
+  - **D1–D9** (rubor, suor, zz, ?, !, notas, lágrima, veia, brilho) como arte: hoje são desenhados
+    em código; com a arte, trocar pelo PNG.
+  - **Favoritas do Pedro** automáticas: hoje só por `[pedro] favoritas` no
+    `~/.config/magi/condessa-gosto.toml`; dá para puxar do top do Spotify (o núcleo já tem o OAuth).
+  - **"Condessa, sem comentário de música"** por voz: hoje só pelo arquivo (`[falas] musica = false`).
+  - Reações a mais da persona: Claude Code concluindo, PC travado/jogo caiu (emburrada leve, rara).
+- **Como validar:** uma semana de uso olhando se as reações e falas aparecem na medida (sem
+  poluir) e se a Favorita do Dia/madrugada fazem sentido; CPU do HUD ≤ 10% de um núcleo.
 
-## 8. Autoconserto e painel do Claude Code
+## 8. Autoconserto
 
-- **Por quê:** a Magui perceber um problema (serviço caiu, banco fora) e chamar o Claude Code para
-  investigar/propor o conserto, sem console aberto; e mostrar no HUD o consumo e as sessões.
-- **O que já existe:** `magi/maintenance/claude_usage.py` (só leitura dos registros locais:
-  tokens do dia por modelo, sessões ativas e rodando; incremental, ~4 ms por leitura).
-- **O que falta:** decidir os níveis e o lugar do painel — proposta com os limites de segurança em
-  `docs/design/AUTOCONSERTO.md`.
+- **Feito:** painel do Claude Code no HUD (tokens do dia, janela de 5 h, sessões rodando).
+- **Parado:** o autoconserto (a Magui chamar o Claude Code sozinha) foi bloqueado pelo classificador
+  de segurança; o código está num `git stash` ("autoconserto (bloqueado…)"). **Decisão do Pedro:**
+  descartar o stash ou retomar só no nível A (diagnóstico, sem editar nada) depois de liberar a
+  permissão. Proposta e limites em `docs/design/AUTOCONSERTO.md`.
 
-## 9. Decisões em aberto
+## 9. Validações ao vivo das features novas
 
-- **Nome da assistente:** "Magui" (nome no código, persona e HUD) ou "Condessa" (hoje só a palavra
-  de ativação).
-- **Voz:** hoje `gpt-4o-mini-tts` com a voz `nova`; ouvir as alternativas em `~/Music/magi-vozes/`
-  e decidir. Troca a quente em `[tasks] tts.voice`.
+| Item | O que conferir |
+| --- | --- |
+| FIFA 22 por voz | "Bora bater uma bola": abre o `fifaconfig` centralizado no monitor principal; FPS do MangoHud aparece no HUD e trava em 188. |
+| Faxina do SSD | O timer diário (`magi-clean`) roda, a Magui avisa e a Condessa sorri no HUD. |
+| Rádio Ayanami | Notícias em PT, "quer ouvir outra?", "conta mais dessa" com resumo local. |
+
+## 10. Decisões em aberto
+
+- **Nome da assistente:** "Magui" (nome no código, persona e HUD) ou "Condessa" (palavra de
+  ativação e rosto do HUD).
+- **Voz:** decidida — `gpt-4o-mini-tts` com a voz `marin` e instruções de voz jovem
+  (`~/.config/magi/config.toml`). Alternativas locais ficaram em `~/Music/magi-vozes/`.
