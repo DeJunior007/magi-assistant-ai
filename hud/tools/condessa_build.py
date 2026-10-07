@@ -33,6 +33,10 @@ FEATHER = 16
 HEAD_SPLIT = (690, 730)  # y onde a cabeça (P5, com pescoço e gola) passa a ser o corpo (P6)
 DIFF_MIN = 60  # diferença de cor (soma RGB) que conta como "mudou" no E2
 FADE_BOTTOM = 0.14  # o busto some aos poucos embaixo (sem corte reto no painel)
+NECK_X = (370, 660)  # abaixo do queixo a cabeça (P5) fica só com pescoço e gola
+CHIN_Y = 560
+ARMS = ("P7", "P8")
+LOW_ARM_Y = 820  # abaixo disto o braço pode aparecer mesmo onde a base mostra cabelo
 PARTS = {"P1": "back", "P2": "tail_l", "P3": "tail_r", "P7": "arm_l", "P8": "arm_r", "P6": "body",
          "E1": "bangs"}
 
@@ -97,6 +101,39 @@ def patch(im: Image.Image, mask: np.ndarray) -> Image.Image:
     return Image.fromarray(np.dstack([a, mask * 255]).astype(np.uint8), "RGBA")
 
 
+def not_shirt(base: Image.Image) -> np.ndarray:
+    """0 onde a base mostra camisa/gola/gravata (o braço gerado às vezes invade o tronco), 1 fora."""
+    a = np.asarray(base).astype(np.int32)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    lo, hi = np.minimum(np.minimum(r, g), b), np.maximum(np.maximum(r, g), b)
+    white = (lo > 165) & (hi - lo < 28)
+    tie = (r > 120) & (g < 60) & (b < 80) & (r - b > 70)
+    m = Image.fromarray(((white | tie) * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(9))
+    m = np.asarray(m.filter(ImageFilter.GaussianBlur(3))).astype(np.float32) / 255
+    return 1.0 - m
+
+
+def arm_area(base: Image.Image) -> np.ndarray:
+    """Onde um braço pode aparecer: perto de pele de braço na base ou no trecho baixo (escondido pelo
+    cabelo), nunca sobre a camisa. Corta ombros que a IA desenhou altos demais."""
+    a = np.asarray(base).astype(np.int32)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    y = np.arange(SIZE)[:, None]
+    skin = (r > 190) & (g > 140) & (b > 110) & (r > g) & (g > b) & (r - b > 30) & (y > CHIN_Y + 60)
+    near = Image.fromarray((skin * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(25))
+    near = np.asarray(near.filter(ImageFilter.GaussianBlur(6))).astype(np.float32) / 255
+    low = np.clip((y.astype(np.float32) - LOW_ARM_Y) / 40, 0, 1) * np.ones((1, SIZE), np.float32)
+    return np.maximum(near, low) * not_shirt(base)
+
+
+def neck_only() -> np.ndarray:
+    """1 em cima do queixo; abaixo, só a faixa do pescoço/gola (as laterais ficam com as mechas)."""
+    m = Image.new("L", (SIZE, SIZE), 0)
+    m.paste(255, (0, 0, SIZE, CHIN_Y))
+    m.paste(255, (NECK_X[0], 0, NECK_X[1], SIZE))
+    return np.asarray(m.filter(ImageFilter.GaussianBlur(10))).astype(np.float32) / 255
+
+
 def bottom_fade() -> np.ndarray:
     y = np.arange(SIZE, dtype=np.float32)[:, None]
     start = SIZE * (1 - FADE_BOTTOM)
@@ -121,7 +158,8 @@ def build(src: Path, out: Path) -> list[str]:
         if im is None:
             report.append(f"falta {ident} ({name})")
             continue
-        with_alpha(chroma(im), bottom_fade()).save(out / "parts" / f"{name}.png")
+        factor = bottom_fade() * (arm_area(base) if ident in ARMS else 1.0)
+        with_alpha(chroma(im), factor).save(out / "parts" / f"{name}.png")
     # cabeça = P5 até o pescoço; o corpo vem do P6 (junta esfumada)
     head = load(src, "P5")
     if head is None:
@@ -129,7 +167,7 @@ def build(src: Path, out: Path) -> list[str]:
     else:
         y = np.arange(SIZE, dtype=np.float32)[:, None]
         fade = np.clip((HEAD_SPLIT[1] - y) / (HEAD_SPLIT[1] - HEAD_SPLIT[0]), 0, 1) * np.ones((1, SIZE))
-        with_alpha(chroma(head), fade).save(out / "parts" / "head.png")
+        with_alpha(chroma(head), fade * neck_only()).save(out / "parts" / "head.png")
     eyes, mouth = rect_mask(EYES_BOX), rect_mask(MOUTH_BOX)
     patch(base, eyes).save(out / "eyes" / "B1.png")
     patch(base, mouth).save(out / "mouth" / "C1.png")
