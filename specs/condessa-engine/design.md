@@ -340,7 +340,24 @@ para intenções `conserto`. O vigia `guard` continua no `autofix.py` e é reusa
 | Branch da intenção desatualizado em relação ao principal | conflito no merge | merge mostra conflito e fica em HUMAN_OK; pergunta P8 |
 | Projeto da empresa entra por engano | violação de regra fixa | recusa por caminho e remoto, checada antes de qualquer leitura, testada |
 
-## 20. Perguntas em aberto
+## 20. Decisões do Pedro (2026-10-07) sobre as perguntas em aberto
+
+| Pergunta | Decisão |
+| --- | --- |
+| P1 PRD em intenções grandes | **Não** revisa: aprovação só no merge, sempre (D2). |
+| P2 Jev na camada de ferramentas | **Ao vivo:** hook `PreToolUse` do Claude Code veta na hora caminho proibido e comando fora da lista (nova task E2.7, depois de E2.5); o diff continua conferido no fim. |
+| P3 Artefatos de projetos pessoais | Padrão: em `engine/sdd/` deste repositório. |
+| P4 REVIEW | Padrão: agente revisor só de leitura; o Jev consolida. |
+| P5 Cota | **Autoimplementação: 3 sessões por janela de 5 h** (`max_sessions_per_window = 3` para o projeto `condessa`). **Se o VS Code estiver aberto** (processo `code`/`codium` do usuário), o Engine **pergunta antes** de abrir sessão (voz + HUD) e só segue com "pode". |
+| P6 Tamanho de diff | Padrão: 400 linhas e 10 arquivos por task. |
+| P7 Merge em projeto pessoal | Padrão: só merge local, sem push/PR automático. |
+| P8 Ramo principal andou | Padrão: só avisa o conflito no merge (sem rebase automático). |
+| P9 Propostas da Condessa | **Seguem sozinhas** até o merge, no máximo 1 aberta por vez e 2 por semana. |
+| P10 Teto de 128k | Padrão: ocupação do contexto. |
+| P11 `deploy/**`, `hud/system/**` | Padrão: proibidos para o projeto próprio. |
+
+## 21. Perguntas em aberto (histórico)
+
 
 Registradas aqui em vez de decididas por conta própria (o PDF não responde):
 

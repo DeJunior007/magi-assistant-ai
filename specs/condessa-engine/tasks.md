@@ -292,6 +292,6 @@ Ver design §19. Os que afetam a ordem das tarefas:
 
 ## Perguntas em aberto
 
-Ver design §20 (P1–P11). Bloqueiam tarefas: **P3** (onde ficam os artefatos de projetos pessoais)
+Respondidas em design §20 (2026-10-07): P2 vira a task E2.7 (hook `PreToolUse`), P5 = 3 sessões por janela na autoimplementação e pergunta antes com o VS Code aberto, P9 = propostas seguem sozinhas. Histórico: **P3** (onde ficam os artefatos de projetos pessoais)
 afeta E2.2 e E3.1; **P6** (limite de diff) afeta só o valor padrão em E1.1; **P9** (proposta entra
 sozinha?) afeta E3.6; **P2** (hook `PreToolUse`) seria uma tarefa nova depois de E2.5.
