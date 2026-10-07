@@ -92,5 +92,10 @@ de teste e "aplica o conserto" para ver o vigia reiniciar (e desfazer, se quebra
 
 - **Nome da assistente:** "Magui" (nome no código, persona e HUD) ou "Condessa" (palavra de
   ativação e rosto do HUD).
+- **Voz local (prioridade baixa, decidir depois):** trocar a síntese da OpenAI por uma local
+  (sem custo, sem rede). Caminhos: clonar a `marin` a partir de `~/Music/magi-vozes/condessa-jovem`
+  (F5-TTS/XTTS em PT-BR; medir latência na RX 9060 XT ou CPU) ou o Kokoro, já baixado em
+  `~/.cache/magi/kokoro` (leve, voz `pf_dora`, mais robótica). Também abre a porta para a Ayanami
+  ter voz própria no rádio.
 - **Voz:** decidida — `gpt-4o-mini-tts` com a voz `marin` e instruções de voz jovem
   (`~/.config/magi/config.toml`). Alternativas locais ficaram em `~/Music/magi-vozes/`.
