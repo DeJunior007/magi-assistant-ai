@@ -364,7 +364,7 @@ def _scaled_frame(assets: FrameAssets, n: int, w: int, h: int) -> QPixmap | None
 
 PARTS_ORDER = ("back", "tail_l", "tail_r", "arm_l", "arm_r", "body", "head")
 PARTS_FPS = 60.0  # acordada: respira, balança o cabelo, olha
-PARTS_FPS_SLEEP = 6.0  # dormindo: só respira (barato)
+PARTS_FPS_SLEEP = 6.0  # dormindo à noite: só respira (barato); de dia parada segue a 60
 BREATH_PERIOD = 4.2
 GAZE_EVERY = (6.0, 14.0)
 GAZE_LEN = (1.5, 3.2)
@@ -478,6 +478,26 @@ def _head_group(assets: PartsAssets, eyes: str, mouth: str, side: int) -> tuple[
     return pm, hbox
 
 
+@lru_cache(maxsize=8)
+def _torso_group(assets: PartsAssets, side: int) -> tuple[QPixmap, QRectF] | None:
+    """Braços + corpo numa imagem só (andam juntos com a respiração: um drawPixmap em vez de três)."""
+    parts = [x for x in (_scaled_part(assets, f"parts/{n}.png", side) for n in ("arm_l", "arm_r", "body"))
+             if x is not None]
+    if not parts:
+        return None
+    box = parts[0][1]
+    for _, b in parts[1:]:
+        box = box.united(b)
+    k = side / 1024
+    pm = QPixmap(max(1, round(box.width() * k)), max(1, round(box.height() * k)))
+    pm.fill(Qt.GlobalColor.transparent)
+    q = QPainter(pm)
+    for ppm, pbox in parts:
+        q.drawPixmap(round((pbox.left() - box.left()) * k), round((pbox.top() - box.top()) * k), ppm)
+    q.end()
+    return pm, box
+
+
 def _alpha_box(img: QImage) -> tuple[int, int, int, int] | None:
     """Caixa (x0, y0, x1, y1) dos pixels com alfa, ou None se vazia."""
     img = img.convertToFormat(QImage.Format.Format_ARGB32)
@@ -586,7 +606,7 @@ class PartsPortrait(Mascot):
         tgt = (float(self._gaze.get("dx", 0)), float(self._gaze.get("dy", 0))) if self._gaze else (0.0, 0.0)
         self._head[0] += (tgt[0] - self._head[0]) * GAZE_EASE
         self._head[1] += (tgt[1] - self._head[1]) * GAZE_EASE
-        fps = PARTS_FPS_SLEEP if self.sleeping else PARTS_FPS
+        fps = PARTS_FPS_SLEEP if self.sleeping and self._night() else PARTS_FPS
         frame = 1.0 / fps
         if now - self._last_tick < frame - 1e-6:
             return False, self._last_tick + frame
@@ -644,9 +664,7 @@ class PartsPortrait(Mascot):
             swing = 1.8 * math.sin(now * 1.05 + phase) + 0.5 * math.sin(now * 2.3 + phase * 2)
             draw(f"parts/{name}.png", 0.6 * hx + sway, 0.6 * hy + head_dy, swing + 0.6 * tilt,
                  TAIL_PIVOTS[name])
-        draw("parts/arm_l.png", sway, 3.5 * breath)
-        draw("parts/arm_r.png", sway, 3.5 * breath)
-        draw("parts/body.png", sway, 3.0 * breath)
+        draw("", sway, 3.0 * breath, part=_torso_group(self.assets, side))
         group = _head_group(self.assets, self.eyes_id(now), self.mouth_id(now), side)
         if group is not None:
             draw("", hx + sway, hy + head_dy, head=True, part=group)

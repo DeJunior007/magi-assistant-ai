@@ -216,3 +216,16 @@ def test_partes_olhar_move_a_cabeca(tmp_path):
         m.tick(1.0 + i)
         m._gaze_end = 1e9
     assert m.eyes_id(50.0) == "F1" and m._head[0] < -5  # olhou para a esquerda e a cabeça foi junto
+
+
+def test_partes_parada_de_dia_anima_a_60(tmp_path):
+    from wired.portrait import PARTS_FPS, PARTS_FPS_SLEEP, PartsAssets, PartsPortrait
+    write_parts(tmp_path)
+    m = PartsPortrait(PartsAssets(tmp_path), "sleeping")
+    m.hour = lambda: 14
+    _, nxt = m.tick(100.0)
+    assert nxt - 100.0 == pytest.approx(1 / PARTS_FPS)
+    m.hour = lambda: 2
+    m._last_tick = -1e9
+    _, nxt = m.tick(200.0)
+    assert nxt - 200.0 == pytest.approx(1 / PARTS_FPS_SLEEP)
