@@ -31,6 +31,7 @@ from typing import Any, Literal, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from magi.agent.prompt import GameContext, PromptTooLarge, build_prompt
+from magi.agent.references import REF_CONTEXT, clean, spoken_sentence
 from magi.agent.tools.base import Tool, result_payload
 from magi.common.contracts import (
     ActionResult,
@@ -270,9 +271,13 @@ class GraphAgent:
             log.exception("prompt do agente não cabe no limite")
             return ActionResult(ok=False, speech=SAY_GAVE_UP, expression=Expression.CONFUSED)
         mem_task = asyncio.ensure_future(self.memory.relevant(text)) if self.memory is not None else None
+        # o que libera os termos do Evangelion no filtro de referências: a fala, as trocas e o jogo
+        recent = " ".join(m.content or "" for m in history[-4:])
+        token = REF_CONTEXT.set(f"{text} {recent} {getattr(game, 'name', '') or ''}")
         try:
             return await self._run(text, ctx, messages, mem_task, remake)
         finally:
+            REF_CONTEXT.reset(token)
             if mem_task is not None and not mem_task.done():
                 mem_task.cancel()
 
@@ -334,7 +339,7 @@ class GraphAgent:
         reply = state.get("reply")
         results = state.get("results", [])
         last = results[-1] if results else None
-        full = "" if state.get("final") else (reply.text if reply else "").strip()
+        full = "" if state.get("final") else clean((reply.text if reply else "").strip(), REF_CONTEXT.get())
         # Cards e listas completas das ferramentas (ex.: self_info) seguem para o HUD.
         cards = tuple(c for r in results for c in r.cards)
         if full:
@@ -396,8 +401,14 @@ class _Voice:
             self._held.extend(found)
             return
         for sentence in found:
-            self._early.say(sentence)
-            self.said.append(sentence)
+            kept = spoken_sentence(sentence, len(self._early.spoken), REF_CONTEXT.get())
+            if kept is None:  # referência forçada ("bug de NERV"): não fala nem volta no fim
+                self._early.skipped.append(sentence)
+                continue
+            if kept != sentence:
+                self._early.skipped.append(sentence)
+            self._early.say(kept)
+            self.said.append(kept)
         if self._interim:
             self._early.mark_interim(found)
 

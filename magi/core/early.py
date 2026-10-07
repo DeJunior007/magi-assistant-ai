@@ -37,6 +37,7 @@ class EarlySpeech:
         self.max_sentences = max_sentences
         self.spoken: list[str] = []
         self.interim: list[str] = []  # das faladas, as de espera (não contam no limite)
+        self.skipped: list[str] = []  # cortadas pelo filtro de referências: não voltam no fim
         self._queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._task: asyncio.Task[None] | None = None
         self._closed = False
@@ -64,7 +65,7 @@ class EarlySpeech:
 
     def missing(self, speech: str) -> list[str]:
         """Frases de ``speech`` que ainda não foram faladas."""
-        said = {speech_key(s) for s in self.spoken}
+        said = {speech_key(s) for s in (*self.spoken, *self.skipped)}
         return [s for s in sentences(speech) if speech_key(s) not in said]
 
     async def finish(self, rest: Iterable[str] = ()) -> None:

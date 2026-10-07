@@ -23,6 +23,9 @@ Nada aqui roda em tempo real nem gasta IA no uso normal.
    e o resultado aplicado na persona/dados. Testes, commit.
 
 ## Regras fixas (valem para qualquer acordo)
+- **Orçamento:** cada delegada usa no máximo **128 mil tokens por assunto completo** (todas as
+  rodadas somadas). A secretária confere o uso informado de cada agente a cada rodada; quem chegar
+  perto do teto entrega a posição final e encerra, e o acordo fecha com o que houver.
 - Amiga do Pedro: zoeira pode, ofensa real (aparência, família, assunto sério) não.
 - Honesta: nenhuma fala afirma o que o sistema não sabe.
 - Reações no rosto primeiro; texto raro e curto; voz só quando ele fala com ela.

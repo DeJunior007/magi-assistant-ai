@@ -5,7 +5,9 @@ argument-hint: <assunto a decidir>
 
 Assunto: $ARGUMENTS
 
-Siga `persona/conselho/README.md` à risca:
+Siga `persona/conselho/README.md` à risca. Orçamento: cada delegada usa no máximo 128 mil tokens
+no assunto inteiro (some o uso informado de cada agente a cada rodada; perto do teto, peça a
+posição final e encerre a participação dela). Mande o teto no prompt de cada delegada.
 
 1. Leia `persona/condessa.md`, `persona/condessa-gosto.toml`, `persona/conselho/README.md`, as três
    bios em `persona/conselho/delegadas/` e o `acordo.md` mais recente em `persona/conselho/atas/`.
