@@ -304,9 +304,10 @@ class OpenAIBackend:
         kwargs: dict[str, Any] = {
             "model": ctx.model,
             "file": ("audio.wav", pcm_to_wav(audio, fmt), "audio/wav"),
-            "language": language,
             "timeout": timeout_s(ctx),
         }
+        if language and language != "auto":  # "auto": o modelo detecta (PT ou inglês)
+            kwargs["language"] = language
         if hint:
             kwargs["prompt"] = hint
         with openai_errors(ctx.provider):
@@ -329,7 +330,9 @@ class OpenAIBackend:
         do iterador, faz ``input_audio_buffer.commit`` e espera o
         ``conversation.item.input_audio_transcription.completed``. Sem detecção de turno no
         servidor (o VAD é o do satélite). Uso = segundos de áudio enviados (preço por minuto)."""
-        transcription: dict[str, Any] = {"model": ctx.model, "language": language}
+        transcription: dict[str, Any] = {"model": ctx.model}
+        if language and language != "auto":
+            transcription["language"] = language
         if hint:
             transcription["prompt"] = hint
         session = {

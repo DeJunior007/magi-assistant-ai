@@ -422,7 +422,9 @@ async def assemble(
     agent: AgentFactory | None = default_agent,
 ) -> Core:
     """Monta o núcleo. Nunca levanta por peça faltando: avisa e degrada."""
-    i18n.configure((config.raw.get("speech") or {}).get("language", i18n.DEFAULT))
+    speech_cfg = config.raw.get("speech") or {}
+    i18n.configure(speech_cfg.get("language", i18n.DEFAULT))
+    i18n.configure_listen(speech_cfg.get("listen"))
     budget = SwitchBudget(NullBudget(config.budget.monthly_usd))
     core = Core(deps=TurnDeps(save_audio=utterance_saver(config)), budget=budget)
 

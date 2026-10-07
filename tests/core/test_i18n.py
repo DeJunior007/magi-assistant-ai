@@ -141,3 +141,20 @@ async def test_sink_traduz_fala_e_card():
         CardMsg(CardLevel.ALTA, "Controller at 10% battery"),
         SubtitleMsg("Controller battery at 10%. Best put it on charge."),
     ]
+
+
+def test_escuta_detecta_o_idioma_quando_ela_fala_ingles():
+    from magi.core import i18n
+    from magi.core.stt import _listen
+
+    try:
+        i18n.configure("en-gb")
+        i18n.configure_listen(None)
+        assert i18n.listen_language() == "auto" and _listen("pt") == "auto"  # PT ou inglês
+        assert _listen("en") == "en"  # quem pede um idioma explícito continua mandando
+        i18n.configure("pt-br")
+        i18n.configure_listen(None)
+        assert _listen("pt") == "pt"
+    finally:
+        i18n.configure("pt-br")
+        i18n.configure_listen(None)

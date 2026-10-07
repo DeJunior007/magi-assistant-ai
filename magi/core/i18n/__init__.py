@@ -111,6 +111,20 @@ def language() -> str:
     return _language
 
 
+_listen = "pt"
+
+
+def configure_listen(listen: str | None) -> None:
+    """Idioma que ela entende: "pt", "en"… ou "auto" (detecta). Padrão: "pt" falando
+    português e "auto" falando outro idioma (o Pedro fala português e inglês com ela)."""
+    global _listen
+    _listen = (listen or ("pt" if _language == DEFAULT else "auto")).strip().lower()
+
+
+def listen_language() -> str:
+    return _listen
+
+
 def language_name() -> str:
     """Nome do idioma para instruções a modelos ("inglês britânico (en-GB)")."""
     return NAMES.get(_language, _language)

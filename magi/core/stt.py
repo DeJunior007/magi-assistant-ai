@@ -154,7 +154,9 @@ class HintedStt:
     async def transcribe(
         self, audio: bytes, fmt: PcmFormat, *, hint: str = "", language: str = "pt", personal: bool
     ) -> Transcript:
-        """Transcreve em memória (R3.6). Falha ou texto vazio → ``Transcript.raw("")`` (R3.5)."""
+        """Transcreve em memória (R3.6). Falha ou texto vazio → ``Transcript.raw("")`` (R3.5).
+        ``language`` padrão ("pt") segue ``[speech] listen`` ("auto" = o modelo detecta)."""
+        language = _listen(language)
         if not audio:
             return Transcript.raw("", language)
         full_hint = await self.build_hint(hint)
@@ -179,6 +181,7 @@ class HintedStt:
     ) -> SttStream | None:
         """Abre a transcrição enquanto fala, se o provedor da config a tem ligada; senão ``None``.
         Não bloqueia: a conexão abre em segundo plano e os pedaços esperam numa fila."""
+        language = _listen(language)
         try:
             inner = self.inner
             if not getattr(inner, "streaming", False):
@@ -190,6 +193,13 @@ class HintedStt:
 
 
 _END = None
+
+
+def _listen(language: str) -> str:
+    """O padrão "pt" dos chamadores vira o idioma de escuta da config ("auto", "en"...)."""
+    from magi.core import i18n
+
+    return i18n.listen_language() if language == "pt" else language
 
 
 class SttStream:
