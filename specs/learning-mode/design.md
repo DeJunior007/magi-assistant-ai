@@ -206,6 +206,33 @@ Não há widget de texto: a seleção é do próprio HUD, em duas camadas.
 A âncora do menu/balão é calculada em `learning_layout.py` a partir do retângulo da última
 palavra selecionada e dos retângulos da coluna — também puro e testado em 1920×1080 e 3440×1440.
 
+> **Validado no LM0.3.** Protótipo de quebra com caixa por palavra (`QFontMetricsF(font("cond", 20)).horizontalAdvance`,
+> coordenadas lógicas; o painter faz `scale(1,333)` e o mouse divide `position()` pela escala) — a mesma lista
+> de caixas pinta e faz o hit-test. Eventos sintéticos (`QMouseEvent` por `sendEvent` e `QTest.mouseClick/
+> mouseDClick/mousePress/mouseMove/mouseRelease`), todos corretos:
+> - clique em "market" → `market`; clique no espaço logo depois de "market" → `market` (mais próxima na linha);
+> - arrasto "buyed"→"apples" (passando pelo meio da palavra) → `buyed some apples.`; arrastar para outra
+>   mensagem durante o mesmo gesto foi ignorado (recorte na mensagem de início ok);
+> - arrasto via QTest "homemade"→"pie" → `homemade apple pie`;
+> - duplo clique em "pie" → frase inteira `Then I was cooking a pie for my family.`.
+>
+> Observações para `learning_text`: (a) a palavra é `\S+`, então a pontuação colada vem junto
+> (`apples.`) — a normalização de spec §5 deve aparar `.,!?;:` nas pontas do intervalo; (b) no Qt 6 o
+> `QTest.mouseMove` herda o botão do `mousePress` anterior, então `mouseMoveEvent` com
+> `e.buttons() & LeftButton` funciona sem `setMouseTracking`; (c) um duplo clique gera
+> press → release → doubleclick → release: o press inicial já seleciona a palavra e o double troca pela frase,
+> e o release final reabre o menu — sem efeito colateral.
+>
+> **Repintura** (`repaint(rect)` síncrono do retângulo `history ∪ overlay`, 1205×538 px físicos, 60 amostras):
+> total mediana **1,2–1,6 ms**, p95 **2,1–2,5 ms**, máx **2,3–3,8 ms**; só o `paintEvent` ≈ 1,2 ms
+> (3 mensagens, ~45 palavras, destaque + menu). Folga grande sobre os 16 ms (RNF-03). Usar `update(rect)` com
+> a união `history ∪ overlay` antigo/novo.
+>
+> **Menu QPainter ancorado:** canto superior esquerdo = (esquerda da última palavra selecionada,
+> base dela + 4 lógicos), confirmado no teste (`anchored: true`). Na 1ª rodada a largura fixa de 220 cortou o
+> rótulo `selected: "…"` (a captura final usa 260): a largura do menu deve sair de `horizontalAdvance` do rótulo truncado (ou ter
+> mínimo ~260 lógicos) e o `learning_layout` deve virar o menu para cima/esquerda quando passar da coluna.
+
 ### 4.3 Entrada de texto (único widget filho)
 
 Hoje o `gamerhud` não tem widgets filhos (é um `QWidget` pintado por inteiro) e a janela tem
@@ -223,6 +250,33 @@ Caminho proposto, do mais simples ao reserva (o spike LM0.3 decide):
    menu (↑↓/Enter) fica só no mouse no MVP.
 
 Nenhum atalho global de teclado (P8).
+
+> **Decisão do LM0.3: caminho 1 (`QLineEdit` filho do gamerhud), trocando a flag pela `QWindow`, não pelo `QWidget`.**
+>
+> Medido no KWin Wayland (janela normal em DP-2 e janela **em tela cheia em DP-1**, como o gamerhud):
+> - `QWidget.setWindowFlag(WindowDoesNotAcceptFocus, False)` + `show()`: o Qt **esconde e recria a
+>   superfície** (eventos `WindowDeactivate, Hide, WinIdChange×2, Move, Show, WindowActivate` em ~20 ms) —
+>   é uma piscada real. Geometria, tela (DP-1) e estado de tela cheia voltaram iguais, mas a troca leva até
+>   ~0,9 s até estabilizar e repete tudo ao devolver a flag. **Evitar.**
+> - `self.windowHandle().setFlag(Qt.WindowDoesNotAcceptFocus, False/True)`: **nenhum evento**, sem
+>   recriação, geometria/tela/tela cheia intactas, foco no campo e texto recebido (`abc`). **Usar este.**
+> - **Achado importante:** no Wayland a flag `WindowDoesNotAcceptFocus` **não impede a ativação** —
+>   a janela de teste já nasceu ativa (`isActiveWindow() == True`, `focusWindow()` = ela) com a flag ligada,
+>   tanto em janela normal quanto em tela cheia em DP-1. Ou seja, no Wayland a troca da flag é
+>   praticamente inócua (manter só por coerência com X11); o que decide o teclado é o KWin ativar a janela
+>   (clique nela ou `requestActivate()`). Consequência para P8/LM-005: o gamerhud provavelmente já toma o
+>   foco do teclado quando clicado hoje — confirmar à mão (clicar no HUD com o jogo aberto em DP-2).
+> - Teclado: `QTest.keyClick(windowHandle(), …)` entra pela `QWindow` e chega ao `QLineEdit` com foco
+>   (`hello`/`abc`). Isso prova o roteamento do Qt + o estado de foco do compositor (`focusWindow`); a
+>   digitação física não foi simulada (sem injeção de entrada) — fica para o teste manual do LM1.6.
+> - O `QLineEdit` filho **não** passa pelo `p.scale()`: geometria **e** tamanho da fonte precisam ser
+>   multiplicados pela escala (`font("cond", 22 * scale)`, retângulo `input` × escala). Stylesheet
+>   `background: transparent; border: none; color: theme.TEXT` fica limpo sobre a moldura pintada (captura).
+>
+> Reserva `Qt.Tool | FramelessWindowHint` com só o `QLineEdit` também funciona (ativa, foco nela, texto
+> `xyz`; HUD sem piscada, só perde a ativação), mas no Wayland a posição global de uma janela de topo é
+> decidida pelo KWin e o Qt só relata o que pediu — não dá para garantir que ela fique sobre o retângulo
+> `input`. Fica descartada enquanto o caminho 1 funcionar.
 
 ### 4.4 Botão LEARNING nas telas atuais (P8)
 
@@ -378,6 +432,14 @@ antes de emitir `lm_*` é preciso confirmar que o cliente do `gamerhud` registra
 Com P1 = A o cliente Learning **é o próprio `gamerhud`**: `hud/hud_bridge.py` manda `lm_hello` ao
 conectar (só ele; `magi-view.py` e outros clientes não) e entrega os `lm_*` ao `learning_model`.
 
+> **Nota LM0.2 (socket do HUD com tipos novos) — decisão: (b) decoder tolerante, sem `lm_hello`.**
+> - `decode_hud` continua estrito: tipo fora de `_HUD_DECODERS` levanta `HudDecodeError` (`magi/common/events.py:363-365`). A tolerância já está em quem chama, nos dois lados.
+> - HUD (`gamerhud`): `HudBridge.feed_line` captura `DecodeError` (que embrulha o `HudDecodeError`, `hud/hud_bridge.py:199-205`; o `_decode_min` faz o mesmo em `:169-171`), registra em debug e **retorna; a conexão segue** (`hud/hud_bridge.py:370-376`; contrato no docstring `:24`). Tipo conhecido sem handler em `_dispatch` também é só ignorado (`:379-380`).
+> - Núcleo: `HudServer._received` faz `log.warning` e retorna para linha inválida ou desconhecida (`magi/core/hud_client.py:129-133`). Um `lm_say` vindo de um HUD novo para um núcleo velho não derruba nada.
+> - Precedente `speech` (hoje): foi difundida a **todos** os clientes por `HudServer.send` (`magi/core/hud_client.py:85-92`), sem handshake. Só entrou em `_HUD_DECODERS` (`events.py:345`) e em `_MIN_DECODERS` (`hud_bridge.py:100,151`). Um HUD que não a conhece descarta a linha.
+> - Consequência para LM1.2: basta registrar as `lm_*` em `_HUD_DECODERS` e em `_MIN_DECODERS`, e difundir pelo `send` existente. Sem filtro por conexão: clientes antigos ignoram `lm_*`. O controle "fora do modo só passa `lm_summary`" vira um filtro **por modo** no núcleo, não por cliente. `lm_hello` fica dispensável (no máximo, opcional, para telemetria).
+> - Cuidado: o lado do núcleo lê com `reader.readline()` no limite padrão do asyncio (64 KiB, `start_unix_server` sem `limit=`, `hud_client.py:64`). Uma linha maior levanta `ValueError` e **derruba a conexão** (`hud_client.py:117-121`). O HUD descarta linhas acima de `MAX_LINE = 64 KiB` (`hud_bridge.py:43,358-361`). Portanto, `lm_say`/`lm_msg` precisam limitar o texto (por exemplo, a 16 KiB) no encoder ou na UI.
+
 ## 10. Entrada e saída do modo (LM-005)
 
 Decisão P8 (2026-10-07): **botão no HUD e voz**, em inglês e português. Sem atalho global de
@@ -507,6 +569,12 @@ precisam dela; isso não é a "malha completa" que o PDF tira do ciclo.
 > largura/1920 = 1,333); o ultrawide 3440×1440 (DP-2) é o principal, onde o Pedro joga. Testes e
 > capturas da tela learning usam 2560×1440; o mockup em 21:9 é referência de hierarquia, não de
 > proporção.
+
+> **LM0.3 confirmou (2026-10-07):** `QGuiApplication.screens()` → `DP-1` = Q27G2SG4, geometria
+> 456,0 **2560×1440**, DPR 1,0; `DP-2` = U34G4C, 0,1440 **3440×1440**, DPR 1,0 (bate com `kscreen-doctor -o`,
+> escala 1 nas duas). Escala do HUD em DP-1 = 2560/1920 = **1,333**. No Wayland uma janela **normal** com
+> `setScreen(DP-1)` + `move()` abriu em **DP-2** (o KWin decide a posição); só `setGeometry(screen.geometry())`
+> + `showFullScreen()` (como o gamerhud já faz) prende em DP-1 — confirmado no teste em tela cheia.
 
 > **P11–P14 respondidas (2026-10-07, Pedro: "pode seguir as propostas"):** P11 sim — ao escolher
 > um tema diferente de Free talk ela puxa o assunto com uma pergunta quando volta a `listening`

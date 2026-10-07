@@ -48,15 +48,15 @@ tamanho do painel, `MASCOT_MAIN` 302 de altura na base 1920 (LM-015 → LM1.5). 
 
 ## Fase LM0 — Base e spikes
 
-- [ ] **LM0.1 Pacote, contratos e config** — `magi/learning/` com `contracts.py` (enums e dataclasses de spec §3, inclusive `Topic`, `TopicContext`, `SessionSummary` e `SavedWord`; serialização JSON ida e volta), seção `[learning]` (com `default_topic`, `topic_picker_s`, `summary_show_s`) e chaves `[tasks] learning_*` em `config.example.toml` com leitura tipada. *(spec §2–§3, ENG-002, LM-008, LM-009)*
+- [x] **LM0.1 Pacote, contratos e config** — `magi/learning/` com `contracts.py` (enums e dataclasses de spec §3, inclusive `Topic`, `TopicContext`, `SessionSummary` e `SavedWord`; serialização JSON ida e volta), seção `[learning]` (com `default_topic`, `topic_picker_s`, `summary_show_s`) e chaves `[tasks] learning_*` em `config.example.toml` com leitura tipada. *(spec §2–§3, ENG-002, LM-008, LM-009)*
   - Lê: design §2–§3, spec §1–§3, `config.example.toml` (só `[tasks]` e `[speech]`, por grep)
-  - Escreve: `magi/learning/__init__.py`, `magi/learning/contracts.py`, `magi/learning/config.py`, `config.example.toml`, `tests/learning/test_contracts.py`
+  - Escreve: `magi/learning/__init__.py`, `magi/learning/contracts.py`, `magi/learning/config.py`, `config.example.toml`, `tests/learning/test_contracts.py`, `tests/common/test_config.py`
   - Depende de: —
   - Orçamento: ~25k
   - Pronto: `uv run pytest -q tests/learning/test_contracts.py` e `uv run ruff check magi/learning` verdes; docstring de cada contrato cita o ID do requisito.
   - Paralelo: LM0.2, LM0.3
 
-- [ ] **LM0.2 Spike: socket do HUD com tipos novos** — confirmar o que o cliente do `gamerhud` faz ao receber tipo desconhecido (`decode_hud` levanta `HudDecodeError`): ignora ou derruba? Decidir entre (a) `lm_hello` + envio só para clientes Learning ou (b) decoder tolerante. Registrar a resposta no fim de design §9 (texto curto). Sem código de produção.
+- [x] **LM0.2 Spike: socket do HUD com tipos novos** — confirmar o que o cliente do `gamerhud` faz ao receber tipo desconhecido (`decode_hud` levanta `HudDecodeError`): ignora ou derruba? Decidir entre (a) `lm_hello` + envio só para clientes Learning ou (b) decoder tolerante. Registrar a resposta no fim de design §9 (texto curto). Sem código de produção.
   - Lê: design §9, spec §6, `magi/common/events.py` (`decode_hud` e `_HUD_DECODERS`), `magi/core/hud_client.py` (classe `HudServer`), `hud/hud_bridge.py` (só o laço de leitura, por grep `decode_hud`)
   - Escreve: `specs/learning-mode/design.md` (§9, nota)
   - Depende de: —
@@ -64,7 +64,7 @@ tamanho do painel, `MASCOT_MAIN` 302 de altura na base 1920 (LM-015 → LM1.5). 
   - Pronto: nota com a opção escolhida e o trecho que a justifica (arquivo:linha).
   - Paralelo: LM0.1, LM0.3
 
-- [ ] **LM0.3 Spike: seleção e hit-test dentro do gamerhud** — script descartável em `scratch/` que abre um `QWidget` com as **mesmas flags do `gamerhud`** (`FramelessWindowHint | WindowDoesNotAcceptFocus`, `WA_OpaquePaintEvent`) no monitor do HUD (`GAMERHUD_SCREEN`), pinta 3 mensagens do exemplo do PDF com fontes de `hud/wired/fonts.py` e cores de `theme.py` usando um protótipo de quebra com caixa por palavra (`QFontMetricsF.horizontalAdvance`). Medir: (1) clique cai na palavra certa, arrasto estende por palavra, duplo clique pega a frase; (2) repintar só o retângulo do histórico/sobreposição leva < 16 ms; (3) menu QPainter ancorado na última palavra; (4) **entrada de texto**: `QLineEdit` filho + tirar/devolver `WindowDoesNotAcceptFocus` em tempo de execução no KWin (pisca? perde posição? recebe teclado?) × reserva `Qt.Tool` só com o `QLineEdit` (design §4.3); (5) qual monitor e resolução é o `DP-1` (P10). Gravar 2 capturas.
+- [x] **LM0.3 Spike: seleção e hit-test dentro do gamerhud** — script descartável em `scratch/` que abre um `QWidget` com as **mesmas flags do `gamerhud`** (`FramelessWindowHint | WindowDoesNotAcceptFocus`, `WA_OpaquePaintEvent`) no monitor do HUD (`GAMERHUD_SCREEN`), pinta 3 mensagens do exemplo do PDF com fontes de `hud/wired/fonts.py` e cores de `theme.py` usando um protótipo de quebra com caixa por palavra (`QFontMetricsF.horizontalAdvance`). Medir: (1) clique cai na palavra certa, arrasto estende por palavra, duplo clique pega a frase; (2) repintar só o retângulo do histórico/sobreposição leva < 16 ms; (3) menu QPainter ancorado na última palavra; (4) **entrada de texto**: `QLineEdit` filho + tirar/devolver `WindowDoesNotAcceptFocus` em tempo de execução no KWin (pisca? perde posição? recebe teclado?) × reserva `Qt.Tool` só com o `QLineEdit` (design §4.3); (5) qual monitor e resolução é o `DP-1` (P10). Gravar 2 capturas.
   - Lê: design §4 (inteira, com §4.1–§4.4), §16 P1/P10, `hud/wired/theme.py` (constantes), `hud/wired/fonts.py` (por grep `def `), `hud/wired/main_screen.py` (classe `Screen`, linhas ~423–560: `groups`, `group_key`, `paint`, `dirty_regions`, `scale`), `hud/gamerhud.py` (só `setWindowFlags` e `mousePressEvent`, por grep)
   - Escreve: `scratch/learning_spike.py` (não versionado), nota curta no fim de design §4.2 (hit-test/ms) e §4.3 (caminho da entrada escolhido) e resposta factual em §16 P10
   - Depende de: — (P1 já decidida)
@@ -82,7 +82,7 @@ tamanho do painel, `MASCOT_MAIN` 302 de altura na base 1920 (LM-015 → LM1.5). 
   - Pronto: CA-15 e CA-16 verdes em schema `learning_test`, mais a parte de repo do CA-22 (um ativo por `norm`, desfazer por `removed_at`); `grep -Ei 'drop|vector' 003_learning.sql` vazio. **Não** aplicar no `public` nesta tarefa (o Pedro aplica com `uv run python -m magi.memory.migrate`).
   - Paralelo: LM1.2, LM2.1, LM3.1
 
-- [ ] **LM1.2 Mensagens `lm_*` no socket** — classes das mensagens de spec §6 (inclusive `lm_topic`, `lm_save`, `lm_saved`, `lm_summary`) no padrão de `magi/common/contracts.py`, decoders, e roteamento no `HudServer` conforme a opção do LM0.2 (só conexões que mandaram `lm_hello` recebem `lm_*`; fora do modo só passa `lm_summary`). *(LM-005, spec §6)*
+- [ ] **LM1.2 Mensagens `lm_*` no socket** — classes das mensagens de spec §6 (inclusive `lm_topic`, `lm_save`, `lm_saved`, `lm_summary`) no padrão de `magi/common/contracts.py`, decoders, difundidas pelo `HudServer.send` existente (LM0.2 = opção b: decoder tolerante, sem `lm_hello`; registrar em `_HUD_DECODERS` e em `_MIN_DECODERS` do `hud_bridge`); filtro **por modo** no núcleo (fora do modo só passa `lm_summary`); texto de `lm_say`/`lm_msg` limitado a 16 KiB (a linha acima de 64 KiB derruba a conexão, design §9). *(LM-005, spec §6)*
   - Lê: design §9, spec §6, nota do LM0.2, `magi/common/contracts.py` (linhas das classes `_HudMsg`, `SubtitleMsg`, `CmdMsg`, por grep), `magi/common/events.py` (`decode_hud`), `magi/core/hud_client.py`
   - Escreve: `magi/common/contracts.py`, `magi/common/events.py`, `magi/core/hud_client.py`, `tests/learning/test_socket.py`
   - Depende de: LM0.1, LM0.2
@@ -315,8 +315,8 @@ Ver design §15. Os que afetam a ordem das tarefas:
    testada sem Qt; o núcleo (LM1.1–LM1.4, LM3.x, LM4.1–LM4.2) anda independente.
 2. **Mexer no `gamerhud` em uso** (LM1.5–LM1.7) → mouse/teclado novos só agem com
    `view == "learning"`; `tests/hud` antes e depois; captura do painel/espera no LMF.1.
-3. **LM0.2 pode mostrar que o `gamerhud` cai com tipo desconhecido** → LM1.2 implementa `lm_hello`
-   obrigatoriamente (já é a proposta).
+3. ~~LM0.2 pode mostrar que o `gamerhud` cai com tipo desconhecido~~ → **descartado no LM0.2**: os dois
+   lados ignoram tipo desconhecido; sem `lm_hello` (design §9).
 4. **LM4.2 pode reprovar o p95** → parar e propor worker em processo separado (nova tarefa).
 5. **LM1.3 mexe no `TurnPipeline` em uso** → rodar `tests/core` antes e depois; gancho atrás de
    `[learning] enabled`.
