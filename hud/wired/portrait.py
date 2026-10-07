@@ -470,6 +470,13 @@ SACCADE_EVERY = (0.7, 2.2)  # microssacadas parada: ±1 px de vez em quando
 SYLLABLE_RISE = 0.15  # subida do volume depois de um vale = sílaba nova (troca o formato da boca)
 SHAPES_DEFAULT = {"low": ["C2", "V2", "V5"], "mid": ["V1", "C2", "V3"], "high": ["C3", "V1", "V3"]}
 DOTS_AFTER = 0.8  # s pensando até as reticências aparecerem
+# ouvindo (gravando a fala do Pedro): acorda, chega para a frente, olhar fixo no centro e anéis de "escuta"
+LISTEN_LEAN = 7.0  # px que a cabeça desce (inclinada para a frente, atenta)
+LISTEN_TILT = -1.6  # graus: cabeça um pouco de lado, como quem presta atenção
+LISTEN_EASE = 0.22  # s para entrar/sair da pose de escuta
+LISTEN_WAKE = 0.45  # s do "acordar" (pulo rápido + brilho) ao ativar
+LISTEN_RING = 1.4  # s de cada anel saindo do fundo
+LISTEN_COLOR = "#5fd0e0"  # cor de foco (a mesma do humor "focus")
 
 
 def _render_backdrop(accent: QColor, side: int, now: float, env: float = 0.0, mood: float = 0.0) -> QPixmap:
@@ -635,13 +642,28 @@ class PartsPortrait(Mascot):
         self._saccade_at = self._now + self._rng.uniform(*SACCADE_EVERY)
         self._valley = 0.0  # menor volume desde a última sílaba
         self._syll = 0
+        self._listen_since: float | None = None  # quando ativou (ouvindo); None = não está ouvindo
+        self._listen_k = 0.0  # 0..1, suaviza a entrada e a saída da pose de escuta
+
+    def set_expression(self, expr: str) -> None:
+        was = self.state
+        super().set_expression(expr)
+        if expr == "listening" and was != "listening":  # acordou: pisca já e larga o olhar solto
+            self._listen_since = self._now
+            self._blink_at = self._now
+            self._gaze = None
+        elif expr != "listening":
+            self._listen_since = None
+
+    set_state = set_expression
 
     def _fast(self, now: float, head_target: tuple[float, float]) -> bool:
-        """Precisa de 60 fps agora? (fala, pensando, piscada, reação ou olhar/cabeça em trânsito)"""
-        if self.state in ("speaking", "thinking") or self.blinking(now) or self._reacting(now) is not None:
+        """Precisa de 60 fps agora? (fala, ouvindo, pensando, piscada, reação ou olhar/cabeça em trânsito)"""
+        if self.state in ("speaking", "thinking", "listening") or self.blinking(now) \
+                or self._reacting(now) is not None:
             return True
         moving_head = abs(head_target[0] - self._head[0]) + abs(head_target[1] - self._head[1]) > 0.4
-        return moving_head or self._think_k > 0.02
+        return moving_head or self._think_k > 0.02 or self._listen_k > 0.02
 
     def thinking(self, now: float) -> bool:
         """Pensando de verdade, ou "falando" em silêncio (frase de espera dita, ferramenta rodando)."""
@@ -678,7 +700,7 @@ class PartsPortrait(Mascot):
         r = self._reacting(now)
         if r is not None:
             return r.mood
-        if self.thinking(now):
+        if self.thinking(now) or self.state == "listening":
             return "focus"
         if self.state == "sleeping" and self._night():
             return "sleepy"
@@ -692,7 +714,13 @@ class PartsPortrait(Mascot):
         return h >= NIGHT_HOURS[0] or h < NIGHT_HOURS[1]
 
     def _resting(self) -> bool:
-        return self.state == "listening" or (self.state == "sleeping" and not self._night())
+        """Parada (dormindo de dia): olhares soltos e reações do HUD. Ouvindo não: ela está atenta."""
+        return self.state == "sleeping" and not self._night()
+
+    @property
+    def listen_k(self) -> float:
+        """Força da pose de escuta (0..1): sobe ao ativar, desce ao sair."""
+        return self._listen_k
 
     def _state_cfg(self) -> dict:
         st = self.state
@@ -785,7 +813,9 @@ class PartsPortrait(Mascot):
             self._valley = lvl
         if self.assets.live_eyes:
             target = self._eye_target(now)
-            if now >= self._saccade_at:
+            if self.state == "listening":  # olhar fixo no Pedro: sem microssacadas
+                self._saccade = (0.0, 0.0)
+            elif now >= self._saccade_at:
                 self._saccade = (self._rng.uniform(-1.2, 1.2), self._rng.uniform(-0.8, 0.8))
                 self._saccade_at = now + self._rng.uniform(*SACCADE_EVERY)
             tx, ty = IRIS_FOR.get(target, (0.0, 0.0))
@@ -799,10 +829,14 @@ class PartsPortrait(Mascot):
             self._think_since = None
         if dt:
             self._think_k += ((1.0 if think else 0.0) - self._think_k) * (1 - math.exp(-dt / 0.35))
+            want = 1.0 if self.state == "listening" else 0.0
+            self._listen_k += (want - self._listen_k) * (1 - math.exp(-dt / LISTEN_EASE))
         gaze = self._look_gaze(self._reacting(now)) or self._gaze
         tgt = (float(gaze.get("dx", 0)), float(gaze.get("dy", 0))) if gaze else (0.0, 0.0)
         if think is not None:
             tgt = (think[1], think[2])
+        elif self.state == "listening":  # de frente, chegando para a frente
+            tgt = (0.0, LISTEN_LEAN)
         self._head[0] += (tgt[0] - self._head[0]) * GAZE_EASE
         self._head[1] += (tgt[1] - self._head[1]) * GAZE_EASE
         if self._gl is not None and dt:
@@ -840,6 +874,11 @@ class PartsPortrait(Mascot):
         tilt = 0.6 * math.sin(now * 0.5) + 0.25 * math.sin(now * 1.3 + 0.7)  # inclinação lenta
         sway = 1.5 * math.sin(now * 0.35)  # o corpo balança de leve para os lados
         tilt += THINK_TILT * self._think_k  # pensando: cabeça de lado
+        lk = self._listen_k
+        if lk:  # ouvindo: o balanço some (atenta) e a cabeça fica um pouco de lado
+            tilt = tilt * (1 - 0.7 * lk) + LISTEN_TILT * lk
+            sway *= 1 - 0.7 * lk
+            head_dy += self._wake(now) * -6.0  # o "pulo" de quem acordou
         r = self._reacting(now)
         if r is not None and r.bob:  # curtindo a música: a cabeça vai no ritmo
             fade = min(1.0, (self.reaction_until - now) / 1.0, 1.0)
@@ -915,6 +954,8 @@ class PartsPortrait(Mascot):
 
         self.accent = QColor(accent)
         self._backdrop(p, now, -0.9 * hx - 0.8 * sway, -0.7 * hy - 0.5 * head_dy)
+        if lk > 0.02:  # anéis de escuta saindo do fundo, atrás dela (nas duas vias: CPU e GPU)
+            self._listen_rings(p, now, lk)
         # ordem: cabelo de trás, marias-chiquinhas, braços, corpo, cabeça; as mechas que caem na frente
         # dos ombros vêm da franja (desenhada por último)
         back = (-0.4 * hx + 0.5 * sway, -0.3 * hy + 1.5 * breath,
@@ -974,6 +1015,8 @@ class PartsPortrait(Mascot):
             self._reaction_effect(p, now, r.effect, hx, hy + head_dy)
         if self._think_since is not None and now - self._think_since >= DOTS_AFTER:
             self._dots(p, now, hx, hy + head_dy)
+        if lk > 0.02:
+            self._listen_meter(p, now, lk, hx, hy + head_dy)
         p.restore()
 
     def _paint_gl(self, p: QPainter, gl, ops: list, now: float, side: int, breath: float, r) -> bool:
@@ -1033,6 +1076,51 @@ class PartsPortrait(Mascot):
             cx, cy = origin.x() + side * 512 / 1024, origin.y() + side * 430 / 1024
             w = side * grow
             p.drawPixmap(QRectF(cx - w * 512 / 1024, cy - w * 430 / 1024, w, w), pm, QRectF(pm.rect()))
+        p.restore()
+
+    def _wake(self, now: float) -> float:
+        """Curva do "acordar" (0..1..0) nos primeiros ``LISTEN_WAKE`` s de escuta."""
+        if self._listen_since is None:
+            return 0.0
+        t = (now - self._listen_since) / LISTEN_WAKE
+        return math.sin(math.pi * t) if 0.0 <= t < 1.0 else 0.0
+
+    def _listen_rings(self, p: QPainter, now: float, k: float) -> None:
+        """Ondas de "estou ouvindo": anéis finos que nascem atrás da cabeça e se abrem (quadro de 1024).
+        Ao ativar, um anel mais forte estoura primeiro."""
+        cx, cy = 512.0, 360.0
+        p.save()
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        since = self._listen_since if self._listen_since is not None else now
+        for i in range(3):
+            ph = ((now - since) / LISTEN_RING + i / 3) % 1.0
+            c = QColor(LISTEN_COLOR)
+            c.setAlphaF(0.8 * k * (1 - ph) ** 1.3)
+            p.setPen(QPen(c, 8 - 4 * ph))
+            rad = 250 + 260 * ph
+            p.drawEllipse(QPointF(cx, cy), rad, rad)
+        wake = self._wake(now)
+        if wake:
+            c = QColor(LISTEN_COLOR)
+            c.setAlphaF(0.8 * wake)
+            p.setPen(QPen(c, 10))
+            rad = 230 + 200 * (now - since) / LISTEN_WAKE
+            p.drawEllipse(QPointF(cx, cy), rad, rad)
+        p.restore()
+
+    def _listen_meter(self, p: QPainter, now: float, k: float, hx: float, hy: float) -> None:
+        """Barras de áudio ao lado da cabeça, na cor de foco (pulsam sozinhas; com som, sobem mais)."""
+        p.save()
+        p.setPen(Qt.PenStyle.NoPen)
+        c = QColor(LISTEN_COLOR)
+        c.setAlphaF(0.9 * k)
+        p.setBrush(c)
+        base = 0.35 + 0.65 * min(1.0, self.level * 1.5)
+        for i in range(5):
+            wob = 0.5 + 0.5 * math.sin(now * (7.0 + 1.7 * i) + i * 1.9) * math.sin(now * 2.3 + i)
+            h = 18 + 70 * base * abs(wob) * (1.0 - 0.15 * abs(i - 2))
+            x = 790 + i * 24 + hx
+            p.drawRoundedRect(QRectF(x, 250 + hy - h / 2, 13, h), 6.5, 6.5)
         p.restore()
 
     def _dots(self, p: QPainter, now: float, hx: float, hy: float) -> None:

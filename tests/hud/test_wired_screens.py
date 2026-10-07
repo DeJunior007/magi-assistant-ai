@@ -153,3 +153,32 @@ def test_formatting_none():
     assert ms.gb(None) == ms.NA and ms.gb("--") == ms.NA
     assert ms.gb("11.4/32G") == "11.4 / 32 GB"
     assert ms.mmss(None) == ms.NA and ms.mmss(102) == "1:42"
+
+
+def _focus_px(img: QImage) -> int:
+    """Pixels na cor de foco (#5fd0e0), amostrados de 2 em 2."""
+    n = 0
+    for y in range(0, img.height(), 2):
+        for x in range(0, img.width(), 2):
+            c = img.pixelColor(x, y)
+            n += abs(c.red() - 0x5F) < 30 and abs(c.green() - 0xD0) < 30 and abs(c.blue() - 0xE0) < 30
+    return n
+
+
+def test_chip_de_estado_ouvindo_e_pensando():
+    from wired.main_screen import chip_label
+
+    assert chip_label(Snapshot(magui_state="listening"))[0] == "Listening · 聴取中"
+    assert chip_label(Snapshot(magui_state="thinking"))[0] == "Thinking · 思考中"
+    assert chip_label(Snapshot(gaming=True, magui_state="sleeping"))[0] == "Active · 稼働中"
+    assert chip_label(Snapshot(magui_state="speaking"))[0] == "Standby · 待機中"
+    assert chip_label(Snapshot(magui_state="listening"))[2]  # aceso (cor de foco)
+    size = QSize(1280, 720)
+    for cls in (MainScreen, StandbyScreen):
+        sc = cls()
+        idle, heard = Snapshot(), Snapshot(magui_state="listening")
+        assert sc.group_key("talk", idle, NOW) != sc.group_key("talk", heard, NOW)  # redesenha o chip
+        assert sc.group_key("talk", heard, NOW) != sc.group_key("talk", Snapshot(magui_state="thinking"), NOW)
+        render(sc, idle, size)
+        assert any(r.intersects(QRect(0, 0, 1280, 720)) for r in sc.dirty_regions(heard, NOW, size))
+        assert _focus_px(render(cls(), heard, size)) > _focus_px(render(cls(), idle, size)) + 20

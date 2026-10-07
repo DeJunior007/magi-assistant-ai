@@ -35,6 +35,7 @@ from .theme import (
     BUTTON,
     BUTTON_LINE,
     CPU,
+    FOCUS,
     GPU,
     HOT,
     LINE,
@@ -128,6 +129,40 @@ class Snapshot:
 
 def led_lit(snap: Snapshot) -> bool:
     return bool(snap.led_on and snap.led_rgb)
+
+
+# chip de estado da Condessa: ouvindo/pensando acendem na cor de foco (o Pedro vê quando ela ativou)
+CHIP_STATES = {"listening": "Listening · 聴取中", "thinking": "Thinking · 思考中"}
+
+
+def chip_label(snap: Snapshot) -> tuple[str, str, bool]:
+    """(texto, cor, aceso) do chip: ouvindo/pensando, senão jogando (Active) ou Standby."""
+    lbl = CHIP_STATES.get(snap.magui_state)
+    if lbl is not None:
+        return lbl, FOCUS, True
+    if snap.gaming:
+        return "Active · 稼働中", GPU, False
+    return "Standby · 待機中", TEXT, False
+
+
+def state_chip(p: QPainter, x: float, y: float, snap: Snapshot) -> QRectF:
+    """Desenha o chip de estado em (x, y) (canto superior esquerdo); devolve o retângulo."""
+    lbl, fg, lit = chip_label(snap)
+    f_w = width(lbl.upper(), "cond", 18, 600, 0.04)
+    chip = QRectF(x, y, f_w + 30, 35.6)
+    if lit:  # aceso: fundo translúcido e borda na cor de foco
+        bg = color(FOCUS)
+        bg.setAlphaF(0.14)
+        p.fillRect(chip, bg)
+        p.setPen(QPen(color(FOCUS), 2))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRect(chip.adjusted(1, 1, -1, -1))
+    else:
+        p.setPen(color(LINE_STRONG))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRect(chip.adjusted(0.5, 0.5, -0.5, -0.5))
+    heading(p, chip.left() + 15, chip.top() + 26, lbl, px=18, color_=fg)
+    return chip
 
 
 def accent(snap: Snapshot) -> QColor:
@@ -794,7 +829,7 @@ class MainScreen(Screen):
         if name == "mood":
             return mood_key(sn)
         if name == "talk":
-            return (sn.gaming, sn.caption, *talk_lines(sn)[0])
+            return (sn.gaming, chip_label(sn), sn.caption, *talk_lines(sn)[0])
         if name == "history":
             return (tuple((k, tuple(v)) for k, v in sorted(sn.history.items())), tuple(sn.history_axis))
         if name == "spec":
@@ -885,14 +920,7 @@ class MainScreen(Screen):
         draw_mood(p, MOOD_MAIN, snap)
 
     def _g_talk(self, p, snap, now, s):
-        gaming = snap.gaming
-        lbl = "Active · 稼働中" if gaming else "Standby · 待機中"
-        f_w = width(lbl.upper(), "cond", 18, 600, 0.04)
-        chip = QRectF(SIDE_X, CHIP_TOP, f_w + 30, 35.6)
-        p.setPen(color(LINE_STRONG))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRect(chip.adjusted(0.5, 0.5, -0.5, -0.5))
-        heading(p, chip.left() + 15, chip.top() + 26, lbl, px=18, color_=GPU if gaming else TEXT)
+        chip = state_chip(p, SIDE_X, CHIP_TOP, snap)
         top = chip.bottom() + 14
         wdt = SIDE_R - SIDE_X
         if snap.caption:

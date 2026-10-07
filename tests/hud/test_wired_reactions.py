@@ -217,3 +217,30 @@ def test_falando_cancela_e_sem_falas_de_musica(tmp_path):
     r.cancel()
     assert r.active(1.0) is None
     assert SimpleNamespace  # noqa: B018 (import usado em outros testes)
+
+
+def test_falas_em_ingles_pela_config_de_voz(tmp_path, monkeypatch):
+    import tomllib
+
+    from wired import reactions
+
+    r = make(tmp_path)
+    pt = r.pick("hot", temp="91")
+    assert not r.taste.english and pt in [s.format(temp="91") for s in r.taste.lines_for("hot")["padrao"]]
+    council = tomllib.loads(reactions.COUNCIL_FILE.read_text(encoding="utf-8"))
+    for key, table in council["falas"].items():  # toda fala tem a versão inglesa, mesmas variantes
+        if isinstance(table, dict):
+            en = council["falas_en"][key]
+            assert {k: len(v) for k, v in table.items()} == {k: len(v) for k, v in en.items()}
+    cfg = tmp_path / "reacoes" / "speech_file"  # o caminho isolado do conftest
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    cfg.write_text('[speech]\nlanguage = "en-gb"\n', encoding="utf-8")
+    r2 = make(tmp_path)
+    line = r2.pick("hot", temp="91")
+    assert r2.taste.english and line in [s.format(temp="91") for s in council["falas_en"]["hot"]["padrao"]]
+    assert r2.pick("music_new", artist="Ado").count("Ado") >= 1  # placeholders iguais
+    cfg.write_text('[speech]\nlanguage = "pt-br"\n', encoding="utf-8")
+    t = make(tmp_path).taste
+    assert t.lines_for("hot") and not t.english
+    cfg.write_text("isto não é toml [", encoding="utf-8")
+    assert make(tmp_path).pick("led") is not None  # config quebrada: segue em português

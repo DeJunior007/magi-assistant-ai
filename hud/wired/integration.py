@@ -43,7 +43,7 @@ from .theme import CPU, GPU, LINE, PANEL, RAM, TEXT, TEXT_DIM, alpha, color
 CARD_DETAIL = {"card:cpu": "cpu", "card:gpu": "gpu", "card:ram": "mem"}  # alvo → ProcStats.poll
 PLAYER = ("prev", "playpause", "next")
 ALERT_LEVELS = ("bomba", "alta")  # cards da ponte que viram aviso no rodapé
-IDLE_STATES = ("sleeping", "listening")  # parada: as reações do HUD aparecem no rosto
+IDLE_STATES = ("sleeping",)  # parada: as reações do HUD aparecem no rosto (ouvindo, nunca: ela está atenta)
 RADIO_SOURCE = "radio"  # cards das notícias contadas no modo rádio (Rádio Ayanami)
 DETAIL_RECT = SCENE.adjusted(1, 1, -1, -1)  # painel de detalhes cobre o "cam 01"
 DETAIL_INFO = {

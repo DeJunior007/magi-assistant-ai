@@ -3,8 +3,8 @@ linha de texto na legenda). Nada aqui chama IA nem fala em voz alta.
 
 ``Reactor.observe(snap, ...)`` (1 Hz, com o Snapshot novo) e ``Reactor.on_click(alvo)`` geram uma
 ``Reaction``: olhos/boca da checklist (B*/C*), para onde olhar (nome de painel), humor do fundo,
-efeito desenhado em código e por quanto tempo. O retrato só a usa parado (dormindo de dia ou
-ouvindo); falando/pensando, a reação é descartada.
+efeito desenhado em código e por quanto tempo. O retrato só a usa parado (dormindo de dia);
+ouvindo/falando/pensando, a reação é descartada.
 
 Gosto, regras e falas: ``persona/condessa-gosto.toml``, decidido pelo Conselho da Condessa
 (``persona/conselho/``). Gêneros por artista vêm do cache do núcleo
@@ -32,6 +32,7 @@ CLEANUP_FILE = Path.home() / ".local/share/magi/cleanup_state.json"
 TASTE_FILE = Path.home() / ".config/magi/condessa-gosto.toml"
 SEEN_FILE = Path.home() / ".local/state/magi/condessa-artistas.json"
 FAVORITES_FILE = Path.home() / ".local/share/magi/pedro-favoritas.json"  # do Spotify, pelo núcleo
+SPEECH_FILE = Path.home() / ".config/magi/config.toml"  # [speech] language = "en-gb": falas em inglês
 
 HOT_C, COOL_C = 85.0, 78.0  # temperatura: entra em "quente" e só sai abaixo de COOL_C
 FPS_DROP = 0.6  # FPS abaixo de 60% da média por 2 leituras seguidas
@@ -136,11 +137,14 @@ class Taste:
     """Gosto da Condessa: acordo do conselho + ajustes do Pedro, relidos quando os arquivos mudam."""
 
     def __init__(self, genres_file: Path | None = None, taste_file: Path | None = None,
-                 council_file: Path | None = None, favorites_file: Path | None = None):
+                 council_file: Path | None = None, favorites_file: Path | None = None,
+                 speech_file: Path | None = None):
         self.genres_file = genres_file or GENRES_FILE
         self.taste_file = taste_file or TASTE_FILE
         self.council_file = council_file or COUNCIL_FILE
         self.favorites_file = favorites_file or FAVORITES_FILE
+        self.speech_file = speech_file or SPEECH_FILE
+        self.english = False  # a Condessa fala inglês (config do núcleo): falas de [falas_en]
         self.pedro_tracks: set[tuple[str, str]] = set()
         self._mtimes: tuple = ()
         self.genres: dict[str, list[str]] = {}
@@ -153,7 +157,7 @@ class Taste:
     # ------------------------------------------------------------ carga
 
     def _reload(self) -> None:
-        files = (self.genres_file, self.taste_file, self.council_file, self.favorites_file)
+        files = (self.genres_file, self.taste_file, self.council_file, self.favorites_file, self.speech_file)
         mt = tuple(p.stat().st_mtime if p.exists() else 0 for p in files)
         if mt == self._mtimes:
             return
@@ -165,6 +169,9 @@ class Taste:
         for k, v in mine.items():  # o Pedro sobrepõe tabela a tabela
             cfg[k] = (cfg.get(k, {}) | v) if isinstance(v, dict) and isinstance(cfg.get(k), dict) else v
         self.cfg = cfg
+        speech = _load_toml(self.speech_file).get("speech", {})
+        lang = speech.get("language", "") if isinstance(speech, dict) else ""
+        self.english = str(lang).strip().lower().startswith("en")
         self.table = {str(k): int(v) for k, v in dict(cfg.get("generos", {})).items()}
         self.artists = {norm(k): int(v) for k, v in dict(cfg.get("artistas", {})).items()}
         falas = dict(cfg.get("falas", {}))
@@ -184,6 +191,8 @@ class Taste:
     def lines_for(self, key: str) -> dict[str, list[str]]:
         self._reload()
         table = dict(self.cfg.get("falas", {})).get(key, {})
+        if self.english:  # em inglês, se a fala foi traduzida (senão a de sempre)
+            table = dict(self.cfg.get("falas_en", {})).get(key) or table
         return {k: list(v) for k, v in dict(table).items()} if isinstance(table, dict) else {}
 
     def mood(self, key: str, default: str) -> str:

@@ -209,7 +209,7 @@ def test_partes_olhos_boca_e_noite(tmp_path):
 
 
 def test_partes_olhar_move_a_cabeca(tmp_path):
-    m = make_mascot("listening", write_parts(tmp_path))
+    m = make_mascot("sleeping", write_parts(tmp_path))  # parada de dia (ouvindo, o olhar fica fixo)
     m.hour = lambda: 12
     m._blink_at, m._gaze_at = 1e9, 0.0
     for i in range(40):
@@ -242,7 +242,7 @@ def test_partes_reacao_olha_e_muda_o_fundo(tmp_path):
     from wired.reactions import REACTIONS
 
     write_parts(tmp_path)
-    m = PartsPortrait(PartsAssets(tmp_path), "listening", now=0.0)
+    m = PartsPortrait(PartsAssets(tmp_path), "sleeping", now=0.0)  # parada de dia
     m.hour = lambda: 14
     m.react(REACTIONS["hot"], 5.0)
     assert m.eyes_id(1.0) == "F1"  # olha para o MAGI system (à esquerda)
@@ -331,3 +331,72 @@ def test_partes_na_gpu_ou_cai_para_cpu(tmp_path, monkeypatch):
     if m._gl is None:
         pytest.skip("OpenGL indisponível aqui: caiu para a CPU, como deveria")
     assert m._gl.ok
+
+
+def test_partes_ouvindo_acorda_e_fica_atenta(tmp_path):
+    from wired.portrait import LISTEN_LEAN, PARTS_FPS, PartsAssets, PartsPortrait
+    from wired.reactions import REACTIONS
+
+    write_parts(tmp_path)
+    m = PartsPortrait(PartsAssets(tmp_path), "sleeping", now=0.0)
+    m.hour = lambda: 14
+    m._blink_at, m._gaze_at = 1e9, 0.0
+    m.tick(1.0)
+    m.set_expression("listening")  # ativou: pisca já
+    assert m.blinking(1.0 + 0.05) and m.eyes_id(1.0 + 0.05) in ("B2", "B3")
+    m.react(REACTIONS["hot"], 50.0)  # reação do HUD por cima: ignorada enquanto ouve
+    for k in range(240):
+        m.tick(1.0 + k / 60)
+        m._gaze_at = 0.0  # mesmo "vencido", o olhar aleatório não sai ouvindo
+    assert m._gaze is None and m._reacting(5.0) is None
+    assert m.eyes_id(5.0) == "B1"  # olhar fixo no centro
+    assert abs(m._head[0]) < 0.5 and m._head[1] == pytest.approx(LISTEN_LEAN, abs=0.5)  # para a frente
+    assert m.listen_k > 0.95 and m.mood(5.0) == "focus"
+    m._last_tick = -1e9
+    _, nxt = m.tick(6.0)
+    assert nxt - 6.0 == pytest.approx(1 / PARTS_FPS)  # ouvindo: 60 fps
+    m.set_expression("thinking")
+    for k in range(60):
+        m.tick(7.0 + k / 60)
+    assert m.listen_k < 0.05  # saiu da escuta: a pose some
+
+
+def test_partes_ouvindo_desenha_aneis_e_barras(tmp_path):
+    from PySide6.QtCore import QRectF
+    from wired.portrait import PartsAssets, PartsPortrait
+
+    write_parts(tmp_path)
+    head = QImage(1024, 1024, QImage.Format.Format_ARGB32)  # quadro de 1024 de verdade (efeitos no lugar)
+    head.fill(QColor(0, 0, 0, 0))
+    assert head.save(str(tmp_path / "parts/head.png"))
+
+    rings: list[str] = []
+
+    def shot(state: str) -> QImage:
+        m = PartsPortrait(PartsAssets(tmp_path), "sleeping", now=0.0)
+        m._listen_rings = lambda p, now, k: rings.append(m.state)
+        m.hour = lambda: 14
+        m._blink_at, m._gaze_at = 1e9, 1e9
+        m.tick(0.0)
+        m.set_expression(state)
+        for k in range(60):
+            m.tick(k / 60)
+        img = QImage(256, 256, QImage.Format.Format_ARGB32_Premultiplied)
+        img.fill(QColor("black"))
+        p = QPainter(img)
+        m.paint(p, QRectF(0, 0, 256, 256), "#b4a0e6", 1.0)
+        p.end()
+        return img
+
+    def cyan(img: QImage, x0: int, x1: int, y0: int, y1: int) -> int:
+        n = 0
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                c = img.pixelColor(x, y)
+                n += c.blue() > c.red() + 40  # ciano por cima do vermelho das peças de teste
+        return n
+
+    idle, heard = shot("sleeping"), shot("listening")
+    # barras de áudio ao lado da cabeça (x ~ 790..900 do quadro de 1024 = ~197..225 em 256)
+    assert cyan(heard, 190, 235, 40, 90) > 10 and cyan(idle, 0, 256, 0, 256) == 0
+    assert rings == ["listening"]  # e os anéis no fundo (atrás das peças), só ouvindo

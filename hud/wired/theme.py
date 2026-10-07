@@ -18,6 +18,7 @@ CPU = "#b392f0"  # Melchior
 GPU = "#5fd38d"  # Balthasar
 RAM = "#c9c4d6"  # Casper
 WARN = "#e8b04a"
+FOCUS = "#5fd0e0"  # ouvindo/pensando (a mesma cor do humor "focus" do retrato)
 HOT = "#e5695b"
 # cores auxiliares do canvas (cenário, botões)
 SCENE_BG = "#13111a"

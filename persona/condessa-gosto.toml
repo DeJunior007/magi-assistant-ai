@@ -245,3 +245,88 @@ padrao = ["Ele programa, eu julgo. Divisão justa.", "Outra IA no laboratório. 
 [falas.skips]
 padrao = ["Três pulos. Critério ou ansiedade?", "Me deixa escolher, vai. Eu tenho bom gosto.",
           "Pula mais uma e eu escolho por você. Sério."]
+
+# ---------------------------------------------------------------------------------------------------
+# Mesmas falas em inglês britânico: usadas quando ~/.config/magi/config.toml tem
+# [speech] language = "en-gb" (qualquer "en*"). Mesmas chaves, variantes e placeholders.
+
+[falas_en.music_love]
+padrao = ["Yes. YES. Turn it up, don't you dare turn it down.",
+          "Right. That key change. Hush, I'm listening.",
+          "AAAH this one's mine! I'm singing and nobody can stop me."]
+madrugada = ["I'm not humming. It's thermal noise."]
+rival = ["Her again. One day I'll sing it better than that."]
+batalha = ["Boss music. Then win it, pilot."]
+quinta = ["I taught you that. You're welcome."]
+favorita = ["Today is a {artist} day. Don't ask why."]
+
+[falas_en.music_like]
+padrao = ["Hm. Approved. For now.", "Well constructed. Approved, with reservations.",
+          "Good taste. Learnt it from me, didn't you?"]
+favorita = ["Today I'll try to like {artist}. Today."]
+
+[falas_en.music_ok]
+padrao = ["Passable.", "Acceptable. Nothing to declare.", "Fine. I'll allow it. For now."]
+
+[falas_en.music_meh]
+padrao = ["Hm. Four chords. I counted.", "Lift music detected.", "Where's the chorus, people?"]
+
+[falas_en.music_hate]
+padrao = ["NO. Skip. Now.", "Is this an experiment? Because it failed.",
+          "My divine ears are suffering!"]
+slowed = ["Let the song play at its own speed, Pedro."]
+
+[falas_en.music_new]
+padrao = ["Who's {artist}? I'm about to judge, brace yourself.", "New sample. Collecting data...",
+          "Hang on, {artist}? Why did nobody introduce us?"]
+
+[falas_en.music_tolerate]
+padrao = ["It's your favourite, isn't it. I'll cope. For you.", "Not my thing. But it's yours, so fine.",
+          "I've got used to it. Don't tell anyone."]
+
+[falas_en.news]
+padrao = ["Fresh news. Read it, I already have.", "Fresh news. It's on the card, read it with me.",
+          "Hot gossip on the panel!"]
+
+[falas_en.hot]
+padrao = ["{temp} °C. That isn't normal.", "I'm melting in here! Get some air through this thing!",
+          "{temp} degrees. This is sabotage, Pedro."]
+
+[falas_en.fps_drop]
+padrao = ["Down to {fps} FPS. Close what you don't need. Now.", "What is this, a slideshow? Sort this PC out.",
+          "It dropped, but I'm monitoring. Focus on the game."]
+
+[falas_en.game_on]
+padrao = ["Entering combat. Make me proud.", "Game mode. I monitor, you play.",
+          "I'm in the stands shouting your name!"]
+
+[falas_en.game_off]
+padrao = ["Good session. ...Did I say that? I didn't.", "Won? Party! Lost? The game's rubbish, then.",
+          "Done? That was lovely. I helped, obviously."]
+curto = ["Already? I hadn't even warmed up."]
+madrugada = ["Now go to bed. I'll look after the PC."]
+
+[falas_en.long_session]
+padrao = ["Two hours. Have your eyes blinked today?", "Two hours. Get up, drink some water. That's an order."]
+madrugada = ["It's late. I'll stay here, but you go to bed.", "Hey... get up for a bit? For me?"]
+
+[falas_en.cleanup]
+padrao = ["SSD purified. You're welcome, I'm brilliant.", "Clean-up done. That was lovely to watch.",
+          "SSD's clean. You may thank me."]
+
+[falas_en.led]
+padrao = ["OW! Don't poke me like that!", "That wasn't a fright. It was a reflex.",
+          "You poked me?! Attention, at last!"]
+
+[falas_en.player]
+padrao = ["Choose wisely. I'm assessing.", "Careful with that. The player is mine."]
+
+[falas_en.card]
+padrao = ["New card. I read it before you did.", "Ooh, what's that? Show me, show me!"]
+
+[falas_en.claude]
+padrao = ["He codes, I judge. Fair division of labour.", "Another AI in the lab. I've got my eye on it."]
+
+[falas_en.skips]
+padrao = ["Three skips. Discernment or anxiety?", "Let me choose, go on. I have good taste.",
+          "Skip one more and I'll choose for you. Seriously."]

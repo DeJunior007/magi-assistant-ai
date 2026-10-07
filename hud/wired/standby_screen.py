@@ -16,6 +16,7 @@ from PySide6.QtGui import QPainter
 
 from . import kit, scene
 from .main_screen import (
+    CHIP_STATES,
     JP_DAYS,
     NA,
     Screen,
@@ -23,12 +24,14 @@ from .main_screen import (
     _metrics,
     accent,
     baseline,
+    chip_label,
     draw_cover,
     draw_mood,
     label,
     led_dot,
     led_lit,
     mood_key,
+    state_chip,
     text,
     width,
     wrapped,
@@ -157,7 +160,7 @@ class StandbyScreen(Screen):
         if name == "mood":
             return mood_key(snap)
         if name == "talk":
-            return (snap.caption, snap.magui_state == "sleeping")
+            return (snap.caption, snap.magui_state == "sleeping", chip_label(snap))
         if name == "player":
             t = snap.track
             if t is None:
@@ -193,10 +196,17 @@ class StandbyScreen(Screen):
 
     def _g_talk(self, p, snap, now, s):
         r = self.talk
+        if snap.magui_state in CHIP_STATES:  # ouvindo/pensando: chip aceso no alto, a fala embaixo
+            chip = state_chip(p, r.left(), r.top() + 2, snap)
+            r = r.adjusted(0, chip.height() + 8, 0, 0)
+            if snap.caption:
+                wrapped(p, r, snap.caption, px=16, line_h=24, max_lines=max(1, int(r.height() // 24)))
+                return
         if snap.caption:
             wrapped(p, r.adjusted(0, 8, 0, 0), snap.caption, px=16, line_h=24, max_lines=4)
             return
-        line = "「少し眠いです…」" if snap.magui_state == "sleeping" else "「システムは正常です。」"
+        line = {"sleeping": "「少し眠いです…」", "listening": "「はい、聞いています。」",
+                "thinking": "「考えています…」"}.get(snap.magui_state, "「システムは正常です。」")
         top = r.top() + (r.height() - _lh("jp", 16) - 8 - _lh("jp", 14)) / 2
         text(p, r.left(), baseline("jp", 16, top), line, key="jp", px=16, max_w=r.width())
         text(p, r.left(), baseline("jp", 14, top + _lh("jp", 16) + 8), "信号は、まだ届いている。", key="jp",
