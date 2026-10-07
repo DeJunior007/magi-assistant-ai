@@ -16,7 +16,7 @@ import os
 import re
 import threading
 import unicodedata
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -381,8 +381,10 @@ class SteamCatalog:
         steam_root: Path | str | None = None,
         aliases: AliasStore | None = None,
         vocab: VocabRepo | None = None,
+        custom: Sequence[Game] = (),
     ) -> None:
         self.steam_root = Path(steam_root) if steam_root is not None else default_steam_root()
+        self.custom = list(custom)  # jogos fora da Steam (``custom_games``), com ``command``
         self._aliases: AliasStore = aliases if aliases is not None else JsonAliasStore()
         self._vocab = vocab
         self._games: dict[int, Game] | None = None
@@ -394,8 +396,9 @@ class SteamCatalog:
         """Relê manifests e apelidos."""
         learned = self._aliases.load()
         games: dict[int, Game] = {}
-        for game in scan_games(self.steam_root):
-            aliases = tuple(dict.fromkeys(a.strip() for a in learned.get(game.appid, []) if a.strip()))
+        for game in [*scan_games(self.steam_root), *self.custom]:
+            extra = [a.strip() for a in learned.get(game.appid, []) if a.strip()]
+            aliases = tuple(dict.fromkeys([*game.aliases, *extra]))
             games[game.appid] = replace(game, aliases=aliases)
         self._games = games
         self._keys = {appid: self._build_keys(g) for appid, g in games.items()}
@@ -455,3 +458,22 @@ class SteamCatalog:
         self._keys[game.appid] = self._build_keys(game)
         if self._vocab is not None:
             await self._vocab.upsert(VocabTerm(term=alias, kind="nickname"))
+
+
+#: Ids dos jogos fora da Steam: bem acima dos appids da Steam, para nunca colidirem.
+CUSTOM_APPID_BASE = 2_000_000_000
+
+
+def custom_games(raw: object) -> list[Game]:
+    """``[[game.custom]]`` da config → ``Game`` com ``command``. Entrada sem nome ou comando é
+    ignorada. Campos: ``name``, ``command``, ``aliases`` (lista) e ``process`` (lido à parte)."""
+    out: list[Game] = []
+    for i, entry in enumerate(raw if isinstance(raw, list) else []):
+        if not isinstance(entry, dict):
+            continue
+        name, command = str(entry.get("name", "")).strip(), str(entry.get("command", "")).strip()
+        if not name or not command:
+            continue
+        aliases = tuple(str(a).strip() for a in entry.get("aliases", []) if str(a).strip())
+        out.append(Game(appid=CUSTOM_APPID_BASE + i, name=name, aliases=aliases, command=command))
+    return out

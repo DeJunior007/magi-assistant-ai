@@ -15,6 +15,7 @@ import asyncio
 import logging
 import os
 import re
+import shlex
 import signal
 import subprocess
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
@@ -222,8 +223,11 @@ class OpenGame:
             if similar:
                 speech += " Parecidos: " + ", ".join(g.name for g in similar) + "."
             return ActionResult(ok=False, speech=speech, expression=Expression.CONFUSED)
-        url = f"steam://rungameid/{game.appid}"
-        argv = [str(self.wrapper), url] if self.wrapper.exists() else ["steam", url]
+        if game.command:  # jogo fora da Steam: o comando do [[game.custom]]
+            argv = [os.path.expanduser(a) for a in shlex.split(game.command)]
+        else:
+            url = f"steam://rungameid/{game.appid}"
+            argv = [str(self.wrapper), url] if self.wrapper.exists() else ["steam", url]
         try:
             self.launcher(argv)
         except OSError:
