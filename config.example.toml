@@ -38,6 +38,11 @@ search     = { provider = "gemini", model = "gemini-2.5-flash", timeout_s = 8 } 
 # orçamento (~US$ 0,017 por pesquisa, S3) e é recusada com o teto estourado. Apague para não usar.
 search_fallback = { provider = "openai", model = "gpt-5.4-mini", timeout_s = 10 }
 news       = { provider = "gemini", model = "gemini-3.5-flash-lite", embedding_model = "gemini-embedding-001", dimensions = 768 }  # = news_items.embedding
+# Learning Mode (specs/learning-mode, spec §2): ações do menu de seleção (Improve/Explain/
+# Translate/Vocabulary) e observações em background. Contam no orçamento (LM-006). Trocar o modelo
+# é só aqui (ENG-002). Sem timeout_s: 8 s nas ações e 20 s nas observações.
+learning_actions = { provider = "openai", model = "gpt-5.4-mini", reasoning_effort = "none", timeout_s = 8 }
+learning_observe = { provider = "openai", model = "gpt-5.4-mini", reasoning_effort = "none", timeout_s = 20 }
 
 [budget]
 monthly_usd = 5.0                       # teto mensal; "aumenta o teto pra 8 dólares" ajusta por voz
@@ -106,6 +111,23 @@ followup_s = 3.0
 # log como "sem tradução") e o agente e o Rádio Ayanami passam a responder em inglês.
 # Ajuste também tasks.tts.instructions (sotaque/idioma da voz). Exige reiniciar o núcleo.
 language = "pt-br"
+
+[learning]
+# Condessa Learning Mode (specs/learning-mode, spec §2). Toda chave tem padrão; apague a seção
+# para usar os valores abaixo.
+enabled           = true
+level             = "B2"            # A1..C2; manual no MVP (LM-009), aparece como "B2 · CONVERSATION"
+track             = "CONVERSATION"
+explain_language  = "en"            # "en" | "pt-br": idioma de Improve/Explain/Vocabulary (LM-008)
+translate_to      = "pt-br"         # idioma do Translate (TRA-001)
+speak_replies     = true            # a Condessa fala a resposta (LM-004)
+idle_end_min      = 20              # minutos sem mensagem até encerrar a sessão
+observe           = true            # observações em background (Fase 4)
+observe_daily_max = 200             # teto de chamadas de observação por dia (LM-006)
+storage           = "postgres"      # "postgres" | "jsonl"
+default_topic     = "free"          # tema inicial: free | interview | game | news (LM-013)
+topic_picker_s    = 10              # segundos até o seletor de tema fechar sozinho
+summary_show_s    = 60              # segundos do cartão LAST SESSION depois de sair (LM-011)
 
 [satellite]
 # Fim de fala (1.26), lido ao iniciar o satélite. Corta cedo demais? Aumente end_silence_ms.
