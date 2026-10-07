@@ -44,6 +44,7 @@ from magi.common.contracts import (
 from magi.providers.base import Backend, BackendFactory, CallCtx
 from magi.providers.gemini_provider import GeminiBackend
 from magi.providers.keypool import Clock, FreeQuotaExhausted, KeyRejected, RotatingKeyPool, SecretGetter
+from magi.providers.kokoro_provider import KokoroBackend
 from magi.providers.openai_provider import OpenAIBackend
 
 log = logging.getLogger(__name__)
@@ -51,7 +52,11 @@ log = logging.getLogger(__name__)
 T = TypeVar("T")
 
 #: Backends conhecidos, pela chave ``kind`` de ``[providers.<p>]`` (padrão: o nome do provedor).
-BACKENDS: dict[str, BackendFactory] = {"openai": OpenAIBackend, "gemini": GeminiBackend}
+BACKENDS: dict[str, BackendFactory] = {
+    "openai": OpenAIBackend,
+    "gemini": GeminiBackend,
+    "kokoro": KokoroBackend,  # voz local, sem chave
+}
 
 _SENTENCE_END = re.compile(r"[.!?…;:\n]+[\"')\]»]*\s+")
 MAX_TTS_SEGMENT = 400
@@ -414,9 +419,13 @@ class Registry:
         if cfg is None:
             raise ConfigError(f"provedor '{provider}' não está em [providers]")
         if provider not in self._pools:
-            pool = RotatingKeyPool.from_keyring(
-                provider, cfg.keys, get_secret=self._get_secret, clock=self._clock
-            )
+            if cfg.options.get("local"):  # provedor local (Kokoro): uma "chave" simbólica
+                pool = RotatingKeyPool(provider, [ApiKey(provider=provider, name="local", secret="")],
+                                       clock=self._clock)
+            else:
+                pool = RotatingKeyPool.from_keyring(
+                    provider, cfg.keys, get_secret=self._get_secret, clock=self._clock
+                )
             self._pools[provider] = (cfg.keys, pool)
         return self._pools[provider][1]
 

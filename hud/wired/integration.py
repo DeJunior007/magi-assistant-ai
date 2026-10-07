@@ -244,6 +244,9 @@ class WiredUI:
             self.events.add(f"⚠ {title}")
 
     def on_connected(self, up: bool) -> None:
+        # núcleo fora do ar: o retrato na GPU mostra interferência de sinal até voltar
+        if hasattr(self.mascot, "glitch"):
+            self.mascot.glitch = 0.0 if up else 0.6
         if not up:
             self.set_state("sleeping")
             self.set_caption(None)

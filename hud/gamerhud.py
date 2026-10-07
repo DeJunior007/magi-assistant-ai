@@ -1171,6 +1171,8 @@ class HUD(QWidget):
         self.face_tick()
 
     def on_bridge_connected(self, up):
+        if up and self.wired:   # voltou: some a interferência do retrato
+            self.wired.on_connected(True)
         if not up:   # núcleo fora do ar: a Magui dorme e a legenda some
             self.face.set_state("sleeping")
             self.face.set_subtitle("")

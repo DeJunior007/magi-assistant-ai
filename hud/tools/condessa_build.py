@@ -47,6 +47,7 @@ IRIS_DIFF = 70  # diferença A1 × O1 que conta como íris
 DEFAULT_TOML = """\
 # Condessa em partes (2.5D). Olhos/bocas = IDs da checklist (eyes/<ID>.png, mouth/<ID>.png).
 mode = "parts"
+renderer = "gl"                # malhas e pós-processamento na GPU (portrait_gl); "cpu" volta
 
 [states]                       # olhos, boca parada, piscada (meio, fechado)
 listening = { eyes = "B1", mouth = "C1", blink = ["B2", "B3"] }
