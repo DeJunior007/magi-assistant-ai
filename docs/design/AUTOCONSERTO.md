@@ -1,7 +1,12 @@
 # Autoconserto da Magui com o Claude Code — proposta
 
-Status: **proposta, nada implementado** além do leitor de consumo (`magi/maintenance/claude_usage.py`,
-só leitura). Precisa do "ok" do Pedro antes de qualquer parte que mexa em código.
+Status (2026-10-07): **níveis 0 e 1 implementados** em `magi/maintenance/autofix.py`, por voz e
+sempre a pedido do Pedro: "investiga o problema" (diagnóstico só leitura), "prepara um conserto"
+(branch numa worktree, testes rodados), "aplica o conserto" (com confirmação; vigia por
+`systemd-run` desfaz com `git revert` se o serviço não subir em 30 s), "descarta o conserto" e
+"como tá o conserto?". Quando um serviço cai, ela só pergunta se pode investigar. Limite de 3
+sessões por dia (`[autofix] max_runs`), nenhuma com jogo aberto; `[autofix] enabled = false`
+desliga. O nível 2 (manutenção conhecida em Python) continua só no `magi-clean`.
 
 ## Ideia
 

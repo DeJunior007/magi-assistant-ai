@@ -299,6 +299,7 @@ class AlertMonitor:
         self._cost = _CostState(state_path)
         self._cost.load()
         self._cleanup_path = state_path.parent / CLEANUP_STATE_FILE if state_path is not None else None
+        self.autofix: Any = None  # magi.maintenance.autofix.Autofix (o assemble liga)
         self._disk_usage = shutil.disk_usage
         self._cost_lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
@@ -331,6 +332,8 @@ class AlertMonitor:
         await self.check_cost()
         await self.check_disks()
         await self.check_cleanup()
+        if self.autofix is not None:  # autoconserto: falhas de serviço e resultado do "aplica"
+            await self.autofix.check()
 
     # -- regras ---------------------------------------------------------------------------------
 

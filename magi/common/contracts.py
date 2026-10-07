@@ -445,6 +445,11 @@ class IntentId(StrEnum):
     NEWS_DISLIKE = "news.dislike"  # "não curti" (R19.7)
     NEWS_MORE = "news.more"  # "mais disso"
     NEWS_DEEPER = "news.deeper"  # "conta mais dessa": aprofunda a última notícia falada
+    AUTOFIX_DIAGNOSE = "system.autofix_diagnose"  # "investiga o problema" (Claude Code, só leitura)
+    AUTOFIX_FIX = "system.autofix_fix"  # "prepara um conserto" (branch numa worktree)
+    AUTOFIX_APPLY = "system.autofix_apply"  # "aplica o conserto" (merge + reinício + rollback)
+    AUTOFIX_DISCARD = "system.autofix_discard"  # "descarta o conserto"
+    AUTOFIX_STATUS = "system.autofix_status"  # "como tá o conserto?"
     NEWS_DROP = "news.drop"  # obra largada, slot franchise (R19.8)
     CONFIRM_YES = "confirm.yes"  # "confirma" (R5.4)
     CONFIRM_NO = "confirm.no"  # "cancela"

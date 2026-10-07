@@ -33,9 +33,11 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import shutil
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 from magi.common.config import Config, ConfigError
@@ -313,6 +315,7 @@ class Core:
     game: Any = None  # magi.core.game_context.GameWatcher (1.21): jogo aberto; varre em ``start_proactive``
     game_task: asyncio.Task[Any] | None = None
     news_feedback: Any = None  # magi.news.feedback.NewsFeedback (6.11): ``cfg`` trocada na recarga (1.22)
+    autofix: Any = None  # magi.maintenance.autofix.Autofix: autoconserto com o Claude Code
 
     def warn(self, msg: str) -> None:
         if msg not in self.warnings:
@@ -443,6 +446,7 @@ async def assemble(
             core.proactive, alerts_cfg, budget=budget, state_path=config.paths.data_dir / ALERTS_STATE_FILE
         )
     on_warn = core.alerts.check_cost if core.alerts is not None else _budget_warner(hud_sink)
+    core.autofix = _autofix(core, config)
 
     # Banco: migração, correções, custos e orçamento real
     if open_db is not None:
@@ -490,6 +494,10 @@ async def assemble(
     found = _wire_memory_store(core, found)
     found = _wire_mood(core, config, hud_sink, found)
     found = _wire_news_query(core, found)
+    if core.autofix is not None:
+        from magi.maintenance.autofix import AutofixHandler
+
+        found = [*found, AutofixHandler(core.autofix)]
     core.self_model = _self_model(core, config)
     if not any(IntentId.HELP.value in h.intents for h in found):
         from magi.agent.self_model import HelpHandler
@@ -565,6 +573,27 @@ def _self_model(core: Core, config: Config) -> Any:
         missing_keys=missing,
         budget=core.budget.status,
     )
+
+
+def _autofix(core: Core, config: Config) -> Any:
+    """Autoconserto com o Claude Code (``[autofix]``: ``enabled``, ``model``, ``max_runs``). Fala
+    pelo canal proativo e checa falhas de serviço junto com os alertas."""
+    raw = config.raw.get("autofix")
+    cfg = raw if isinstance(raw, dict) else {}
+    if not cfg.get("enabled", True) or core.proactive is None:
+        return None
+    from magi.core.proactive.sink import Offer
+    from magi.maintenance.autofix import Autofix
+
+    claude = shutil.which(str(cfg.get("claude", "claude"))) or str(Path("~/.local/bin/claude").expanduser())
+    autofix = Autofix(
+        config.paths.data_dir / "autofix", claude=claude, model=str(cfg.get("model", "sonnet")),
+        max_runs=int(cfg.get("max_runs", 3)), deliver=core.proactive.deliver,
+        offer_factory=lambda accept: Offer(accept=accept),
+    )
+    if core.alerts is not None:
+        core.alerts.autofix = autofix
+    return autofix
 
 
 def _wire_news(core: Core, config: Config) -> None:

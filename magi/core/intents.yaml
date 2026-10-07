@@ -594,3 +594,47 @@ intents:
       - "nao precisa"
       - "negativo"
       - "nao quero"
+
+  - id: system.autofix_diagnose
+    label: "investigar o problema"
+    reply: null
+    phrases:
+      - "investiga o problema"
+      - "investiga o que ta errado"
+      - "ve o que ta errado"
+      - "ve o que deu errado"
+      - "se arruma"
+      - "se conserta"
+      - "diagnostica o problema"
+
+  - id: system.autofix_fix
+    label: "preparar um conserto"
+    reply: null
+    phrases:
+      - "prepara um conserto"
+      - "prepara o conserto"
+      - "conserta isso"
+      - "corrige isso"
+
+  - id: system.autofix_apply
+    label: "aplicar o conserto"
+    reply: null
+    phrases:
+      - "aplica o conserto"
+      - "pode aplicar o conserto"
+      - "aplica"
+
+  - id: system.autofix_discard
+    label: "descartar o conserto"
+    reply: null
+    phrases:
+      - "descarta o conserto"
+      - "joga fora o conserto"
+
+  - id: system.autofix_status
+    label: "ver o autoconserto"
+    reply: null
+    phrases:
+      - "como ta o conserto"
+      - "e o conserto"
+      - "como ta o autoconserto"

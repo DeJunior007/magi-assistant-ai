@@ -73,13 +73,12 @@ Implementado e testado com dublês; falta conferir no uso real:
 - **Como validar:** uma semana de uso olhando se as reações e falas aparecem na medida (sem
   poluir) e se a Favorita do Dia/madrugada fazem sentido; CPU do HUD ≤ 10% de um núcleo.
 
-## 8. Autoconserto
+## 8. Autoconserto — retomado (2026-10-07)
 
-- **Feito:** painel do Claude Code no HUD (tokens do dia, janela de 5 h, sessões rodando).
-- **Parado:** o autoconserto (a Magui chamar o Claude Code sozinha) foi bloqueado pelo classificador
-  de segurança; o código está num `git stash` ("autoconserto (bloqueado…)"). **Decisão do Pedro:**
-  descartar o stash ou retomar só no nível A (diagnóstico, sem editar nada) depois de liberar a
-  permissão. Proposta e limites em `docs/design/AUTOCONSERTO.md`.
+Níveis 0 e 1 implementados (ver `docs/design/AUTOCONSERTO.md`). **Como validar:** derrubar um
+serviço de propósito (`systemctl --user stop magi-news` e um `kill -9` no `magi-satellite`), ouvir
+a pergunta, dizer "sim", ver o diagnóstico no card; depois "prepara um conserto" num bug simples
+de teste e "aplica o conserto" para ver o vigia reiniciar (e desfazer, se quebrar).
 
 ## 9. Validações ao vivo das features novas
 
