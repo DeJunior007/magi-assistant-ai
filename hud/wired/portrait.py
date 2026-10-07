@@ -513,7 +513,7 @@ def _head_group(assets: PartsAssets, eyes: str, mouth: str, side: int) -> tuple[
     return pm, hbox
 
 
-@lru_cache(maxsize=256)
+@lru_cache(maxsize=512)
 def _live_eyes(assets: PartsAssets, key: str, side: int) -> tuple[QPixmap, QRectF] | None:
     """Olhos sem íris (O1) com a íris deslocada (``live:dx:dy``), recortada pela abertura do olho."""
     base = _scaled_part(assets, "eyes/O1.png", side)
@@ -875,9 +875,18 @@ class PartsPortrait(Mascot):
             tip = 2.4 * math.sin(now * 1.05 + phase - 1.0) + 0.6 * math.sin(now * 2.3 + phase * 2 - 1.4)
             draw(f"parts/{name}_tip.png", *args, child=tip - 0.6 * swing)
         draw("", sway, 3.0 * breath, part=_torso_group(self.assets, side))
-        group = _head_group(self.assets, self.eyes_id(now), self.mouth_id(now), side)
-        if group is not None:
-            draw("", hx + sway, hy + head_dy, head=True, part=group)
+        # cabeça, olhos e boca em três desenhos com a mesma transformação (antes eram remontados
+        # juntos a cada troca: com a íris solta isso virava uma remontagem por quadro)
+        hpos = (hx + sway, hy + head_dy)
+        eyes = self.eyes_id(now)
+        draw("parts/head.png", *hpos, head=True)
+        eyes_part = (_live_eyes(self.assets, eyes, side) if eyes.startswith("live:")
+                     else _scaled_part(self.assets, f"eyes/{eyes}.png", side))
+        if eyes_part is not None:
+            draw("", *hpos, head=True, part=eyes_part)
+        mouth_part = _scaled_part(self.assets, f"mouth/{self.mouth_id(now)}.png", side)
+        if mouth_part is not None:
+            draw("", *hpos, head=True, part=mouth_part)
         if self.assets.split_hair:  # mechas laterais e franja com pêndulo próprio, presilha junto
             for name, phase in (("lock_l", 0.4), ("lock_r", 2.0)):
                 swing = 1.3 * math.sin(now * 0.9 + phase) + 0.4 * math.sin(now * 2.1 + phase)
