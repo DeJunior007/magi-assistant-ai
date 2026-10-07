@@ -41,7 +41,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 
 from .mascot import BLINK_LEN, EXPRESSIONS, FPS_AWAKE, Mascot
 
@@ -206,6 +206,12 @@ def _compose(assets: PortraitAssets, expr: str, eyes: str, glance: int, mouth: s
 def make_mascot(state: str = "sleeping", folder: Path | None = None) -> Mascot:
     """O retrato se a pasta tiver as camadas obrigatórias; senão o mascote vetorial."""
     folder = folder or portrait_dir()
+    if is_parts(folder):
+        try:
+            return PartsPortrait(PartsAssets(folder), state)
+        except Exception as e:  # noqa: BLE001 - arte quebrada não derruba o HUD
+            log.warning("retrato em partes indisponível (%s); usando o mascote vetorial", e)
+            return Mascot(state)
     if is_frames(folder):
         try:
             return FramePortrait(FrameAssets(folder), state)
@@ -351,3 +357,218 @@ def _scaled_frame(assets: FrameAssets, n: int, w: int, h: int) -> QPixmap | None
     if pm is None:
         return None
     return pm.scaled(w, h, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+
+
+# ---------------------------------------------------------------- partes (2.5D)
+
+PARTS_ORDER = ("back", "tail_l", "tail_r", "arm_l", "arm_r", "body", "head")
+PARTS_FPS = 15.0  # acordada: respira, balança o cabelo, olha
+PARTS_FPS_SLEEP = 6.0  # dormindo: só respira (barato)
+BREATH_PERIOD = 4.2
+GAZE_EVERY = (6.0, 14.0)
+GAZE_LEN = (1.5, 3.2)
+GAZE_EASE = 0.18  # quanto a cabeça anda em direção ao olhar a cada quadro
+TAIL_PIVOTS = {"tail_l": (330.0, 110.0), "tail_r": (700.0, 110.0)}
+HEAD_PIVOT = (512.0, 140.0)
+BLUSH = "#ff6f8e"
+
+
+def is_parts(folder: Path) -> bool:
+    toml = folder / "portrait.toml"
+    try:
+        cfg = tomllib.loads(toml.read_text(encoding="utf-8")) if toml.is_file() else {}
+    except (OSError, ValueError):
+        return False
+    return cfg.get("mode") == "parts" and (folder / "parts" / "head.png").is_file()
+
+
+class PartsAssets:
+    """Camadas do ``hud/tools/condessa_build.py``: partes, remendos de olhos/boca, extras e o mapa."""
+
+    def __init__(self, folder: Path):
+        self.folder = Path(folder)
+        cfg = tomllib.loads((self.folder / "portrait.toml").read_text(encoding="utf-8"))
+        self.states: dict[str, dict] = {str(k): dict(v) for k, v in dict(cfg.get("states", {})).items()}
+        self.speech = [str(m) for m in dict(cfg.get("speech", {})).get("mouths", ["C1", "C2", "C3"])]
+        self.gazes = [dict(v) for v in dict(cfg.get("gaze", {})).values()]
+        self._cache: dict[str, QPixmap | None] = {}
+        head = self.pix("parts/head.png")
+        if head is None:
+            raise FileNotFoundError(f"retrato em partes sem parts/head.png em {self.folder}")
+        self.size = head.size()
+
+    def pix(self, rel: str) -> QPixmap | None:
+        if rel not in self._cache:
+            path = self.folder / rel
+            pm = QPixmap(str(path)) if path.is_file() else None
+            self._cache[rel] = None if pm is None or pm.isNull() else pm
+        return self._cache[rel]
+
+    def has(self, rel: str) -> bool:
+        return self.pix(rel) is not None
+
+
+@lru_cache(maxsize=128)
+def _scaled_part(assets: PartsAssets, rel: str, side: int) -> QPixmap | None:
+    pm = assets.pix(rel)
+    if pm is None:
+        return None
+    return pm.scaled(side, side, Qt.AspectRatioMode.IgnoreAspectRatio,
+                     Qt.TransformationMode.SmoothTransformation)
+
+
+class PartsPortrait(Mascot):
+    """Condessa 2.5D: partes animadas (respiração, cabelo em pêndulo, olhar com parallax),
+    olhos/boca por estado e pela voz, piscada da expressão e efeitos desenhados em código."""
+
+    TALL = True
+
+    def __init__(self, assets: PartsAssets, state: str = "sleeping", rng: random.Random | None = None,
+                 now: float | None = None, hour: Callable[[], int] | None = None):
+        super().__init__(state, rng, now)
+        self.assets = assets
+        self.hour = hour or (lambda: time.localtime().tm_hour)
+        self._gaze_at = self._now + self._rng.uniform(*GAZE_EVERY)
+        self._gaze_end = -1.0
+        self._gaze: dict | None = None
+        self._head = [0.0, 0.0]  # deslocamento atual da cabeça (px do quadro de 1024)
+        self._last_tick = -math.inf
+
+    # -- estado
+    def _night(self) -> bool:
+        h = self.hour()
+        return h >= NIGHT_HOURS[0] or h < NIGHT_HOURS[1]
+
+    def _resting(self) -> bool:
+        return self.state == "listening" or (self.state == "sleeping" and not self._night())
+
+    def _state_cfg(self) -> dict:
+        st = self.state
+        if st == "sleeping" and not self._night():
+            st = "listening"
+        return self.assets.states.get(st) or self.assets.states.get("listening") or {}
+
+    def _advance_gaze(self, now: float) -> None:
+        if not self.assets.gazes or not self._resting():
+            self._gaze = None
+            return
+        if self._gaze is not None and now >= self._gaze_end:
+            self._gaze = None
+            self._gaze_at = now + self._rng.uniform(*GAZE_EVERY)
+        if self._gaze is None and now >= self._gaze_at:
+            self._gaze = self._rng.choice(self.assets.gazes)
+            self._gaze_end = now + self._rng.uniform(*GAZE_LEN)
+
+    def eyes_id(self, now: float) -> str:
+        cfg = self._state_cfg()
+        if self.state == "sleeping" and self._night():
+            closed = (cfg.get("blink") or ["B15", "B15"])[-1]
+            return closed if self.assets.has(f"eyes/{closed}.png") else str(cfg.get("eyes", "B1"))
+        if self.blinking(now):
+            half, closed = (cfg.get("blink") or ["B2", "B3"])[:2]
+            t = (now - self._blink_at) / BLINK_LEN
+            return closed if 1 / 3 <= t < 2 / 3 else half
+        if self._gaze is not None:
+            return str(self._gaze.get("eyes", cfg.get("eyes", "B1")))
+        return str(cfg.get("eyes", "B1"))
+
+    def mouth_id(self) -> str:
+        if self.state == "speaking":
+            mouths = self.assets.speech
+            lvl = self.level
+            i = 0 if lvl < 0.15 else (1 if lvl < 0.5 else 2)
+            return mouths[min(i, len(mouths) - 1)]
+        return str(self._state_cfg().get("mouth", "C1"))
+
+    # -- relógio
+    def tick(self, now: float | None = None) -> tuple[bool, float]:
+        now = time.monotonic() if now is None else now
+        self._now = now
+        self._advance(now)
+        self._advance_gaze(now)
+        tgt = (float(self._gaze.get("dx", 0)), float(self._gaze.get("dy", 0))) if self._gaze else (0.0, 0.0)
+        self._head[0] += (tgt[0] - self._head[0]) * GAZE_EASE
+        self._head[1] += (tgt[1] - self._head[1]) * GAZE_EASE
+        fps = PARTS_FPS_SLEEP if self.sleeping else PARTS_FPS
+        frame = 1.0 / fps
+        if now - self._last_tick < frame - 1e-6:
+            return False, self._last_tick + frame
+        self._last_tick = now
+        return True, now + frame
+
+    # -- desenho
+    def target(self, rect: QRectF) -> QRectF:
+        side = min(rect.width(), rect.height())
+        return QRectF(rect.center().x() - side / 2, rect.center().y() - side / 2, side, side)
+
+    def paint(self, p: QPainter, rect: QRectF, accent: str | QColor, now: float | None = None) -> None:
+        now = self._now if now is None else now
+        t = self.target(rect)
+        k = t.width() / self.assets.size.width()
+        side = max(1, round(p.transform().mapRect(t).width()))
+        breath = math.sin(2 * math.pi * now / BREATH_PERIOD)
+        hx, hy = self._head
+        head_dy = 2.0 * breath
+        p.save()
+        p.setClipRect(rect, Qt.ClipOperation.IntersectClip)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        p.translate(t.topLeft())
+        p.scale(k, k)
+
+        def draw(rel: str, dx: float = 0.0, dy: float = 0.0, angle: float = 0.0,
+                 pivot: tuple[float, float] = HEAD_PIVOT) -> None:
+            pm = _scaled_part(self.assets, rel, side)
+            if pm is None:
+                return
+            p.save()
+            p.translate(dx, dy)
+            if angle:
+                p.translate(*pivot)
+                p.rotate(angle)
+                p.translate(-pivot[0], -pivot[1])
+            p.drawPixmap(QRectF(0, 0, 1024, 1024), pm, QRectF(pm.rect()))
+            p.restore()
+
+        draw("parts/back.png", -0.4 * hx, -0.3 * hy + 1.5 * breath, 0.25 * math.sin(now * 0.7))
+        for name, phase in (("tail_l", 0.0), ("tail_r", 1.3)):
+            draw(f"parts/{name}.png", 0.6 * hx, 0.6 * hy + head_dy, 1.4 * math.sin(now * 1.05 + phase),
+                 TAIL_PIVOTS[name])
+        draw("parts/arm_l.png", 0, 3.5 * breath)
+        draw("parts/arm_r.png", 0, 3.5 * breath)
+        draw("parts/body.png", 0, 3.0 * breath)
+        draw("parts/head.png", hx, hy + head_dy)
+        draw(f"eyes/{self.eyes_id(now)}.png", hx, hy + head_dy)
+        draw(f"mouth/{self.mouth_id()}.png", hx, hy + head_dy)
+        draw("parts/bangs.png", 1.25 * hx, 1.2 * hy + head_dy, 0.5 * math.sin(now * 1.3), (512.0, 100.0))
+        self._effects(p, now, QColor(accent), hx, hy + head_dy)
+        p.restore()
+
+    def _effects(self, p: QPainter, now: float, accent: QColor, hx: float, hy: float) -> None:
+        """Detalhes desenhados em código, no quadro de 1024 (zz, ?, !, rubor)."""
+        from . import fonts
+
+        st = self.state
+        p.save()
+        if st == "happy":  # rubor: hachuras rosadas nas bochechas
+            c = QColor(BLUSH)
+            c.setAlphaF(0.6)
+            p.setPen(QPen(c, 5))
+            for cx in (420.0, 610.0):
+                for i in range(4):
+                    x = cx + hx + i * 14
+                    p.drawLine(QPointF(x, 515 + hy), QPointF(x + 12, 495 + hy))
+        if st == "sleeping" and self._night():  # zz subindo
+            for i in range(3):
+                ph = (now / 3.0 + i / 3) % 1.0
+                c = QColor(accent)
+                c.setAlphaF(max(0.0, 1.0 - ph))
+                p.setPen(c)
+                p.setFont(fonts.font("cond", 40 + i * 12, 600))
+                p.drawText(QPointF(720 + i * 34 + 20 * ph, 230 - i * 40 - 70 * ph), "z")
+        if st in ("confused", "alert"):  # ? ou ! pulsando ao lado da cabeça
+            s = 1.0 + 0.08 * math.sin(now * 6)
+            c = QColor("#e8b04a") if st == "alert" else QColor(accent)
+            p.setPen(c)
+            p.setFont(fonts.font("cond", 110 * s, 700))
+            p.drawText(QPointF(760 + hx, 250 + hy), "!" if st == "alert" else "?")
+        p.restore()
