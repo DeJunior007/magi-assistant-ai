@@ -309,3 +309,25 @@ def test_partes_olhar_livre_e_boca_por_silaba(tmp_path):
         m.tick(t)
         shapes.add(m.mouth_id(t))
     assert {"V1", "V3"} & shapes and "C3" in shapes
+
+
+def test_partes_na_gpu_ou_cai_para_cpu(tmp_path, monkeypatch):
+    from PySide6.QtCore import QRectF
+    from wired.portrait import PartsAssets, PartsPortrait
+
+    write_parts(tmp_path)
+    monkeypatch.setenv("MAGI_PORTRAIT_RENDERER", "gl")
+    m = PartsPortrait(PartsAssets(tmp_path), "listening", now=0.0)
+    m.hour = lambda: 14
+    assert m._gl is not None
+    img = QImage(200, 200, QImage.Format.Format_ARGB32_Premultiplied)
+    img.fill(QColor("black"))
+    for k in range(3):
+        m.tick(k / 60)
+        p = QPainter(img)
+        m.paint(p, QRectF(0, 0, 200, 200), "#b4a0e6", k / 60)
+        p.end()
+    # com OpenGL o retrato sai da GPU; sem (testes sem tela), cai para a CPU sem quebrar
+    if m._gl is None:
+        pytest.skip("OpenGL indisponível aqui: caiu para a CPU, como deveria")
+    assert m._gl.ok

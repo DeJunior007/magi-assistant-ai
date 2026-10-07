@@ -42,7 +42,7 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
+from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient, QTransform
 
 from .mascot import BLINK_LEN, EXPRESSIONS, FPS_AWAKE, Mascot
 
@@ -397,6 +397,8 @@ class PartsAssets:
         self.speech = [str(m) for m in dict(cfg.get("speech", {})).get("mouths", ["C1", "C2", "C3"])]
         self.gaze_by_name = {str(k): dict(v) for k, v in dict(cfg.get("gaze", {})).items()}
         self.gazes = list(self.gaze_by_name.values())
+        # "gl": malhas que entortam e pós-processamento na GPU (portrait_gl); "cpu": QPainter
+        self.renderer = str(os.environ.get("MAGI_PORTRAIT_RENDERER") or cfg.get("renderer", "cpu"))
         speech = dict(cfg.get("speech", {}))
         raw_shapes = dict(speech.get("shapes", SHAPES_DEFAULT))
         self._raw_shapes = {str(k): [str(m) for m in v] for k, v in raw_shapes.items()}
@@ -621,6 +623,14 @@ class PartsPortrait(Mascot):
         self._think_since: float | None = None
         self._think_k = 0.0  # 0..1, suaviza a entrada e a saída da cara de pensando
         self._iris = [0.0, 0.0]  # deslocamento atual da íris (olhar livre)
+        self._gl = None
+        if assets.renderer == "gl":
+            from .portrait_gl import GLPortrait
+
+            self._gl = GLPortrait(assets.folder)
+        self._drag = [0.0, 0.0]  # inércia do cabelo na GPU (contra o movimento da cabeça)
+        self._prev_head: tuple[float, float, float] | None = None
+        self.glitch = 0.0  # 0..1: interferência de sinal (núcleo fora do ar)
         self._saccade = (0.0, 0.0)
         self._saccade_at = self._now + self._rng.uniform(*SACCADE_EVERY)
         self._valley = 0.0  # menor volume desde a última sílaba
@@ -795,6 +805,14 @@ class PartsPortrait(Mascot):
             tgt = (think[1], think[2])
         self._head[0] += (tgt[0] - self._head[0]) * GAZE_EASE
         self._head[1] += (tgt[1] - self._head[1]) * GAZE_EASE
+        if self._gl is not None and dt:
+            hx, hy = self._head
+            if self._prev_head is not None:
+                vx, vy = (hx - self._prev_head[0]) / dt, (hy - self._prev_head[1]) / dt
+                k = 1 - math.exp(-dt / 0.25)
+                self._drag[0] += (max(-14.0, min(14.0, -0.9 * vx)) - self._drag[0]) * k
+                self._drag[1] += (max(-8.0, min(8.0, -0.6 * vy)) - self._drag[1]) * k
+            self._prev_head = (hx, hy, now)
         if self.sleeping and self._night():
             fps = PARTS_FPS_SLEEP
         else:
@@ -833,77 +851,149 @@ class PartsPortrait(Mascot):
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         p.translate(t.topLeft())
         p.scale(k, k)
+        gl = self._gl
+        ops: list = []  # na GPU: camadas a desenhar (portrait_gl.GLOp)
+        # na GPU o cabelo entorta pela malha; a rotação rígida fica só como base
+        rigid = 0.45 if gl is not None else 1.0
+
+        def xform(box: QRectF, dx: float, dy: float, angle: float, pivot: tuple[float, float],
+                  head: bool, child: float) -> QTransform:
+            x = QTransform()
+            if head:  # cabeça, olhos, boca, franja: giram juntos a partir do pescoço
+                x.translate(*NECK_PIVOT)
+                x.rotate(tilt)
+                x.translate(-NECK_PIVOT[0], -NECK_PIVOT[1])
+            x.translate(dx, dy)
+            if angle:
+                x.translate(*pivot)
+                x.rotate(angle)
+                x.translate(-pivot[0], -pivot[1])
+            if child:
+                top = (box.center().x(), box.top() + 4)
+                x.translate(*top)
+                x.rotate(child)
+                x.translate(-top[0], -top[1])
+            return x
 
         def draw(rel: str, dx: float = 0.0, dy: float = 0.0, angle: float = 0.0,
                  pivot: tuple[float, float] = HEAD_PIVOT, head: bool = False,
-                 part: tuple[QPixmap, QRectF] | None = None, child: float = 0.0) -> None:
-            """``child``: ângulo extra em volta do topo da própria peça (ponta da mecha, 2º segmento)."""
+                 part: tuple[QPixmap, QRectF] | None = None, child: float = 0.0,
+                 deform: tuple | None = None) -> None:
+            """``child``: ângulo extra em volta do topo da peça (2º segmento). ``deform`` (GPU):
+            ``(1, raiz y, comprimento, amplitude, fase, frequência)``, ``(2,)`` respiração ou
+            ``(3, (dx, dy))`` íris."""
             part = part if part is not None else _scaled_part(self.assets, rel, side)
             if part is None:
                 return
             pm, box = part
+            x = xform(box, dx, dy, angle, pivot, head, child)
+            if gl is not None:
+                from .portrait_gl import GLOp
+
+                kind, *rest = deform or (0,)
+                op = GLOp(rel, x, kind)
+                if kind == 1:  # cabelo
+                    root, length, amp, phase, freq = rest
+                    op.hair, op.freq = (root, length, amp, phase), freq
+                elif kind == 3:  # íris
+                    op.iris = rest[0]
+                ops.append(op)
+                return
             p.save()
-            if head:  # cabeça, olhos, boca, franja: giram juntos a partir do pescoço
-                p.translate(*NECK_PIVOT)
-                p.rotate(tilt)
-                p.translate(-NECK_PIVOT[0], -NECK_PIVOT[1])
-            p.translate(dx, dy)
-            if angle:
-                p.translate(*pivot)
-                p.rotate(angle)
-                p.translate(-pivot[0], -pivot[1])
-            if child:
-                top = (box.center().x(), box.top() + 4)
-                p.translate(*top)
-                p.rotate(child)
-                p.translate(-top[0], -top[1])
+            p.setTransform(x, True)
             p.drawPixmap(box, pm, QRectF(pm.rect()))
             p.restore()
+
+        def box_of(rel: str) -> QRectF:
+            got = _scaled_part(self.assets, rel, side)
+            return got[1] if got else QRectF(0, 0, 1024, 1024)
+
+        def hair(rel: str, amp: float, phase: float, freq: float, root: float | None = None) -> tuple:
+            b = box_of(rel)
+            top = b.top() if root is None else root
+            return (1, top, max(60.0, b.bottom() - top), amp, phase, freq)
 
         self.accent = QColor(accent)
         self._backdrop(p, now, -0.9 * hx - 0.8 * sway, -0.7 * hy - 0.5 * head_dy)
         # ordem: cabelo de trás, marias-chiquinhas, braços, corpo, cabeça; as mechas que caem na frente
         # dos ombros vêm da franja (desenhada por último)
-        back = (-0.4 * hx + 0.5 * sway, -0.3 * hy + 1.5 * breath, 0.3 * math.sin(now * 0.7) + 0.4 * tilt)
-        draw("parts/back.png", *back, head=False)
-        draw("parts/back_tip.png", *back, child=0.9 * math.sin(now * 0.7 - 0.9) + 0.3 * tilt)
+        back = (-0.4 * hx + 0.5 * sway, -0.3 * hy + 1.5 * breath,
+                (0.3 * math.sin(now * 0.7) + 0.4 * tilt) * rigid)
+        back_def = hair("parts/back.png", 7.0, 0.3, 0.8)
+        draw("parts/back.png", *back, head=False, deform=back_def)
+        back_tip = (0.9 * math.sin(now * 0.7 - 0.9) + 0.3 * tilt) if gl is None else 0.0
+        draw("parts/back_tip.png", *back, child=back_tip, deform=back_def)
         for name, phase in (("tail_l", 0.0), ("tail_r", 1.3)):
             swing = 1.8 * math.sin(now * 1.05 + phase) + 0.5 * math.sin(now * 2.3 + phase * 2)
-            args = (0.6 * hx + sway, 0.6 * hy + head_dy, swing + 0.6 * tilt, TAIL_PIVOTS[name])
-            draw(f"parts/{name}.png", *args)
-            # ponta: o mesmo balanço atrasado e maior (o cabelo dobra como chicote)
+            pivot = TAIL_PIVOTS[name]
+            args = (0.6 * hx + sway, 0.6 * hy + head_dy, (swing + 0.6 * tilt) * rigid, pivot)
+            tail_def = hair(f"parts/{name}.png", 13.0, phase, 1.05, root=pivot[1])
+            draw(f"parts/{name}.png", *args, deform=tail_def)
+            # ponta: o mesmo balanço atrasado e maior (o cabelo dobra como chicote); na GPU, a malha
             tip = 2.4 * math.sin(now * 1.05 + phase - 1.0) + 0.6 * math.sin(now * 2.3 + phase * 2 - 1.4)
-            draw(f"parts/{name}_tip.png", *args, child=tip - 0.6 * swing)
-        draw("", sway, 3.0 * breath, part=_torso_group(self.assets, side))
+            draw(f"parts/{name}_tip.png", *args, child=(tip - 0.6 * swing) if gl is None else 0.0,
+                 deform=tail_def)
+        if gl is not None:  # braços acompanham a respiração; o peito deforma
+            draw("parts/arm_l.png", sway, 3.0 * breath)
+            draw("parts/arm_r.png", sway, 3.0 * breath)
+            draw("parts/body.png", sway, 0.0, deform=(2,))
+        else:
+            draw("", sway, 3.0 * breath, part=_torso_group(self.assets, side))
         # cabeça, olhos e boca em três desenhos com a mesma transformação (antes eram remontados
         # juntos a cada troca: com a íris solta isso virava uma remontagem por quadro)
         hpos = (hx + sway, hy + head_dy)
         eyes = self.eyes_id(now)
         draw("parts/head.png", *hpos, head=True)
-        eyes_part = (_live_eyes(self.assets, eyes, side) if eyes.startswith("live:")
-                     else _scaled_part(self.assets, f"eyes/{eyes}.png", side))
-        if eyes_part is not None:
-            draw("", *hpos, head=True, part=eyes_part)
-        mouth_part = _scaled_part(self.assets, f"mouth/{self.mouth_id(now)}.png", side)
+        if eyes.startswith("live:") and gl is not None:
+            draw("eyes/O1.png", *hpos, head=True)
+            draw("parts/iris.png", *hpos, head=True, deform=(3, (self._iris[0], self._iris[1])))
+        else:
+            eyes_part = (_live_eyes(self.assets, eyes, side) if eyes.startswith("live:")
+                         else _scaled_part(self.assets, f"eyes/{eyes}.png", side))
+            if eyes_part is not None:
+                draw(f"eyes/{eyes}.png", *hpos, head=True, part=eyes_part)
+        mouth = f"mouth/{self.mouth_id(now)}.png"
+        mouth_part = _scaled_part(self.assets, mouth, side)
         if mouth_part is not None:
-            draw("", *hpos, head=True, part=mouth_part)
+            draw(mouth, *hpos, head=True, part=mouth_part)
         if self.assets.split_hair:  # mechas laterais e franja com pêndulo próprio, presilha junto
             for name, phase in (("lock_l", 0.4), ("lock_r", 2.0)):
                 swing = 1.3 * math.sin(now * 0.9 + phase) + 0.4 * math.sin(now * 2.1 + phase)
                 draw(f"parts/{name}.png", 1.15 * hx + sway, 1.1 * hy + head_dy, head=True,
-                     child=swing - 0.5 * tilt)
-            bangs = (1.25 * hx + sway, 1.2 * hy + head_dy, 0.6 * math.sin(now * 1.3), (512.0, 100.0))
-            draw("parts/bangs_c.png", *bangs, head=True)
+                     child=(swing - 0.5 * tilt) * rigid, deform=hair(f"parts/{name}.png", 6.0, phase, 0.9))
+            bangs = (1.25 * hx + sway, 1.2 * hy + head_dy, 0.6 * math.sin(now * 1.3) * rigid, (512.0, 100.0))
+            draw("parts/bangs_c.png", *bangs, head=True, deform=hair("parts/bangs_c.png", 2.5, 0.0, 1.3))
             draw("parts/clip.png", *bangs, head=True)
         else:
             draw("parts/bangs.png", 1.25 * hx + sway, 1.2 * hy + head_dy, 0.6 * math.sin(now * 1.3),
-                 (512.0, 100.0), head=True)
+                 (512.0, 100.0), head=True, deform=hair("parts/bangs.png", 3.0, 0.0, 1.3))
+        if gl is not None and not self._paint_gl(p, gl, ops, now, side, breath, r):
+            self._gl = None  # GPU falhou: daqui em diante, CPU
         self._effects(p, now, QColor(accent), hx, hy + head_dy)
         if r is not None and r.effect:
             self._reaction_effect(p, now, r.effect, hx, hy + head_dy)
         if self._think_since is not None and now - self._think_since >= DOTS_AFTER:
             self._dots(p, now, hx, hy + head_dy)
         p.restore()
+
+    def _paint_gl(self, p: QPainter, gl, ops: list, now: float, side: int, breath: float, r) -> bool:
+        """Desenha as camadas na GPU e cola a imagem no lugar do retrato (quadro de 1024 atual)."""
+        from .portrait_gl import Post
+
+        tint = self.tint()
+        post = Post(rim=0.3 + 0.25 * self._moodk, rim_color=(tint.redF(), tint.greenF(), tint.blueF()),
+                    glitch=self.glitch)
+        if r is not None and r.mood == "surprise":  # susto: as cores se separam e voltam
+            post.aberr = 3.0 * max(0.0, min(1.0, (self.reaction_until - now) / 1.5))
+        img = gl.render(side, ops, now, tuple(self._drag), 3.0 * breath, post)
+        if img is None:
+            return False
+        origin = p.transform().map(QPointF(0, 0))
+        p.save()
+        p.resetTransform()
+        p.drawImage(round(origin.x()), round(origin.y()), img)
+        p.restore()
+        return True
 
     def _ease_tint(self, now: float, dt: float) -> None:
         hexc = MOOD_COLORS.get(self.mood(now)) or self.accent.name()
