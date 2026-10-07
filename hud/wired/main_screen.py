@@ -596,7 +596,7 @@ RADIO_CARD_H = 56.0
 
 # lado do mascote (flex column gap 14, a partir de top+1+22)
 _SY = Y2 + 23
-MASCOT_MAIN = QRectF(SIDE_X, _SY + 15.8 + 14, SIDE_R - SIDE_X, 252)  # retrato da Condessa (+20%)
+MASCOT_MAIN = QRectF(SIDE_X, _SY + 15.8 + 14, SIDE_R - SIDE_X, 302)  # retrato da Condessa (+20% duas vezes)
 CHIP_TOP = MASCOT_MAIN.bottom() + 14
 MOOD_MAIN = QRectF(SIDE_R - 24, MASCOT_MAIN.top() + 4, 24, MASCOT_MAIN.height() - 8)  # à direita do mascote
 TALK = QRectF(SIDE_X - 2, CHIP_TOP - 2, SIDE_R - SIDE_X + 4, MID_TOP.bottom() - CHIP_TOP - 20)
