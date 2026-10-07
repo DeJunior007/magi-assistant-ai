@@ -362,7 +362,7 @@ def _scaled_frame(assets: FrameAssets, n: int, w: int, h: int) -> QPixmap | None
 # ---------------------------------------------------------------- partes (2.5D)
 
 PARTS_ORDER = ("back", "tail_l", "tail_r", "arm_l", "arm_r", "body", "head")
-PARTS_FPS = 15.0  # acordada: respira, balança o cabelo, olha
+PARTS_FPS = 30.0  # acordada: respira, balança o cabelo, olha
 PARTS_FPS_SLEEP = 6.0  # dormindo: só respira (barato)
 BREATH_PERIOD = 4.2
 GAZE_EVERY = (6.0, 14.0)
@@ -529,6 +529,8 @@ class PartsPortrait(Mascot):
             p.drawPixmap(QRectF(0, 0, 1024, 1024), pm, QRectF(pm.rect()))
             p.restore()
 
+        # ordem: cabelo de trás, marias-chiquinhas, braços, corpo, cabeça; as mechas que caem na frente
+        # dos ombros vêm da franja (desenhada por último)
         draw("parts/back.png", -0.4 * hx, -0.3 * hy + 1.5 * breath, 0.25 * math.sin(now * 0.7))
         for name, phase in (("tail_l", 0.0), ("tail_r", 1.3)):
             draw(f"parts/{name}.png", 0.6 * hx, 0.6 * hy + head_dy, 1.4 * math.sin(now * 1.05 + phase),
