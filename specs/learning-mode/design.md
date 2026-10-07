@@ -507,3 +507,10 @@ precisam dela; isso não é a "malha completa" que o PDF tira do ciclo.
 > largura/1920 = 1,333); o ultrawide 3440×1440 (DP-2) é o principal, onde o Pedro joga. Testes e
 > capturas da tela learning usam 2560×1440; o mockup em 21:9 é referência de hierarquia, não de
 > proporção.
+
+> **P11–P14 respondidas (2026-10-07, Pedro: "pode seguir as propostas"):** P11 sim — ao escolher
+> um tema diferente de Free talk ela puxa o assunto com uma pergunta quando volta a `listening`
+> (cancela se o Pedro falar antes); P12 tema Game sem jogo aberto usa o último jogo das últimas 6 h,
+> senão Free talk; P13 cartão LAST SESSION no painel gamer sobreposto abaixo do botão LEARNING por
+> 60 s, sem cobrir retrato nem player (LM4.6 confirma com captura); P14 Tech interview genérico de
+> engenharia de software (backend/Python, pleno/sênior), com `interview_role` opcional na config.
