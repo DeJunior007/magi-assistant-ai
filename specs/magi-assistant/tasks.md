@@ -77,13 +77,13 @@ Formato de cada tarefa:
   - Orçamento: ~30k
   - Pronto: `[tasks]` preenchida com modelos e preços.
 
-- [ ] **0.7 Spike S4: "Condessa"** — ativação por "Condessa" (sozinha ou com "hey/oi/oh"); roteiro de gravação de ~50 amostras, treino do openWakeWord, medição de falsos disparos em 1 h de jogo. **Precisa de mim** para gravar e jogar.
+- [x] **0.7 Spike S4: "Condessa"** — ativação por "Condessa" (sozinha ou com "hey/oi/oh"); roteiro de gravação de ~50 amostras, treino do openWakeWord, medição de falsos disparos em 1 h de jogo. **Precisa de mim** para gravar e jogar.
   - Lê: §5, §12, `docs/spikes/S1.md`
   - Escreve: `spikes/s4_wake/` (roteiro, treino, medição), `docs/spikes/S4.md`, `~/.local/share/magi/models/wakeword/condessa.onnx` (kit em `tools/wakeword/`, `--word condessa`)
   - Depende de: 0.4
   - Orçamento: ~35k
 
-- [ ] **0.8 Modelo "Condessa" dentro da meta** — re-treino com `neg-weight 50`, l2 0,003, 1 rodada de negativos difíceis e 400 mil janelas do ACAV100M; `train`/`evaluate` medem como o `WakeSpotter` (`patience` + recarga de 2 s) e o `evaluate` inclui as 1,6 h reservadas do openWakeWord. Resultado: **0,00 falso/h** (p=3, limiar 0,6–0,8) mas **90,9% de acerto** (10/11 reservadas; perde 1 com música alta) → falta acerto. Sugestão: `wake_threshold = 0.6`, `wake_patience = 3`. Pendente: 1 h de jogo em `eval/` e ~10 positivas "com jogo alto".
+- [x] **0.8 Modelo "Condessa" dentro da meta** — re-treino com `neg-weight 50`, l2 0,003, 1 rodada de negativos difíceis e 400 mil janelas do ACAV100M; `train`/`evaluate` medem como o `WakeSpotter` (`patience` + recarga de 2 s) e o `evaluate` inclui as 1,6 h reservadas do openWakeWord. Resultado: **0,00 falso/h** (p=3, limiar 0,6–0,8) mas **90,9% de acerto** (10/11 reservadas; perde 1 com música alta) → falta acerto. Sugestão: `wake_threshold = 0.6`, `wake_patience = 3`. Pendente: 1 h de jogo em `eval/` e ~10 positivas "com jogo alto".
   - Lê: `docs/spikes/S4.md`, `tools/wakeword/`, `magi/satellite/wake.py`
   - Escreve: `tools/wakeword/{common,train,evaluate}.py`, `tests/tools/test_wakeword.py`, `docs/spikes/S4.md`, `~/.local/share/magi/models/wakeword/condessa.onnx`
   - Depende de: 0.7

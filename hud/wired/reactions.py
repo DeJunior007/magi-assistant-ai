@@ -38,6 +38,7 @@ SKIP_WINDOW = 40.0  # "próxima" até 40 s depois da faixa começar conta como p
 LINE_GAP = 4 * 60.0  # entre duas falas de texto quaisquer
 MUSIC_LINE_GAP = 20 * 60.0  # entre comentários de música
 LINE_SECS = 7.0
+CLEANUP_MIN_BYTES = 1_000_000_000  # faxina menor que isso não é comemorada (= cleanup_announce_gb)
 CLICK_TALK = 0.25  # chance de comentar um clique comum (player, card)
 _SPLIT = re.compile(r"\s*(?:,|&|/|;| feat\.? | ft\.? | x | e )\s*")
 
@@ -411,7 +412,13 @@ class Reactor:
         return bool(temps) and max(temps) >= (COOL_C if was else HOT_C)
 
     def _cleanup_stamp(self) -> str | None:
-        return _load_json(self.cleanup_file).get("at") if self.cleanup_file else None
+        """Marca da última faxina que valeu a pena (a mesma régua da fala do núcleo: ≥ 1 GB)."""
+        data = _load_json(self.cleanup_file) if self.cleanup_file else {}
+        try:
+            worth = int(data.get("freed_bytes", 0)) >= CLEANUP_MIN_BYTES
+        except (TypeError, ValueError):
+            worth = False
+        return data.get("at") if worth else None
 
     def favorite_of_day(self) -> str:
         """Favorita do Dia: sorteada pela data entre artistas com nota ≥ o piso do acordo."""

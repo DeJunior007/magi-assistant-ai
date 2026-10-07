@@ -149,7 +149,11 @@ def test_hud_quente_noticia_e_faxina(tmp_path):
     r.until = 0.0
     r.observe(snap(cpu_temp=80.0, news=[("10:00", "manchete")]), 3.0, 15)
     assert r.active(3.0).name == "news"
-    (tmp_path / "cleanup.json").write_text('{"at": "2026-10-07T03:00:00"}')
+    (tmp_path / "cleanup.json").write_text('{"at": "2026-10-07T02:00:00", "freed_bytes": 1000}')
+    r.until = 0.0
+    r.observe(snap(cpu_temp=70.0, news=[("10:00", "manchete")]), 3.5, 15)
+    assert r.active(3.5) is None  # faxina vazia: nada a comemorar
+    (tmp_path / "cleanup.json").write_text('{"at": "2026-10-07T03:00:00", "freed_bytes": 3000000000}')
     r.until = 0.0
     r.observe(snap(cpu_temp=70.0, news=[("10:00", "manchete")]), 4.0 + LINE_GAP, 15)
     assert r.active(4.0 + LINE_GAP).name == "cleanup"

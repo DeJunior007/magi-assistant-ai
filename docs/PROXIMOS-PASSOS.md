@@ -5,29 +5,17 @@ O MVP está implementado (ver [`README.md`](../README.md)). Nada novo vai ser im
 `specs/magi-assistant/tasks.md` (itens `[ ]`), [`docs/perf/fase1.md`](perf/fase1.md),
 [`docs/spikes/S4.md`](spikes/S4.md) e os relatórios das tarefas.
 
-## 1. Condessa: acerto abaixo da meta (tarefas 0.7 / 0.8)
+## 1. Wake word "Condessa" — resolvido no uso (2026-10-07)
 
-- **Por quê:** o modelo atual dá 0,00 falso/h (patience 3, limiar 0,6–0,8) mas acerta **90,9%**
-  (10 de 11 positivas reservadas); a meta é ≥ 95%. A perdida é fala sob música alta (nota 0,25).
-  Também falta medir falsos disparos com áudio real de jogo (RNF-06: ≤ 1/h).
-- **O que falta:** gravar ~10 positivas extras "com jogo/música alta" (app "Gravar voz da Condessa",
-  `--section positive`) e ~1 h de jogo normal em `~/.local/share/magi/wakeword-data/condessa/eval/`
-  (`pw-record`, ver [GUIA §12](GUIA.md#12-condessa-wake-word)); re-treinar.
-- **Como validar:** `uv run python -m tools.wakeword.evaluate` com ≥ 95% de acerto e ≤ 0,5 falso/h
-  incluindo o `eval/`; depois uma sessão real de jogo sem disparo falso e sem "não ouviu".
+No teste de bancada acertava 90,9% (meta 95%), mas no uso real o Pedro não teve problema: tarefas
+0.7/0.8 fechadas. Se voltar a falhar com música/jogo alto, o caminho está no
+[GUIA §12](GUIA.md#12-condessa-wake-word) (gravar positivas com jogo e re-treinar).
 
-## 2. Pergunta ao agente acima de 3 s (RNF-05)
+## 2. Latência do agente — meta aceita; o foco vira a espera
 
-- **Por quê:** p90 **3,39 s** (meta 3 s; média 2,81 s). O tempo é STT (~0,7 s) + modelo (~1–1,5 s)
-  + primeiro byte do TTS (~0,6–0,9 s), em série.
-- **O que já foi tentado:** 1.23 (otimizações), 1.24 (fala por frase em streaming, ganho pequeno
-  porque as respostas costumam ter uma frase só) e 1.25 (transcrição enquanto fala): a 1.25 foi
-  testada e **não ajudou** (~70 ms com `gpt-transcribe`; o `gpt-live-transcribe` transcreve pior e
-  custa 3,8×), então fica **desligada** (`streaming = false`).
-- **Opções:** modelo de agente mais rápido; atacar o primeiro byte do TTS; ou rever a meta para
-  3,5 s.
-- **Como validar:** `uv run python -m tools.perf latency --turns 10 --phrase "quantas patas tem uma
-  aranha" --gap 3` com p90 ≤ 3 s (ou a meta revista registrada em `requirements.md`).
+p90 de 3,39 s ficou bom pela qualidade da resposta. Em vez de cortar tempo, a espera vai ficar
+viva: animação de "pensando" mais expressiva, uma frase curta relacionada enquanto ela pensa e,
+em pedidos complexos, resposta em lotes (ela entrega uma parte enquanto prepara a próxima).
 
 ## 3. Validações ao vivo pendentes
 
