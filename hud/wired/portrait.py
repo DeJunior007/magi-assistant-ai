@@ -396,11 +396,21 @@ class PartsAssets:
         self.speech = [str(m) for m in dict(cfg.get("speech", {})).get("mouths", ["C1", "C2", "C3"])]
         self.gaze_by_name = {str(k): dict(v) for k, v in dict(cfg.get("gaze", {})).items()}
         self.gazes = list(self.gaze_by_name.values())
+        speech = dict(cfg.get("speech", {}))
+        raw_shapes = dict(speech.get("shapes", SHAPES_DEFAULT))
+        self._raw_shapes = {str(k): [str(m) for m in v] for k, v in raw_shapes.items()}
         self._cache: dict[str, QPixmap | None] = {}
         head = self.pix("parts/head.png")
         if head is None:
             raise FileNotFoundError(f"retrato em partes sem parts/head.png em {self.folder}")
         self.size = head.size()
+        # camadas opcionais da 2ª rodada de arte (H, O, V)
+        self.live_eyes = all(self.has(r) for r in ("parts/iris.png", "parts/eye_open.png", "eyes/O1.png"))
+        self.split_hair = all(self.has(f"parts/{n}.png") for n in ("bangs_c", "lock_l", "lock_r"))
+        self.shapes = {band: [m for m in ms if self.has(f"mouth/{m}.png")]
+                       for band, ms in self._raw_shapes.items()}
+        self.shapes = {b: ms for b, ms in self.shapes.items() if ms} if any(
+            m.startswith("V") for ms in self.shapes.values() for m in ms) else {}
 
     def pix(self, rel: str) -> QPixmap | None:
         if rel not in self._cache:
@@ -449,6 +459,13 @@ THINK_CYCLE = (("B13", 4.0, -3.0), ("F4", 5.0, -3.0), ("B13", 4.0, -3.0), ("F6",
 THINK_STEP = 1.3  # s em cada olhar
 THINK_TILT = 2.2  # graus a mais de inclinação
 PONDER_AFTER = 1.0  # s de silêncio "falando" até virar cara de pensando
+# olhar livre (O1 + íris recortada): deslocamento da íris (px do quadro de 1024) por olhar
+IRIS_FOR = {"B1": (0.0, 0.0), "F1": (-8.0, 0.0), "F6": (8.0, 0.0), "F4": (7.0, -5.0),
+            "F3": (-7.0, 4.0), "F5": (7.0, 4.0), "F7": (0.0, 6.0), "B13": (7.0, -6.0)}
+IRIS_EASE = 0.35  # a íris anda rápido (sacada), a cabeça vem atrás
+SACCADE_EVERY = (0.7, 2.2)  # microssacadas parada: ±1 px de vez em quando
+SYLLABLE_RISE = 0.15  # subida do volume depois de um vale = sílaba nova (troca o formato da boca)
+SHAPES_DEFAULT = {"low": ["C2", "V2", "V5"], "mid": ["V1", "C2", "V3"], "high": ["C3", "V1", "V3"]}
 DOTS_AFTER = 0.8  # s pensando até as reticências aparecerem
 
 
@@ -485,13 +502,45 @@ def _head_group(assets: PartsAssets, eyes: str, mouth: str, side: int) -> tuple[
     q = QPainter(pm)
     q.drawPixmap(0, 0, hpm)
     k = side / 1024
+    eyes_part = _live_eyes(assets, eyes, side) if eyes.startswith("live:") else None
     for rel in (f"eyes/{eyes}.png", f"mouth/{mouth}.png"):
-        part = _scaled_part(assets, rel, side)
+        part = eyes_part if rel.startswith("eyes/live:") else _scaled_part(assets, rel, side)
         if part is not None:
             ppm, pbox = part
             q.drawPixmap(round((pbox.left() - hbox.left()) * k), round((pbox.top() - hbox.top()) * k), ppm)
     q.end()
     return pm, hbox
+
+
+@lru_cache(maxsize=256)
+def _live_eyes(assets: PartsAssets, key: str, side: int) -> tuple[QPixmap, QRectF] | None:
+    """Olhos sem íris (O1) com a íris deslocada (``live:dx:dy``), recortada pela abertura do olho."""
+    base = _scaled_part(assets, "eyes/O1.png", side)
+    iris = _scaled_part(assets, "parts/iris.png", side)
+    opening = _scaled_part(assets, "parts/eye_open.png", side)
+    if base is None or iris is None or opening is None:
+        return None
+    _, dx, dy = key.split(":")
+    bpm, bbox = base
+    k = side / 1024
+    layer = QPixmap(bpm.size())
+    layer.fill(Qt.GlobalColor.transparent)
+    q = QPainter(layer)
+    ipm, ibox = iris
+    ix = round((ibox.left() - bbox.left() + float(dx)) * k)
+    iy = round((ibox.top() - bbox.top() + float(dy)) * k)
+    q.drawPixmap(ix, iy, ipm)
+    q.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+    opm, obox = opening
+    q.drawPixmap(round((obox.left() - bbox.left()) * k), round((obox.top() - bbox.top()) * k), opm)
+    q.end()
+    pm = QPixmap(bpm.size())
+    pm.fill(Qt.GlobalColor.transparent)
+    q = QPainter(pm)
+    q.drawPixmap(0, 0, bpm)
+    q.drawPixmap(0, 0, layer)
+    q.end()
+    return pm, bbox
 
 
 @lru_cache(maxsize=8)
@@ -570,6 +619,11 @@ class PartsPortrait(Mascot):
         self._voice_at = -math.inf  # última vez que a voz passou do ruído
         self._think_since: float | None = None
         self._think_k = 0.0  # 0..1, suaviza a entrada e a saída da cara de pensando
+        self._iris = [0.0, 0.0]  # deslocamento atual da íris (olhar livre)
+        self._saccade = (0.0, 0.0)
+        self._saccade_at = self._now + self._rng.uniform(*SACCADE_EVERY)
+        self._valley = 0.0  # menor volume desde a última sílaba
+        self._syll = 0
 
     def thinking(self, now: float) -> bool:
         """Pensando de verdade, ou "falando" em silêncio (frase de espera dita, ferramenta rodando)."""
@@ -640,6 +694,13 @@ class PartsPortrait(Mascot):
             self._gaze_end = now + self._rng.uniform(*GAZE_LEN)
 
     def eyes_id(self, now: float) -> str:
+        """Olho a desenhar: o da expressão ou, com o olhar livre, ``live:dx:dy`` (íris solta)."""
+        want = self._eye_target(now)
+        if self.assets.live_eyes and want in IRIS_FOR and not self.blinking(now):
+            return f"live:{round(self._iris[0])}:{round(self._iris[1])}"
+        return want
+
+    def _eye_target(self, now: float) -> str:
         cfg = self._state_cfg()
         if self.state == "sleeping" and self._night():
             closed = (cfg.get("blink") or ["B15", "B15"])[-1]
@@ -675,6 +736,12 @@ class PartsPortrait(Mascot):
         lvl = self.level
         i = 0 if lvl < MOUTH_LEVELS[0] else (1 if lvl < MOUTH_LEVELS[1] else 2)
         want = mouths[min(i, len(mouths) - 1)]
+        shapes = self.assets.shapes
+        if i and shapes:  # cada sílaba troca o formato (é, i, ó, m...) dentro da faixa de volume
+            band = shapes.get("high" if i == 2 else ("mid" if lvl >= (MOUTH_LEVELS[0] + MOUTH_LEVELS[1]) / 2
+                                                     else "low")) or shapes.get("mid") or []
+            if band:
+                want = band[self._syll % len(band)]
         if want != self._mouth and now - self._mouth_since >= MOUTH_HOLD:
             self._mouth, self._mouth_since = want, now
         return self._mouth
@@ -693,6 +760,20 @@ class PartsPortrait(Mascot):
         self._ease_tint(now, dt)
         if self.level >= 0.05:
             self._voice_at = now
+        lvl = self.level if self.state == "speaking" else 0.0
+        self._valley = min(self._valley, lvl)
+        if lvl - self._valley > SYLLABLE_RISE:
+            self._syll += 1
+            self._valley = lvl
+        if self.assets.live_eyes:
+            target = self._eye_target(now)
+            if now >= self._saccade_at:
+                self._saccade = (self._rng.uniform(-1.2, 1.2), self._rng.uniform(-0.8, 0.8))
+                self._saccade_at = now + self._rng.uniform(*SACCADE_EVERY)
+            tx, ty = IRIS_FOR.get(target, (0.0, 0.0))
+            tx, ty = tx + self._saccade[0], ty + self._saccade[1]
+            self._iris[0] += (tx - self._iris[0]) * IRIS_EASE
+            self._iris[1] += (ty - self._iris[1]) * IRIS_EASE
         think = self._think_look(now)
         if think is not None and self._think_since is None:
             self._think_since = now
@@ -744,7 +825,8 @@ class PartsPortrait(Mascot):
 
         def draw(rel: str, dx: float = 0.0, dy: float = 0.0, angle: float = 0.0,
                  pivot: tuple[float, float] = HEAD_PIVOT, head: bool = False,
-                 part: tuple[QPixmap, QRectF] | None = None) -> None:
+                 part: tuple[QPixmap, QRectF] | None = None, child: float = 0.0) -> None:
+            """``child``: ângulo extra em volta do topo da própria peça (ponta da mecha, 2º segmento)."""
             part = part if part is not None else _scaled_part(self.assets, rel, side)
             if part is None:
                 return
@@ -759,6 +841,11 @@ class PartsPortrait(Mascot):
                 p.translate(*pivot)
                 p.rotate(angle)
                 p.translate(-pivot[0], -pivot[1])
+            if child:
+                top = (box.center().x(), box.top() + 4)
+                p.translate(*top)
+                p.rotate(child)
+                p.translate(-top[0], -top[1])
             p.drawPixmap(box, pm, QRectF(pm.rect()))
             p.restore()
 
@@ -766,18 +853,31 @@ class PartsPortrait(Mascot):
         self._backdrop(p, now, -0.9 * hx - 0.8 * sway, -0.7 * hy - 0.5 * head_dy)
         # ordem: cabelo de trás, marias-chiquinhas, braços, corpo, cabeça; as mechas que caem na frente
         # dos ombros vêm da franja (desenhada por último)
-        draw("parts/back.png", -0.4 * hx + 0.5 * sway, -0.3 * hy + 1.5 * breath,
-             0.3 * math.sin(now * 0.7) + 0.4 * tilt, head=False)
+        back = (-0.4 * hx + 0.5 * sway, -0.3 * hy + 1.5 * breath, 0.3 * math.sin(now * 0.7) + 0.4 * tilt)
+        draw("parts/back.png", *back, head=False)
+        draw("parts/back_tip.png", *back, child=0.9 * math.sin(now * 0.7 - 0.9) + 0.3 * tilt)
         for name, phase in (("tail_l", 0.0), ("tail_r", 1.3)):
             swing = 1.8 * math.sin(now * 1.05 + phase) + 0.5 * math.sin(now * 2.3 + phase * 2)
-            draw(f"parts/{name}.png", 0.6 * hx + sway, 0.6 * hy + head_dy, swing + 0.6 * tilt,
-                 TAIL_PIVOTS[name])
+            args = (0.6 * hx + sway, 0.6 * hy + head_dy, swing + 0.6 * tilt, TAIL_PIVOTS[name])
+            draw(f"parts/{name}.png", *args)
+            # ponta: o mesmo balanço atrasado e maior (o cabelo dobra como chicote)
+            tip = 2.4 * math.sin(now * 1.05 + phase - 1.0) + 0.6 * math.sin(now * 2.3 + phase * 2 - 1.4)
+            draw(f"parts/{name}_tip.png", *args, child=tip - 0.6 * swing)
         draw("", sway, 3.0 * breath, part=_torso_group(self.assets, side))
         group = _head_group(self.assets, self.eyes_id(now), self.mouth_id(now), side)
         if group is not None:
             draw("", hx + sway, hy + head_dy, head=True, part=group)
-        draw("parts/bangs.png", 1.25 * hx + sway, 1.2 * hy + head_dy, 0.6 * math.sin(now * 1.3),
-             (512.0, 100.0), head=True)
+        if self.assets.split_hair:  # mechas laterais e franja com pêndulo próprio, presilha junto
+            for name, phase in (("lock_l", 0.4), ("lock_r", 2.0)):
+                swing = 1.3 * math.sin(now * 0.9 + phase) + 0.4 * math.sin(now * 2.1 + phase)
+                draw(f"parts/{name}.png", 1.15 * hx + sway, 1.1 * hy + head_dy, head=True,
+                     child=swing - 0.5 * tilt)
+            bangs = (1.25 * hx + sway, 1.2 * hy + head_dy, 0.6 * math.sin(now * 1.3), (512.0, 100.0))
+            draw("parts/bangs_c.png", *bangs, head=True)
+            draw("parts/clip.png", *bangs, head=True)
+        else:
+            draw("parts/bangs.png", 1.25 * hx + sway, 1.2 * hy + head_dy, 0.6 * math.sin(now * 1.3),
+                 (512.0, 100.0), head=True)
         self._effects(p, now, QColor(accent), hx, hy + head_dy)
         if r is not None and r.effect:
             self._reaction_effect(p, now, r.effect, hx, hy + head_dy)

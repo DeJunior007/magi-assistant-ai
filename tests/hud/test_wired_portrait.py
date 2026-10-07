@@ -275,3 +275,31 @@ def test_partes_pensando_e_pausa_na_fala(tmp_path):
     assert not m.thinking(10.0 + PONDER_AFTER / 2)  # pausa curta entre frases: segue falando
     assert m.thinking(10.0 + PONDER_AFTER + 0.1)  # silêncio longo: esperando a ferramenta
     assert m.mouth_id(10.0 + PONDER_AFTER + 0.1) == "C1"
+
+
+def test_partes_olhar_livre_e_boca_por_silaba(tmp_path):
+    from wired.portrait import PartsAssets, PartsPortrait
+
+    write_parts(tmp_path)
+    for rel in ("parts/iris.png", "parts/eye_open.png", "eyes/O1.png", "mouth/V1.png", "mouth/V3.png"):
+        img = QImage(16, 16, QImage.Format.Format_ARGB32)
+        img.fill(QColor(200, 100, 100))
+        assert img.save(str(tmp_path / rel))
+    a = PartsAssets(tmp_path)
+    assert a.live_eyes and a.shapes  # com O1 e V*, o motor liga o olhar livre e as bocas novas
+    m = PartsPortrait(a, "listening", now=0.0)
+    m.hour = lambda: 14
+    m._blink_at = 1e9
+    m._eye_target = lambda now: "F1"
+    for k in range(60):
+        m.tick(k / 60)
+    eyes = m.eyes_id(1.0)
+    assert eyes.startswith("live:") and int(eyes.split(":")[1]) < -4  # íris foi para a esquerda
+    m.set_expression("speaking")
+    shapes = set()
+    for k in range(240):  # volume subindo e descendo: cada sílaba troca o formato da boca
+        t = 2.0 + k / 60
+        m.set_level(0.85 if (k // 8) % 2 else 0.05)
+        m.tick(t)
+        shapes.add(m.mouth_id(t))
+    assert {"V1", "V3"} & shapes and "C3" in shapes

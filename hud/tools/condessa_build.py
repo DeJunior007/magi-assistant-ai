@@ -38,7 +38,11 @@ CHIN_Y = 560
 ARMS = ("P7", "P8")
 ARM_TOP_Y = 740  # os braços só aparecem abaixo disto (acima, o ombro é do corpo)
 PARTS = {"P1": "back", "P2": "tail_l", "P3": "tail_r", "P7": "arm_l", "P8": "arm_r", "P6": "body",
-         "E1": "bangs"}
+         "E1": "bangs", "H1": "lock_l", "H2": "lock_r", "H3": "bangs_c", "H4": "clip"}
+# pontas (H5–H7): a parte de baixo do segmento-pai, com junta esfumada (cabelo em dois segmentos)
+TIPS = {"H5": ("P2", "tail_l"), "H6": ("P3", "tail_r"), "H7": ("P1", "back")}
+JOINT_FADE = 28  # px de transição entre o segmento de cima e a ponta
+IRIS_DIFF = 70  # diferença A1 × O1 que conta como íris
 
 DEFAULT_TOML = """\
 # Condessa em partes (2.5D). Olhos/bocas = IDs da checklist (eyes/<ID>.png, mouth/<ID>.png).
@@ -169,7 +173,7 @@ def build(src: Path, out: Path) -> list[str]:
     for ident in [f"B{i}" for i in range(2, 16)] + [f"F{i}" for i in range(1, 8)]:
         im = load(src, ident)
         (patch(im, eyes).save(out / "eyes" / f"{ident}.png") if im else report.append(f"falta {ident}"))
-    for ident in [f"C{i}" for i in range(2, 15)]:
+    for ident in [f"C{i}" for i in range(2, 15)] + [f"V{i}" for i in range(1, 7)]:
         im = load(src, ident)
         (patch(im, mouth).save(out / "mouth" / f"{ident}.png") if im else report.append(f"falta {ident}"))
     fone = load(src, "E2")
@@ -178,9 +182,99 @@ def build(src: Path, out: Path) -> list[str]:
         m = Image.fromarray((diff * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(5))
         m = np.asarray(m.filter(ImageFilter.GaussianBlur(2))).astype(np.float32) / 255
         with_alpha(chroma(fone), m).save(out / "extra" / "fone.png")
+    report += build_tips(src, out)
+    report += build_eyes_brows(src, out, base)
     toml = out / "portrait.toml"
     if not toml.exists() or "mode = \"parts\"" not in toml.read_text(encoding="utf-8"):
         toml.write_text(DEFAULT_TOML, encoding="utf-8")
+    return report
+
+
+def _alpha(im: Image.Image) -> np.ndarray:
+    return np.asarray(im).astype(np.float32)[..., 3] / 255
+
+
+def build_tips(src: Path, out: Path) -> list[str]:
+    """Pontas do cabelo: a ponta (H5–H7, recorte alinhado da base) entra esfumada a partir da
+    junta, e o segmento-pai (P2/P3/P1) some nas mesmas colunas abaixo dela."""
+    report = []
+    y = np.arange(SIZE, dtype=np.float32)[:, None]
+    for tip_id, (_parent_id, parent_name) in TIPS.items():
+        tip = load(src, tip_id)
+        parent_path = out / "parts" / f"{parent_name}.png"
+        if tip is None or not parent_path.exists():
+            continue
+        tip_rgba = with_alpha(chroma(tip), bottom_fade())
+        a = _alpha(tip_rgba)
+        rows = np.where(a.max(axis=1) > 0.5)[0]
+        if not len(rows):
+            report.append(f"{tip_id} vazio")
+            continue
+        joint = float(rows[0])
+        ramp = np.clip((y - joint) / JOINT_FADE, 0, 1) * np.ones((1, SIZE), np.float32)
+        cols = Image.fromarray(((a > 0.3) * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(15))
+        cols = np.asarray(cols.filter(ImageFilter.GaussianBlur(6))).astype(np.float32) / 255
+        with_alpha(tip_rgba, ramp).save(out / "parts" / f"{parent_name}_tip.png")
+        parent = Image.open(parent_path).convert("RGBA")
+        with_alpha(parent, 1 - ramp * cols).save(parent_path)
+    return report
+
+
+def _largest(mask: np.ndarray, keep: int = 2) -> np.ndarray:
+    """As ``keep`` maiores manchas de ``mask`` (flood fill do Pillow; sem scipy)."""
+    from PIL import ImageDraw
+
+    img = Image.fromarray((mask * 255).astype(np.uint8)).copy()  # cópia: o flood fill escreve nela
+    areas: list[tuple[int, int]] = []
+    label = 1
+    ys, xs = np.nonzero(np.asarray(img) == 255)
+    for y0, x0 in zip(ys, xs, strict=True):
+        if label > 250:
+            break
+        if img.getpixel((int(x0), int(y0))) != 255:
+            continue
+        ImageDraw.floodfill(img, (int(x0), int(y0)), label)
+        areas.append((int((np.asarray(img) == label).sum()), label))
+        label += 1
+    best = {lab for _, lab in sorted(areas, reverse=True)[:keep]}
+    arr = np.asarray(img)
+    return np.isin(arr, list(best)) if best else np.zeros_like(mask, bool)
+
+
+def build_eyes_brows(src: Path, out: Path, base: Image.Image) -> list[str]:
+    """Olhar livre: a O1 (olhos sem íris) dá o contorno de cada olho (as 2 maiores manchas
+    brancas, limpas dos fios da franja) e, dentro dele, a diferença A1 × O1 é a íris.
+    Sobrancelhas soltas (O2) ficaram de fora: nesta arte a franja cobre quase tudo e a diferença
+    pegava fios de cabelo, não sobrancelha."""
+    report = []
+    o1 = load(src, "O1")
+    if o1 is None:
+        return ["falta O1 (olhar livre)"]
+    b = np.asarray(base).astype(np.int32)
+    a = np.asarray(o1).astype(np.int32)
+    box = np.zeros((SIZE, SIZE), bool)
+    x0, y0, x1, y1 = EYES_BOX
+    box[y0:y1, x0:x1] = True
+    lo = a.min(axis=2)
+    # branco do olho: claro, quase sem cor e com azul >= verde (a pele clara tem azul < verde)
+    white = (lo > 160) & (a.max(axis=2) - lo < 30) & (a[..., 2] >= a[..., 1] - 3) & box
+    clean = Image.fromarray((white * 255).astype(np.uint8)).filter(ImageFilter.MinFilter(5))
+    clean = clean.filter(ImageFilter.MaxFilter(5))
+    eyes = _largest(np.asarray(clean) > 127)
+    if eyes.sum() < 800:
+        return ["O1: não achei o contorno dos olhos"]
+    grown = np.asarray(Image.fromarray((eyes * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(9))) > 127
+    iris = (np.abs(a - b).sum(axis=2) > IRIS_DIFF) & grown
+    # abertura = branco do olho + a íris parada (nunca corta a íris em repouso), sem buracos
+    opening = Image.fromarray(((eyes | iris) * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(5))
+    opening = opening.filter(ImageFilter.MinFilter(5)).filter(ImageFilter.GaussianBlur(0.8))
+    iris_m = Image.fromarray((iris * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(3))
+    iris_m = np.asarray(iris_m.filter(ImageFilter.GaussianBlur(0.8))).astype(np.float32) / 255
+    patch(base, iris_m).save(out / "parts" / "iris.png")
+    Image.merge("RGBA", [opening] * 4).save(out / "parts" / "eye_open.png")
+    patch(o1, rect_mask(EYES_BOX)).save(out / "eyes" / "O1.png")
+    for stale in ("brow_l.png", "brow_r.png"):
+        (out / "parts" / stale).unlink(missing_ok=True)
     return report
 
 
