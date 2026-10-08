@@ -1,0 +1,22 @@
+{
+  "improve:*": {
+    "original": "yesterday I make a new authentication system",
+    "improved": "yesterday I built a new authentication system",
+    "kind": "both",
+    "why": "\"Built\" sounds more natural when talking about something you created. Past tense: yesterday → built."
+  },
+  "explain:*": {
+    "question": "Why \"built\" instead of \"made\"?",
+    "answer": "Both are possible. For software, \"built\" is generally more natural because it emphasises creating or developing a system."
+  },
+  "translate:*": {"translation": "eu fiz", "note": "Here 'make' should be past: 'made/built'."},
+  "vocabulary:*": {
+    "term": "authentication",
+    "meaning": "the process of proving who a user is",
+    "in_context": "the login system you built",
+    "pos": "noun",
+    "cefr": "B2",
+    "examples": ["We added two-factor authentication."],
+    "synonyms": ["verification"]
+  }
+}
