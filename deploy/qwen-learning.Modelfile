@@ -1,0 +1,7 @@
+# Modelo do Learning Mode no magi-qwen (só CPU): 4 threads, contexto curto, saída curta.
+#   docker cp deploy/qwen-learning.Modelfile magi-qwen:/tmp/m && docker exec magi-qwen ollama create qwen-learning -f /tmp/m
+FROM qwen3:4b
+PARAMETER num_thread 4
+PARAMETER num_ctx 4096
+PARAMETER num_predict 512
+PARAMETER temperature 0.3

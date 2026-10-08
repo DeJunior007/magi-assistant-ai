@@ -59,5 +59,40 @@ services:
       retries: 5
       start_period: 10s
 
+  # Qwen local do Learning Mode (LM4.4). Só existe durante a aula: o núcleo faz `docker start` ao
+  # abrir a sessão e `docker stop` ao fechar; fora dela (e no modo gamer) não ocupa CPU nem RAM.
+  # O perfil impede que `compose up -d` (condessa-start) o suba junto com o banco.
+  #
+  # SÓ CPU, de propósito: em 2026-10-08 o ROCm na RX 9060 XT (gfx1200) travou o MES, o kernel
+  # resetou a GPU ("VRAM is lost due to GPU reset") e o vídeo caiu. Nada de /dev/kfd nem /dev/dri.
+  # Os limites abaixo garantem que nem um vazamento trave o PC: passando de 8 GB o kernel mata só o
+  # container (sem swap), 4 dos 12 threads no máximo e prioridade de CPU baixa.
+  #
+  # Criar:   docker compose -f deploy/docker-compose.yml --profile learning create qwen
+  # Modelo:  docker start magi-qwen && docker exec magi-qwen ollama pull qwen3:4b
+  #          (+ deploy/qwen-learning.Modelfile → `ollama create qwen-learning`)
+  qwen:
+    image: ollama/ollama:rocm          # a imagem tem o backend de CPU; sem device, não vê a GPU
+    container_name: magi-qwen
+    profiles: ["learning"]
+    restart: "no"
+    environment:
+      OLLAMA_KEEP_ALIVE: "-1"          # modelo carregado enquanto o container vive (a aula)
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_CONTEXT_LENGTH: "4096"
+      HIP_VISIBLE_DEVICES: "-1"        # cinto e suspensório: nenhuma GPU, mesmo se alguém mapear
+      ROCR_VISIBLE_DEVICES: "-1"
+    cpus: 4
+    cpu_shares: 256                    # 1/4 do padrão: jogo, HUD e voz ganham a disputa
+    mem_limit: 8g
+    memswap_limit: 8g                  # = mem_limit: sem swap, o OOM mata o container e não o PC
+    pids_limit: 256
+    ports:
+      - "127.0.0.1:11435:11434"        # 11434 fica com o ollama do sistema, se existir
+    volumes:
+      - magi-ollama:/root/.ollama
+
 volumes:
   magi-pgdata:
+  magi-ollama:
