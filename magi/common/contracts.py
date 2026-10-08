@@ -17,6 +17,9 @@ Mapa rápido
 - HUD (§6): ``StateMsg``, ``SubtitleMsg``, ``SpeechMsg``, ``MouthMsg``, ``MoodMsg``, ``VoteMsg``,
   ``CardMsg``, ``CmdMsg``, ``DetailMsg``. JSON de uma linha via ``magi.common.events.encode_hud`` /
   ``decode_hud`` (ou ``msg.to_json()``).
+  Learning Mode (``lm_*``, LM1.2): ``LmModeMsg``, ``LmSessionMsg``, ``LmSayMsg``, ``LmMsgMsg``,
+  ``LmActionMsg``, ``LmResultMsg``, ``LmObsMsg``, ``LmCfgMsg``, ``LmTopicMsg``, ``LmSaveMsg``,
+  ``LmSavedMsg``, ``LmSummaryMsg`` (base ``LearningHudMsg``; texto limitado por ``clip_lm_text``).
 - Provedores (§4.7): ``SttProvider``, ``TtsProvider``, ``ChatProvider``, ``VisionProvider``,
   ``EmbeddingProvider``, ``SearchProvider``, ``ProviderRegistry``, ``KeyPool``, ``Budget``.
 - Repositórios (§7): ``TurnsRepo``, ``CorrectionsRepo``, ``VocabRepo``, ``ProfileRepo``,
@@ -44,6 +47,14 @@ from datetime import datetime
 from enum import IntEnum, StrEnum
 from pathlib import Path
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
+
+from magi.learning.contracts import ActionKind as LmActionKind
+from magi.learning.contracts import ActionResult as LmActionResult
+from magi.learning.contracts import Author as LmAuthor
+from magi.learning.contracts import Observation as LmObservation
+from magi.learning.contracts import SessionSummary as LmSessionSummary
+from magi.learning.contracts import Source as LmSource
+from magi.learning.contracts import Topic as LmTopic
 
 # ---------------------------------------------------------------------------------------------
 # Constantes
@@ -793,8 +804,280 @@ class DetailMsg(_HudMsg):
         return {"t": self.T, "v": self.v.value}
 
 
+# ---------------------------------------------------------------------------------------------
+# Mensagens do Learning Mode (``lm_*``, specs/learning-mode spec §6, design §9, LM1.2)
+# ---------------------------------------------------------------------------------------------
+
+#: Teto do texto de ``lm_say``/``lm_msg`` em bytes do JSON (string já escapada, com aspas). O
+#: núcleo lê linhas com o limite padrão de 64 KiB do asyncio e o HUD descarta linhas acima disso;
+#: 16 KiB deixa folga para os outros campos (design §9).
+LM_TEXT_MAX_BYTES = 16 * 1024
+
+
+def clip_lm_text(text: str, max_bytes: int = LM_TEXT_MAX_BYTES) -> str:
+    """Corta ``text`` para que ``json.dumps(text)`` caiba em ``max_bytes`` bytes UTF-8 (conta os
+    escapes, ex. ``\\u0001`` = 6 bytes). Texto que já cabe volta igual."""
+
+    def size(s: str) -> int:
+        return len(_dump(s).encode("utf-8"))
+
+    if size(text) <= max_bytes:
+        return text
+    lo, hi = 0, min(len(text), max_bytes)
+    while lo < hi:  # maior prefixo que cabe
+        mid = (lo + hi + 1) // 2
+        if size(text[:mid]) <= max_bytes:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo]
+
+
+class LearningHudMsg(_HudMsg):
+    """Base das mensagens ``lm_*``. O ``HudServer`` só as publica com o modo ligado (spec §6);
+    a exceção é ``lm_summary`` logo depois do ``lm_mode`` desligado."""
+
+    __slots__ = ()
+
+
+@dataclass(frozen=True, slots=True)
+class LmModeMsg(LearningHudMsg):
+    """ambos ``{"t":"lm_mode","on":true}``: UI pede entrar/sair; núcleo confirma (LM-005)."""
+
+    T: ClassVar[str] = "lm_mode"
+    on: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"t": self.T, "on": bool(self.on)}
+
+
+@dataclass(frozen=True, slots=True)
+class LmSessionMsg(LearningHudMsg):
+    """núcleo -> UI: sessão atual (``id`` = ``LS-AAAAMMDD-NN``, spec §1 e §10)."""
+
+    T: ClassVar[str] = "lm_session"
+    id: str
+    started_at: datetime
+    level: str
+    track: str
+    topic: LmTopic
+    n_msgs: int = 0
+    obs_count: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "t": self.T,
+            "id": self.id,
+            "started_at": self.started_at.isoformat(),
+            "level": self.level,
+            "track": self.track,
+            "topic": self.topic.value,
+            "n_msgs": self.n_msgs,
+            "obs_count": self.obs_count,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class LmSayMsg(LearningHudMsg):
+    """UI -> núcleo ``{"t":"lm_say","text":"…"}``: frase digitada (LM-001). ``text`` é cortado em
+    ``LM_TEXT_MAX_BYTES``."""
+
+    T: ClassVar[str] = "lm_say"
+    text: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "text", clip_lm_text(self.text))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"t": self.T, "text": self.text}
+
+
+@dataclass(frozen=True, slots=True)
+class LmMsgMsg(LearningHudMsg):
+    """núcleo -> UI: mensagem do histórico (CNV-001). ``speaking`` = a Condessa vai falar esta
+    (a UI revela por ``speech``). ``text_final`` (opcional) = texto depois do Corrector, só na voz
+    e só se diferente de ``text`` (CA-05). Textos cortados em ``LM_TEXT_MAX_BYTES``."""
+
+    T: ClassVar[str] = "lm_msg"
+    id: int
+    author: LmAuthor
+    source: LmSource
+    text: str
+    at: datetime
+    speaking: bool = False
+    text_final: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "text", clip_lm_text(self.text))
+        if self.text_final is not None:
+            object.__setattr__(self, "text_final", clip_lm_text(self.text_final))
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "t": self.T,
+            "id": self.id,
+            "author": self.author.value,
+            "source": self.source.value,
+            "text": self.text,
+            "at": self.at.isoformat(),
+            "speaking": bool(self.speaking),
+        }
+        if self.text_final is not None:
+            d["text_final"] = self.text_final
+        return d
+
+
+@dataclass(frozen=True, slots=True)
+class LmActionMsg(LearningHudMsg):
+    """UI -> núcleo: ação sobre ``[start, end)`` do texto da mensagem ``message_id`` (SEL-001)."""
+
+    T: ClassVar[str] = "lm_action"
+    id: str
+    kind: LmActionKind
+    message_id: int
+    start: int
+    end: int
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.start < self.end:
+            raise ValueError(f"seleção vazia ou invertida: [{self.start}, {self.end})")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "t": self.T,
+            "id": self.id,
+            "kind": self.kind.value,
+            "message_id": self.message_id,
+            "start": self.start,
+            "end": self.end,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class LmResultMsg(LearningHudMsg):
+    """núcleo -> UI: ``ActionResult`` do Learning em JSON, com ``"t":"lm_result"``."""
+
+    T: ClassVar[str] = "lm_result"
+    result: LmActionResult
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"t": self.T, **self.result.to_dict()}
+
+
+@dataclass(frozen=True, slots=True)
+class LmObsMsg(LearningHudMsg):
+    """núcleo -> UI: lista inteira de observações da sessão (idempotente, OBS-002)."""
+
+    T: ClassVar[str] = "lm_obs"
+    items: tuple[LmObservation, ...] = ()
+    count: int | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "items", tuple(self.items))
+        if self.count is None:
+            object.__setattr__(self, "count", len(self.items))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"t": self.T, "items": [o.to_dict() for o in self.items], "count": self.count}
+
+
+@dataclass(frozen=True, slots=True)
+class LmCfgMsg(LearningHudMsg):
+    """UI -> núcleo: preferências (LM-004). Só os campos não ``None`` vão no fio."""
+
+    T: ClassVar[str] = "lm_cfg"
+    speak_replies: bool | None = None
+    mic_muted: bool | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"t": self.T}
+        if self.speak_replies is not None:
+            d["speak_replies"] = bool(self.speak_replies)
+        if self.mic_muted is not None:
+            d["mic_muted"] = bool(self.mic_muted)
+        return d
+
+
+@dataclass(frozen=True, slots=True)
+class LmTopicMsg(LearningHudMsg):
+    """ambos: UI -> núcleo ``{"topic"}`` (pedido); núcleo -> UI ``{"topic","requested","label",
+    "detail"}`` (confirmação, LM-013/LM-014). Opcionais ``None`` são omitidos."""
+
+    T: ClassVar[str] = "lm_topic"
+    topic: LmTopic
+    requested: LmTopic | None = None
+    label: str | None = None
+    detail: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"t": self.T, "topic": self.topic.value}
+        if self.requested is not None:
+            d["requested"] = self.requested.value
+        if self.label is not None:
+            d["label"] = self.label
+        if self.detail is not None:
+            d["detail"] = self.detail
+        return d
+
+
+@dataclass(frozen=True, slots=True)
+class LmSaveMsg(LearningHudMsg):
+    """UI -> núcleo: guardar (``on``) ou desfazer a palavra do balão Vocabulary ``action_id``."""
+
+    T: ClassVar[str] = "lm_save"
+    action_id: str
+    on: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"t": self.T, "action_id": self.action_id, "on": bool(self.on)}
+
+
+@dataclass(frozen=True, slots=True)
+class LmSavedMsg(LearningHudMsg):
+    """núcleo -> UI: estado da palavra ``norm`` (LM-012). ``id`` omitido quando ``None``."""
+
+    T: ClassVar[str] = "lm_saved"
+    norm: str
+    saved: bool
+    id: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"t": self.T, "norm": self.norm, "saved": bool(self.saved)}
+        if self.id is not None:
+            d["id"] = self.id
+        return d
+
+
+@dataclass(frozen=True, slots=True)
+class LmSummaryMsg(LearningHudMsg):
+    """núcleo -> UI: ``SessionSummary`` em JSON (LM-011). Única ``lm_*`` publicada fora do modo,
+    logo depois do ``lm_mode`` desligado."""
+
+    T: ClassVar[str] = "lm_summary"
+    summary: LmSessionSummary
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"t": self.T, **self.summary.to_dict()}
+
+
+LearningMessageMsg = (
+    LmModeMsg
+    | LmSessionMsg
+    | LmSayMsg
+    | LmMsgMsg
+    | LmActionMsg
+    | LmResultMsg
+    | LmObsMsg
+    | LmCfgMsg
+    | LmTopicMsg
+    | LmSaveMsg
+    | LmSavedMsg
+    | LmSummaryMsg
+)
+
 HudMessage = (
     StateMsg | SubtitleMsg | SpeechMsg | MouthMsg | MoodMsg | VoteMsg | CardMsg | CmdMsg | DetailMsg
+    | LearningMessageMsg
 )
 
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterator, Mapping
+from datetime import datetime
 from typing import Any
 
 from wyoming.audio import AudioChunk, AudioStart
@@ -40,6 +41,25 @@ from magi.common.contracts import (
     Expression,
     HudMessage,
     ListenRequest,
+    LmActionKind,
+    LmActionMsg,
+    LmActionResult,
+    LmAuthor,
+    LmCfgMsg,
+    LmModeMsg,
+    LmMsgMsg,
+    LmObservation,
+    LmObsMsg,
+    LmResultMsg,
+    LmSavedMsg,
+    LmSaveMsg,
+    LmSayMsg,
+    LmSessionMsg,
+    LmSessionSummary,
+    LmSource,
+    LmSummaryMsg,
+    LmTopic,
+    LmTopicMsg,
     MoodMsg,
     MouthEvent,
     MouthMsg,
@@ -339,6 +359,101 @@ def _hud_detail(d: Mapping[str, Any]) -> DetailMsg:
     return DetailMsg(DetailTarget(_h(d, "v", str)))
 
 
+# Learning Mode (``lm_*``, spec §6). Tipo desconhecido continua levantando ``HudDecodeError``;
+# quem chama (``HudServer._received``, ``HudBridge.feed_line``) registra e segue (LM0.2).
+
+
+def _hud_time(d: Mapping[str, Any], key: str) -> datetime:
+    return datetime.fromisoformat(_h(d, key, str))
+
+
+def _hud_opt_topic(d: Mapping[str, Any], key: str) -> LmTopic | None:
+    v = _h(d, key, str, None)
+    return None if v is None else LmTopic(v)
+
+
+def _payload(d: Mapping[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in d.items() if k != "t"}
+
+
+def _hud_lm_mode(d: Mapping[str, Any]) -> LmModeMsg:
+    return LmModeMsg(on=_h(d, "on", bool))
+
+
+def _hud_lm_session(d: Mapping[str, Any]) -> LmSessionMsg:
+    return LmSessionMsg(
+        id=_h(d, "id", str),
+        started_at=_hud_time(d, "started_at"),
+        level=_h(d, "level", str, ""),
+        track=_h(d, "track", str, ""),
+        topic=LmTopic(_h(d, "topic", str)),
+        n_msgs=_h(d, "n_msgs", int, 0),
+        obs_count=_h(d, "obs_count", int, 0),
+    )
+
+
+def _hud_lm_say(d: Mapping[str, Any]) -> LmSayMsg:
+    return LmSayMsg(text=_h(d, "text", str))
+
+
+def _hud_lm_msg(d: Mapping[str, Any]) -> LmMsgMsg:
+    return LmMsgMsg(
+        id=_h(d, "id", int),
+        author=LmAuthor(_h(d, "author", str)),
+        source=LmSource(_h(d, "source", str)),
+        text=_h(d, "text", str),
+        at=_hud_time(d, "at"),
+        speaking=_h(d, "speaking", bool, False),
+        text_final=_h(d, "text_final", str, None),
+    )
+
+
+def _hud_lm_action(d: Mapping[str, Any]) -> LmActionMsg:
+    return LmActionMsg(
+        id=_h(d, "id", str),
+        kind=LmActionKind(_h(d, "kind", str)),
+        message_id=_h(d, "message_id", int),
+        start=_h(d, "start", int),
+        end=_h(d, "end", int),
+    )
+
+
+def _hud_lm_result(d: Mapping[str, Any]) -> LmResultMsg:
+    return LmResultMsg(LmActionResult.from_dict(_payload(d)))
+
+
+def _hud_lm_obs(d: Mapping[str, Any]) -> LmObsMsg:
+    items = tuple(LmObservation.from_dict(o) for o in _h(d, "items", list, []))
+    return LmObsMsg(items=items, count=_h(d, "count", int, len(items)))
+
+
+def _hud_lm_cfg(d: Mapping[str, Any]) -> LmCfgMsg:
+    return LmCfgMsg(
+        speak_replies=_h(d, "speak_replies", bool, None), mic_muted=_h(d, "mic_muted", bool, None)
+    )
+
+
+def _hud_lm_topic(d: Mapping[str, Any]) -> LmTopicMsg:
+    return LmTopicMsg(
+        topic=LmTopic(_h(d, "topic", str)),
+        requested=_hud_opt_topic(d, "requested"),
+        label=_h(d, "label", str, None),
+        detail=_h(d, "detail", str, None),
+    )
+
+
+def _hud_lm_save(d: Mapping[str, Any]) -> LmSaveMsg:
+    return LmSaveMsg(action_id=_h(d, "action_id", str), on=_h(d, "on", bool))
+
+
+def _hud_lm_saved(d: Mapping[str, Any]) -> LmSavedMsg:
+    return LmSavedMsg(norm=_h(d, "norm", str), saved=_h(d, "saved", bool), id=_h(d, "id", int, None))
+
+
+def _hud_lm_summary(d: Mapping[str, Any]) -> LmSummaryMsg:
+    return LmSummaryMsg(LmSessionSummary.from_dict(_payload(d)))
+
+
 _HUD_DECODERS: dict[str, Callable[[Mapping[str, Any]], HudMessage]] = {
     StateMsg.T: _hud_state,
     SubtitleMsg.T: _hud_subtitle,
@@ -349,6 +464,18 @@ _HUD_DECODERS: dict[str, Callable[[Mapping[str, Any]], HudMessage]] = {
     CardMsg.T: _hud_card,
     CmdMsg.T: _hud_cmd,
     DetailMsg.T: _hud_detail,
+    LmModeMsg.T: _hud_lm_mode,
+    LmSessionMsg.T: _hud_lm_session,
+    LmSayMsg.T: _hud_lm_say,
+    LmMsgMsg.T: _hud_lm_msg,
+    LmActionMsg.T: _hud_lm_action,
+    LmResultMsg.T: _hud_lm_result,
+    LmObsMsg.T: _hud_lm_obs,
+    LmCfgMsg.T: _hud_lm_cfg,
+    LmTopicMsg.T: _hud_lm_topic,
+    LmSaveMsg.T: _hud_lm_save,
+    LmSavedMsg.T: _hud_lm_saved,
+    LmSummaryMsg.T: _hud_lm_summary,
 }
 
 

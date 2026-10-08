@@ -145,6 +145,17 @@ def _m_detail(d: dict[str, Any]) -> dict[str, Any]:
     return {"t": "detail", "v": _choice(d, "v", DETAIL_TARGETS)}
 
 
+def _m_lm(d: dict[str, Any]) -> dict[str, Any]:
+    """`lm_*` do Learning Mode (LM1.2): sem validação de campos no mínimo; vai como veio."""
+    return dict(d)
+
+
+#: Tipos do Learning Mode (spec §6 do specs/learning-mode).
+LM_TYPES = (
+    "lm_mode", "lm_session", "lm_say", "lm_msg", "lm_action", "lm_result",
+    "lm_obs", "lm_cfg", "lm_topic", "lm_save", "lm_saved", "lm_summary",
+)
+
 _MIN_DECODERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "state": _m_state,
     "subtitle": _m_subtitle,
@@ -155,6 +166,7 @@ _MIN_DECODERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "card": _m_card,
     "cmd": _m_cmd,
     "detail": _m_detail,
+    **dict.fromkeys(LM_TYPES, _m_lm),
 }
 
 
