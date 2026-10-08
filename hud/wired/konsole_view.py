@@ -77,6 +77,7 @@ BTN_W = 16 * F
 
 EXP_PX = 12 * F       # fonte do terminal expandido
 COMPACT_PX = 11 * F   # fonte do miolo do card (mockup: 11 px)
+COMPACT_MIN_PX = 7 * F   # o card encolhe a fonte até aqui para caber a largura da sessão
 LINE_K = 1.38         # altura de linha / px
 
 BOX = {   # caracteres de moldura desenhados à mão: (esq, dir, cima, baixo); sem buracos entre linhas
@@ -163,7 +164,7 @@ def _font(px: float, bold: bool = False):
     return fonts.font("mono", px, 700 if bold else 400)
 
 
-@lru_cache(maxsize=32)
+@lru_cache(maxsize=256)
 def _metrics(px: float, scale: float) -> tuple[float, float, float]:
     """(largura da célula, altura da linha, ascent) em px lógicos; a linha cai em px inteiros do
     dispositivo."""
@@ -182,10 +183,25 @@ def term_rect(rect: QRectF = EXPANDED_RECT) -> QRectF:
     return QRectF(rect.left() + PAD_X, top, right - rect.left() - PAD_X, bottom - top)
 
 
-def cells_for(rect: QRectF = EXPANDED_RECT, scale: float = 1.0, expanded: bool = True) -> tuple[int, int]:
-    """(colunas, linhas) que cabem: no expandido descontando a moldura; no compacto, o ``rect``."""
+def compact_px(width: float, cols: int, scale: float = 1.0) -> float:
+    """Fonte do card: a do mockup, ou menor (até ``COMPACT_MIN_PX``) para as ``cols`` colunas da
+    sessão (do tamanho do expandido) caberem em ``width`` sem cortar a direita."""
+    sc = round(scale, 4)
+    cw = _metrics(COMPACT_PX, sc)[0]
+    if cols * cw <= width:
+        return COMPACT_PX
+    px = round(COMPACT_PX * width / (cols * cw), 2)
+    while px > COMPACT_MIN_PX and cols * _metrics(px, sc)[0] > width:   # o avanço não é linear
+        px = round(px - 0.05, 2)
+    return max(COMPACT_MIN_PX, px)
+
+
+def cells_for(rect: QRectF = EXPANDED_RECT, scale: float = 1.0, expanded: bool = True,
+              px: float | None = None) -> tuple[int, int]:
+    """(colunas, linhas) que cabem: no expandido descontando a moldura; no compacto, o ``rect``
+    (na fonte ``px``, padrão a do mockup)."""
     area = term_rect(rect) if expanded else rect
-    cw, lh, _ = _metrics(EXP_PX if expanded else COMPACT_PX, round(scale, 4))
+    cw, lh, _ = _metrics(px or (EXP_PX if expanded else COMPACT_PX), round(scale, 4))
     return max(2, int(area.width() // cw)), max(2, int(area.height() // lh))
 
 
@@ -198,6 +214,7 @@ class KonsoleView:
         self.session = None
         self.error: str | None = None
         self.status: dict = {}
+        self.tokens: int | None = None   # contexto do claude (konsole_term.TokenMeter)
 
     # -- textos de estado
     def placeholder(self) -> str | None:
@@ -292,9 +309,11 @@ class KonsoleView:
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         msg = self.placeholder()
         inner = rect.adjusted(2, 2, -2, -2)
-        ncols, nrows = cells_for(inner, scale, expanded=False)
         sess = self.session
-        if sess is not None and kt is not None and kt.HAVE_PYTE and not self.error:
+        live = sess is not None and kt is not None and kt.HAVE_PYTE and not self.error
+        px = compact_px(inner.width(), sess.cols, scale) if live else COMPACT_PX
+        ncols, nrows = cells_for(inner, scale, expanded=False, px=px)
+        if live:
             rows = sess.rows_view()
             last = len(rows) - 1 if sess.scroll else sess.last_used_row()
             if msg:
@@ -303,7 +322,7 @@ class KonsoleView:
             cur = self._cursor(sess)
             if cur is not None:
                 cur = (cur[0], cur[1] - first)
-            self._draw_rows(p, inner.topLeft(), rows[first:last + 1], COMPACT_PX, scale, ncols, cur)
+            self._draw_rows(p, inner.topLeft(), rows[first:last + 1], px, scale, ncols, cur)
         if msg:
             _, lh, _ = _metrics(COMPACT_PX, round(scale, 4))
             y = inner.bottom() - lh if sess is not None else inner.center().y() - lh / 2
@@ -485,8 +504,8 @@ class KonsoleView:
         parts(y1, row1)
         row2 = [("CLAUDE CODE", DIM)]
         if sess is not None:
-            row2 += [("  |  ", SCROLL_THUMB), (f"PID {sess.pid}", DIM),
-                     ("  |  ", SCROLL_THUMB), (f"{sess.cols}×{sess.rows}", DIM)]
+            tok = kt.format_tokens(self.tokens) if self.tokens is not None and kt is not None else "—"
+            row2 += [("  |  ", SCROLL_THUMB), (f"TOKENS {tok}", DIM)]
             if sess.scroll:
                 row2 += [("  |  ", SCROLL_THUMB), (f"↑ {sess.scroll}", LILAC)]
         parts(y2, row2)
@@ -535,14 +554,15 @@ def _box(p: QPainter, r: QRectF, arms: str, fg: str, scale: float) -> None:
         p.drawPath(path)
         p.restore()
         return
+    o = 0.5 / scale   # meio pixel além da célula: com largura fracionária o arredondamento abria fresta
     if "l" in arms:
-        p.fillRect(QRectF(r.left(), cy - w / 2, cx - r.left() + w / 2, w), col)
+        p.fillRect(QRectF(r.left() - o, cy - w / 2, cx - r.left() + w / 2 + o, w), col)
     if "r" in arms:
-        p.fillRect(QRectF(cx - w / 2, cy - w / 2, r.right() - cx + w / 2, w), col)
+        p.fillRect(QRectF(cx - w / 2, cy - w / 2, r.right() - cx + w / 2 + o, w), col)
     if "u" in arms:
-        p.fillRect(QRectF(cx - w / 2, r.top(), w, cy - r.top() + w / 2), col)
+        p.fillRect(QRectF(cx - w / 2, r.top() - o, w, cy - r.top() + w / 2 + o), col)
     if "d" in arms:
-        p.fillRect(QRectF(cx - w / 2, cy - w / 2, w, r.bottom() - cy + w / 2), col)
+        p.fillRect(QRectF(cx - w / 2, cy - w / 2, w, r.bottom() - cy + w / 2 + o), col)
 
 
 VIEW = KonsoleView()

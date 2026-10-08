@@ -252,3 +252,15 @@ def test_hud_expandido_troca_com_cam01(hud):
     b = kv.VIEW.button_rects()["min"]
     click(b.center())                         # "–": recolhe
     assert not hud.kon_open and not main.kon_swap
+
+
+def test_card_encolhe_a_fonte_para_caber_a_sessao():
+    scale = 2560 / 1920
+    w = kv.CARD_RECT.width()
+    cw = kv._metrics(kv.COMPACT_PX, round(scale, 4))[0]
+    assert kv.compact_px(w, int(w // cw), scale) == kv.COMPACT_PX          # já cabe: fonte do mockup
+    cols, _ = kv.cells_for(kv.EXPANDED_RECT, scale)
+    px = kv.compact_px(w, cols, scale)
+    assert kv.COMPACT_MIN_PX <= px < kv.COMPACT_PX
+    assert kv.cells_for(QRectF(0, 0, w, 100), scale, expanded=False, px=px)[0] >= cols
+    assert kv.compact_px(w, 500, scale) == kv.COMPACT_MIN_PX               # nunca menor que o piso

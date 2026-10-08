@@ -234,3 +234,26 @@ def test_tmux_comando_ou_pasta_inexistente(tmp_path):
     with pytest.raises(FileNotFoundError):
         kt.KonsoleSession(["bash"], cwd=tmp_path / "nada", persist="magi-teste-x")
     assert not kt.tmux_has_session("magi-teste-x")
+
+
+def test_token_meter_le_o_ultimo_uso(tmp_path):
+    (tmp_path / "sessions").mkdir()
+    (tmp_path / "sessions" / "123.json").write_text(
+        '{"pid": 123, "sessionId": "abc", "cwd": "/home/x/meu.proj"}')
+    proj = tmp_path / "projects" / "-home-x-meu-proj"
+    proj.mkdir(parents=True)
+    tr = proj / "abc.jsonl"
+    use = '{"type":"assistant","isSidechain":%s,"message":{"usage":{"input_tokens":%d,' \
+          '"cache_read_input_tokens":1000,"cache_creation_input_tokens":200,"output_tokens":9}}}\n'
+    tr.write_text(use % ("false", 5) + use % ("true", 99) + '{"type":"user"}\n')
+    m = kt.TokenMeter(123, root=tmp_path)
+    assert m.read() == 1205              # o da sub-tarefa (sidechain) não conta
+    with tr.open("a") as f:
+        f.write(use % ("false", 40000))
+    assert m.read() == 41200
+    assert kt.TokenMeter(999, root=tmp_path).read() is None
+    assert kt.TokenMeter(None, root=tmp_path).read() is None
+
+
+def test_format_tokens():
+    assert [kt.format_tokens(n) for n in (950, 1234, 38219, 2_400_000)] == ["950", "1.2k", "38k", "2.4M"]

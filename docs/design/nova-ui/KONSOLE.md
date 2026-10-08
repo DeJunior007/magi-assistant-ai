@@ -24,6 +24,11 @@ um card de estatísticas.
   reiniciar o HUD só desconecta; ao abrir, ele reconecta sozinho se a sessão existir. Nesse modo
   o HUD não responde às perguntas de terminal (quem responde ao claude é o tmux).
   `"konsole_tmux": false` no `settings.json` desliga.
+- **TOKENS (barra de status):** o contexto do último turno do claude (entrada + cache lido +
+  cache criado), do transcript `~/.claude/projects/<pasta>/<sessão>.jsonl`; a sessão sai de
+  `~/.claude/sessions/<pid>.json` (acompanha `/clear` e `/resume`). `—` antes da 1ª resposta.
+- **Card sem cortes:** a sessão tem a largura do expandido; o miolo do card encolhe a fonte
+  (de 11 até 7 px do mockup) para mostrar todas as colunas.
 - **Nada pisca** com o terminal ocioso (cursor fixo).
 
 ## Peças

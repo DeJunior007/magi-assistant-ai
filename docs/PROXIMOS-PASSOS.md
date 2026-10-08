@@ -113,7 +113,9 @@ Próximos passos, em ordem:
    só desconecta, e ao abrir o HUD reconecta sozinho. `konsole_tmux: false` no `settings.json`
    volta ao pty direto. Encerrar de vez: `tmux -L magi kill-session -t magi-claude` (ou sair do
    claude). Mudou o `.conf`? `tmux -L magi kill-server`.
-2. Konsole: TOKENS na barra de status (hoje mostra PID/células); linhas cortadas no card recolhido.
+2. ~~Konsole: TOKENS na barra de status; linhas cortadas no card recolhido~~ — feito: TOKENS =
+   contexto do último turno (entrada + cache) lido do transcript via `~/.claude/sessions/<pid>.json`
+   (`TokenMeter`); o card encolhe a fonte (até 7 px do mockup) para caber a largura da sessão.
 3. Testes manuais: digitação no Konsole (texto, setas, Enter, Esc), foco volta ao recolher,
    HUD não rouba foco do jogo sem clique; digitação na tela learning (mesma regra do KWin).
 4. Learning Mode onda 6: LM3.4 (balão com resultado real), LM4.2, LM4.3 (observações na tela),

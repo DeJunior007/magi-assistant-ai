@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import errno
 import fcntl
+import json
 import os
+import re
 import shutil
 import signal
 import struct
@@ -54,6 +56,8 @@ DROP_ENV = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "TMU
 TMUX_SOCKET = "magi"                     # servidor tmux só do HUD (não mexe nos tmux do usuário)
 TMUX_SESSION = "magi-claude"
 TMUX_CONF = Path(__file__).resolve().parent / "tmux-magi.conf"
+CLAUDE_DIR = Path("~/.claude").expanduser()   # sessions/<pid>.json e projects/<pasta>/<id>.jsonl
+TAIL_BYTES = 1 << 18                         # o fim do transcript basta para achar o último uso
 
 # modos privados do DEC no pyte (guardados como n << 5)
 MODE_APP_CURSOR = 1 << 5          # DECCKM: setas/Home/End como ESC O x
@@ -123,6 +127,83 @@ def tmux_wrap(cmd, cwd: str, name: str) -> list[str] | None:
             "-c", cwd, "--", *cmd]
 
 
+def claude_pid(sess) -> int | None:
+    """PID do ``claude`` da sessão: o próprio processo ou, no tmux, o processo do painel."""
+    if not sess.persistent:
+        return sess.pid
+    tmux = tmux_bin()
+    try:
+        r = subprocess.run([tmux, "-L", TMUX_SOCKET, "display-message", "-p", "-t", f"={sess.persist}:",
+                            "#{pane_pid}"], capture_output=True, text=True, timeout=1)
+        return int(r.stdout.strip())
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        return None
+
+
+def format_tokens(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1000:
+        return f"{n / 1000:.0f}k" if n >= 10_000 else f"{n / 1000:.1f}k"
+    return str(n)
+
+
+class TokenMeter:
+    """Tokens de contexto do ``claude`` com PID ``pid`` (o último uso do transcript: entrada +
+    cache lido + cache criado). Lê ``~/.claude/sessions/<pid>.json`` (que acompanha /clear e
+    /resume) e só relê o transcript quando ele cresce."""
+
+    def __init__(self, pid: int | None, root: Path = CLAUDE_DIR):
+        self.pid = pid
+        self.root = Path(root)
+        self._key = None
+        self.tokens: int | None = None
+
+    def transcript(self) -> Path | None:
+        if self.pid is None:
+            return None
+        try:
+            meta = json.loads((self.root / "sessions" / f"{self.pid}.json").read_text())
+            sid, cwd = meta["sessionId"], meta["cwd"]
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+        return self.root / "projects" / re.sub(r"[^A-Za-z0-9]", "-", cwd) / f"{sid}.jsonl"
+
+    def read(self) -> int | None:
+        path = self.transcript()
+        try:
+            st = path.stat() if path else None
+        except OSError:
+            st = None
+        if st is None:
+            return self.tokens if path is None else None
+        key = (str(path), st.st_size, st.st_mtime_ns)
+        if key == self._key:
+            return self.tokens
+        self._key = key
+        try:
+            with open(path, "rb") as f:
+                f.seek(max(0, st.st_size - TAIL_BYTES))
+                lines = f.read().splitlines()
+        except OSError:
+            return self.tokens
+        for raw in reversed(lines):
+            if b'"usage"' not in raw:
+                continue
+            try:
+                d = json.loads(raw)
+                if d.get("type") != "assistant" or d.get("isSidechain"):
+                    continue
+                u = d["message"]["usage"]
+                self.tokens = (u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0)
+                               + u.get("cache_creation_input_tokens", 0))
+                return self.tokens
+            except (ValueError, KeyError, TypeError, AttributeError):
+                continue   # linha cortada no começo do rabo ou formato inesperado
+        self.tokens = None if not lines else self.tokens
+        return self.tokens
+
+
 def git_status(cwd) -> dict:
     """Projeto, branch e linhas +/− do ``cwd`` para a barra de status (git rápido, 1 s no máximo).
     Chamado ao abrir o expandido, nunca na pintura."""
@@ -182,6 +263,7 @@ class KonsoleSession:
             raise FileNotFoundError(errno.ENOENT, "pasta inexistente", self.cwd)
         wrapped = tmux_wrap(self.cmd, self.cwd, persist) if persist else None
         self.persistent = wrapped is not None
+        self.persist = persist
         self.reattached = self.persistent and tmux_has_session(persist)
         if wrapped:
             if not os.path.isabs(self.cmd[0]) or not os.access(self.cmd[0], os.X_OK):

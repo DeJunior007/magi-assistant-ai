@@ -1028,6 +1028,8 @@ class HUD(QWidget):
         self.kon_notifier = None
         self.kon_full = False     # repintar o expandido inteiro (e não só as linhas sujas)
         self.kon_last = 0.0
+        self.kon_meter = None     # tokens de contexto do claude (relidos com a saída, a cada 2 s)
+        self.kon_meter_at = 0.0
         self.kon_timer = QTimer(self, timeout=self.konsole_flush)
         self.kon_timer.setSingleShot(True)
         app = QCoreApplication.instance()
@@ -1612,8 +1614,12 @@ class HUD(QWidget):
             kview.VIEW.error = f"[falha ao abrir: {ex.strerror or ex}]"
             print(f"konsole: {ex}", file=sys.stderr)
         kview.VIEW.session = self.kon
+        kview.VIEW.tokens = None
+        self.kon_meter = None
         if self.kon is None:
             return
+        self.kon_meter = konsole_term.TokenMeter(konsole_term.claude_pid(self.kon))
+        self.konsole_tokens(force=True)
         n = QSocketNotifier(self.kon.fileno(), QSocketNotifier.Type.Read, self)
         n.activated.connect(self.konsole_read)
         self.kon_notifier = n
@@ -1638,7 +1644,21 @@ class HUD(QWidget):
             self.kon_full = True
             changed = True
         if changed:
+            self.konsole_tokens()
             self.konsole_schedule()
+
+    KON_TOKENS_S = 2.0
+
+    def konsole_tokens(self, force=False):
+        """Relê os tokens (barato: só o stat do transcript se ele não cresceu), no máximo a cada 2 s."""
+        now = time.monotonic()
+        if self.kon_meter is None or (not force and now - self.kon_meter_at < self.KON_TOKENS_S):
+            return
+        self.kon_meter_at = now
+        tokens = self.kon_meter.read()
+        if tokens != kview.VIEW.tokens:
+            kview.VIEW.tokens = tokens
+            self.kon_full = True   # a barra de status fica fora das linhas sujas
 
     def konsole_schedule(self):
         if not self.kon_timer.isActive():
@@ -1674,6 +1694,7 @@ class HUD(QWidget):
         if self.kon is not None:
             self.kon.resize(*kview.cells_for(kview.EXPANDED_RECT, self.konsole_scale()))
             kview.VIEW.status = konsole_term.git_status(self.kon.cwd)
+            self.konsole_tokens(force=True)
         self.konsole_focus(True)
         self.kon_full = False
         self.wired.konsole_swap(True)   # a câmera vai para o lugar do card
