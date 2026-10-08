@@ -1562,9 +1562,18 @@ class HUD(QWidget):
         self.learning_entry_sync()
 
     def eventFilter(self, obj, ev):
-        if obj is self.lm_entry and ev.type() == ev.Type.KeyPress and ev.key() == Qt.Key_Escape:
-            obj.clear()
-            return True
+        if obj is self.lm_entry and ev.type() == ev.Type.KeyPress:
+            # menu de seleção aberto (LM2.2): ↑↓/Enter/Esc vão primeiro para ele; com texto no
+            # campo o Enter continua mandando lm_say
+            name = {Qt.Key_Up: "up", Qt.Key_Down: "down", Qt.Key_Return: "enter",
+                    Qt.Key_Enter: "enter", Qt.Key_Escape: "esc"}.get(ev.key())
+            if name and self.wired and self.view == "learning" \
+                    and self.wired.learning.key(name, typing=bool(obj.text())):
+                self.learning_refresh()
+                return True
+            if ev.key() == Qt.Key_Escape:
+                obj.clear()
+                return True
         return super().eventFilter(obj, ev)
 
     def learning_entry_sync(self):

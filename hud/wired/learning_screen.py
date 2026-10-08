@@ -9,14 +9,23 @@ Grupos: ``header`` (relógio, botão END SESSION, linha da sessão), ``mascot`` 
 pela base como nas outras telas), ``condessa`` (estado da spec §7 e nível), ``system`` (coluna
 esquerda: MAGI SYSTEM recolhível, sessão e rede, em ``TEXT_DIM``), ``footer`` (log de uma linha)
 ``history`` (LM1.6: caixas de ``learning_text.wrap``, rótulos CONDESSA/YOU, rolagem, mensagem em
-fala revelada), ``input`` (LM1.6: moldura do campo, onda de áudio por ``mouth``, ``STATUS //
-CONNECTED/DISCONNECTED``) e, ainda vazios, ``obs``/``topic``/``overlay`` (LM4.3, LM1.9, LM2.2).
+fala revelada; LM2.2: destaque lilás translúcido da seleção), ``input`` (LM1.6: moldura do campo,
+onda de áudio por ``mouth``, ``STATUS // CONNECTED/DISCONNECTED``), ``overlay`` (LM2.2: menu e
+balão de ``learning_overlay``; retângulos dinâmicos, os antigos entram até serem repintados) e,
+ainda vazios, ``obs``/``topic`` (LM4.3, LM1.9).
 ``hit_test`` devolve ``"learning"`` no botão END SESSION (a ação é ligada no LM1.7).
 
 Os dados do modo vêm do ``learning_model.LearningModel`` (``screen.info``/``screen.model``;
 ``LearningInfo`` é o mesmo tipo, nome do LM1.5); o resto vem do ``Snapshot`` comum. O mouse da
 view learning chega por ``mouse(kind, point, delta)`` (despachante ``WiredUI.learning_mouse``).
 O campo de texto é um ``QLineEdit`` filho do gamerhud posicionado em ``entry_rect()`` × escala.
+
+Seleção (LM2.2, design §4.2): ``mouse`` aplica o ``learning_text.Selector`` (clique = palavra,
+arrasto = intervalo, duplo clique = frase) e, ao soltar, abre o menu (não na mensagem em fala).
+Fecham o menu/balão: clique fora, Esc (``key``), nova seleção e rolagem. As teclas ↑↓/Enter/Esc
+chegam por ``key(name, typing)`` (o ``QLineEdit`` tem o foco: quem liga é o gamerhud). Os
+resultados vêm de ``learning_overlay.FakeProvider`` por ``ModelProvider`` (marca a ação no
+``LearningModel``); o LM3.4 troca o provedor interno e entrega ``lm_result`` em ``on_lm_result``.
 """
 
 from __future__ import annotations
@@ -27,9 +36,11 @@ from PySide6.QtCore import QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import QPainter, QPen
 
 from . import kit
-from .learning_layout import CHAR_W, LearningLayout, screen_layout, state_label
+from . import learning_overlay as ov
+from .learning_layout import CHAR_W, LearningLayout, bubble_rect, menu_rect, screen_layout, state_label
 from .learning_model import LearningModel
-from .learning_text import Point, Rect, WordBox, Wrapped, wrap
+from .learning_overlay import FakeProvider, Overlay, Row
+from .learning_text import Point, Rect, Selection, Selector, WordBox, Wrapped, can_open_menu, wrap
 from .main_screen import (
     JP_DAYS,
     MASCOT_MAIN,
@@ -70,6 +81,24 @@ def qr(r: Rect) -> QRectF:
 LearningInfo = LearningModel  # nome do LM1.5 (testes e chamadas antigas)
 
 
+class ModelProvider:
+    """Provedor do ``Overlay`` que marca a ação no ``LearningModel`` da tela (``ANALYZING`` até o
+    resultado) e entrega o ``lm_result`` a ele, como faria o ``hud_bridge``. ``inner`` é o
+    provedor de verdade: ``FakeProvider`` no LM2.2; no LM3.4, o que manda ``lm_action``."""
+
+    def __init__(self, screen: LearningScreen, inner=None):
+        self.screen = screen
+        self.inner = inner or FakeProvider()
+
+    def submit(self, action: dict, text: str) -> dict | None:
+        info = self.screen.info  # o gamerhud troca ``info`` pelo modelo dele: lê sempre na hora
+        info.begin_action(action["id"])
+        res = self.inner.submit(action, text)
+        if res is not None:
+            info.feed({"t": "lm_result", **res})
+        return res
+
+
 class LearningScreen(Screen):
     """Tela do Learning Mode (aula de inglês)."""
 
@@ -82,6 +111,13 @@ class LearningScreen(Screen):
         size = MASCOT_MAIN.size()
         self.L: LearningLayout = screen_layout(W, H, (size.width(), size.height()))
         self.MASCOT_RECT = qr(self.L.portrait)
+        # LM2.2: seleção e sobreposição
+        self.selector = Selector((), {})
+        self.sel: Selection | None = None
+        self._drag = False                         # gesto de seleção em curso (press → release)
+        self.overlay = Overlay(provider=ModelProvider(self))
+        self._ov_shown: list[QRectF] = []          # retângulos do overlay já pintados (a apagar)
+        self._ov_geom: tuple[tuple, tuple] | None = None
 
     # ---------------------------------------------------------------- estático
 
@@ -143,7 +179,7 @@ class LearningScreen(Screen):
             "input": [qr(L.input)],
             "obs": [qr(L.obs)],
             "footer": [self._footer_rect()],
-            "overlay": [qr(L.center)],  # menu + balão: por último, por cima
+            "overlay": self._overlay_rects(),  # menu + balão: por último, por cima
         }
 
     def _footer_rect(self) -> QRectF:
@@ -169,10 +205,12 @@ class LearningScreen(Screen):
         if name == "footer":
             return (i.log,)
         if name == "history":
-            return i.history_key()
+            return (*i.history_key(), self._sel_key())
+        if name == "overlay":
+            return self._overlay_key()
         if name == "input":
             return (i.connected, i.state == "speaking", i.wave_key())
-        return ()  # obs/topic/overlay: vazios até as próximas tarefas
+        return ()  # obs/topic: vazios até as próximas tarefas
 
     def draw_group(self, name: str, p: QPainter, snap: Snapshot, now: datetime, s: float) -> None:
         fn = getattr(self, f"_g_{name}", None)
@@ -330,6 +368,9 @@ class LearningScreen(Screen):
         texts = {m.id: m for m in i.messages}
         p.save()
         p.setClipRect(hr)
+        sel_fill = color(ov.SEL_FILL)
+        for r in self._highlight_rects():  # destaque da seleção, por baixo do texto
+            p.fillRect(qr(r), sel_fill)
         for line in wr.lines:
             top = line.rect.y + dy
             if top + LINE_H <= h.top or top >= h.bottom:
@@ -401,13 +442,186 @@ class LearningScreen(Screen):
 
     def mouse(self, kind: str, point: Point, delta: float = 0.0) -> str | None:
         """Evento de mouse da view learning em coordenadas lógicas. ``kind``: press, move,
-        release, double, wheel (``delta`` em "cliques", positivo = para cima/mensagens antigas).
-        Devolve o alvo do clique (``"learning"`` = END SESSION) ou ``None``. Seleção: LM2.2."""
-        if kind == "press" and self.L.end_btn.contains(point):
-            return "learning"
-        if kind == "wheel" and delta and self.L.history.contains(point):
-            self.info.scroll_by(delta * WHEEL_STEP, self.max_scroll())
+        release, double, wheel (``delta`` em "cliques", positivo = para cima/mensagens antigas)
+        e hover (só com ``setMouseTracking``; foco do item sob o ponteiro no menu).
+        Devolve o alvo do clique (``"learning"`` = END SESSION) ou ``None``.
+
+        LM2.2: clique no menu/balão age nele (sem nova seleção, spec §11); fora dele fecha e
+        começa uma seleção nova; ao soltar, o menu abre (não na mensagem em fala)."""
+        if kind == "press":
+            if self.L.end_btn.contains(point):
+                self.clear_selection()
+                return "learning"
+            if self._overlay_press(point):
+                return None
+            self.overlay.close()
+            self._begin_select()
+            self.sel = self.selector.press(point)
+            self._drag = self.sel is not None
+        elif kind == "move":
+            if self._drag:
+                self.sel = self.selector.move(point)
+        elif kind == "release":
+            if self._drag:
+                self._drag = False
+                self._open_menu()
+        elif kind == "double":
+            if self._overlay_hit(point):
+                return None  # duplo clique dentro do menu/balão: o press já agiu
+            self.overlay.close()
+            if not self.selector.boxes:
+                self._begin_select()
+            self.sel = self.selector.double(point)
+            self._drag = self.sel is not None  # o release que vem depois reabre o menu
+        elif kind == "wheel":
+            if delta and self.L.history.contains(point):
+                if self.info.scroll_by(delta * WHEEL_STEP, self.max_scroll()):
+                    self.clear_selection()  # rolagem fecha menu e balão (spec §11)
+        elif kind == "hover":
+            menu = self._overlay_geometry()[0]
+            idx = ov.item_at(menu, len(self.overlay.items), point) if menu else None
+            self.overlay.set_hover(idx)
         return None
+
+    # ---------------------------------------------------------------- seleção e overlay (LM2.2)
+
+    def _begin_select(self) -> None:
+        """Caixas visíveis de agora (a mesma lista que pinta) para o gesto que começa."""
+        self.selector.set_boxes(self.history_boxes(), self.L.history)
+        self.selector.texts = {m.id: m.text for m in self.info.messages}
+
+    def _open_menu(self) -> None:
+        sel = self.sel
+        if not can_open_menu(sel, self.info.speaking_id):
+            return
+        msg = self.info.message(sel.message_id)
+        if msg is None:
+            return
+        self.overlay.open(sel, msg.author, msg.text)
+
+    def clear_selection(self) -> None:
+        """Fecha menu/balão e apaga o destaque."""
+        self.overlay.close()
+        self.selector.clear()
+        self.sel = None
+        self._drag = False
+
+    def key(self, name: str, typing: bool = False) -> bool:
+        """Tecla da view learning: ``up``/``down``/``enter``/``esc``. ``True`` = consumida (o
+        gamerhud não repassa ao campo). ``typing`` = o campo tem texto: Enter fica com ele
+        (``lm_say``); ↑↓/Esc continuam no menu. Esc sem menu apaga a seleção, se houver."""
+        if name == "enter" and typing:
+            return False
+        if self.overlay.is_open:
+            used = self.overlay.key(name)
+            if name == "esc" and used:
+                self.clear_selection()
+            return used
+        if name == "esc" and self.sel is not None:
+            self.clear_selection()
+            return True
+        return False
+
+    def on_lm_result(self, msg: dict) -> bool:
+        """``lm_result`` do núcleo (LM3.4): entrega ao balão se for da ação corrente."""
+        return self.overlay.on_result(msg)
+
+    def _sel_key(self) -> tuple | None:
+        s = self.sel
+        return None if s is None else (s.message_id, s.start, s.end)
+
+    def _sel_boxes(self) -> list[WordBox]:
+        s = self.sel
+        if s is None:
+            return []
+        return [b for b in self.history_boxes()
+                if b.message_id == s.message_id and b.start < s.end and b.end > s.start]
+
+    def _highlight_rects(self) -> list[Rect]:
+        """Fundo do destaque: uma faixa por linha, cobrindo também o espaço entre as palavras."""
+        out: dict[float, Rect] = {}
+        for b in self._sel_boxes():
+            r = Rect(b.rect.x - 2, b.rect.y + 4, b.rect.w + 4, b.rect.h - 6)
+            cur = out.get(r.y)
+            if cur is None:
+                out[r.y] = r
+            else:
+                left, right = min(cur.left, r.left), max(cur.right, r.right)
+                out[r.y] = Rect(left, r.y, right - left, r.h)
+        return list(out.values())
+
+    def _overlay_geometry(self) -> tuple[Rect | None, Rect | None, list[Row]]:
+        """(menu, balão, linhas do balão) em coordenadas lógicas; ``None`` se fechado ou se a
+        seleção saiu da área visível. Cache pela versão do overlay e pela posição da seleção."""
+        o = self.overlay
+        if not o.is_open:
+            return None, None, []
+        boxes = self._sel_boxes()
+        key = (o.version, tuple(b.rect for b in boxes))
+        if self._ov_geom is not None and self._ov_geom[0] == key:
+            return self._ov_geom[1]
+        if not boxes:
+            geom = (None, None, [])
+        else:
+            L = self.L
+            sel = [b.rect for b in boxes]
+            area = Rect(L.left.left, L.center.top, L.right.right - L.left.left, L.center.h)
+            menu = menu_rect(sel, L.history, area, ov.label_width(o.label()), len(o.items))
+            bubble, rows = None, []
+            if o.has_bubble:
+                rows, h = ov.layout_bubble(o.lines(), ov.measure)
+                bubble = bubble_rect(menu, sel, area, (ov.BUBBLE_W, h))  # à direita primeiro (mockup)
+            geom = (menu, bubble, rows)
+        self._ov_geom = (key, geom)
+        return geom
+
+    def _overlay_now(self) -> list[QRectF]:
+        menu, bubble, _ = self._overlay_geometry()
+        return [qr(r) for r in (menu, bubble) if r is not None]
+
+    def _overlay_rects(self) -> list[QRectF]:
+        """Coluna da conversa (base fixa, como no LM1.5) + menu/balão de agora + os já pintados
+        (para apagar o balão que fechou ou mudou, mesmo quando passou para a coluna direita)."""
+        now = [qr(self.L.center), *self._overlay_now()]
+        return now + [r for r in self._ov_shown if r not in now]
+
+    def _overlay_key(self) -> tuple:
+        menu, bubble, _ = self._overlay_geometry()
+        return (self.overlay.state_key(), menu, bubble)
+
+    def _overlay_hit(self, point: Point) -> bool:
+        menu, bubble, _ = self._overlay_geometry()
+        return any(r is not None and r.contains(point) for r in (menu, bubble))
+
+    def _overlay_press(self, point: Point) -> bool:
+        """Clique dentro do menu/balão: item, "more ▸" ou "retry". ``True`` = consumido."""
+        menu, bubble, rows = self._overlay_geometry()
+        if menu is not None and menu.contains(point):
+            idx = ov.item_at(menu, len(self.overlay.items), point)
+            if idx is not None:
+                self.overlay.choose(self.overlay.items[idx].kind)
+            return True
+        if bubble is not None and bubble.contains(point):
+            for row in rows:
+                if row.target and row.rect.moved(bubble.x + row.rect.x,
+                                                 bubble.y + row.rect.y).contains(point):
+                    self.overlay.target(row.target)
+                    break
+            return True
+        return False
+
+    def _g_overlay(self, p, snap, now, s):
+        menu, bubble, rows = self._overlay_geometry()
+        if menu is not None:
+            ov.paint_menu(p, self.overlay, menu)
+        if bubble is not None:
+            ov.paint_bubble(p, rows, bubble)
+
+    def paint(self, p: QPainter, size: QSize, snap: Snapshot, now: datetime | None = None,
+              mono: float | None = None, region=None) -> None:
+        super().paint(p, size, snap, now, mono, region)
+        if self._keys.get("overlay") == self._overlay_key():
+            self._ov_shown = self._overlay_now()  # os antigos já foram cobertos
 
     def _g_footer(self, p, snap, now, s):
         r = self._footer_rect()
