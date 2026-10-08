@@ -4,7 +4,8 @@ Mesma entrada (`Snapshot`) e mesma mecânica de cache/invalidação do `MainScre
 scanlines e os rótulos fixos ficam no cache; o relógio só redesenha na troca de minuto, o LED,
 a fala e o player quando mudam, e o mascote pelo `mascot_tick` (dormindo, 1 vez a cada 4 s).
 Nada do cenário passa atrás do texto (o cenário da U1 garante, ver `scene.standby_text_safe`).
-A tela não tem botões: `hit_test` devolve sempre None.
+Único botão: `[ LEARNING // 学習 ]` (LM1.7), na linha logo acima de `y_rule2`; `hit_test` devolve
+"learning" nele e None no resto.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from .main_screen import (
     baseline,
     chip_label,
     draw_cover,
+    draw_learning_btn,
     draw_mood,
     label,
     led_dot,
@@ -115,6 +117,8 @@ class StandbyScreen(Screen):
             self.mood = QRectF(COL.left() + 205, self.mid + 10, 12, 95)  # discreto, entre mascote e fala
             self.talk = QRectF(COL.left() + 222, self.mid, COL.right() - COL.left() - 222, 115)
         self.cover = QRectF(COL.left(), BOTTOM - 72, 72, 72)
+        # botão do Learning Mode (LM1.7): uma linha entre a fala e o player, colado em y_rule2
+        self.learn_btn = QRectF(COL.left() - 2, self.y_rule2 - 26, 196, 22)
 
     # ---------------------------------------------------------------- estático
 
@@ -127,6 +131,7 @@ class StandbyScreen(Screen):
         label(p, COL.left(), self.y_status, "magi-01 // condessa", px=13)
         p.fillRect(QRectF(COL.left(), self.y_rule1, COL.width(), 1), color(LINE))
         p.fillRect(QRectF(COL.left(), self.y_rule2, COL.width(), 1), color(LINE))
+        draw_learning_btn(p, COL.left(), self.learn_btn.bottom() - 6, px=13)  # Learning Mode (LM1.7)
         label(p, 160, 1080 - 70 - 3.5, "meta+m · painel completo")
 
     # ---------------------------------------------------------------- grupos
@@ -136,6 +141,9 @@ class StandbyScreen(Screen):
 
     def scene_rects(self) -> list[QRectF]:
         return self.anim.regions(QRectF(0, 0, 1920, 1080))
+
+    def hit_rects(self, snap: Snapshot | None = None) -> dict[str, QRectF]:
+        return {"learning": self.learn_btn}  # LM1.7: liga/desliga o Learning Mode
 
     def groups(self) -> dict[str, list[QRectF]]:
         return {

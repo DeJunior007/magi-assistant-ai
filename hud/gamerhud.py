@@ -40,7 +40,7 @@ from turn_phase import TurnPhase  # noqa: E402
 from wired import fonts as wfonts  # noqa: E402
 from wired import theme as wtheme  # noqa: E402
 from wired.data import ClaudeStats  # noqa: E402
-from wired.integration import CARD_DETAIL, WiredUI, rgb_hex  # noqa: E402
+from wired.integration import CARD_DETAIL, WiredUI, learning_toggle, rgb_hex  # noqa: E402
 from wired.learning_model import LearningModel, check_say  # noqa: E402
 
 TARGET_SCREEN = os.environ.get("GAMERHUD_SCREEN", "DP-1")
@@ -1000,6 +1000,7 @@ class HUD(QWidget):
         self.settings_mtime = -1.0
         cfg = load_settings()
         self.view = cfg.get("view", "full")   # 'full' | 'idle' (Meta+M) | 'learning' (LM1.5, só wired)
+        self.lm_return = None   # view guardada ao entrar no Learning Mode (LM1.7); Meta+M muda só ela
         self.ui = "eva" if cfg.get("ui", UI_DEFAULT) == "eva" else "wired"
         self.wired = WiredUI() if self.ui == "wired" else None   # tema wired (U4)
         self.claude_stats = None
@@ -1334,6 +1335,9 @@ class HUD(QWidget):
                 self.apply_ui(cfg.get("ui", UI_DEFAULT))
             new_view = cfg.get("view", "full")
             self.detail_return = None   # Meta+M manda mais que o detalhe pedido pela voz
+            # durante o Learning Mode o Meta+M só muda a view de retorno (LM1.7)
+            new_view, self.lm_return = learning_toggle(self.view, self.lm_return,
+                                                       {"t": "view", "view": new_view})
             if not instant and new_view != self.view and cfg.get("transition", True) and self.isVisible():
                 self.start_transition(new_view)
             else:
@@ -1612,10 +1616,26 @@ class HUD(QWidget):
 
     def on_bridge_learning(self, msg):
         """lm_* (o bridge já entregou ao learning_model): repinta os grupos e agenda a revelação."""
+        if msg.get("t") == "lm_mode":
+            self.learning_switch(msg)
         if msg.get("t") == "lm_msg":
             self.caption_tick()   # prazo da revelação da fala + repintura do histórico
         else:
             self.learning_refresh()
+
+    def learning_switch(self, msg):
+        """``lm_mode`` confirmado pelo núcleo (botão ou voz, LM1.7): entra na view learning
+        guardando a atual (full/idle) ou volta para ela, com a cortina (``switch_view``)."""
+        if not self.wired:   # a tela learning só existe no tema wired
+            return
+        view = self.view
+        if msg.get("on") and view != "learning" and self.detail_return:
+            # painel aberto pela voz a partir da espera: o retorno é a espera, e o detalhe não
+            # pode tirar o HUD da tela learning ao fechar
+            view, self.detail_return = self.detail_return, None
+        new, self.lm_return = learning_toggle(view, self.lm_return, msg)
+        if new != self.view:
+            self.switch_view(new)
 
     def learning_mouse(self, kind, e, delta=0.0):
         """Despachante único: com view learning, todo evento de mouse vai ao WiredUI."""
@@ -1654,11 +1674,15 @@ class HUD(QWidget):
             self.learning_mouse("release", e)
 
     def wired_click(self, target):
-        """Cliques do tema wired: LED → RGB Sync, player → MPRIS, cards → detalhes por processo.
+        """Cliques do tema wired: LED → RGB Sync, player → MPRIS, cards → detalhes por processo,
+        LEARNING/END SESSION → pede ``lm_mode`` ao núcleo (a tela só troca na confirmação, LM1.7;
+        com o núcleo fora o envio falha e nada muda: o rodapé já mostra DISCONNECTED).
         A Condessa olha para onde o Pedro clicou (wired.reactions)."""
         self.wired.on_click(target)
         self.face_tick()
-        if target == "face":
+        if target == "learning":
+            self.bridge.send_lm("lm_mode", {"on": self.view != "learning"})
+        elif target == "face":
             self.bridge.send_cmd("push_to_talk")
         elif target == "led":
             self.toggle_rgb_sync()

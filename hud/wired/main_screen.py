@@ -616,6 +616,10 @@ _CAP_TOP = CHIP_TOP + 35.6 + 14  # abaixo do chip
 CAPTION_VISIBLE = max(1, int((TALK.bottom() - _CAP_TOP) // CAPTION_LH))  # linhas à vista (2 na base 1920)
 # janela exata das linhas (sem a próxima espiando embaixo); 8 px à direita: barra de rolagem
 CAPTION_RECT = QRectF(SIDE_X, _CAP_TOP, SIDE_R - SIDE_X - 8, CAPTION_VISIBLE * CAPTION_LH)
+# botão [ LEARNING // 学習 ] (LM1.7, design §4.4): uma linha logo abaixo da fala, alinhado em SIDE_X.
+# Dentro do card não sobra linha (a frase em inglês da Condessa dormindo já desce até a borda), então
+# fica no vão de 20 px entre o card da Condessa e o Unit spec, sem mover nada que já existe.
+LEARN_BTN = QRectF(SIDE_X - 2, MID_TOP.bottom() + 1, 176, HIST.top() - MID_TOP.bottom() - 2)
 
 # MAGI system
 LED_BTN = QRectF(MAGI.right() - 21 - 150, MAGI.top() + 19, 150, 44)
@@ -654,6 +658,18 @@ EQ = (10, 22, 34, 18, 40, 28, 14, 30, 38, 20, 12, 26, 16, 8)  # alturas decorati
 HEADER_CLOCK = QRectF(1380, 36, 1892 - 1380, 84)
 REC = QRectF(SCENE.left() + 20, Y2 + 44, 150, 18)
 FOOTER = QRectF(400, Y3, 1290, 28)
+
+
+def draw_learning_btn(p: QPainter, x: float, y: float, *, px: float = 12, color_=TEXT) -> float:
+    """``[ LEARNING // 学習 ]`` com a linha de base em ``y`` (painel e espera, LM1.7); devolve a
+    largura. Só texto: os colchetes fazem o papel da borda, como o rodapé."""
+    x0 = x
+    for t, jp in (("[ learning // ", False), ("学習", True), (" ]", False)):
+        if jp:
+            x += text(p, x, y, t, key="jp", px=px, color_=color_).width()
+        else:
+            x += label(p, x, y, t, px=px, color_=color_).width()
+    return x - x0
 
 
 def _btn(p: QPainter, r: QRectF, active: bool) -> None:
@@ -806,6 +822,7 @@ class MainScreen(Screen):
         p.fillRect(QRectF(SCENE.right() - 1, MID_TOP.top(), 1, MID_TOP.height()), color(LINE))
         label(p, SIDE_X, _SY + 12, "magi-01 // condessa")
         text(p, SIDE_R, _SY + 12, "人格", key="jp", px=12, color_=TEXT_DIM, align=R)
+        draw_learning_btn(p, SIDE_X, LEARN_BTN.bottom() - 4, px=11)  # Learning Mode (LM1.7)
         # centro embaixo
         kit.panel(p, HIST)
         hx = HIST.left() + 20
@@ -1274,8 +1291,9 @@ class MainScreen(Screen):
 
     def hit_rects(self, snap: Snapshot | None = None) -> dict[str, QRectF]:
         # unidades MAGI abrem o detalhe por processo (antes eram os cards CPU/GPU/RAM da esquerda)
-        return {"led": LED_BTN, **BTNS, "card:cpu": UNITS[0], "card:gpu": UNITS[1], "card:ram": UNITS[2]}
+        return {"led": LED_BTN, **BTNS, "card:cpu": UNITS[0], "card:gpu": UNITS[1], "card:ram": UNITS[2],
+                "learning": LEARN_BTN}  # LM1.7: liga/desliga o Learning Mode
 
 
-__all__ = ["MainScreen", "NA", "Pilot", "Screen", "Snapshot", "Track", "accent", "draw_mood", "led_lit",
-           "mood_color"]
+__all__ = ["LEARN_BTN", "MainScreen", "NA", "Pilot", "Screen", "Snapshot", "Track", "accent",
+           "draw_learning_btn", "draw_mood", "led_lit", "mood_color"]

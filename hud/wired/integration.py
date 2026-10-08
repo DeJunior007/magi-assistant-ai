@@ -126,6 +126,40 @@ def build_snapshot(data: dict, *, spec=(), pads=(), gaming: bool = False, fps: F
     return snap
 
 
+# ---------------------------------------------------------------- Learning Mode: troca de tela (LM1.7)
+
+LM_RETURN_VIEWS = ("full", "idle")  # views de onde se entra no modo e para onde se volta
+
+
+def learning_toggle(view: str, retorno: str | None, msg: dict) -> tuple[str, str | None]:
+    """Troca de tela do Learning Mode (pura, design §10): ``(view_atual, retorno, msg) → (view,
+    retorno)``. O núcleo é a fonte da verdade: o botão só pede (``lm_mode`` sai pelo bridge) e a
+    tela muda aqui, ao receber a confirmação — venha ela do botão ou da voz (LM1.4).
+
+    - ``{"t": "lm_mode", "on": True}``: guarda a view atual (``full``/``idle``) e vai para
+      ``learning``; já em ``learning`` (reenvio na reconexão, ``learning.start`` repetido) nada muda.
+    - ``{"t": "lm_mode", "on": False}``: volta à view guardada (``full`` se não houver); fora do
+      modo só esquece o retorno.
+    - ``{"t": "view", "view": v}`` (Meta+M / ``settings.json``): fora do modo troca a view como
+      antes; durante o modo só muda a view de retorno.
+    Qualquer outra mensagem não muda nada."""
+    t = msg.get("t")
+    if t == "lm_mode":
+        if msg.get("on"):
+            if view == "learning":
+                return view, retorno
+            return "learning", view if view in LM_RETURN_VIEWS else "full"
+        if view != "learning":
+            return view, None
+        return (retorno if retorno in LM_RETURN_VIEWS else "full"), None
+    if t == "view":
+        new = msg.get("view")
+        if view == "learning":
+            return view, new if new in LM_RETURN_VIEWS else retorno
+        return (new or view), retorno
+    return view, retorno
+
+
 class WiredUI:
     """Estado e telas do tema wired. O HUD chama `poll` a 1 Hz, `build` quando algo muda, repassa
     os eventos da Magui e usa `screen(view)` para pintar/invalidar e `hit` para os cliques."""
@@ -283,7 +317,8 @@ class WiredUI:
 
     def hit(self, pos: QPoint | QPointF, size: QSize, view: str, detail: str | None = None) -> str | None:
         """Alvo do clique: "led", "prev"/"playpause"/"next", "card:cpu|gpu|ram", "detail" (fecha
-        o painel aberto), "face" (mascote → push-to-talk) ou None. Na view learning só os alvos
+        o painel aberto), "face" (mascote → push-to-talk), "learning" (botão ``[ LEARNING ]`` do
+        painel e da espera, LM1.7: o HUD pede ``lm_mode``) ou None. Na view learning só os alvos
         da ``LearningScreen`` (END SESSION → "learning"): o retrato não é push-to-talk lá; os
         eventos de mouse dessa view vão por ``learning_mouse``."""
         if view == "learning":
@@ -360,4 +395,5 @@ class WiredUI:
         p.restore()
 
 
-__all__ = ["CARD_DETAIL", "DETAIL_RECT", "NA", "PLAYER", "WiredUI", "build_snapshot", "rgb_hex", "short_gpu"]
+__all__ = ["CARD_DETAIL", "DETAIL_RECT", "LM_RETURN_VIEWS", "NA", "PLAYER", "WiredUI", "build_snapshot",
+           "learning_toggle", "rgb_hex", "short_gpu"]
