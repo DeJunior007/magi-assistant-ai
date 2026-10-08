@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -25,6 +26,8 @@ from magi.common.config import Config, ConfigError
 from magi.common.contracts import BudgetExceeded, ChatMessage, ChatReply, ProviderError, Usage
 from magi.learning.budget import LearningBudget, LearningCostTask
 from magi.learning.config import LearningTask, learning_tasks
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------------------------
 # Protocolo e erros
@@ -97,8 +100,20 @@ class ChatLike(Protocol):
     """O que ``OpenAIModel`` usa do provedor (``magi.providers.registry.GuardedChat``)."""
 
     async def chat(
-        self, messages: Sequence[ChatMessage], *, json_mode: bool = False, personal: bool
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        json_mode: bool = False,
+        json_schema: dict | None = None,
+        personal: bool,
     ) -> ChatReply: ...
+
+
+def schema_refused(e: ProviderError) -> bool:
+    """Erro 400 do provedor recusando o schema da saída estruturada (``response_format`` /
+    ``response_json_schema``): vale repetir com JSON simples."""
+    msg = str(e).lower()
+    return "400" in msg and ("schema" in msg or "response_format" in msg)
 
 
 class _NoCoreBudget:
@@ -129,6 +144,8 @@ class OpenAIModel:
         self.label = LearningCostTask(label)
         self.model = model
         self.timeout_s = timeout_s
+        # Saída estruturada por JSON Schema (strict); desliga de vez se o provedor recusar o schema.
+        self.structured = True
 
     def __repr__(self) -> str:
         return f"<OpenAIModel {self.label}: {self.model}>"
@@ -143,10 +160,7 @@ class OpenAIModel:
             ChatMessage(role="user", content=user),
         ]
         try:
-            # A conversa do Pedro é dado pessoal: provedor em cota gratuita recusa (R21.5).
-            reply = await asyncio.wait_for(
-                self.chat.chat(messages, json_mode=True, personal=True), self.timeout_s
-            )
+            reply = await self._ask(messages, schema)
         except TimeoutError as e:
             raise ModelTimeout(f"sem resposta em {self.timeout_s:g} s") from e
         except ProviderError as e:
@@ -157,6 +171,24 @@ class OpenAIModel:
         if reply.usage is not None:
             cost = await self.budget.record(reply.usage, self.label)
         return parse_json_object(reply.text), cost
+
+    async def _ask(self, messages: list[ChatMessage], schema: dict) -> ChatReply:
+        """Chama o chat com o schema como saída estruturada (o ``schema_instruction`` continua no
+        prompt: ajuda modelos pequenos). Se o provedor recusar o schema (400), repete uma vez só
+        com JSON simples e não tenta mais o schema neste modelo."""
+        # A conversa do Pedro é dado pessoal: provedor em cota gratuita recusa (R21.5).
+        if self.structured:
+            try:
+                return await asyncio.wait_for(
+                    self.chat.chat(messages, json_mode=True, json_schema=schema, personal=True),
+                    self.timeout_s,
+                )
+            except ProviderError as e:
+                if not schema_refused(e):
+                    raise
+                log.warning("learning %s: schema recusado, seguindo com JSON simples (%s)", self.label, e)
+                self.structured = False
+        return await asyncio.wait_for(self.chat.chat(messages, json_mode=True, personal=True), self.timeout_s)
 
 
 def openai_chat(config: Config, registry: Any, task: LearningTask, label: LearningCostTask) -> ChatLike:

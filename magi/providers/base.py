@@ -69,7 +69,11 @@ class Backend(Protocol):
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolSpec],
         json_mode: bool,
-    ) -> ChatReply: ...
+        *,
+        json_schema: dict | None = None,
+    ) -> ChatReply:
+        """``json_schema``: saída estruturada (JSON Schema strict); sem suporte, JSON simples."""
+        ...
 
     async def ask(self, key: ApiKey, ctx: CallCtx, question: str, image: bytes, mime: str) -> ChatReply: ...
 

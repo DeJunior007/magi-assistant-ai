@@ -64,25 +64,34 @@ class FakeBackend:
     """Backend de chat falso: guarda o contexto e devolve JSON fixo com consumo."""
 
     calls: list[Any] = []
+    schemas: list[dict | None] = []  # json_schema de cada chamada (None = JSON simples)
     reply_text = '{"kind": "fix", "corrected": "I went"}'
     error: BaseException | None = None
+    schema_error: BaseException | None = None  # levantado só nas chamadas com json_schema
     delay_s = 0.0
 
     def __init__(self, cfg: Any) -> None:
         self.cfg = cfg
 
-    async def chat(self, key: Any, ctx: Any, messages: Any, tools: Any, json_mode: bool) -> ChatReply:
+    async def chat(
+        self, key: Any, ctx: Any, messages: Any, tools: Any, json_mode: bool, *, json_schema: Any = None
+    ) -> ChatReply:
         FakeBackend.calls.append((key, ctx, list(messages), json_mode))
+        FakeBackend.schemas.append(json_schema)
         if FakeBackend.delay_s:
             await asyncio.sleep(FakeBackend.delay_s)
         if FakeBackend.error is not None:
             raise FakeBackend.error
+        if json_schema is not None and FakeBackend.schema_error is not None:
+            raise FakeBackend.schema_error
         return ChatReply(text=FakeBackend.reply_text, usage=ctx.usage(1000, 500))
 
 
 @pytest.fixture(autouse=True)
 def _reset_backend() -> None:
     FakeBackend.calls = []
+    FakeBackend.schemas = []
+    FakeBackend.schema_error = None
     FakeBackend.reply_text = '{"kind": "fix", "corrected": "I went"}'
     FakeBackend.error = None
     FakeBackend.delay_s = 0.0
@@ -128,6 +137,8 @@ async def test_ca04_config_troca_modelo_sem_codigo(tmp_path: Any) -> None:
     assert (ctx.model, ctx.task) == ("gpt-5.4-mini", "learning_actions")
     assert ctx.options["reasoning_effort"] == "none"
     assert json_mode and messages[0].role == "system" and "JSON" in messages[0].content
+    assert FakeBackend.schemas[-1] is SCHEMA  # saída estruturada, e o schema segue no prompt
+    assert json.dumps(SCHEMA, separators=(",", ":")) in messages[0].content
     assert messages[1].content == "I have went"
     assert cost == pytest.approx((1000 * 1.0 + 500 * 4.0) / 1e6)
 
@@ -159,7 +170,9 @@ async def test_ca13_teto_estourado_recusa_sem_chamada() -> None:
     chat_calls: list[Any] = []
 
     class Chat:
-        async def chat(self, messages: Any, *, json_mode: bool = False, personal: bool) -> ChatReply:
+        async def chat(
+            self, messages: Any, *, json_mode: bool = False, json_schema: Any = None, personal: bool
+        ) -> ChatReply:
             chat_calls.append(messages)
             return ChatReply(text="{}")
 
@@ -229,6 +242,30 @@ async def test_openai_falhas_viram_codigos() -> None:
     with pytest.raises(ModelTimeout) as et:
         await m.complete("s", "u", SCHEMA)
     assert et.value.code == "timeout"
+
+
+async def test_openai_schema_recusado_cai_em_json_simples() -> None:
+    budget, _ = _budget()
+    cfg = _config({"provider": "openai", "model": "qwen-local"})
+    m = build_model(cfg, "learning_actions", budget=budget, registry=_registry(cfg))
+    FakeBackend.schema_error = ProviderError("openai: HTTP 400: Invalid schema for response_format 'improve'")
+    data, _ = await m.complete("sys", "I have went", SCHEMA)
+    assert data == {"kind": "fix", "corrected": "I went"}
+    assert FakeBackend.schemas == [SCHEMA, None]
+    assert all(c[3] for c in FakeBackend.calls)  # json_mode nas duas
+    # Recusa lembrada: a próxima chamada já vai sem schema.
+    await m.complete("sys", "x", SCHEMA)
+    assert FakeBackend.schemas[-1] is None and len(FakeBackend.schemas) == 3
+
+
+async def test_openai_erro_400_comum_nao_desliga_schema() -> None:
+    budget, _ = _budget()
+    cfg = _config({"provider": "openai", "model": "gpt-5.4-mini"})
+    m = build_model(cfg, "learning_actions", budget=budget, registry=_registry(cfg))
+    FakeBackend.schema_error = ProviderError("openai: HTTP 400: context length exceeded")
+    with pytest.raises(ModelFailure):
+        await m.complete("sys", "x", SCHEMA)
+    assert FakeBackend.schemas == [SCHEMA] and m.structured
 
 
 async def test_fake_model_chaves_e_respostas() -> None:

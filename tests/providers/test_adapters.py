@@ -129,6 +129,43 @@ async def test_openai_chat_mapeia_mensagens_e_ferramentas(openai_reg, budget):
     assert (budget.recorded[0].input_units, budget.recorded[0].output_units) == (12, 3)
 
 
+LEARN_SCHEMA = {
+    "title": "improve",
+    "type": "object",
+    "properties": {"corrected": {"type": "string"}, "note": {"type": ["string", "null"]}},
+    "required": ["corrected", "note"],
+    "additionalProperties": False,
+}
+
+
+def test_openai_chat_kwargs_json_schema_strict():
+    from magi.providers.base import CallCtx
+    from magi.providers.openai_provider import _chat_kwargs
+
+    ctx = CallCtx(provider="openai", task=ProviderTask.AGENT, model="m")
+    msgs = [ChatMessage(role="user", content="oi")]
+    kw = _chat_kwargs(ctx, msgs, (), True, LEARN_SCHEMA)
+    assert kw["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {"name": "improve", "schema": LEARN_SCHEMA, "strict": True},
+    }
+    # Sem schema: como antes (json_object com json_mode; nada sem ele).
+    assert _chat_kwargs(ctx, msgs, (), True)["response_format"] == {"type": "json_object"}
+    assert "response_format" not in _chat_kwargs(ctx, msgs, (), False)
+    # Schema sem title ainda ganha um nome válido.
+    untitled = {k: v for k, v in LEARN_SCHEMA.items() if k != "title"}
+    fmt = _chat_kwargs(ctx, msgs, (), False, untitled)["response_format"]
+    assert fmt["json_schema"]["name"] == "resposta"
+
+
+async def test_openai_chat_json_schema_pelo_registro(openai_reg):
+    reg, calls, _ = openai_reg
+    msgs = [ChatMessage(role="user", content="oi")]
+    await reg.chat().chat(msgs, json_mode=True, json_schema=LEARN_SCHEMA, personal=True)
+    assert calls[-1][2]["response_format"]["type"] == "json_schema"
+    assert calls[-1][2]["response_format"]["json_schema"]["schema"] is LEARN_SCHEMA
+
+
 async def test_openai_429_alimenta_o_keypool(openai_reg):
     reg, calls, fail = openai_reg
     fail.append(_openai_error(429))
@@ -248,6 +285,17 @@ async def test_gemini_chat_ferramentas_e_sistema(gemini_env, budget):
     assert fr == {"id": "c0", "name": "pausar", "response": {"ok": True}}
     assert reply.usage.input_units == 9 and reply.usage.output_units == 4
     assert budget.recorded == []  # gemini é free_tier: fora do orçamento
+
+
+async def test_gemini_chat_json_schema(gemini_env):
+    reg, calls, _, _ = gemini_env
+    msgs = [ChatMessage(role="user", content="oi")]
+    await reg.chat(ProviderTask.NEWS).chat(msgs, json_mode=True, json_schema=LEARN_SCHEMA, personal=False)
+    cfg = calls[-1][2]["config"]
+    assert cfg["response_mime_type"] == "application/json"
+    assert cfg["response_json_schema"] == {k: v for k, v in LEARN_SCHEMA.items() if k != "title"}
+    await reg.chat(ProviderTask.NEWS).chat(msgs, json_mode=True, personal=False)
+    assert "response_json_schema" not in calls[-1][2]["config"]
 
 
 async def test_gemini_pesquisa_com_fontes(gemini_env):

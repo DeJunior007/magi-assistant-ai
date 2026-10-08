@@ -1294,8 +1294,12 @@ class ChatProvider(Provider, Protocol):
         *,
         tools: Sequence[ToolSpec] = (),
         json_mode: bool = False,
+        json_schema: dict | None = None,
         personal: bool,
-    ) -> ChatReply: ...
+    ) -> ChatReply:
+        """``json_schema`` (opcional): saída estruturada por JSON Schema (``strict``), no lugar do
+        JSON simples de ``json_mode``; provedor sem suporte cai em JSON simples."""
+        ...
 
 
 @runtime_checkable

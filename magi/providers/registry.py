@@ -275,10 +275,15 @@ class GuardedChat(_Guarded):
         *,
         tools: Sequence[ToolSpec] = (),
         json_mode: bool = False,
+        json_schema: dict | None = None,
         personal: bool,
     ) -> ChatReply:
+        # ``json_schema`` só vai ao backend quando presente: quem não pede segue com a chamada de
+        # sempre (e backends de teste sem o parâmetro continuam valendo).
+        extra: dict[str, Any] = {"json_schema": json_schema} if json_schema is not None else {}
+
         async def op(k: ApiKey) -> tuple[ChatReply, Usage | None]:
-            reply = await self._backend.chat(k, self._ctx, messages, tools, json_mode)
+            reply = await self._backend.chat(k, self._ctx, messages, tools, json_mode, **extra)
             return reply, reply.usage
 
         return await self._run(personal, op)

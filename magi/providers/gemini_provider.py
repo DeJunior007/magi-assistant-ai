@@ -212,6 +212,8 @@ class GeminiBackend:
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolSpec],
         json_mode: bool,
+        *,
+        json_schema: dict | None = None,
     ) -> ChatReply:
         system, contents = _contents(messages)
         config: dict[str, Any] = {}
@@ -225,8 +227,13 @@ class GeminiBackend:
                 for t in tools
             ]
             config["tools"] = [{"function_declarations": decls}]
-        if json_mode:
+        if json_mode or json_schema is not None:
             config["response_mime_type"] = "application/json"
+        if json_schema is not None:
+            # Equivalente do ``response_format`` json_schema da OpenAI: o SDK aceita JSON Schema
+            # direto (``response_json_schema``; o ``response_schema`` só entende o subconjunto
+            # OpenAPI, sem ``["string", "null"]``). ``title`` fica de fora: é o nome, não regra.
+            config["response_json_schema"] = {k: v for k, v in json_schema.items() if k != "title"}
         if "temperature" in ctx.options:
             config["temperature"] = ctx.options["temperature"]
         return _reply(await self._generate(key, ctx, contents, config), ctx)

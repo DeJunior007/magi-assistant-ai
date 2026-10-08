@@ -235,7 +235,11 @@ def _reply(resp: Any, ctx: CallCtx) -> ChatReply:
 
 
 def _chat_kwargs(
-    ctx: CallCtx, messages: Sequence[ChatMessage], tools: Sequence[ToolSpec], json_mode: bool
+    ctx: CallCtx,
+    messages: Sequence[ChatMessage],
+    tools: Sequence[ToolSpec],
+    json_mode: bool,
+    json_schema: dict | None = None,
 ) -> dict[str, Any]:
     kwargs: dict[str, Any] = {
         "model": ctx.model,
@@ -245,7 +249,19 @@ def _chat_kwargs(
     }
     if tools:
         kwargs["tools"] = _tools(tools)
-    if json_mode:
+    if json_schema is not None:
+        # Saída estruturada: o modelo é obrigado a seguir o schema (o Qwen local para de devolver o
+        # próprio schema e responde mais rápido). ``strict`` exige schema fechado (todas as
+        # propriedades em ``required``, ``additionalProperties: false``).
+        kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": str(json_schema.get("title") or "resposta"),
+                "schema": json_schema,
+                "strict": True,
+            },
+        }
+    elif json_mode:
         kwargs["response_format"] = {"type": "json_object"}
     return kwargs
 
@@ -405,8 +421,10 @@ class OpenAIBackend:
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolSpec],
         json_mode: bool,
+        *,
+        json_schema: dict | None = None,
     ) -> ChatReply:
-        kwargs = _chat_kwargs(ctx, messages, tools, json_mode)
+        kwargs = _chat_kwargs(ctx, messages, tools, json_mode, json_schema)
         with openai_errors(ctx.provider):
             resp = await with_timeout(ctx, self._client(key).chat.completions.create(**kwargs))
         return _reply(resp, ctx)
