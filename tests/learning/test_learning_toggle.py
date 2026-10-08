@@ -140,10 +140,15 @@ def test_botao_learning_no_hit_test(view):
 def test_botao_learning_nao_cruza_fala_nem_player():
     w = WiredUI()
     ms = main_screen
-    # painel: no vão logo abaixo do card da Condessa, sem encostar em nenhum card
-    assert ms.LEARN_BTN.top() >= ms.TALK.bottom() and ms.LEARN_BTN.left() >= ms.TALK.left()
-    for card in (ms.MID_TOP, ms.HIST, ms.SPEC):
-        assert not ms.LEARN_BTN.intersects(card)
+    # painel: na linha do chip, à direita do chip mais largo e acima da legenda, dentro do card
+    b = ms.LEARN_BTN
+    assert ms.MID_TOP.contains(b) and b.right() <= ms.SIDE_R
+    assert b.top() == ms.CHIP_TOP and b.bottom() <= ms.CAPTION_RECT.top()
+    chips = [*ms.CHIP_STATES.values(), "Active · 稼働中", "Standby · 待機中"]
+    widest = max(ms.width(c.upper(), "cond", 18, 600, 0.04) + 30 for c in chips)
+    assert b.left() >= ms.SIDE_X + widest + 6
+    txt = ms.width("LEARNING · ", "mono", 13, None, 0.08) + ms.width("学習", "jp", 13)
+    assert 14 + txt + 14 <= b.width()  # texto inteiro dentro da moldura
     sb = w.screen("idle")
     assert not sb.learn_btn.intersects(sb.talk)
     assert sb.learn_btn.bottom() <= sb.y_rule2
@@ -169,7 +174,8 @@ def test_sem_o_botao_a_tela_pinta_igual(view, monkeypatch):
     pixel; as diferenças ficam todas dentro do retângulo do botão."""
     mod = main_screen if view == "full" else standby_screen
     com = render(WiredUI().screen(view))
-    monkeypatch.setattr(mod, "draw_learning_btn", lambda *a, **k: 0.0)
+    monkeypatch.setattr(mod, "draw_learning_box" if view == "full" else "draw_learning_btn",
+                        lambda *a, **k: 0.0)
     sem = render(WiredUI().screen(view))
     # o cenário do "cam 01" varia entre duas pinturas mesmo sem mudança nenhuma: fica de fora
     box = diff_box(com, sem, main_screen.SCENE.adjusted(-1, -1, 1, 1) if view == "full" else None)

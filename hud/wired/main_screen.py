@@ -616,10 +616,11 @@ _CAP_TOP = CHIP_TOP + 35.6 + 14  # abaixo do chip
 CAPTION_VISIBLE = max(1, int((TALK.bottom() - _CAP_TOP) // CAPTION_LH))  # linhas à vista (2 na base 1920)
 # janela exata das linhas (sem a próxima espiando embaixo); 8 px à direita: barra de rolagem
 CAPTION_RECT = QRectF(SIDE_X, _CAP_TOP, SIDE_R - SIDE_X - 8, CAPTION_VISIBLE * CAPTION_LH)
-# botão [ LEARNING // 学習 ] (LM1.7, design §4.4): uma linha logo abaixo da fala, alinhado em SIDE_X.
-# Dentro do card não sobra linha (a frase em inglês da Condessa dormindo já desce até a borda), então
-# fica no vão de 20 px entre o card da Condessa e o Unit spec, sem mover nada que já existe.
-LEARN_BTN = QRectF(SIDE_X - 2, MID_TOP.bottom() + 1, 176, HIST.top() - MID_TOP.bottom() - 2)
+# botão [ LEARNING // 学習 ] (LM1.7, design §4.4): na linha do chip de estado, encostado à direita
+# (o chip mais largo, "Thinking · 思考中", não chega lá); a moldura faz o papel dos colchetes, que
+# não cabem nos ~340 px da coluna.
+LEARN_W = 154.0
+LEARN_BTN = QRectF(SIDE_R - LEARN_W, CHIP_TOP, LEARN_W, 35.6)
 
 # MAGI system
 LED_BTN = QRectF(MAGI.right() - 21 - 150, MAGI.top() + 19, 150, 44)
@@ -670,6 +671,14 @@ def draw_learning_btn(p: QPainter, x: float, y: float, *, px: float = 12, color_
         else:
             x += label(p, x, y, t, px=px, color_=color_).width()
     return x - x0
+
+
+def draw_learning_box(p: QPainter, r: QRectF) -> None:
+    """Botão compacto ``LEARNING · 学習`` do painel (LM1.7): moldura de botão no lugar dos colchetes."""
+    _btn(p, r, False)
+    x = r.left() + 14
+    x += label(p, x, r.top() + 23, "learning · ", px=13, color_=TEXT).width()
+    text(p, x, r.top() + 23, "学習", key="jp", px=13, color_=TEXT)
 
 
 def _btn(p: QPainter, r: QRectF, active: bool) -> None:
@@ -822,7 +831,7 @@ class MainScreen(Screen):
         p.fillRect(QRectF(SCENE.right() - 1, MID_TOP.top(), 1, MID_TOP.height()), color(LINE))
         label(p, SIDE_X, _SY + 12, "magi-01 // condessa")
         text(p, SIDE_R, _SY + 12, "人格", key="jp", px=12, color_=TEXT_DIM, align=R)
-        draw_learning_btn(p, SIDE_X, LEARN_BTN.bottom() - 4, px=11)  # Learning Mode (LM1.7)
+        draw_learning_box(p, LEARN_BTN)  # Learning Mode (LM1.7)
         # centro embaixo
         kit.panel(p, HIST)
         hx = HIST.left() + 20
@@ -1295,5 +1304,5 @@ class MainScreen(Screen):
                 "learning": LEARN_BTN}  # LM1.7: liga/desliga o Learning Mode
 
 
-__all__ = ["LEARN_BTN", "MainScreen", "NA", "Pilot", "Screen", "Snapshot", "Track", "accent",
-           "draw_learning_btn", "draw_mood", "led_lit", "mood_color"]
+__all__ = ["LEARN_BTN", "LEARN_W", "MainScreen", "NA", "Pilot", "Screen", "Snapshot", "Track", "accent",
+           "draw_learning_box", "draw_learning_btn", "draw_mood", "led_lit", "mood_color"]
