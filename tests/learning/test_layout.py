@@ -38,7 +38,7 @@ def test_ca26_retrato_do_tamanho_do_painel_gamer():
     from wired.main_screen import MASCOT_MAIN
 
     size = MASCOT_MAIN.size()
-    assert size.height() == 302
+    assert size.width() == size.height() == 312.5  # retrato 272×272 do mockup da nova UI
     assert PORTRAIT_SIZE == pytest.approx((size.width(), size.height()))
     lay = screen_layout(1920, 1080, (size.width(), size.height()))
     assert (lay.portrait.w, lay.portrait.h) == (size.width(), size.height())

@@ -130,6 +130,12 @@ def test_gamerhud_escreve_a_legenda_conforme_a_fala(make_hud, monkeypatch):  # n
     assert w.wired.snap.caption == "Uma aranha tem"  # subtitle no meio não atropela a fala
     clock[0] = 102.5
     w.caption_tick()
-    assert w.wired.snap.caption == FRASE and not w.caption_timer.isActive()
+    assert w.wired.snap.caption == FRASE
+    # o terminal do card ainda digita o fim (1 caractere por vez); terminou, o timer para
+    main = w.wired.main
+    assert main.tw.target == FRASE and w.caption_timer.isActive()
+    clock[0] = 105.0
+    w.caption_tick()
+    assert main.tw.shown == FRASE and not w.caption_timer.isActive()
     w.on_face_state("sleeping")
     assert w.wired.snap.caption == FRASE

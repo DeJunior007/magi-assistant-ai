@@ -1,55 +1,70 @@
-"""Painel completo "wired" (R23.1–R23.8): composição do kit (U1) com os dados (U2 + HUD).
+"""Painel completo "wired" (nova UI, 2026-10-08): composição dos cards do mockup aprovado
+(``docs/design/nova-ui/painel.dc.html``, desenhado em 1672×941) com os dados (U2 + HUD).
 
 Entrada desacoplada: um `Snapshot` com tudo o que a tela mostra; campo `None`/vazio vira "– –"
 ou estado vazio (R23.3) — nada é simulado aqui. Desenho na grade lógica 1920×1080 com
-`painter.scale(size.width() / 1920)` (2560×1440 → 4/3).
+`painter.scale(size.width() / 1920)` (2560×1440 → 4/3); os cards são desenhados nas medidas do
+mockup com mais um `scale(F)` (F = 1920/1672).
 
-Desempenho (R23.8): fundo, painéis, cenário "cam 01", scanlines e rótulos fixos ficam num
-QPixmap do tamanho do dispositivo (cache por tamanho). O resto é dividido em grupos com
-retângulo próprio; `dirty_regions(snap, now, size)` compara a chave de cada grupo com a do último
-desenho e devolve só os retângulos (pixels do dispositivo) que mudaram — o relógio todo segundo,
-os dados quando mudam. O mascote anima à parte: `mascot_tick(mono, size)` diz quando e onde
-redesenhar (até 30 fps acordada, 1 vez a cada 4 s dormindo). No `paintEvent`, passe
-`region=event.rect()` para `paint`: o fundo sai do cache e só os grupos tocados são redesenhados.
+Desempenho (R23.8): fundo, cards, rótulos fixos e a moldura do KONSOLE ficam num QPixmap do
+tamanho do dispositivo (cache por tamanho). O resto é dividido em grupos com retângulo próprio;
+`dirty_regions(snap, now, size)` compara a chave de cada grupo com a do último desenho e devolve só
+os retângulos (pixels do dispositivo) que mudaram — o relógio todo segundo, os dados quando mudam.
+O mascote anima à parte: `mascot_tick(mono, size)` diz quando e onde redesenhar. No `paintEvent`,
+passe `region=event.rect()` para `paint`: o fundo sai do cache e só os grupos tocados são
+redesenhados; por cima vão as scanlines e a vinheta (também em cache).
 
-`hit_test(pos, size)` devolve "led", "prev", "playpause", "next", "card:cpu", "card:gpu",
-"card:ram" (as unidades MELCHIOR/BALTHASAR/CASPER) ou None (pos em pixels do dispositivo).
+`hit_test(pos, size)` devolve "learning" (botão do topo), "led", "prev", "playpause", "next",
+"card:cpu", "card:gpu", "card:ram" (as unidades MELCHIOR/BALTHASAR/CASPER), "konsole" (o card do
+terminal) ou None (pos em pixels do dispositivo).
 """
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QRadialGradient,
+)
 
 from . import fonts, kit, scene, sky
 from .caption_scroll import CaptionScroll
 from .mascot import Mascot
 from .theme import (
     BG,
-    BUTTON,
     BUTTON_LINE,
     CPU,
     FOCUS,
     GPU,
     HOT,
-    LINE,
     LINE_STRONG,
-    RAM,
     SEG_OFF,
     TEXT,
     TEXT_DIM,
     WARN,
     alpha,
     color,
-    tint,
+    mix,
 )
+from .typewriter import Typewriter
+
+log = logging.getLogger(__name__)
 
 W, H = 1920.0, 1080.0
 NA = "– –"
@@ -128,6 +143,20 @@ class Snapshot:
     news: list[tuple[str, str]] = field(default_factory=list)  # Rádio Ayanami: (HH:MM, manchete), novas 1º
     claude: Any = None  # data.ClaudeView: consumo e sessões do Claude Code; None = sem dado
     self_usage: Any = None  # data.SelfView: cpu/ram/gpu/vram dos processos da Condessa; None = sem dado
+    # extras da nova UI (data.SysExtra, data.net_info, data.GitStatus); None = sem dado
+    cpu_mhz: float | None = None
+    swap_used_gb: float | None = None
+    swap_total_gb: float | None = None
+    disk_pct: float | None = None
+    net_ip: str | None = None
+    net_gateway: str | None = None
+    net_dns: str | None = None
+    project: str | None = None  # pasta da sessão do KONSOLE
+    git_branch: str | None = None
+    git_added: int | None = None
+    git_removed: int | None = None
+    konsole_online: bool | None = None  # sessão do Claude Code viva no KONSOLE
+    konsole_rev: int = 0  # muda quando o terminal tem tela nova (repinta o miolo)
 
 
 def led_lit(snap: Snapshot) -> bool:
@@ -582,87 +611,414 @@ class Screen:
         return None
 
 
-# ====================================================================== geometria do painel
+# ====================================================================== geometria do painel (nova UI)
+#
+# Fonte da verdade: docs/design/nova-ui/painel.dc.html, desenhado em 1672×941. Tudo aqui é medido
+# em coordenadas do mockup e convertido para a base 1920 pelo fator F (o painter desenha os cards
+# com ``p.scale(F, F)``, então fontes, traços e espaçamentos saem na proporção exata do mockup).
+# Caixas de clique e de repintura (base 1920) vêm de ``mq`` (arredondadas a 0,5 px).
 
-X1, X2, X3 = 28.0, 588.0, 1532.0  # colunas 540 | 924 | 360, gap 20
-Y2, Y3 = 144.0, 1024.0  # linhas 96 | 860 | 28
-# esquerda: MAGI system (CPU/GPU/memória, só aqui) + FPS + rede
-_RR = (860 - 20) / 2.25
-MAGI = QRectF(X1, Y2, 540, _RR * 1.25)
-_LEFT_REST = Y3 - 20 - MAGI.bottom() - 16 * 2
-CARD_FPS = QRectF(X1, MAGI.bottom() + 16, 540, _LEFT_REST * 0.55)
-CARD_NET = QRectF(X1, CARD_FPS.bottom() + 16, 540, _LEFT_REST * 0.45)
-_M = (860 - 20) / 2.45  # centro: flex 1.45 / 1
-MID_TOP = QRectF(X2, Y2, 924, _M * 1.45)
-SCENE = QRectF(X2, Y2, 1 + 922 * 1.4 / 2.4, MID_TOP.height())
-SIDE_X, SIDE_R = SCENE.right() + 22, MID_TOP.right() - 23
-HIST = QRectF(X2, MID_TOP.bottom() + 20, 544, _M)
-SPEC = QRectF(HIST.right() + 20, HIST.top(), 360, _M)
-# direita: Now playing compacto, Rádio Ayanami (cartões) e Claude Code
-NP = QRectF(X3, Y2, 360, 292)
-RADIO = QRectF(X3, NP.bottom() + 20, 360, 262)
-CLAUDE = QRectF(X3, RADIO.bottom() + 20, 360, Y3 - 20 - RADIO.bottom() - 20)
-RADIO_ITEMS = 3
-RADIO_CARD_H = 56.0
+MOCK_W, MOCK_H = 1672.0, 941.0
+F = W / MOCK_W  # 1,14833
 
-# lado do mascote (flex column gap 14, a partir de top+1+22)
-_SY = Y2 + 23
-MASCOT_MAIN = QRectF(SIDE_X, _SY + 15.8 + 14, SIDE_R - SIDE_X, 302)  # retrato da Condessa (+20% duas vezes)
-CHIP_TOP = MASCOT_MAIN.bottom() + 14
-MOOD_MAIN = QRectF(SIDE_R - 24, MASCOT_MAIN.top() + 4, 24, MASCOT_MAIN.height() - 8)  # à direita do mascote
-TALK = QRectF(SIDE_X - 2, CHIP_TOP - 2, SIDE_R - SIDE_X + 4, MID_TOP.bottom() - CHIP_TOP - 20)
-CAPTION_LH = 27.2  # linha da legenda (jp 16 px)
-_CAP_TOP = CHIP_TOP + 35.6 + 14  # abaixo do chip
-CAPTION_VISIBLE = max(1, int((TALK.bottom() - _CAP_TOP) // CAPTION_LH))  # linhas à vista (2 na base 1920)
-# janela exata das linhas (sem a próxima espiando embaixo); 8 px à direita: barra de rolagem
-CAPTION_RECT = QRectF(SIDE_X, _CAP_TOP, SIDE_R - SIDE_X - 8, CAPTION_VISIBLE * CAPTION_LH)
-# botão [ LEARNING // 学習 ] (LM1.7, design §4.4): na linha do chip de estado, encostado à direita
-# (o chip mais largo, "Thinking · 思考中", não chega lá); a moldura faz o papel dos colchetes, que
-# não cabem nos ~340 px da coluna.
-LEARN_W = 154.0
-LEARN_BTN = QRectF(SIDE_R - LEARN_W, CHIP_TOP, LEARN_W, 35.6)
 
-# MAGI system
-LED_BTN = QRectF(MAGI.right() - 21 - 150, MAGI.top() + 19, 150, 44)
-SELF_H = 26.0  # linha "Condessa" (consumo dela) sob as três unidades
-_UNIT_H = (MAGI.height() - 38 - 44 - 36 - SELF_H) / 3
-UNITS = [QRectF(MAGI.left() + 21, LED_BTN.bottom() + 12 + i * (_UNIT_H + 12), 498, _UNIT_H) for i in range(3)]
-SELF_ROW = QRectF(MAGI.left() + 21, UNITS[-1].bottom() + 4, 498, SELF_H)  # acaba 15 px acima da borda
-UNIT_NAMES = (("Melchior", "magi·1 // cpu"), ("Balthasar", "magi·2 // gpu"), ("Casper", "magi·3 // memory"))
-UNIT_KEYS = ("負荷 load", "温度 temp", "映像 vram", "主記 ram")
-UNIT_GAP = 12.0  # entre nome | barras | selo
-ROW_GAP = 8.0  # entre rótulo | barra | valor
+def _h(v: float) -> float:
+    return round(v * F * 2) / 2
+
+
+def mq(x: float, y: float, w: float, h: float) -> QRectF:
+    """Caixa do mockup (x, y, w, h) → base 1920, arredondada a 0,5 px."""
+    return QRectF(_h(x), _h(y), _h(x + w) - _h(x), _h(y + h) - _h(y))
+
+
+# paleta do mockup
+M_BG = "#09080f"
+M_PANEL = "#0e0d15"
+M_LINE = "#262333"
+M_RULE = "#221f2e"
+M_TEXT = "#e2deee"
+M_TEXT2 = "#ddd8ea"
+M_BRIGHT = "#f1eef8"
+M_DIM = "#a39eb8"
+M_LILAC = "#b49af0"
+M_GREEN = "#5fd38d"
+M_SPARK = "#8f89a6"
+M_OFF = "#222030"  # barra apagada
+M_DARK = "#4a4560"  # LED/LEARNING apagados, borda do chip parado
+M_TERM_BG = "#08070d"
+M_TERM_IDLE = "#3d3752"
+M_OK_LINE = "#2a2738"
+LH = {"mono": 1.32, "cond": 1.2, "jp": 1.448, "mincho": 1.448}  # line-height "normal" (em)
+
+# caixas do mockup (x, y, w, h)
+B_MAGI = (23, 125, 440, 353)
+B_ACT = (23, 493, 440, 218)
+B_NET = (23, 727, 440, 132)
+B_CAM = (482, 125, 509, 428)
+B_HIST = (482, 572, 509, 287)
+B_COND = (1012, 125, 310, 428)
+B_SPEC = (1012, 572, 310, 287)
+B_NP = (1340, 125, 310, 240)
+B_RADIO = (1340, 381, 310, 128)
+B_KON = (1340, 526, 310, 333)
+MAGI = mq(*B_MAGI)
+CARD_ACT = mq(*B_ACT)
+CARD_NET = mq(*B_NET)
+CAM = mq(*B_CAM)
+SCENE = CAM  # o "cam 01" ocupa o card inteiro (o detalhe por processo cobre esta área)
+HIST = mq(*B_HIST)
+CONDESSA = mq(*B_COND)
+SPEC = mq(*B_SPEC)
+NP = mq(*B_NP)
+RADIO = mq(*B_RADIO)
+KONSOLE = mq(*B_KON)
+CARDS = {"magi": MAGI, "activity": CARD_ACT, "network": CARD_NET, "cam": CAM, "history": HIST,
+         "condessa": CONDESSA, "spec": SPEC, "player": NP, "radio": RADIO, "konsole": KONSOLE}
+TOP_RULE_Y, FOOT_RULE_Y = 100.0, 876.0  # linhas do topo e do rodapé (mockup)
+
+# topo: botão LEARNING no lugar dos indicadores (LM1.7)
+B_LEARN = (1068, 30, 196, 52)
+LEARN_BTN = mq(*B_LEARN)
+LEARN_W = LEARN_BTN.width()
+B_CLOCK = (1296, 18, 356, 74)  # data + relógio (alinhados à direita em 1650)
+HEADER_CLOCK = mq(*B_CLOCK)
+
+# MAGI SYSTEM: botão LED + três unidades de 84 (space-between no conteúdo de 323)
+_MX, _MY, _MW = 38.0, 140.0, 410.0
+LED_ROW_H = 2 + 16 + 11 * LH["jp"]  # borda + padding + linha do 消灯 (11 px)
+_UGAP = (323 - LED_ROW_H - 3 * 84) / 3
+U_BOXES = [(_MX, _MY + LED_ROW_H + _UGAP + i * (84 + _UGAP), _MW, 84.0) for i in range(3)]
+UNITS = [mq(*b) for b in U_BOXES]
+LED_W = 2 + 28 + 8 + 8 + 22 + 8 + 7 * 7.0  # "LED OFF" (o mais largo), mono 10 com .1em
+B_LED = (_MX + _MW - LED_W, _MY, LED_W, LED_ROW_H)
+LED_BTN = mq(*B_LED)
+UNIT_NAMES = (("MELCHIOR", "CPU"), ("BALTHASAR", "GPU"), ("CASPER", "MEMORY"))
+UNIT_STYLE = (  # (cor, fundo, borda, borda esquerda, cor do 正常)
+    (M_LILAC, "#b49af012", "#3d3560", M_LILAC, M_LILAC),
+    (M_GREEN, "#5fd38d12", "#2f5c43", M_GREEN, M_GREEN),
+    (M_TEXT2, None, M_OK_LINE, M_DARK, M_GREEN),
+)
+UNIT_BAR_COLOR = (M_LILAC, M_GREEN, M_DIM)
+BAR_AREA = 82.0  # 210 do miolo − rótulo 58 − valor 54 − 2 gaps de 8
+BARS = int((BAR_AREA + 2) // 6)  # barras de 4 px com gap 2 que cabem (14; o resto o overflow corta)
+CLOCK_MAX_MHZ = 5000.0  # escala da barra do clock (5 GHz = cheia)
+
+# SYSTEM ACTIVITY (conteúdo x 40..446, corpo 544..696)
+ACT_BODY = (40.0, 544.0, 406.0, 152.0)
+ACT_SELF_X = 291.0  # coluna "MAGI 自己 · USO PRÓPRIO"
+# NETWORK (corpo 775..846)
+NET_BODY = (40.0, 775.0, 406.0, 71.0)
+
+# CONDESSA: retrato 272×272, chip, caixa de terminal com a fala
+_CX, _CY = 1013.0, 126.0  # origem da caixa de padding do card (dentro da borda)
+B_PORTRAIT = (_CX + 19, _CY + 30, 272, 272)
+MASCOT_MAIN = mq(*B_PORTRAIT)
+B_GAUGE = (1303.0, _CY + 34, 11.0, 262.0)  # régua "在 … 01" à direita do retrato (humor, R13.7)
+MOOD_MAIN = mq(*B_GAUGE)
+B_CHIP = (_CX + 14, _CY + 310, 210.0, 28.25)
+CHIP_RECT = mq(*B_CHIP)
+CHIP_TOP = CHIP_RECT.top()
+B_TALK = (_CX + 12, _CY + 342, 284.0, 74.0)
+TALK = mq(*B_TALK)
+TALK_PX, TALK_LH = 11, 11 * 1.55  # mono 11, line-height 1.55
+TALK_TEXT = (B_TALK[0] + 2 + 12, B_TALK[1] + 1 + 8, 284 - 2 - 1 - 12 - 10, 74 - 2 - 16)  # x, y, w, h
+CAPTION_VISIBLE = int(TALK_TEXT[3] // TALK_LH)  # 3 linhas à vista
+CAPTION_LH = TALK_LH * F
+CAPTION_RECT = mq(TALK_TEXT[0], TALK_TEXT[1], TALK_TEXT[2], CAPTION_VISIBLE * TALK_LH)
+TALK_PROMPT = "› "
+
+# NOW PLAYING (conteúdo 1357..1633 × 140..350, space-between)
+_NPG = (210 - (24 + 80 + 21.2 + 32)) / 3
+NP_ROW = 140 + 24 + _NPG
+NP_PROG = NP_ROW + 80 + _NPG
+NP_CTRL = 350 - 32
+B_COVER = (1357.0, NP_ROW, 80.0, 80.0)
+COVER = mq(*B_COVER)
+B_BTNS = {k: (1357.0 + i * 44, NP_CTRL, 36.0, 32.0) for i, k in enumerate(("prev", "playpause", "next"))}
+BTNS = {k: mq(*b) for k, b in B_BTNS.items()}
+EQ = (8, 16, 12, 22, 28, 18, 24, 32, 20, 14, 26, 18, 10, 16, 8, 12)  # alturas decorativas do mockup
+
+# RÁDIO AYANAMI
+B_REI = (1499.0, 384.0, 146.0, 124.0)
+REI_PATH = Path(__file__).resolve().parent.parent / "images" / "rei.png"
+RADIO_LINES = 2
+
+# KONSOLE // CLAUDE CODE: moldura aqui, miolo do konsole_view
+KON_TITLE_H, KON_TAB_H = 34.0, 24.0
+KON_STATUS_H = 1 + 5 + 9.5 * LH["mono"] * 2 + 2 + 5
+KON_BODY_TOP = B_KON[1] + 1 + KON_TITLE_H + KON_TAB_H
+KON_STATUS_TOP = B_KON[1] + B_KON[3] - 1 - KON_STATUS_H
+B_KON_VIEW = (1351.0, KON_BODY_TOP + 8, 280.0, KON_STATUS_TOP - KON_BODY_TOP - 8 - 6)
+KONSOLE_VIEW = mq(*B_KON_VIEW)  # área do terminal (konsole_view.paint_compact)
+KONSOLE_STATUS = mq(1341, KON_STATUS_TOP, 308, KON_STATUS_H)
+KONSOLE_CWD = str(Path(__file__).resolve().parents[2])  # a sessão roda no repositório da MAGI
+
+REC = mq(498, 160, 140, 22)
+LIVE = mq(1540, 400, 94, 22)
+FOOTER = mq(23, 884, 1627, 34)
+FOOT_Y = 905.0  # linha de base do rodapé
+
+
+try:  # miolo do KONSOLE (outro módulo; sem ele o miolo fica vazio)
+    from . import konsole_view  # type: ignore[attr-defined]
+except Exception:  # noqa: BLE001 - módulo ausente ou quebrado não derruba o painel
+    konsole_view = None
+
+
+# ====================================================================== texto (coordenadas do mockup)
+
+
+def _fs(key: str, px: float, weight: int | None, ls: float) -> tuple[QFont, int]:
+    """Fonte e fator: tamanho fracionário (10,5 px) vira fonte 2× desenhada com o painter a ½."""
+    k = 1 if float(px).is_integer() else 2
+    return fonts.font(key, px * k, weight, ls), k
+
+
+@lru_cache(maxsize=512)
+def _fm(key: str, px: float, weight: int | None, ls: float) -> tuple[QFontMetricsF, int]:
+    f, k = _fs(key, px, weight, ls)
+    return QFontMetricsF(f), k
+
+
+def tw(s: str, key: str = "mono", px: float = 11, weight: int | None = None, ls: float = 0.0) -> float:
+    """Largura do texto (com o letter-spacing do último glifo, como no CSS)."""
+    fm, k = _fm(key, px, weight, ls)
+    return fm.horizontalAdvance(s) / k
+
+
+def asc(key: str, px: float, weight: int | None = None) -> float:
+    fm, k = _fm(key, px, weight, 0.0)
+    return fm.ascent() / k
+
+
+def dsc(key: str, px: float, weight: int | None = None) -> float:
+    fm, k = _fm(key, px, weight, 0.0)
+    return fm.descent() / k
+
+
+def mid(cy: float, key: str, px: float, weight: int | None = None) -> float:
+    """Linha de base de um texto (line-height normal) centrado verticalmente em ``cy``."""
+    a, d = asc(key, px, weight), dsc(key, px, weight)
+    return cy - (a + d) / 2 + a
+
+
+def top_base(top: float, key: str, px: float, lh: float | None = None, weight: int | None = None) -> float:
+    """Linha de base de uma caixa de linha que começa em ``top`` (``lh`` px; None = normal)."""
+    a, d = asc(key, px, weight), dsc(key, px, weight)
+    lh = a + d if lh is None else lh
+    return top + (lh - (a + d)) / 2 + a
+
+
+def elide(s: str, max_w: float, key: str = "mono", px: float = 11, weight: int | None = None,
+          ls: float = 0.0) -> str:
+    if tw(s, key, px, weight, ls) <= max_w:
+        return s
+    fm, k = _fm(key, px, weight, ls)
+    return fm.elidedText(s, Qt.TextElideMode.ElideRight, max_w * k)
+
+
+def tx(p: QPainter, x: float, y: float, s: str, *, key: str = "mono", px: float = 11, c=M_TEXT,
+       weight: int | None = None, ls: float = 0.0, align=L, max_w: float | None = None) -> float:
+    """Texto com a linha de base em ``y`` (coordenadas do mockup); devolve a largura."""
+    if max_w is not None:
+        s = elide(s, max_w, key, px, weight, ls)
+    w = tw(s, key, px, weight, ls)
+    if align & R:
+        x -= w
+    elif align & C:
+        x -= w / 2
+    f, k = _fs(key, px, weight, ls)
+    p.save()
+    p.setFont(f)
+    p.setPen(color(c))
+    if k == 1:
+        p.drawText(QPointF(x, y), s)
+    else:
+        p.translate(x, y)
+        p.scale(1 / k, 1 / k)
+        p.drawText(QPointF(0, 0), s)
+    p.restore()
+    return w
+
+
+def title(p: QPainter, x: float, y: float, s: str, jp: str | None = None, *, px: float = 20,
+          jp_px: float = 10, ls: float = 0.0, gap: float = 10) -> float:
+    """Título de card: Barlow Condensed 600 + o japonês pequeno em text-dim, mesma linha de base."""
+    w = tx(p, x, y, s, key="cond", px=px, weight=600, ls=ls, c=M_TEXT)
+    if jp:
+        w += gap + tx(p, x + w + gap, y, jp, key="jp", px=jp_px, c=M_DIM)
+    return w
+
+
+def box(p: QPainter, r: QRectF, bg=None, border=None, lw: float = 1.0) -> None:
+    """Retângulo do mockup: fundo e borda de ``lw`` por dentro (box-sizing: border-box)."""
+    if bg is not None:
+        p.fillRect(r, color(bg))
+    if border is not None:
+        b = color(border)
+        p.fillRect(QRectF(r.left(), r.top(), r.width(), lw), b)
+        p.fillRect(QRectF(r.left(), r.bottom() - lw, r.width(), lw), b)
+        p.fillRect(QRectF(r.left(), r.top(), lw, r.height()), b)
+        p.fillRect(QRectF(r.right() - lw, r.top(), lw, r.height()), b)
+
+
+def card(p: QPainter, b: tuple, bg=M_PANEL, border=M_LINE) -> None:
+    box(p, QRectF(*b), bg, border)
+
+
+def dot(p: QPainter, cx: float, cy: float, d: float, c, *, ring: bool = False) -> None:
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    if ring:
+        p.setPen(QPen(color(c), 1))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(QPointF(cx, cy), d / 2 - 0.5, d / 2 - 0.5)
+    else:
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(color(c))
+        p.drawEllipse(QPointF(cx, cy), d / 2, d / 2)
+    p.restore()
+
+
+def polyline(p: QPainter, pts, c, w: float) -> None:
+    path = QPainterPath(QPointF(*pts[0]))
+    for pt in pts[1:]:
+        path.lineTo(QPointF(*pt))
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    pen = QPen(color(c), w)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawPath(path)
+    p.restore()
+
+
+def spark(p: QPainter, r: QRectF, vals, c, w: float, *, vmin: float | None = None,
+          vmax: float | None = None, n: int = 60) -> None:
+    vals = [v for v in vals]
+    nums = [v for v in vals if v is not None]
+    if len(nums) < 2:
+        return
+    lo = min(nums) if vmin is None else vmin
+    hi = max(nums) if vmax is None else vmax
+    if hi <= lo:
+        hi = lo + 1.0
+    kit.sparkline(p, r, vals, c, w, vmin=lo, vmax=hi, n=max(n, len(vals)))
 
 
 @lru_cache(maxsize=1)
-def unit_columns() -> tuple[float, float, float]:
-    """(nome, rótulo, valor) em px lógicos, medidos com as fontes reais. A barra fica com o resto
-    (a coluna `1fr` do canvas): ~100 px em vez dos ~60 do layout com o nome em 150 px fixos."""
-    name = max(max(width(n.upper(), "cond", 24, 600, 0.04), width(sub.upper(), "mono", 12, None, 0.08))
-               for n, sub in UNIT_NAMES)
-    key = max(width(k, "jp", 12, None, 0.08) for k in UNIT_KEYS)
-    val = width("00.0/00G", "mono", 14)
-    return math.ceil(name), math.ceil(key) + 2, math.ceil(val) + 2
+def rei_pixmap() -> QPixmap | None:
+    pm = QPixmap(str(REI_PATH))
+    return None if pm.isNull() else pm
 
-# Now playing (compacto: capa e texto lado a lado, barra e botões embaixo)
-COVER_S = 100.0
-NP_ROW = NP.top() + 19 + 26.4 + 16
-COVER = QRectF(NP.left() + 21, NP_ROW, COVER_S, COVER_S)
-NP_X = COVER.right() + 14
-NP_R = NP.right() - 21
-NP_BAR = COVER.bottom() + 16
-BTN_Y = NP.bottom() - 21 - 44
-BTNS = {k: QRectF(NP.left() + 21 + i * 52, BTN_Y, 44, 44)
-        for i, k in enumerate(("prev", "playpause", "next"))}
-EQ = (10, 22, 34, 18, 40, 28, 14, 30, 38, 20, 12, 26, 16, 8)  # alturas decorativas do canvas
 
-HEADER_CLOCK = QRectF(1380, 36, 1892 - 1380, 84)
-REC = QRectF(SCENE.left() + 20, Y2 + 44, 150, 18)
-FOOTER = QRectF(400, Y3, 1290, 28)
+# ====================================================================== formatação dos cards
+
+
+def short_num(n: int | float | None) -> str:
+    """Tokens no estilo do mockup: 950, 12.3K, 2.4M."""
+    if n is None:
+        return NA
+    n = float(n)
+    if n >= 1e9:
+        return f"{n / 1e9:.1f}B"
+    if n >= 1e6:
+        return f"{n / 1e6:.1f}M"
+    if n >= 1e3:
+        return f"{n / 1e3:.1f}K"
+    return f"{n:.0f}"
+
+
+def mb(v: float | None) -> str:
+    """MB → "610M" / "1.2G" (arredondado a 10 MB, para o número não piscar à toa)."""
+    if v is None:
+        return NA
+    if v >= 1000:
+        return f"{v / 1024:.1f}G"
+    return f"{round(v, -1):.0f}M"
+
+
+def total_gb(txt: str | None) -> float | None:
+    """"11.4/32G" → 32.0 (o total do sensor, para as barras do uso próprio)."""
+    try:
+        return float((txt or "").rstrip("G").split("/")[1])
+    except (IndexError, ValueError):
+        return None
+
+
+def self_rows(snap: Snapshot) -> list[tuple[str, str, float]] | None:
+    """Linhas "MAGI 自己 · USO PRÓPRIO": [(rótulo, valor, % da máquina)] já arredondados (é também
+    a chave do grupo) ou None sem dado. CPU em % do total de núcleos (a barra é relativa à máquina)."""
+    u = snap.self_usage
+    if u is None:
+        return None
+    cpu = getattr(u, "cpu_total", None)
+    ram_t, vram_t = total_gb(snap.ram_txt), total_gb(snap.vram_txt)
+    ram_pct = 100 * u.ram_mb / 1024 / ram_t if ram_t else 0.0
+    vram_pct = 100 * u.vram_mb / 1024 / vram_t if vram_t else 0.0
+    return [("CPU", num(cpu, suffix="%"), round(cpu or 0.0)),
+            ("GPU", num(u.gpu, suffix="%"), round(u.gpu or 0.0)),
+            ("RAM", mb(u.ram_mb), round(ram_pct, 1)), ("VRAM", mb(u.vram_mb), round(vram_pct, 1))]
+
+
+def self_line(snap: Snapshot) -> list[tuple[str, str]] | None:
+    """[(rótulo, valor)] do uso próprio (compatível com a linha antiga do MAGI SYSTEM)."""
+    rows = self_rows(snap)
+    return None if rows is None else [(k.lower(), v) for k, v, _ in rows]
+
+
+def unit_rows(snap: Snapshot) -> list[list[tuple[str, float | None, int | None, str]]]:
+    """As três unidades 3×3: [(rótulo, % da barra, índice do alerta, valor)]."""
+    def pct(a, b):
+        return None if a is None or not b else 100.0 * a / b
+
+    mhz = snap.cpu_mhz
+    swap = NA if snap.swap_total_gb is None else \
+        f"{snap.swap_used_gb or 0:.1f}/{snap.swap_total_gb:.0f}G"
+    warn = round(BARS * 0.75)
+    return [
+        [("負荷 load", snap.cpu, None, num(snap.cpu, suffix="%")),
+         ("温度 temp", snap.cpu_temp, warn, num(snap.cpu_temp, suffix="°C")),
+         ("周波 clock", pct(mhz, CLOCK_MAX_MHZ), None,
+          num(None if mhz is None else mhz / 1000, "{:.1f}", "GHz"))],
+        [("負荷 load", snap.gpu, None, num(snap.gpu, suffix="%")),
+         ("温度 temp", snap.gpu_temp, warn, num(snap.gpu_temp, suffix="°C")),
+         ("映像 vram", snap.vram, None, (snap.vram_txt or NA).replace("--", NA))],
+        [("主記 ram", snap.ram, None, snap.ram_txt or NA),
+         ("交換 swap", pct(snap.swap_used_gb, snap.swap_total_gb), None, swap),
+         ("記憶 disk", snap.disk_pct, None, num(snap.disk_pct, suffix="%"))],
+    ]
+
+
+def is_speaking(snap: Snapshot) -> bool:
+    return (snap.chip if snap.chip is not None else snap.magui_state) == "speaking"
+
+
+def main_chip(snap: Snapshot) -> tuple[str, str, str, bool]:
+    """(rótulo, japonês, cor, aceso) do chip do card: falando em lilás, ouvindo/pensando na cor de
+    foco, parada em branco com borda apagada."""
+    lbl, fg, lit = chip_label(snap)
+    en, _, jp = lbl.partition(" · ")
+    if is_speaking(snap):
+        fg = M_LILAC
+    elif not lit:
+        fg = GPU if snap.gaming else M_BRIGHT
+    return f"{en.upper()} ·", jp, fg, lit
+
+
+def project_label(path: str | None) -> str:
+    if not path:
+        return NA
+    home = str(Path.home())
+    return "~" + path[len(home):] if path.startswith(home) else path
+
+
+# ====================================================================== desenhos pequenos
 
 
 def draw_learning_btn(p: QPainter, x: float, y: float, *, px: float = 12, color_=TEXT) -> float:
-    """``[ LEARNING // 学習 ]`` com a linha de base em ``y`` (painel e espera, LM1.7); devolve a
+    """``[ LEARNING // 学習 ]`` com a linha de base em ``y`` (tela de espera, LM1.7); devolve a
     largura. Só texto: os colchetes fazem o papel da borda, como o rodapé."""
     x0 = x
     for t, jp in (("[ learning // ", False), ("学習", True), (" ]", False)):
@@ -673,50 +1029,72 @@ def draw_learning_btn(p: QPainter, x: float, y: float, *, px: float = 12, color_
     return x - x0
 
 
-def draw_learning_box(p: QPainter, r: QRectF) -> None:
-    """Botão compacto ``LEARNING · 学習`` do painel (LM1.7): moldura de botão no lugar dos colchetes."""
-    _btn(p, r, False)
-    x = r.left() + 14
-    x += label(p, x, r.top() + 23, "learning · ", px=13, color_=TEXT).width()
-    text(p, x, r.top() + 23, "学習", key="jp", px=13, color_=TEXT)
+def draw_learning_box(p: QPainter, r: QRectF, active: bool = False, sub: str = "ENGLISH · B2") -> None:
+    """Botão LEARNING do topo do painel (LM1.7), no lugar dos indicadores: ponto, LEARNING 学習 e a
+    linha de baixo. ``r`` na base 1920; desenhado nas medidas do mockup (196×52)."""
+    p.save()
+    p.translate(r.left(), r.top())
+    p.scale(r.width() / B_LEARN[2], r.height() / B_LEARN[3])
+    box(p, QRectF(0, 0, B_LEARN[2], B_LEARN[3]), "#b49af01f" if active else M_PANEL,
+        M_LILAC if active else "#34304a")
+    # coluna centrada: linha 1 (Barlow 19, 22,8) + gap 4 + linha 2 (mono 10, 13,2)
+    top = (52 - (22.8 + 4 + 13.2)) / 2
+    y1 = top_base(top, "cond", 19, weight=600)
+    dot(p, 14 + 3.5, top + 11.4, 7, M_LILAC if active else M_DARK)
+    x = 14 + 7 + 10
+    x += tx(p, x, y1, "LEARNING", key="cond", px=19, weight=600, ls=0.1, c="#ece8f5") + 10
+    tx(p, x, y1, "学習", key="jp", px=13, c=M_DIM)
+    tx(p, 14, top_base(top + 22.8 + 4, "mono", 10), sub, px=10, ls=0.12, c=M_DIM)
+    p.restore()
 
 
-def _btn(p: QPainter, r: QRectF, active: bool) -> None:
-    p.fillRect(r, color(BUTTON))
-    p.setPen(color(BUTTON_LINE))
-    p.setBrush(Qt.BrushStyle.NoBrush)
-    p.drawRect(r.adjusted(0.5, 0.5, -0.5, -0.5))
-
-
-def _icon(p: QPainter, r: QRectF, kind: str, c: QColor) -> None:
-    """Ícones do canvas (viewBox 24, desenhados a 18 px, traço 2)."""
+def _icon(p: QPainter, r: QRectF, kind: str, c) -> None:
+    """Ícones do player do mockup (viewBox 12, traço 1,3), centrados em ``r``."""
     p.save()
     p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    p.translate(r.center().x() - 9, r.center().y() - 9)
-    p.scale(0.75, 0.75)
-    pen = QPen(c, 2)
+    p.translate(r.center().x() - 6, r.center().y() - 6)
+    pen = QPen(color(c), 1.3)
     pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
     p.setPen(pen)
     p.setBrush(Qt.BrushStyle.NoBrush)
 
-    def tri(*pts):
-        path = QPainterPath(QPointF(*pts[0]))
+    def path(*pts, close=True):
+        pa = QPainterPath(QPointF(*pts[0]))
         for pt in pts[1:]:
-            path.lineTo(QPointF(*pt))
-        path.closeSubpath()
-        p.drawPath(path)
+            pa.lineTo(QPointF(*pt))
+        if close:
+            pa.closeSubpath()
+        p.drawPath(pa)
 
     if kind == "prev":
-        tri((18, 5), (8, 12), (18, 19))
-        p.drawLine(QPointF(6, 5), QPointF(6, 19))
+        p.drawLine(QPointF(3, 2), QPointF(3, 10))
+        path((10, 2), (4.5, 6), (10, 10))
     elif kind == "next":
-        tri((6, 5), (16, 12), (6, 19))
-        p.drawLine(QPointF(18, 5), QPointF(18, 19))
+        p.drawLine(QPointF(9, 2), QPointF(9, 10))
+        path((2, 2), (7.5, 6), (2, 10))
     elif kind == "pause":
-        p.drawLine(QPointF(8, 5), QPointF(8, 19))
-        p.drawLine(QPointF(16, 5), QPointF(16, 19))
+        p.drawLine(QPointF(4, 2), QPointF(4, 10))
+        p.drawLine(QPointF(8, 2), QPointF(8, 10))
     else:
-        tri((7, 5), (19, 12), (7, 19))
+        path((3.5, 2), (9.5, 6), (3.5, 10))
+    p.restore()
+
+
+def _term_icon(p: QPainter, x: float, y: float) -> None:
+    """Ícone do terminal da barra de título do KONSOLE (viewBox 24 a 15 px)."""
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    p.translate(x, y)
+    p.scale(15 / 24, 15 / 24)
+    pen = QPen(color("#c9c3dc"), 1.6)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawRoundedRect(QRectF(3, 4, 18, 16), 1, 1)
+    pa = QPainterPath(QPointF(7, 9))
+    pa.lineTo(10, 12)
+    pa.lineTo(7, 15)
+    p.drawPath(pa)
+    p.drawLine(QPointF(12, 15), QPointF(17, 15))
     p.restore()
 
 
@@ -734,24 +1112,6 @@ def _bolt(p: QPainter, c: QPointF, col: QColor) -> None:
     p.restore()
 
 
-def mb(v: float | None) -> str:
-    """MB → "610 MB" / "1.2 GB" (arredondado a 10 MB, para a linha não piscar à toa)."""
-    if v is None:
-        return NA
-    if v >= 1000:
-        return f"{v / 1024:.1f} GB"
-    return f"{round(v, -1):.0f} MB"
-
-
-def self_line(snap: Snapshot) -> list[tuple[str, str]] | None:
-    """Linha "Condessa" do MAGI system: [(rótulo, valor)] já arredondados (é também a chave do
-    grupo) ou None sem dado."""
-    u = snap.self_usage
-    if u is None:
-        return None
-    return [("cpu", num(u.cpu, suffix="%")), ("ram", mb(u.ram_mb)), ("gpu", num(u.gpu, suffix="%")),
-            ("vram", mb(u.vram_mb))]
-
 
 def talk_lines(snap: Snapshot) -> tuple[list[str], str]:
     """Falas do estado (canvas). A de temperatura só aparece se estiver mesmo quente."""
@@ -768,121 +1128,263 @@ def talk_lines(snap: Snapshot) -> tuple[list[str], str]:
 
 
 class MainScreen(Screen):
-    """Painel completo (Main.dc.html)."""
+    """Painel completo (nova UI, docs/design/nova-ui/painel.dc.html)."""
 
     MASCOT_RECT = MASCOT_MAIN
+    MASCOT_DIRTY = MASCOT_MAIN
     CAPTION_RECT = CAPTION_RECT
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
-        self.cap = CaptionScroll(CAPTION_VISIBLE)  # rolagem da legenda (acompanha / lê para trás)
+        self.cap = CaptionScroll(CAPTION_VISIBLE)  # rolagem do terminal da fala (acompanha / lê para trás)
+        self.tw = Typewriter()  # a fala digitada 1 caractere por vez
         self._cap_lines: tuple[str, list[str]] = ("", [])
+        self._overlay: tuple[tuple, QPixmap] | None = None
         self.clock = time.monotonic  # relógio da animação (os testes trocam)
 
-    # ---------------------------------------------------------------- legenda (rolagem)
+    # ---------------------------------------------------------------- fala (digitação + rolagem)
 
     def caption_lines(self, txt: str | None) -> list[str]:
+        """Linhas do terminal para o texto já digitado (com o prompt ``›``)."""
         txt = txt or ""
         if self._cap_lines[0] != txt:
-            self._cap_lines = (txt, wrap_lines(txt, CAPTION_RECT.width(), px=16) if txt else [])
+            self._cap_lines = (txt, wrap_lines(TALK_PROMPT + txt, TALK_TEXT[2], key="mono", px=TALK_PX)
+                               if txt else [])
         return self._cap_lines[1]
 
     def caption_feed(self, txt: str | None, now: float | None = None) -> bool:
-        """Texto novo da legenda; ``True`` = a área da fala precisa redesenhar (texto ou rolagem)."""
+        """Texto novo da fala (o já dito, da ``SpeechCaption``); ``True`` = o terminal precisa
+        redesenhar (caractere novo ou rolagem)."""
         now = self.clock() if now is None else now
-        return self.cap.feed(txt, len(self.caption_lines(txt)), now) or self.cap.animating(now)
+        changed = self.tw.feed(txt, now)
+        shown = self.tw.shown
+        changed = self.cap.feed(shown, len(self.caption_lines(shown)), now) or changed
+        return changed or self.cap.animating(now)
 
     def caption_deadline(self, now: float | None = None) -> float | None:
-        return self.cap.deadline(self.clock() if now is None else now)
+        now = self.clock() if now is None else now
+        ds = [d for d in (self.tw.deadline(now), self.cap.deadline(now)) if d is not None]
+        return min(ds) if ds else None
 
     def caption_wheel(self, lines: float, now: float | None = None) -> bool:
-        """Roda do mouse na legenda: ``lines`` > 0 volta para ler. ``True`` = rolou."""
+        """Roda do mouse no terminal da fala: ``lines`` > 0 volta para ler. ``True`` = rolou."""
         return self.cap.wheel(lines, self.clock() if now is None else now)
 
     def caption_hit(self, pos: QPoint | QPointF, size: QSize) -> bool:
         s = self.scale(size)
         return TALK.contains(QPointF(pos.x() / s, pos.y() / s))
-    MASCOT_DIRTY = QRectF(MASCOT_MAIN.left(), MASCOT_MAIN.top(), MOOD_MAIN.left() - 4 - MASCOT_MAIN.left(),
-                          MASCOT_MAIN.height())
+
+    # ---------------------------------------------------------------- pintura (+ clima por cima)
+
+    def paint(self, p: QPainter, size: QSize, snap: Snapshot, now: datetime | None = None,
+              mono: float | None = None, region: QRect | None = None) -> None:
+        """Como ``Screen.paint`` e, por cima da região, a máscara do retrato, as scanlines e a
+        vinheta (fora do cache estático: valem também sobre os grupos redesenhados)."""
+        super().paint(p, size, snap, now, mono, region)
+        full = QRect(0, 0, size.width(), size.height())
+        dev = full if region is None else region.intersected(full)
+        s = self.scale(size)
+        p.save()
+        p.setClipRect(dev)
+        if dev.intersects(dev_rect(MASCOT_MAIN, s)):
+            p.save()
+            p.scale(s * F, s * F)
+            x, y, w, h = B_PORTRAIT
+            g = QLinearGradient(0, y + h * 0.9, 0, y + h)
+            g.setColorAt(0.0, alpha(M_PANEL, 0))
+            g.setColorAt(1.0, color(M_PANEL))
+            p.fillRect(QRectF(x, y + h * 0.9, w, h * 0.1 + 0.5), g)
+            p.restore()
+        p.drawPixmap(dev, self.overlay(size), dev)
+        p.restore()
+
+    def overlay(self, size: QSize) -> QPixmap:
+        """Scanlines discretas (1 px a 1,4% de branco a cada 3 px do mockup) + vinheta."""
+        key = (size.width(), size.height())
+        if self._overlay is None or self._overlay[0] != key:
+            pm = QPixmap(size)
+            pm.fill(Qt.GlobalColor.transparent)
+            q = QPainter(pm)
+            k = size.width() / MOCK_W
+            line = QColor(255, 255, 255, round(0.014 * 255))
+            y = 0.0
+            while y < size.height():
+                q.fillRect(QRectF(0, round(y), size.width(), max(1, round(k))), line)
+                y += 3 * k
+            w, h = size.width(), size.height()
+            q.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            q.translate(w / 2, h / 2)
+            q.scale(1.0, h / w)  # elipse "farthest-corner" do CSS: círculo esticado
+            rad = math.hypot(w / 2, w / 2)
+            g = QRadialGradient(QPointF(0, 0), rad)
+            g.setColorAt(0.0, QColor(0, 0, 0, 0))
+            g.setColorAt(0.6, QColor(0, 0, 0, 0))
+            g.setColorAt(1.0, QColor(0, 0, 0, round(0.4 * 255)))
+            q.fillRect(QRectF(-w, -w, 2 * w, 2 * w), g)
+            q.end()
+            self._overlay = (key, pm)
+        return self._overlay[1]
 
     # ---------------------------------------------------------------- estático
 
     def draw_static(self, p: QPainter, s: float) -> None:
-        # header
-        p.fillRect(QRectF(X1, 123, 1864, 1), color(LINE))
-        text(p, X1, 82, "汎用監視システム", key="mincho", px=46, spacing=0.06)
-        label(p, X1, 106, "General purpose monitoring system — MAGI-01", px=13)
-        text(p, 960, 82, "私は、ここにいる。", key="jp", px=16, spacing=0.2, align=C)
-        label(p, 960, 102, "// i am here · node 01 online", px=11, align=C)
-        # coluna esquerda: MAGI system, FPS e rede
-        kit.panel(p, MAGI)
-        w = heading(p, MAGI.left() + 21, LED_BTN.top() + 32, "MAGI system", px=26).width()
-        text(p, MAGI.left() + 21 + w + 12, LED_BTN.top() + 32, "三体合議制御", key="jp", px=12,
-             color_=TEXT_DIM)
-        for r in (CARD_FPS, CARD_NET):
-            kit.panel(p, r)
-        heading(p, X1 + 20, CARD_FPS.top() + 43, "FPS", px=24)
-        text(p, CARD_FPS.right() - 20, CARD_FPS.top() + 43, "毎秒フレーム数", key="jp", px=12,
-             color_=TEXT_DIM, spacing=0.08, align=R)
-        heading(p, X1 + 20, CARD_NET.top() + 37, "Network", color_=TEXT)
-        # centro em cima: cena + lado do mascote
-        kit.panel(p, MID_TOP)
+        p.fillRect(QRectF(0, 0, W, H), color(M_BG))
+        p.save()
+        p.scale(F, F)
+        # ---- topo
+        tx(p, 23, top_base(26, "mincho", 40, 40), "汎用監視システム", key="mincho", px=40, ls=0.05,
+           c=M_BRIGHT)
+        tx(p, 23, top_base(74, "mono", 12), "GENERAL PURPOSE MONITORING SYSTEM -- MAGI-01", px=12, ls=0.14,
+           c=M_DIM)
+        p.fillRect(QRectF(650, 30, 1, 52), color(M_RULE))
+        p.fillRect(QRectF(1039, 30, 1, 52), color(M_RULE))
+        h1, h2 = 15 * LH["jp"], 12 * LH["mono"]
+        t0 = 30 + (52 - (h1 + 10 + h2)) / 2
+        tx(p, 845, top_base(t0, "jp", 15), "私は、ここにいる。", key="jp", px=15, ls=0.18, c=M_TEXT2, align=C)
+        tx(p, 845, top_base(t0 + h1 + 10, "mono", 12), "// I AM HERE · NODE 01 ONLINE", px=12, ls=0.12,
+           c=M_DIM, align=C)
+        p.fillRect(QRectF(23, TOP_RULE_Y, 1650 - 23, 1), color(M_RULE))
+        # ---- cards
+        for b in (B_MAGI, B_ACT, B_NET, B_HIST, B_COND, B_SPEC, B_NP):
+            card(p, b)
+        title(p, _MX, mid(_MY + LED_ROW_H / 2, "cond", 21, 600), "MAGI SYSTEM", "三体合議制", px=21, ls=0.03)
+        title(p, 40, 508 + 20, "SYSTEM ACTIVITY", "システム動作状況")
+        p.fillRect(QRectF(274, 544, 1, 152), color(M_LINE))
+        tx(p, 40, 557, "FPS", key="cond", px=13, c=M_TEXT2)
+        tx(p, 40, 614.35, "ネットワーク", key="jp", px=11, c=M_TEXT2)
+        x = ACT_SELF_X
+        x += tx(p, x, 557, "MAGI", key="cond", px=13, c=M_TEXT2) + tw(" ", "cond", 13)
+        x += tx(p, x, 557, "自己", key="jp", px=10, c=M_DIM) + tw(" ", "cond", 13)
+        tx(p, x, 557, "· USO PRÓPRIO", px=11, c=M_DIM)
+        title(p, 40, 741 + 20, "NETWORK", "ネットワーク接続", jp_px=9)
+        for i, k in enumerate(("IP", "GATEWAY", "DNS")):
+            tx(p, 40, 794.9 + i * 19.2, k, px=10, c=M_TEXT2)
+        # load history
+        title(p, 499, 587 + 21, "LOAD HISTORY", "負荷履歴", px=21)
+        x = 974
+        for name, col in (("RAM", M_DIM), ("GPU", M_GREEN), ("CPU", M_LILAC)):
+            x -= tx(p, x, 608, name, px=11, c=M_TEXT2, align=R)
+            x -= 6 + 8
+            p.fillRect(QRectF(x, 608 - 4 - 4, 8, 8), color(col))
+            x -= 16
+        sx, sy = 499.0, 620.2
+        rule = color(M_RULE)
+        for gy in (10, 98, 186):
+            p.fillRect(QRectF(sx + 38, sy + gy, 438, 1), rule)
+        for gx in (38, 142, 246, 350, 454):
+            p.fillRect(QRectF(sx + gx, sy + 10, 1, 176), rule)
+        for lbl, lx, ly in (("100%", 0, 14), ("50%", 7, 102), ("0%", 14, 190)):
+            tx(p, sx + lx, sy + ly, lbl, px=11, c=M_DIM)
+        # condessa
+        tx(p, 1025, 138 + 10.19, "MAGI-01 // CONDESSA", px=10, ls=0.06, c=M_DIM)
+        tx(p, 1310, 138 + 11.59, "人格", key="jp", px=10, c=M_DIM, align=R)
+        for i in range(3):
+            dot(p, 1024.5, 279.5 + i * 16, 7, "#6d6884", ring=True)
+        # unit spec
+        title(p, 1029, 587 + 20, "UNIT SPEC", "機体情報")
+        p.fillRect(QRectF(1029, 750.28, 276, 1), color(M_LINE))
+        title(p, 1029, 775.28, "PILOTS", "操縦者", px=15, jp_px=9)
+        # now playing
+        title(p, 1357, 160, "NOW PLAYING", "再生中", jp_px=9)
+        # rádio ayanami
+        card(p, B_RADIO, "#0d0c15", "#2d2a3c")
+        rei = rei_pixmap()
+        if rei is not None:
+            p.save()
+            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Lighten)
+            p.setOpacity(0.85)
+            p.drawPixmap(QRectF(*B_REI), rei, QRectF(rei.rect()))
+            p.restore()
+        x = 1357 + title(p, 1357, 416, "RÁDIO AYANAMI", None, ls=0.02) + 8
+        x += tx(p, x, 416, "//", px=12, c=M_DIM) + 8
+        tx(p, x, 416, "放送", key="jp", px=11, c=M_DIM)
+        # konsole (moldura)
+        self._konsole_frame(p)
+        # ---- rodapé
+        p.fillRect(QRectF(23, FOOT_RULE_Y, 1650 - 23, 1), color(M_RULE))
+        x = 23 + tx(p, 23, FOOT_Y, "MAGI", px=13, weight=700, ls=0.1, c=M_BRIGHT)
+        tx(p, x, FOOT_Y, "  MULTI AGENT GUIDANCE INTERFACE", px=11, ls=0.1, c=M_DIM)
+        tx(p, 1650, FOOT_Y, "META+M · PAINEL COMPLETO", px=11, ls=0.1, c=M_DIM, align=R)
+        p.restore()
         self._scene_frame(p, s, None)
-        p.fillRect(QRectF(SCENE.right() - 1, MID_TOP.top(), 1, MID_TOP.height()), color(LINE))
-        label(p, SIDE_X, _SY + 12, "magi-01 // condessa")
-        text(p, SIDE_R, _SY + 12, "人格", key="jp", px=12, color_=TEXT_DIM, align=R)
         draw_learning_box(p, LEARN_BTN)  # Learning Mode (LM1.7)
-        # centro embaixo
-        kit.panel(p, HIST)
-        hx = HIST.left() + 20
-        hb = HIST.top() + 39
-        w = heading(p, hx, hb, "Load history").width()
-        text(p, hx + w + 12, hb, "負荷履歴", key="jp", px=12, color_=TEXT_DIM)
-        x = HIST.right() - 20
-        for name, col in (("■ ram", RAM), ("■ gpu", GPU), ("■ cpu", CPU)):
-            x -= label(p, x, hb, name, color_=col, align=R).width() + 14
-        kit.panel(p, SPEC)
-        sx = SPEC.left() + 20
-        w = heading(p, sx, hb, "Unit spec").width()
-        text(p, sx + w + 12, hb, "機体情報", key="jp", px=12, color_=TEXT_DIM)
-        p.fillRect(QRectF(sx, HIST.top() + 182, 320, 1), color(LINE))
-        w = heading(p, sx, HIST.top() + 208, "Pilots", px=16).width()
-        text(p, sx + w + 10, HIST.top() + 208, "操縦者", key="jp", px=12, color_=TEXT_DIM)
-        # direita: Now playing e Rádio Ayanami
-        kit.panel(p, NP)
-        w = heading(p, NP.left() + 21, NP.top() + 41, "Now playing").width()
-        text(p, NP.left() + 21 + w + 12, NP.top() + 41, "再生中", key="jp", px=12, color_=TEXT_DIM)
-        kit.panel(p, RADIO)
-        w = heading(p, RADIO.left() + 21, RADIO.top() + 41, "Rádio Ayanami").width()
-        text(p, RADIO.left() + 21 + w + 12, RADIO.top() + 41, "放送", key="jp", px=12, color_=TEXT_DIM)
-        kit.panel(p, CLAUDE)
-        w = heading(p, CLAUDE.left() + 21, CLAUDE.top() + 41, "Claude Code").width()
-        text(p, CLAUDE.left() + 21 + w + 12, CLAUDE.top() + 41, "補佐", key="jp", px=12, color_=TEXT_DIM)
-        # rodapé
-        w = heading(p, X1, 1043, "MAGI", px=16).width()
-        label(p, X1 + w + 12, 1042, "multi agent guidance interface")
-        label(p, 1892, 1042, "meta+m · painel completo", align=R)
+
+    def _konsole_frame(self, p: QPainter) -> None:
+        x0, y0, w, h = B_KON
+        box(p, QRectF(*B_KON), "#07060c", "#3a3550")
+        ix, iw = x0 + 1, w - 2
+        # barra de título
+        ty = y0 + 1
+        p.fillRect(QRectF(ix, ty, iw, KON_TITLE_H), color("#0f0d16"))
+        p.fillRect(QRectF(ix, ty + KON_TITLE_H - 1, iw, 1), color("#2b2738"))
+        cy = ty + (KON_TITLE_H - 1) / 2
+        _term_icon(p, ix + 10, cy - 7.5)
+        bx = ix + iw - 8 - 48
+        for i, (g, px) in enumerate((("–", 11), ("□", 10), ("×", 12))):
+            tx(p, bx + i * 16 + 8, mid(cy, "mono", px), g, px=px, c=M_DIM, align=C)
+        dot(p, bx - 8 - 3, cy, 6, M_GREEN)
+        nx = bx - 8 - 6 - 5
+        nx -= tx(p, nx, mid(cy, "mono", 9), "NODE 01", px=9, ls=0.08, c=M_DIM, align=R)
+        # o título cabe antes do NODE 01: a Barlow local é um pouco mais larga que a do navegador
+        tx0 = ix + 10 + 15 + 8
+        room = nx - 8 - tx0
+        px, ls = next(((px, ls) for px, ls in ((16, 0.05), (16, 0.02), (16, 0.0), (15, 0.0))
+                       if tw("KONSOLE // CLAUDE CODE", "cond", px, 600, ls) <= room), (15, 0.0))
+        tx(p, tx0, mid(cy, "cond", px, 600), "KONSOLE // CLAUDE CODE", key="cond", px=px, weight=600, ls=ls,
+           c=M_TEXT, max_w=room)
+        # aba
+        ay = ty + KON_TITLE_H
+        p.fillRect(QRectF(ix, ay, iw, KON_TAB_H), color("#0d0b13"))
+        p.fillRect(QRectF(ix, ay + KON_TAB_H - 1, iw, 1), color("#2b2738"))
+        tab_w = 9 + tw("SESSION 01", "mono", 9, None, 0.1) + 10 + tw("×", "mono", 9, None, 0.1) + 9
+        p.fillRect(QRectF(ix, ay - 1, tab_w, KON_TAB_H), color("#07060c"))
+        p.fillRect(QRectF(ix, ay - 1, tab_w, 1), color(M_LILAC))
+        p.fillRect(QRectF(ix + tab_w, ay, 1, KON_TAB_H - 1), color("#2b2738"))
+        acy = ay + (KON_TAB_H - 1) / 2
+        x = ix + 9 + tx(p, ix + 9, mid(acy, "mono", 9), "SESSION 01", px=9, ls=0.1, c=M_TEXT) + 10
+        tx(p, x, mid(acy, "mono", 9), "×", px=9, ls=0.1, c="#6d6884")
+        plus_w = 9 + tw("+", "mono", 12) + 9
+        tx(p, ix + tab_w + 1 + plus_w / 2, mid(acy, "mono", 12), "+", px=12, c=M_DIM, align=C)
+        p.fillRect(QRectF(ix + tab_w + 1 + plus_w, ay, 1, KON_TAB_H - 1), color("#2b2738"))
+        # barra de rolagem (acompanhando o fim do terminal)
+        sb = QRectF(ix + iw - 4 - 4, KON_BODY_TOP + 8, 4, KON_STATUS_TOP - KON_BODY_TOP - 16)
+        p.fillRect(sb, color("#14121b"))
+        p.fillRect(QRectF(sb.left(), sb.top() + sb.height() * 0.3, 4, sb.height() * 0.7), color(M_TERM_IDLE))
+        # barra de status (fundo; o texto é do grupo "konsole_status")
+        p.fillRect(QRectF(ix, KON_STATUS_TOP, iw, KON_STATUS_H), color("#0f0d16"))
+        p.fillRect(QRectF(ix, KON_STATUS_TOP, iw, 1), color("#2b2738"))
 
     def _scene_frame(self, p: QPainter, s: float, mono: float | None) -> None:
-        """"cam 01": fundo do céu da hora, camada animada (``mono``; None = parado, no estático),
-        scanlines, borda do painel e legendas por cima."""
-        path = kit.panel_path(MID_TOP)
+        """"cam 01": céu da hora, camada animada (``mono``; None = parado, no estático),
+        scanlines, borda e legendas por cima (coordenadas base 1920 para a cena)."""
+        r = SCENE
         p.save()
-        p.setClipPath(path, Qt.ClipOperation.IntersectClip)
-        p.setClipRect(SCENE, Qt.ClipOperation.IntersectClip)
-        p.drawPixmap(SCENE, scene.main_scene(SCENE.width(), SCENE.height(), CPU, s, self.sky, live=False),
-                     QRectF())
-        self.anim.paint(p, SCENE, CPU, mono)
+        p.setClipRect(r, Qt.ClipOperation.IntersectClip)
+        p.drawPixmap(r, scene.main_scene(r.width(), r.height(), CPU, s, self.sky, live=False), QRectF())
+        self.anim.paint(p, r, CPU, mono)
         p.restore()
-        kit.draw_scanlines(p, SCENE, clip=path)
+        kit.draw_scanlines(p, r)
         p.save()
-        p.setClipRect(SCENE, Qt.ClipOperation.IntersectClip)
-        kit.panel(p, MID_TOP, fill=None)
+        p.setClipRect(r, Qt.ClipOperation.IntersectClip)
+        p.scale(F, F)
+        box(p, QRectF(*B_CAM), None, M_LINE)
+        x = 499 + tx(p, 499, 153.9, "CAM 01 // ", px=12, ls=0.08, c=M_TEXT)
+        tx(p, x, 153.9, "電線", key="jp", px=12, ls=0.08, c=M_TEXT)
+        c1 = 974 - tw("LATENCY: 12ms", "mono", 11, None, 0.06)
+        c0 = c1 - 12 - tw("SIGNAL: 98%", "mono", 11, None, 0.06)
+        tx(p, c0, 151.2, "SIGNAL: 98%", px=11, ls=0.06, c=M_TEXT)
+        tx(p, c1, 151.2, "LATENCY: 12ms", px=11, ls=0.06, c=M_TEXT)
+        tx(p, 974, 170.7, "SOURCE: LOCAL", px=11, ls=0.06, c=M_TEXT, align=R)
+        gx = 964.0
+        tx(p, gx, 196 + 11.59, "電線", key="jp", px=10, c=M_DIM, align=C)
+        tx(p, gx, 196 + 14.47 + 6 + 10.19, "98%", px=10, c=M_DIM, align=C)
+        p.fillRect(QRectF(gx - 1, 235.67, 2, 515.53 - 235.67), color("#4a4566"))
+        p.fillRect(QRectF(gx - 6, 235.67, 12, 1), color(M_DIM))
+        tx(p, gx, 536 - 14.47 + 11.59, "電線", key="jp", px=10, c=M_DIM, align=C)
+        tx(p, 501, 504.96, "信号は、まだ届いている。", key="jp", px=18, ls=0.12, c="#ece8f5")
+        tx(p, 501, 528.4, "the signal is still arriving.", px=12, ls=0.06, c="#b5b0c8")
         p.restore()
-        label(p, SCENE.left() + 24, Y2 + 35, "cam 01 // 電線", color_=TEXT)
-        text(p, SCENE.left() + 24, MID_TOP.bottom() - 50, "信号は、まだ届いている。", key="jp", px=18,
-             spacing=0.14)
-        label(p, SCENE.left() + 24, MID_TOP.bottom() - 26, "the signal is still arriving.", upper=False)
 
     def paint_scene(self, p: QPainter, snap: Snapshot, mono: float, s: float) -> None:
         self._scene_frame(p, s, mono)
@@ -893,26 +1395,21 @@ class MainScreen(Screen):
     # ---------------------------------------------------------------- grupos
 
     def groups(self) -> dict[str, list[QRectF]]:
-        def inner(r: QRectF, top: float = 50) -> QRectF:  # abaixo do título do card
-            return QRectF(r.left() + 2, r.top() + top, r.width() - 4, r.height() - top - 2)
-
         return {
             "scene": self.scene_rects(),  # primeiro: REC e o resto do cam 01 vão por cima
-            "clock": [HEADER_CLOCK, REC],
-            "fps": [inner(CARD_FPS)],
-            "net": [QRectF(X1 + 2, CARD_NET.top() + 2, CARD_NET.width() - 4, CARD_NET.height() - 4)],
+            "clock": [HEADER_CLOCK, REC, LIVE],
+            "magi": [mq(_MX, _MY - 1, _MW, 323 + 2)],
+            "activity": [mq(*ACT_BODY)],
+            "network": [mq(*NET_BODY), mq(1300, 744, 147, 20)],
             "mascot": [MASCOT_MAIN],
             "mood": [MOOD_MAIN],
-            "talk": [TALK],
-            "history": [QRectF(HIST.left() + 2, HIST.top() + 50, HIST.width() - 4, HIST.height() - 52)],
-            "spec": [QRectF(SPEC.left() + 2, SPEC.top() + 50, SPEC.width() - 4, 128),
-                     QRectF(SPEC.left() + 2, SPEC.top() + 214, SPEC.width() - 4, SPEC.height() - 216)],
-            "magi": [QRectF(MAGI.left() + 2, LED_BTN.top() - 2, MAGI.width() - 4,
-                            UNITS[-1].bottom() + 2 - (LED_BTN.top() - 2))],
-            "self": [SELF_ROW],
-            "player": [QRectF(NP.left() + 2, NP.top() + 18, NP.width() - 4, NP.height() - 20)],
-            "radio": [inner(RADIO, 56)],
-            "claude": [inner(CLAUDE, 56)],
+            "talk": [CHIP_RECT, TALK],
+            "history": [mq(499 + 1, 620.2, 476, 226)],
+            "spec": [mq(1029, 615, 277, 120), mq(1029, 783, 277, 64)],
+            "player": [mq(1356, 141, 278, 210)],
+            "radio": [mq(1356, 432, 278, 40)],
+            "konsole": [KONSOLE_VIEW],
+            "konsole_status": [KONSOLE_STATUS],
             "footer": [FOOTER],
         }
 
@@ -920,10 +1417,15 @@ class MainScreen(Screen):
         sn = snap
         if name == "clock":
             return (now.strftime("%Y%m%d%H%M%S"),)
-        if name == "fps":
-            return (sn.fps, sn.fps_min, sn.fps_avg, sn.fps_max, tuple(sn.fps_series))
-        if name == "net":
-            return (sn.net_down, sn.net_up, tuple(sn.net_series))
+        if name == "magi":
+            return (led_lit(sn), accent(sn).rgb(), sn.cpu, sn.cpu_temp, sn.cpu_mhz, sn.gpu, sn.gpu_temp,
+                    sn.vram, sn.vram_txt, sn.ram, sn.ram_txt, sn.swap_used_gb, sn.swap_total_gb, sn.disk_pct)
+        if name == "activity":
+            return (sn.fps, tuple(sn.fps_series), sn.gaming, rate(sn.net_down), rate(sn.net_up),
+                    tuple(self_rows(sn) or ()))
+        if name == "network":
+            return (sn.net_ip, sn.net_gateway, sn.net_dns, rate(sn.net_down), rate(sn.net_up),
+                    tuple(sn.net_series))
         if name == "scene":
             return (self.sky.key,)
         if name == "mascot":
@@ -933,17 +1435,12 @@ class MainScreen(Screen):
         if name == "talk":
             mono = self.clock()
             self.caption_feed(sn.caption, mono)
-            return (sn.gaming, chip_label(sn), sn.caption, sn.magui_state == "sleeping",
-                    round(self.cap.offset(mono) * CAPTION_LH * 2), *talk_lines(sn)[0])
+            return (main_chip(sn), is_speaking(sn), self.tw.shown, sn.caption is None,
+                    round(self.cap.offset(mono) * CAPTION_LH * 2), talk_lines(sn)[1])
         if name == "history":
             return (tuple((k, tuple(v)) for k, v in sorted(sn.history.items())), tuple(sn.history_axis))
         if name == "spec":
             return (tuple(sn.specs), tuple((x.name, x.battery, x.conn, x.charging) for x in sn.pilots))
-        if name == "magi":
-            return (led_lit(sn), accent(sn).rgb(), sn.cpu, sn.cpu_temp, sn.gpu, sn.gpu_temp,
-                    sn.vram, sn.vram_txt, sn.ram, sn.ram_txt)
-        if name == "self":
-            return tuple(self_line(sn) or ())
         if name == "player":
             t = sn.track
             if t is None:
@@ -952,357 +1449,407 @@ class MainScreen(Screen):
             return (t.title, t.artist, t.album, t.year, pos, t.length, t.playing,
                     t.cover.cacheKey() if t.cover is not None else None)
         if name == "radio":
-            return tuple(sn.news)
-        if name == "claude":
+            return tuple(sn.news[:RADIO_LINES])
+        if name == "konsole":
+            return (sn.konsole_rev,)
+        if name == "konsole_status":
             c = sn.claude
-            return (None,) if c is None else (c.tokens, c.output, c.replies, tuple(c.sessions), c.running,
-                                               c.autofix, c.window_end, c.window_fresh, c.window_cache)
+            return (sn.project, sn.git_branch, sn.git_added, sn.git_removed, sn.konsole_online,
+                    short_num(None if c is None else c.tokens))
         if name == "footer":
             return tuple(sn.events)
         return ()
 
     def draw_group(self, name: str, p: QPainter, snap: Snapshot, now: datetime, s: float) -> None:
+        if name == "scene":
+            return
+        p.save()
+        p.scale(F, F)
         getattr(self, f"_g_{name}")(p, snap, now, s)
+        p.restore()
 
-    # ---------------------------------------------------------------- header
+    # ---------------------------------------------------------------- topo
 
     def _g_clock(self, p, snap, now, s):
-        right = 1892.0
-        ss_w = width("00", "cond", 32, 500)
-        hm_w = width("00:00", "cond", 84, 500)
-        y = baseline("cond", 84, 110 - 84 * 0.82, 84 * 0.82, 500)
-        text(p, right, y, f"{now.second:02d}", key="cond", px=32, color_=TEXT_DIM, weight=500, align=R)
-        text(p, right - ss_w - 6, y, now.strftime("%H:%M"), key="cond", px=84, weight=500,
-             spacing=0.02, align=R)
-        dx = right - ss_w - 6 - hm_w - 20
+        right, bottom = 1650.0, 88.0
+        ss = f"{now.second:02d}"
+        tx(p, right, top_base(bottom - 26, "cond", 26, 26, 600), ss, key="cond", px=26, weight=600, c=M_LILAC,
+           align=R)
+        x = right - tw("00", "cond", 26, 600) - 6
+        hm_lh = 76 * 0.82
+        tx(p, x, top_base(bottom - hm_lh, "cond", 76, hm_lh, 600), now.strftime("%H:%M"), key="cond", px=76,
+           weight=600, c="#f3f0fa", align=R)
+        x -= tw("00:00", "cond", 76, 600) + 22
         date = f"{PT_DAYS[now.weekday()]} {now.day:02d} {PT_MONTHS[now.month - 1]} {now.year}"
-        label(p, dx, 100, date, px=14, color_=TEXT, align=R)
-        text(p, dx, 74, JP_DAYS[now.weekday()], key="jp", px=16, color_=TEXT_DIM, align=R)
-        label(p, SCENE.left() + 24, Y2 + 57, f"rec ● {now:%H:%M}")
+        d_bottom = bottom - 4
+        tx(p, x, d_bottom - 13 * LH["mono"] + asc("mono", 13), date, px=13, ls=0.1, c=M_TEXT2, align=R)
+        jp_top = d_bottom - 13 * LH["mono"] - 8 - 17 * LH["jp"]
+        tx(p, x, jp_top + asc("jp", 17), JP_DAYS[now.weekday()], key="jp", px=17, c=M_DIM, align=R)
+        # REC do cam 01 e LIVE do rádio
+        x = 499 + tx(p, 499, 176.6, "REC", px=11, ls=0.08, c=M_TEXT) + 7
+        dot(p, x + 3.5, 176.6 - 4, 7, M_LILAC)
+        tx(p, x + 7 + 7, 176.6, now.strftime("%H:%M:%S"), px=11, ls=0.08, c=M_TEXT)
+        tx(p, 1633, 416, f"LIVE {now:%H:%M}", px=10, ls=0.1, c=M_DIM, align=R)
 
-    # ---------------------------------------------------------------- coluna esquerda
+    # ---------------------------------------------------------------- MAGI SYSTEM
 
-    def _g_fps(self, p, snap, now, s):
-        r = CARD_FPS
-        x = r.left() + 20
-        top = r.top() + 19 + 28.8 + 8
-        y = baseline("cond", 96, top, 96 * 0.9, 500)
-        if snap.fps is None:
-            text(p, x, y, NA, key="cond", px=96, color_=LINE_STRONG, weight=500)
-            yb = top + 86.4 + 8 + 20
-            w = heading(p, x, yb, "No signal", px=20, color_=TEXT_DIM).width()
-            text(p, x + w + 12, yb, "ゲーム未検出", key="jp", px=14, color_=TEXT_DIM)
-            return
-        text(p, x, y, num(snap.fps), key="cond", px=96, weight=500)
-        ly = top + 86.4 + 8 + 12
-        lx = x
-        for k, v in (("avg", snap.fps_avg), ("min", snap.fps_min), ("max", snap.fps_max)):
-            lx += label(p, lx, ly, f"{k} {num(v)}").width() + 16
-        vals = list(snap.fps_series)
-        if len(vals) >= 2:
-            lo, hi = min(vals), max(vals)
-            pad = max(1.0, (hi - lo) * 0.15)
-            kit.sparkline(p, QRectF(x, ly + 10, r.width() - 40, r.bottom() - 18 - ly - 10), vals, TEXT, 1.2,
-                          vmin=max(0.0, lo - pad), vmax=hi + pad, n=max(60, len(vals)))
+    def _g_magi(self, p, snap, now, s):
+        lit = led_lit(snap)
+        rgb = color(snap.led_rgb) if lit else None
+        # botão LED (消灯 LED OFF / 点灯 LED ON), à direita do título
+        jp, lbl = ("点灯", "LED ON") if lit else ("消灯", "LED OFF")
+        bw = 2 + 28 + 8 + 8 + tw(jp, "jp", 11) + 8 + tw(lbl, "mono", 10, None, 0.1)
+        b = QRectF(_MX + _MW - bw, _MY, bw, LED_ROW_H)
+        box(p, b, alpha(rgb, 20) if lit else "#100f18", mix(rgb, M_PANEL, 0.45) if lit else "#34304a")
+        cy = b.center().y()
+        x = b.left() + 15
+        p.save()
+        if lit:  # brilho do LED aceso
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            g = QRadialGradient(QPointF(x + 4, cy), 9)
+            g.setColorAt(0.0, alpha(rgb, 170))
+            g.setColorAt(1.0, alpha(rgb, 0))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(g)
+            p.drawEllipse(QPointF(x + 4, cy), 9, 9)
+        p.restore()
+        dot(p, x + 4, cy, 8, rgb if lit else M_DARK)
+        fg = rgb if lit else color(M_DIM)
+        x += 8 + 8
+        x += tx(p, x, mid(cy, "jp", 11), jp, key="jp", px=11, c=fg) + 8
+        tx(p, x, mid(cy, "mono", 10), lbl, px=10, ls=0.1, c=fg)
+        # unidades
+        for bx, (name, sub), style, bar_c, rows in zip(U_BOXES, UNIT_NAMES, UNIT_STYLE, UNIT_BAR_COLOR,
+                                                      unit_rows(snap), strict=True):
+            fg_c, bg, border, left, ok_c = style
+            if lit:
+                fg_c = bar_c = left = ok_c = rgb
+                bg, border = alpha(rgb, 18), mix(rgb, M_PANEL, 0.3)
+            x0, y0, w, h = bx
+            r = QRectF(*bx)
+            box(p, r, bg, border)
+            p.fillRect(QRectF(x0, y0, 3, h), color(left))
+            nt = y0 + (84 - (20 + 4 + 10 * LH["mono"])) / 2
+            tx(p, x0 + 17, top_base(nt, "cond", 20, 20, 600), name, key="cond", px=20, weight=600, ls=0.02,
+               c=fg_c)
+            tx(p, x0 + 17, nt + 24 + asc("mono", 10), sub, px=10, ls=0.08, c=M_DIM)
+            for j, (k, pct, warn, val) in enumerate(rows):
+                cy = y0 + 24 + j * 18
+                tx(p, x0 + 123, mid(cy, "jp", 10), k, key="jp", px=10, c=M_DIM, max_w=58)
+                kit.segments(p, QRectF(x0 + 189, cy - 5, BARS * 6 - 2, 10), BARS, pct or 0.0, bar_c,
+                             warn_from=warn, gap=2.0, off=M_OFF)
+                tx(p, x0 + 333, mid(cy, "mono", 11), val, px=11, c=M_TEXT2 if pct is not None else M_DIM,
+                   align=R, max_w=54)
+            st = y0 + (84 - (14 * LH["jp"] + 2 + 8 * LH["mono"])) / 2
+            p.fillRect(QRectF(x0 + 343, st, 1, 84 - 2 * (st - y0)), color(M_OK_LINE))
+            tx(p, x0 + 377, st + asc("jp", 14), "正常", key="jp", px=14, c=ok_c, align=C)
+            tx(p, x0 + 377, st + 14 * LH["jp"] + 2 + asc("mono", 8), "NORMAL", px=8, ls=0.1, c=M_DIM,
+               align=C)
 
-    def _g_net(self, p, snap, now, s):
-        r = CARD_NET
-        x0, x1 = r.left() + 20, r.right() - 20
+    # ---------------------------------------------------------------- SYSTEM ACTIVITY e NETWORK
+
+    def _g_activity(self, p, snap, now, s):
+        x = 40.0
+        val = num(snap.fps) if snap.fps is not None else NA
+        tx(p, x, 589.2, val, key="cond", px=24, weight=600, c=M_BRIGHT if snap.fps is not None else M_DIM)
+        sx = x + tw("0000", "cond", 24, 600) + 12
+        spark(p, QRectF(sx, 565.6 + 2, 130, 24), snap.fps_series, M_SPARK, 1.2,
+              vmin=0.0, n=60)
         up = snap.net_down is not None or snap.net_up is not None
-        text(p, x1, r.top() + 37, "接続中" if up else "未接続", key="jp", px=12, color_=TEXT_DIM,
-             spacing=0.08, align=R)
-        gap = (r.height() - 30 - 26.4 - 15.8 - 30) / 2
-        ly = baseline("mono", 12, r.top() + 15 + 26.4 + gap)
-        w = label(p, x0, ly, f"↓ {rate(snap.net_down)}", color_=TEXT if up else TEXT_DIM, upper=False).width()
-        label(p, x0 + w + 20, ly, f"↑ {rate(snap.net_up)}", color_=TEXT if up else TEXT_DIM, upper=False)
+        c = M_TEXT2 if up else M_DIM
+        w = tx(p, x, 634.74, f"↓  {rate(snap.net_down)}", px=11, c=c)
+        tx(p, x + max(w, 66) + 20, 634.74, f"↑  {rate(snap.net_up)}", px=11, c=c)
+        if snap.gaming or snap.fps is not None:
+            w = tx(p, x, 693, "SIGNAL OK", key="cond", px=15, ls=0.04, c=M_GREEN)
+            tx(p, x + w + 12, 693, "ゲーム検出", key="jp", px=11, c=M_DIM)
+        else:
+            w = tx(p, x, 693, "NO SIGNAL", key="cond", px=15, ls=0.04, c=M_LILAC)
+            tx(p, x + w + 12, 693, "ゲーム未検出", key="jp", px=11, c=M_DIM)
+        # uso próprio
+        rows = self_rows(snap)
+        gap = (152 - 16.3 - 56) / 4
+        for i in range(4):
+            top = 544 + 16.3 + gap + i * (14 + gap)
+            cy = top + 7
+            k, v, pct = rows[i] if rows else (("CPU", "GPU", "RAM", "VRAM")[i], NA, 0.0)
+            tx(p, ACT_SELF_X, mid(cy, "mono", 10), k, px=10, c=M_TEXT2)
+            bar = QRectF(ACT_SELF_X + 34 + 10, cy - 4, 446 - 38 - 10 - (ACT_SELF_X + 44), 8)
+            p.fillRect(bar, color("#1b1926"))
+            if rows:
+                p.fillRect(QRectF(bar.left(), bar.top(), bar.width() * max(pct, 1.5) / 100 if pct < 100
+                                  else bar.width(), 8), color(M_LILAC))
+            tx(p, 446, mid(cy, "mono", 10), v, px=10, c=M_TEXT2 if rows else M_DIM, align=R)
+
+    def _g_network(self, p, snap, now, s):
+        up = snap.net_down is not None or snap.net_up is not None or bool(snap.net_ip)
+        # 接続中 ● no cabeçalho
+        dot(p, 446 - 3.5, 761 - 4, 7, M_GREEN if up else M_DARK)
+        tx(p, 446 - 7 - 8, 761, "接続中" if up else "未接続", key="jp", px=10, c=M_DIM, align=R)
+        vals = [snap.net_ip or NA, snap.net_gateway or NA, snap.net_dns or NA]
+        vw = min(96.0, max(72.0, *(tw(v, "mono", 10) for v in vals)))
+        for i, v in enumerate(vals):
+            tx(p, 112, 794.9 + i * 19.2, v, px=10, c=M_TEXT2 if v != NA else M_DIM, max_w=vw)
+        bx = 112 + vw + 14
+        p.fillRect(QRectF(bx, 775, 1, 71), color(M_LINE))
+        rx = bx + 1 + 14
+        rw = 446 - rx
+        a = f"↓  {rate(snap.net_down)}"
+        b = f"↑  {rate(snap.net_up)}"
+        tot = tw(a, "mono", 11) + 26 + tw(b, "mono", 11)
+        x = rx + (rw - tot) / 2
+        c = M_TEXT2 if up else M_DIM
+        x += tx(p, x, 786.2, a, px=11, c=c) + 26
+        tx(p, x, 786.2, b, px=11, c=c)
         vals = list(snap.net_series)
         if len(vals) >= 2:
-            hi = max(max(vals), 1.0)
-            kit.sparkline(p, QRectF(x0, r.bottom() - 15 - 30, r.width() - 40, 30), vals, TEXT_DIM, 1.0,
-                          vmin=0.0, vmax=hi * 1.1, n=max(60, len(vals)))
+            hi = max(max(v for v in vals if v is not None), 1.0)
+            spark(p, QRectF(rx, 812 + 2, rw, 30), vals, M_SPARK, 1.1, vmin=0.0, vmax=hi * 1.1, n=60)
 
-    # ---------------------------------------------------------------- centro
+    # ---------------------------------------------------------------- CONDESSA
 
     def _g_mood(self, p, snap, now, s):
-        draw_mood(p, MOOD_MAIN, snap)
+        """Régua "在 … 01" à direita do retrato: o traço marca o humor (0 em baixo, 4 no topo, R13.7)
+        e o número embaixo diz o nível (a informação nunca vai só na cor)."""
+        x, y, w, h = B_GAUGE
+        cx = x + w / 2
+        tx(p, cx, y + asc("jp", 9), "在", key="jp", px=9, c=M_DIM, align=C)
+        t0, t1 = y + 9 * LH["jp"] + 6, y + h - 9 * LH["mono"] - 6
+        p.fillRect(QRectF(cx - 1.5, t0, 3, t1 - t0), color("#1d1b28"))
+        col = mood_color(snap)
+        if snap.mood is None:
+            ty = t0 + 6
+        else:
+            m = max(0, min(MOOD_LEVELS - 1, int(snap.mood)))
+            ty = t1 - 6 - (t1 - t0 - 12) * m / (MOOD_LEVELS - 1)
+            p.fillRect(QRectF(cx - 1.5, ty, 3, t1 - ty), alpha(col, 110))
+        p.fillRect(QRectF(cx - 5.5, ty, 11, 1), col if col is not None else color(M_DIM))
+        tx(p, cx, y + h - 9 * LH["mono"] + asc("mono", 9), "–" if snap.mood is None else f"{snap.mood:02d}",
+           px=9, c=M_DIM, align=C)
 
     def _g_talk(self, p, snap, now, s):
-        chip = state_chip(p, SIDE_X, CHIP_TOP, snap)
-        top = chip.bottom() + 14
-        wdt = SIDE_R - SIDE_X
-        if snap.caption or snap.magui_state != "sleeping":
-            # acordada: área da legenda (vazia até a 1ª palavra; sem as falas de canvas piscando)
-            self._draw_caption(p, snap.caption)
+        # chip de estado
+        en, jp, fg, lit = main_chip(snap)
+        speaking = is_speaking(snap)
+        x0, y0 = B_CHIP[0], B_CHIP[1]
+        w = 2 + 18 + tw(en, "cond", 14, None, 0.04) + tw(" ", "cond", 14) + tw(jp, "jp", 14)
+        chip = QRectF(x0, y0, w, B_CHIP[3])
+        if lit:
+            p.fillRect(chip, alpha(fg, 30))
+        box(p, chip, None, fg if lit else M_DARK)
+        yb = y0 + 1 + 3 + asc("jp", 14)
+        x = x0 + 10 + tx(p, x0 + 10, yb, en, key="cond", px=14, ls=0.04, c=fg)
+        tx(p, x + tw(" ", "cond", 14), yb, jp, key="jp", px=14, c=fg)
+        # caixa de terminal
+        tb = QRectF(*B_TALK)
+        box(p, tb, M_TERM_BG, M_LINE)
+        p.fillRect(QRectF(tb.left(), tb.top(), 2, tb.height()), color(M_LILAC if speaking else M_TERM_IDLE))
+        if snap.caption is None:  # sem fala: a linha de estado, inteira (nada é digitado nem pisca)
+            self._term_lines(p, wrap_lines(TALK_PROMPT + talk_lines(snap)[1], TALK_TEXT[2], key="mono",
+                                           px=TALK_PX), 0.0, None)
             return
-        jp, en = talk_lines(snap)
-        for i, ln in enumerate(jp):
-            text(p, SIDE_X, baseline("jp", 16, top + i * 27.2, 27.2), ln, key="jp", px=16, max_w=wdt)
-        wrapped(p, QRectF(SIDE_X, top + 2 * 27.2 + 14, wdt, 60), en, key="mono", px=12, color_=TEXT_DIM,
-                spacing=0.08, line_h=19.2, max_lines=3)
-
-    def _draw_caption(self, p: QPainter, txt: str | None) -> None:
-        """Legenda rolando: a janela de ``CAPTION_VISIBLE`` linhas acompanha a fala (as de cima
-        esmaecem) ou fica onde o Pedro rolou; barra fina à direita quando há mais texto."""
         mono = self.clock()
-        lines = self.caption_lines(txt)
-        self.cap.feed(txt, len(lines), mono)
+        self.caption_feed(snap.caption, mono)
+        lines = self.caption_lines(self.tw.shown)
+        self._term_lines(p, lines, self.cap.offset(mono), mono, cursor=speaking)
+
+    def _term_lines(self, p: QPainter, lines: list[str], off: float, mono: float | None,
+                    cursor: bool = False) -> None:
+        """Linhas do terminal da fala com o prompt ``›`` em lilás; cursor em bloco fixo no fim."""
+        x, y, w, h = TALK_TEXT
         if not lines:
-            return
-        r = CAPTION_RECT
-        off = self.cap.offset(mono)
-        fm = _metrics("jp", 16, None, 0.0)
-        a = fm.ascent()
+            lines = [TALK_PROMPT.rstrip()] if cursor else []
         p.save()
-        p.setClipRect(r, Qt.ClipOperation.IntersectClip)
-        p.setFont(fonts.font("jp", 16, None, 0.0))
+        p.setClipRect(QRectF(x - 2, y, w + 4, CAPTION_VISIBLE * TALK_LH), Qt.ClipOperation.IntersectClip)
         first = max(0, int(math.floor(off)) - 1)
+        end_x = end_y = None
         for i in range(first, min(len(lines), first + CAPTION_VISIBLE + 3)):
-            y = r.top() + (i - off) * CAPTION_LH
-            if y >= r.bottom() or y + CAPTION_LH <= r.top():
-                continue
-            c = color(TEXT)
-            c.setAlphaF(self.cap.alpha(i, mono))
-            p.setPen(c)
-            p.drawText(QPointF(r.left(), y + (CAPTION_LH - fm.height()) / 2 + a), lines[i])
+            top = y + (i - off) * TALK_LH
+            yb = top_base(top, "mono", TALK_PX, TALK_LH)
+            ln = lines[i]
+            a = 1.0 if mono is None else self.cap.alpha(i, mono)
+            c = color(M_TEXT2)
+            c.setAlphaF(a)
+            lx = x
+            if i == 0 and ln.startswith("›"):
+                pc = color(M_LILAC)
+                pc.setAlphaF(a)
+                lx += tx(p, lx, yb, "›", px=TALK_PX, c=pc)
+                ln = ln[1:]
+            lw = tx(p, lx, yb, ln, px=TALK_PX, c=c)
+            end_x, end_y = lx + lw, yb
         p.restore()
-        if len(lines) > CAPTION_VISIBLE:  # barra de rolagem: trilho + posição
-            track = QRectF(r.right() + 5, r.top() + 2, 2, r.height() - 4)
-            p.fillRect(track, color(LINE))
-            frac = CAPTION_VISIBLE / len(lines)
-            pos = off / max(1, self.cap.max_off)
-            th = max(10.0, track.height() * frac)
+        if cursor and end_x is not None and end_y < y + CAPTION_VISIBLE * TALK_LH:
+            cx = min(end_x + 2, x + w - 7 + 10)
+            p.fillRect(QRectF(cx, end_y + 2 - 13, 7, 13), color(M_LILAC))
+        if mono is not None and len(lines) > CAPTION_VISIBLE:  # trilho de rolagem na borda direita
+            track = QRectF(x + w + 5, y + 2, 2, CAPTION_VISIBLE * TALK_LH - 4)
+            p.fillRect(track, color(M_LINE))
+            th = max(8.0, track.height() * CAPTION_VISIBLE / len(lines))
+            pos = self.cap.offset(mono) / max(1, self.cap.max_off)
             p.fillRect(QRectF(track.left(), track.top() + (track.height() - th) * pos, 2, th),
-                       color(TEXT if self.cap.follow else FOCUS))
+                       color(M_DIM if self.cap.follow else M_LILAC))
+
+    # ---------------------------------------------------------------- LOAD HISTORY e UNIT SPEC
 
     def _g_history(self, p, snap, now, s):
-        r = HIST
-        chart = QRectF(r.left() + 20, r.top() + 17 + 26.4 + 10, 504, 0)
-        chart.setBottom(r.bottom() - 17 - 14.5 - 10)
-        for f in (0.25, 0.5, 0.75):
-            gy = chart.top() + chart.height() * f
-            p.fillRect(QRectF(chart.left(), gy, chart.width(), 1), color(SEG_OFF))
-        p.fillRect(QRectF(chart.left(), chart.top(), 1, chart.height()), color(LINE))
-        p.fillRect(QRectF(chart.left(), chart.bottom() - 1, chart.width(), 1), color(LINE))
-        plot = chart.adjusted(1, 0, 0, -1)
-        for k, col, wd in (("ram", RAM, 1.0), ("gpu", GPU, 1.4), ("cpu", CPU, 1.4)):
+        sx, sy = 499.0, 620.2
+        plot = QRectF(sx + 38, sy + 10, 416, 176)
+        for k, col, wd in (("ram", M_DIM, 1.4), ("gpu", M_GREEN, 1.3), ("cpu", M_LILAC, 1.3)):
             vals = snap.history.get(k) or []
             if len(vals) >= 2:
                 kit.sparkline(p, plot, vals, col, wd, n=max(120, len(vals)))
-        y = r.bottom() - 17 - 3
         axis = snap.history_axis
         if not axis:
-            label(p, chart.left(), y, NA, px=11)
+            tx(p, sx + 22, sy + 214, NA, px=11, c=M_DIM)
             return
         for frac, hhmm in axis:
-            al = L if frac <= 0 else R if frac >= 1 else C
-            lw = width(hhmm, "mono", 11, None, 0.08)
-            x = chart.left() + (frac * chart.width() if al != C else lw / 2 + frac * (chart.width() - lw))
-            label(p, x, y, hhmm, px=11, align=al)
+            tx(p, sx + 38 + frac * 416, sy + 214, hhmm, px=11, c=M_DIM, align=C)
 
     def _g_spec(self, p, snap, now, s):
-        sx = SPEC.left() + 20
-        y = SPEC.top() + 17 + 26.4 + 10
-        rows = snap.specs[:6] or [("cpu", NA)]
+        rows = snap.specs[:6] or [("CPU", NA)]
         for i, (k, v) in enumerate(rows):
-            yb = baseline("mono", 12, y + i * 20.8)
-            label(p, sx, yb, k, px=11)
-            text(p, sx + 56, yb, v or NA, px=12, max_w=264)
-        py = SPEC.top() + 217
-        n = min(3, max(2, len(snap.pilots)))
-        for i in range(n):
-            r = QRectF(sx, py + i * 33.8, 320, 27.8)
-            yb = baseline("mono", 12, r.top() + 6)
+            yb = 621 + i * 18.86 + asc("mono", 10.5)
+            tx(p, 1029, yb, str(k).upper(), px=10.5, c=M_DIM, max_w=42)
+            tx(p, 1073, yb, str(v or NA).upper(), px=10.5, c=M_TEXT2, max_w=232)
+        for i in range(2):
+            top = 784.28 + i * (27.86 + 6)
+            r = QRectF(1029, top, 276, 27.86)
+            box(p, r, None, M_OK_LINE)
+            yb = top + 1 + 6 + asc("mono", 10.5)
             if i < len(snap.pilots):
                 pl = snap.pilots[i]
-                p.setPen(color(LINE_STRONG))
-                p.setBrush(Qt.BrushStyle.NoBrush)
-                p.drawRect(r.adjusted(0.5, 0.5, -0.5, -0.5))
-                x = sx + 11 + label(p, sx + 11, yb, f"{i + 1:02d}").width() + 14
                 bat = num(pl.battery, suffix="%")
                 try:
                     low = float(pl.battery) < 30
                 except (TypeError, ValueError):
                     low = False
-                bat_txt = bat
-                bw = width(bat_txt, "mono", 12) + (14 if pl.charging else 0)
-                x += text(p, x, yb, pl.name, max_w=320 - 22 - bw - 60 - (x - sx)).width() + 8
-                if pl.conn:
-                    label(p, x, yb, pl.conn.lower())
-                bc = color(WARN) if (pl.charging or low) and pl.battery is not None else \
-                    color(TEXT if pl.battery is not None else TEXT_DIM)
-                tw = text(p, r.right() - 11, yb, bat_txt, align=R, color_=bc).width()
+                bc = WARN if (pl.charging or low) and pl.battery is not None else \
+                    (M_TEXT if pl.battery is not None else M_DIM)
+                bw = tx(p, 1294, yb, bat, px=10.5, c=bc, align=R)
                 if pl.charging:  # ⚡ desenhado (a JetBrains Mono não tem o glifo)
-                    _bolt(p, QPointF(r.right() - 11 - tw - 8, yb - 4.5), bc)
+                    _bolt(p, QPointF(1294 - bw - 7, yb - 4), color(bc))
+                name = f"{i + 1:02d}   {pl.name}" + (f" {pl.conn}" if pl.conn else "")
+                tx(p, 1040, yb, name.upper(), px=10.5, c=M_TEXT, max_w=254 - bw - 20)
             else:
-                pen = QPen(color(LINE), 1, Qt.PenStyle.DashLine)
-                p.setPen(pen)
-                p.setBrush(Qt.BrushStyle.NoBrush)
-                p.drawRect(r.adjusted(0.5, 0.5, -0.5, -0.5))
-                x = sx + 11 + label(p, sx + 11, yb, f"{i + 1:02d}").width() + 10
-                w = text(p, x, yb, "未接続", key="jp", px=12, color_=TEXT_DIM, spacing=0.08).width()
-                label(p, x + w + 6, yb, "— empty", upper=False)
+                x = 1040 + tx(p, 1040, yb, f"{i + 1:02d}   ", px=10.5, c=M_DIM)
+                x += tx(p, x, yb, "未接続", key="jp", px=10.5, c=M_DIM)
+                tx(p, x, yb, " — empty", px=10.5, c=M_DIM)
 
-    def _g_magi(self, p, snap, now, s):
-        lit = led_lit(snap)
-        b = LED_BTN
-        p.fillRect(b, color(BUTTON))
-        p.setPen(color(snap.led_rgb) if lit else color(LINE_STRONG))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRect(b.adjusted(0.5, 0.5, -0.5, -0.5))
-        led_dot(p, QPointF(b.left() + 20, b.center().y()), 5, snap)
-        yb = b.center().y() + 4.5
-        w = text(p, b.left() + 35, yb, "点灯" if lit else "消灯", key="jp", px=12, spacing=0.08).width()
-        label(p, b.left() + 35 + w + 10, yb, f"led {'on' if lit else 'off'}", color_=TEXT)
-        units = (
-            (CPU, ("負荷 load", snap.cpu, None, num(snap.cpu, suffix="%")),
-             ("温度 temp", snap.cpu_temp, 15, num(snap.cpu_temp, suffix="°"))),
-            (GPU, ("負荷 load", snap.gpu, None, num(snap.gpu, suffix="%")),
-             ("温度 temp", snap.gpu_temp, 15, num(snap.gpu_temp, suffix="°"))),
-            (RAM, ("映像 vram", snap.vram, None, (snap.vram_txt or NA).replace("--", NA)),
-             ("主記 ram", snap.ram, None, snap.ram_txt or NA)),
-        )
-        name_w, key_w, val_w = unit_columns()
-        for r, (name, sub), (base, row1, row2) in zip(UNITS, UNIT_NAMES, units, strict=True):
-            t = tint(base, snap.led_rgb, lit)
-            p.fillRect(r, t.bg)
-            p.setPen(t.border)
-            p.drawRect(r.adjusted(0.5, 0.5, -0.5, -0.5))
-            ih = r.height() - 26
-            off = (ih - 46.6) / 2
-            x = r.left() + 15
-            heading(p, x, baseline("cond", 24, r.top() + 13 + off, None, 600), name, px=24, color_=t.color)
-            label(p, x, baseline("mono", 12, r.top() + 13 + off + 28.8 + 2), sub)
-            bx = x + name_w + UNIT_GAP
-            seal_x = r.right() - 15 - 70
-            vx = seal_x - UNIT_GAP  # borda direita do valor
-            seg_x = bx + key_w + ROW_GAP
-            seg_w = vx - val_w - ROW_GAP - seg_x
-            for j, (k, v, wf, val) in enumerate((row1, row2)):
-                cy = r.top() + 13 + (ih - 47) / 2 + 9.25 + j * 28.5
-                text(p, bx, cy + 4.5, k, key="jp", px=12, color_=TEXT_DIM, spacing=0.08)
-                kit.segments(p, QRectF(seg_x, cy - 6, seg_w, 12), 20, v or 0.0, t.seg, warn_from=wf)
-                text(p, vx, cy + 5, val, px=14, align=R, color_=TEXT if v is not None else TEXT_DIM)
-            kit.seal(p, QRectF(seal_x, r.top() + 1, 70, r.height() - 2), t.color)
-
-    def _g_self(self, p, snap, now, s):
-        """Rodapé do MAGI system: o que a própria Condessa gasta (CPU/RAM/GPU/VRAM)."""
-        pairs = self_line(snap)
-        if pairs is None:
-            return
-        r = SELF_ROW
-        yb = r.center().y() + 4.5
-        x = r.left() + 15 + label(p, r.left() + 15, yb, "condessa", color_=TEXT).width() + 8
-        text(p, x, yb, "自己", key="jp", px=12, color_=TEXT_DIM, spacing=0.08)
-        x = r.right() - 15
-        for i, (k, v) in enumerate(reversed(pairs)):
-            x -= text(p, x, yb + 0.5, v, px=13, color_=TEXT, align=R).width() + 6
-            x -= label(p, x, yb, k, align=R).width()
-            if i < len(pairs) - 1:
-                x -= 10 + label(p, x - 10, yb, "·", align=R).width() + 10
+    # ---------------------------------------------------------------- NOW PLAYING e RÁDIO
 
     def _g_player(self, p, snap, now, s):
         t = snap.track
         active = t is not None and bool(t.title)
-        label(p, NP.right() - 21, NP.top() + 41, "● spotify" if active else "○ spotify",
-              color_=GPU if active else TEXT_DIM, upper=False, align=R)
-        draw_cover(p, COVER, t.cover if active else None, s, 28, 12, 7)
-        x, wdt = NP_X, NP_R - NP_X
-        y0 = COVER.top() + 4
-        if active:
-            text(p, x, baseline("cond", 22, y0, 24, 500), t.title, key="cond", px=22, weight=500, max_w=wdt)
-            text(p, x, baseline("mono", 12, y0 + 30), t.artist or NA, px=12, max_w=wdt,
-                 color_=TEXT if t.artist else TEXT_DIM)
-            alb = " · ".join(str(v) for v in (t.album, t.year) if v) or NA
-            label(p, x, baseline("mono", 11, y0 + 50), alb, px=11, upper=False, max_w=wdt)
+        g = M_GREEN if active else M_DIM
+        w = tx(p, 1633, 160 - 20 + 11.21 + (24 - 14.52) / 2, "spotify", px=11, c=g, align=R)
+        dot(p, 1633 - w - 6 - 3, 160 - 20 + 12, 6, g if active else M_DARK)
+        cover = QRectF(*B_COVER)
+        pm = cover_scaled(t.cover if active else None, cover.width() * F, cover.height() * F, s)
+        if pm is not None:
+            p.drawPixmap(cover, pm, QRectF())
         else:
-            text(p, x, baseline("cond", 22, y0, 24, 500), NA, key="cond", px=22, weight=500,
-                 color_=LINE_STRONG)
-            label(p, x, baseline("mono", 11, y0 + 50), "nada tocando", px=11, upper=False)
-        bx, bw, by = NP.left() + 21, NP_R - NP.left() - 21, NP_BAR
-        p.fillRect(QRectF(bx, by, bw, 3), color(LINE))
+            p.fillRect(cover, color("#1a1823"))
+            dot(p, cover.center().x(), cover.center().y(), 40, M_OK_LINE, ring=True)
+        x, wd = 1451.0, 1633 - 1451.0
+        y0 = NP_ROW + 2
+        if active:
+            tx(p, x, top_base(y0, "cond", 22, 24.2), t.title, key="cond", px=22, c=M_BRIGHT, max_w=wd)
+            tx(p, x, y0 + 24.2 + 4 + asc("mono", 12), t.artist or NA, px=12, c=M_TEXT2, max_w=wd)
+            alb = " · ".join(str(v) for v in (t.album, t.year) if v) or NA
+            tx(p, x, y0 + 24.2 + 8 + 15.84 + asc("mono", 12), alb, px=12, c=M_TEXT2, max_w=wd)
+        else:
+            tx(p, x, top_base(y0, "cond", 22, 24.2), NA, key="cond", px=22, c=M_DARK)
+            tx(p, x, y0 + 24.2 + 4 + asc("mono", 12), "nada tocando", px=12, c=M_DIM)
+        p.fillRect(QRectF(1357, NP_PROG, 276, 2), color(M_OK_LINE))
         if active and t.position is not None and t.length:
             frac = min(1.0, max(0.0, t.position / t.length))
-            p.fillRect(QRectF(bx, by, bw * frac, 3), color(WARN))
-        ty = by + 3 + 6 + 11.5
-        label(p, bx, ty, mmss(t.position) if active else NA, px=11)
-        label(p, NP_R, ty, mmss(t.length) if active else NA, px=11, align=R)
+            p.fillRect(QRectF(1357, NP_PROG, 276 * frac, 2), color("#e3b977"))
+        ty = NP_PROG + 8 + asc("mono", 10)
+        tx(p, 1357, ty, mmss(t.position) if active else NA, px=10, c=M_DIM)
+        tx(p, 1633, ty, mmss(t.length) if active else NA, px=10, c=M_DIM, align=R)
         playing = active and t.playing
-        ic = color(TEXT) if active else color(TEXT_DIM)
-        for k, r in BTNS.items():
-            _btn(p, r, active)
+        ic = M_TEXT2 if active else M_DIM
+        for k, b in B_BTNS.items():
+            r = QRectF(*b)
+            box(p, r, "#12111a", "#2f2c40")
             _icon(p, r, ("pause" if playing else "play") if k == "playpause" else k, ic)
-        ex = NP_R - (len(EQ) * 4 + (len(EQ) - 1) * 3)
-        for i, h in enumerate(EQ):
-            hh = h if playing else 4
-            p.fillRect(QRectF(ex + i * 7, BTN_Y + 44 - hh, 4, hh), color(LINE_STRONG))
+        ex = 1633 - (len(EQ) * 5 - 2)
+        for i, hh in enumerate(EQ):
+            hh = hh if playing else 3
+            p.fillRect(QRectF(ex + i * 5, 350 - hh, 3, hh), color(M_SPARK))
 
     def _g_radio(self, p, snap, now, s):
-        x, wdt = RADIO.left() + 21, RADIO.width() - 42
-        y = RADIO.top() + 60
+        tops = (434.0, 434 + 15.84 + 4)
         if not snap.news:
-            label(p, x, y + 14, "nenhuma notícia ainda", upper=False)
-            label(p, x, y + 36, 'diga "novidades"', upper=False, color_=TEXT_DIM)
+            tx(p, 1357, tops[0] + asc("mono", 12), "nenhuma notícia ainda", px=12, c="#c9c2e6")
+            tx(p, 1357, tops[1] + asc("mono", 12), 'diga "novidades"', px=12, c="#c9c2e6")
             return
-        for i, (hhmm, title) in enumerate(snap.news[:RADIO_ITEMS]):
-            card = QRectF(x, y + i * (RADIO_CARD_H + 8), wdt, RADIO_CARD_H)
-            first = i == 0
-            p.fillRect(card, color(BUTTON))
-            bar = color(CPU if first else LINE_STRONG)
-            p.fillRect(QRectF(card.left(), card.top(), 3, card.height()), bar)
-            label(p, card.left() + 12, card.top() + 16, hhmm, px=10, color_=CPU if first else TEXT_DIM)
-            wrapped(p, QRectF(card.left() + 12, card.top() + 21, card.width() - 20, RADIO_CARD_H - 24), title,
-                    key="mono", px=12, color_=TEXT if first else TEXT_DIM, line_h=15, max_lines=2)
+        for i, (hhmm, ttl) in enumerate(snap.news[:RADIO_LINES]):
+            yb = tops[i] + asc("mono", 12)
+            x = 1357 + tx(p, 1357, yb, hhmm, px=10, c=M_LILAC if i == 0 else M_DIM) + 8
+            tx(p, x, yb, ttl, px=12, c="#c9c2e6" if i == 0 else M_DIM, max_w=1633 - x)
 
-    def _g_claude(self, p, snap, now, s):
-        x, x1 = CLAUDE.left() + 21, CLAUDE.right() - 21
-        y = CLAUDE.top() + 60
-        c = snap.claude
-        if c is None or c.tokens is None:
-            label(p, x, y + 14, "sem dados do claude code", upper=False)
+    # ---------------------------------------------------------------- KONSOLE
+
+    def _g_konsole(self, p, snap, now, s):
+        """Miolo do terminal: ``konsole_view.paint_compact`` (outro módulo) no retângulo base 1920."""
+        if konsole_view is None or not hasattr(konsole_view, "paint_compact"):
             return
-        if c.window_end:
-            label(p, x, y + 10, f"janela 5h · até {c.window_end}", px=11)
-            text(p, x, baseline("cond", 30, y + 16, 32, 500), human_tokens(c.window_fresh), key="cond", px=30,
-                 weight=500)
-            label(p, x1, y + 34, f"+{human_tokens(c.window_cache)} cache", px=11, align=R, upper=False)
-        else:
-            label(p, x, y + 10, "janela 5h · livre", px=11)
-            text(p, x, baseline("cond", 30, y + 16, 32, 500), "0", key="cond", px=30, weight=500)
-        label(p, x, y + 66, f"hoje {human_tokens(c.tokens)} novos · {c.replies} resp", px=11, upper=False,
-              color_=TEXT_DIM)
-        y += 78
-        p.fillRect(QRectF(x, y, x1 - x, 1), color(LINE))
-        label(p, x, y + 18, f"sessões · {c.running} rodando", px=11)
-        y += 26
-        if not c.sessions:
-            label(p, x, y + 14, "nenhuma ativa", upper=False, color_=TEXT_DIM)
-        for proj, running, ago in c.sessions[:3]:
-            dot = "●" if running else "○"
-            label(p, x, y + 14, f"{dot} {proj}", upper=False, color_=GPU if running else TEXT_DIM, max_w=230)
-            label(p, x1, y + 14, "agora" if ago < 1 else f"{ago} min", px=11, align=R, upper=False)
-            y += 22
-        if c.autofix:
-            yb = CLAUDE.bottom() - 26
-            p.fillRect(QRectF(x, yb - 18, x1 - x, 1), color(LINE))
-            label(p, x, yb, c.autofix, px=11, upper=False, color_=WARN, max_w=x1 - x)
+        p.save()
+        p.scale(1 / F, 1 / F)  # o konsole_view recebe o retângulo na base 1920
+        try:
+            konsole_view.paint_compact(p, KONSOLE_VIEW, s)
+        except Exception:  # noqa: BLE001 - terminal quebrado não derruba o painel
+            log.exception("konsole_view.paint_compact falhou")
+        p.restore()
+
+    def _g_konsole_status(self, p, snap, now, s):
+        x0, x1 = 1351.0, 1639.0
+        y1 = KON_STATUS_TOP + 1 + 5 + asc("mono", 9.5)
+        y2 = y1 + 9.5 * LH["mono"] + 2
+        sep = "#3d3752"
+
+        def seg(x, txt, c=M_DIM, max_w=None):
+            return x + tx(p, x, y1 if seg.line == 1 else y2, txt, px=9.5, c=c, max_w=max_w)
+
+        seg.line = 1
+        branch = snap.git_branch or NA
+        add = "" if snap.git_added is None else f"+{snap.git_added}"
+        rem = "" if snap.git_removed is None else f"-{snap.git_removed}"
+        tail = tw(" | ", "mono", 9.5) * 2 + tw(branch, "mono", 9.5) + tw(f"{add} {rem}", "mono", 9.5) + 14
+        x = seg(x0, project_label(snap.project), max_w=max(40.0, x1 - x0 - tail))
+        x = seg(x + 7, "|", sep)
+        x = seg(x + 7, branch, max_w=80)
+        if add or rem:
+            x = seg(x + 7, "|", sep)
+            x = seg(x + 7, add, "#6fd49a")
+            seg(x + tw(" ", "mono", 9.5), rem, "#e88f8f")
+        seg.line = 2
+        c = snap.claude
+        x = seg(x0, "CLAUDE CODE")
+        x = seg(x + 7, "|", sep)
+        seg(x + 7, f"TOKENS {short_num(None if c is None else c.tokens)}")
+        on = bool(snap.konsole_online)
+        w = tx(p, x1, y2, "ONLINE" if on else "OFFLINE", px=9.5, c="#6fd49a" if on else M_DIM, align=R)
+        dot(p, x1 - w - 5 - 3, y2 - 3.5, 6, M_GREEN if on else M_DARK)
 
     # ---------------------------------------------------------------- rodapé
 
     def _g_footer(self, p, snap, now, s):
+        lw = tw("MAGI", "mono", 13, 700, 0.1) + tw("  MULTI AGENT GUIDANCE INTERFACE", "mono", 11, None, 0.1)
+        rw = tw("META+M · PAINEL COMPLETO", "mono", 11, None, 0.1)
+        left, right = 23 + lw + 24, 1650 - rw - 24
         msg = " · ".join(snap.events) if snap.events else NA
-        lw = width("MAGI", "cond", 16, 600, 0.04) + 12 + \
-            width("MULTI AGENT GUIDANCE INTERFACE", "mono", 12, None, 0.08)
-        rw = width("META+M · PAINEL COMPLETO", "mono", 12, None, 0.08)
-        left, right = X1 + lw + 40, 1892 - rw - 40
-        label(p, (left + right) / 2, 1042, msg, upper=False, align=C, max_w=right - left)
+        tx(p, (left + right) / 2, FOOT_Y, msg, px=11, ls=0.04, c=M_DIM, align=C, max_w=right - left)
 
     # ---------------------------------------------------------------- cliques
 
     def hit_rects(self, snap: Snapshot | None = None) -> dict[str, QRectF]:
-        # unidades MAGI abrem o detalhe por processo (antes eram os cards CPU/GPU/RAM da esquerda)
-        return {"led": LED_BTN, **BTNS, "card:cpu": UNITS[0], "card:gpu": UNITS[1], "card:ram": UNITS[2],
-                "learning": LEARN_BTN}  # LM1.7: liga/desliga o Learning Mode
+        # unidades MAGI abrem o detalhe por processo; LEARNING no topo (LM1.7); KONSOLE expande
+        return {"learning": LEARN_BTN, "led": LED_BTN, **BTNS, "card:cpu": UNITS[0], "card:gpu": UNITS[1],
+                "card:ram": UNITS[2], "konsole": KONSOLE}
 
 
-__all__ = ["LEARN_BTN", "LEARN_W", "MainScreen", "NA", "Pilot", "Screen", "Snapshot", "Track", "accent",
-           "draw_learning_box", "draw_learning_btn", "draw_mood", "led_lit", "mood_color"]
+__all__ = ["CARDS", "F", "KONSOLE", "KONSOLE_CWD", "KONSOLE_VIEW", "LEARN_BTN", "LEARN_W", "MainScreen", "NA",
+           "Pilot", "Screen", "Snapshot", "Track", "accent", "draw_learning_box", "draw_learning_btn",
+           "draw_mood", "led_lit", "mood_color", "mq"]

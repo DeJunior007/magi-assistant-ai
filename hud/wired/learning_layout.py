@@ -122,7 +122,7 @@ def _overlap_w(r: Rect, c: Rect) -> float:
 
 # ====================================================================== LM1.5: colunas
 
-PORTRAIT_SIZE = (340.1666666666667, 302.0)  # MASCOT_MAIN.size() na base 1920 (só o padrão dos testes)
+PORTRAIT_SIZE = (312.5, 312.5)  # MASCOT_MAIN.size() na base 1920 (272×272 do mockup; só o padrão dos testes)
 MARGIN_X = 28.0      # como o painel gamer (X1)
 GAP = 20.0           # entre colunas
 HEADER_H = 124.0     # linha do topo em y = 123

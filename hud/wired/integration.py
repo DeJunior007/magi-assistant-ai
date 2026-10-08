@@ -18,7 +18,9 @@ from collections import deque
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize
 from PySide6.QtGui import QPainter
 
+from . import data as _data
 from . import kit
+from . import main_screen as _ms
 from .data import (
     ClaudeStats,
     EventLog,
@@ -32,6 +34,7 @@ from .data import (
 )
 from .learning_screen import LearningScreen
 from .main_screen import (
+    KONSOLE_CWD,
     NA,
     SCENE,
     C,
@@ -50,6 +53,11 @@ from .portrait import make_mascot
 from .reactions import Reactor
 from .standby_screen import StandbyScreen
 from .theme import CPU, GPU, LINE, PANEL, RAM, TEXT, TEXT_DIM, alpha, color
+
+# dados novos do painel (data.py da nova UI); ausentes = campos None no Snapshot
+SysExtra = getattr(_data, "SysExtra", None)
+net_info = getattr(_data, "net_info", None)
+GitStatus = getattr(_data, "GitStatus", None)
 
 CARD_DETAIL = {"card:cpu": "cpu", "card:gpu": "gpu", "card:ram": "mem"}  # alvo → ProcStats.poll
 PLAYER = ("prev", "playpause", "next")
@@ -86,9 +94,12 @@ def build_snapshot(data: dict, *, spec=(), pads=(), gaming: bool = False, fps: F
                    now_playing: NowPlaying | None = None, events: EventLog | None = None,
                    led_on: bool = False, led_rgb: str | None = None, magui_state: str = "sleeping",
                    mouth_level: float = 0.0, caption: str | None = None, mood: int | None = None,
-                   self_usage: SelfView | None = None, now: float | None = None) -> Snapshot:
+                   self_usage: SelfView | None = None, now: float | None = None, extra: dict | None = None,
+                   netinfo: dict | None = None, git: dict | None = None) -> Snapshot:
     """Snapshot das telas. `data` = `Sensors.data`; `spec` = `system_info()`; `pads` = `controllers()`.
-    Sem GPU (`vram_txt == "--"`) as leituras de GPU/VRAM viram None ("– –", R23.3)."""
+    Sem GPU (`vram_txt == "--"`) as leituras de GPU/VRAM viram None ("– –", R23.3). `extra` =
+    `SysExtra.poll()` (clock, swap, disco), `netinfo` = `net_info()` (IP, gateway, DNS), `git` =
+    `GitStatus.poll()` (branch e +/- da sessão do KONSOLE)."""
     d = data or {}
     has_gpu = d.get("vram_txt") not in (None, "--")
     sp = dict(spec)
@@ -112,6 +123,11 @@ def build_snapshot(data: dict, *, spec=(), pads=(), gaming: bool = False, fps: F
         mood=None if mood is None else max(0, min(4, int(mood))),
         self_usage=self_usage,
     )
+    ex, ni, gi = extra or {}, netinfo or {}, git or {}
+    snap.cpu_mhz, snap.disk_pct = ex.get("cpu_mhz"), ex.get("disk_pct")
+    snap.swap_used_gb, snap.swap_total_gb = ex.get("swap_used_gb"), ex.get("swap_total_gb")
+    snap.net_ip, snap.net_gateway, snap.net_dns = ni.get("ip"), ni.get("gateway"), ni.get("dns")
+    snap.git_branch, snap.git_added, snap.git_removed = gi.get("branch"), gi.get("added"), gi.get("removed")
     if net is not None:
         snap.net_down, snap.net_up = net.down, net.up
         snap.net_series = list(net.down_series)
@@ -167,7 +183,8 @@ class WiredUI:
     def __init__(self, now_playing: NowPlaying | None = None, net: NetRate | None = None,
                  history: LoadHistory | None = None, fps: FpsStats | None = None,
                  events: EventLog | None = None, mascot: Mascot | None = None,
-                 claude: ClaudeStats | None = None, self_usage: SelfUsage | None = None):
+                 claude: ClaudeStats | None = None, self_usage: SelfUsage | None = None,
+                 sys_extra=None, git=None, konsole_cwd: str | None = None):
         self.mascot = mascot or make_mascot("sleeping")  # retrato da Condessa, se houver a arte
         self.main = MainScreen(self.mascot)
         self.standby = StandbyScreen(self.mascot)
@@ -189,6 +206,15 @@ class WiredUI:
         self.news: deque[tuple[str, str]] = deque(maxlen=8)  # Rádio Ayanami: (HH:MM, manchete)
         self.claude = claude  # ClaudeStats (consumo do Claude Code); None = painel sem dado
         self.self_usage = self_usage or SelfUsage()  # o que a própria Condessa gasta (linha no MAGI)
+        # nova UI: clock/swap/disco, IP/gateway/DNS e o git da sessão do KONSOLE
+        self.sys_extra = sys_extra if sys_extra is not None else (SysExtra() if SysExtra else None)
+        self.konsole_cwd = konsole_cwd or KONSOLE_CWD
+        self.git = git if git is not None else (GitStatus(self.konsole_cwd) if GitStatus else None)
+        self.extra: dict = {}
+        self.netinfo: dict = {}
+        self.gitinfo: dict = {}
+        self.konsole_online: bool | None = None  # o gamerhud liga: sessão do Claude Code viva
+        self.konsole_rev = 0  # o gamerhud incrementa quando o terminal tem tela nova
         self.snap = Snapshot()
         self.reactor = Reactor()  # reações dela ao HUD, à música e aos cliques (só rosto/texto)
 
@@ -210,6 +236,7 @@ class WiredUI:
         self.fps.push(fps, mono)
         self.now_playing.tick(mono)
         self.self_usage.poll(mono)
+        self._poll_extra(mono)
         if game != self._game:
             if game:
                 self.events.add(f"jogo detectado: {game}")
@@ -223,13 +250,50 @@ class WiredUI:
                 self.events.add(f"♪ {np.title}" + (f" — {np.artist}" if np.artist else ""))
             self._track = key
 
+    def _poll_extra(self, mono: float) -> None:
+        """Dados novos do painel; fonte que falha fica sem dado (nunca derruba o poll)."""
+        for attr, fn in (("extra", lambda: self.sys_extra.poll() if self.sys_extra else {}),
+                         ("netinfo", lambda: net_info(mono) if net_info else {}),
+                         ("gitinfo", lambda: self._git_poll(mono))):
+            try:
+                setattr(self, attr, dict(fn() or {}))
+            except Exception:  # noqa: BLE001 - leitura de /sys, rede ou git que falhou
+                setattr(self, attr, {})
+
+    def _git_poll(self, mono: float) -> dict:
+        """Git da pasta da sessão (a do ``settings.json`` pode não ser a padrão)."""
+        cwd = getattr(self.konsole_session(), "cwd", None)
+        if cwd and cwd != self.konsole_cwd and GitStatus is not None:
+            self.konsole_cwd = str(cwd)
+            self.git = GitStatus(self.konsole_cwd)
+        return self.git.poll(mono) if self.git else {}
+
+    def konsole_session(self):
+        """Sessão do KONSOLE que o gamerhud abriu (``konsole_view.VIEW.session``) ou None."""
+        view = getattr(_ms.konsole_view, "VIEW", None)
+        return getattr(view, "session", None)
+
+    def konsole_alive(self) -> bool:
+        """● ONLINE: ``konsole_online`` se o gamerhud ligou; senão, a sessão do konsole_view viva."""
+        if self.konsole_online is not None:
+            return bool(self.konsole_online)
+        sess = self.konsole_session()
+        return bool(sess is not None and getattr(sess, "alive", False))
+
+    def konsole_rects(self, size: QSize) -> list[QRect]:
+        """Retângulos (dispositivo) do miolo do KONSOLE, para o gamerhud repintar só o terminal."""
+        return self.main.group_rects("konsole", size)
+
     def build(self, data: dict, *, spec=(), pads=(), gaming: bool = False) -> Snapshot:
         self.snap = build_snapshot(
             data, spec=spec, pads=pads, gaming=gaming, fps=self.fps.snapshot(), net=self.net,
             history=self.history, now_playing=self.now_playing, events=self.events,
             led_on=self.led_on, led_rgb=self.led_rgb, magui_state=self.magui_state,
             mouth_level=self.mouth_level, caption=self.caption, mood=self.mood,
-            self_usage=self.self_usage.view)
+            self_usage=self.self_usage.view, extra=self.extra, netinfo=self.netinfo, git=self.gitinfo)
+        self.snap.project = self.konsole_cwd
+        self.snap.konsole_online = self.konsole_alive()
+        self.snap.konsole_rev = self.konsole_rev
         self.snap.news = list(self.news)
         self.snap.claude = self.claude.view if self.claude is not None else None
         self._react(time.monotonic())
@@ -317,8 +381,9 @@ class WiredUI:
 
     def hit(self, pos: QPoint | QPointF, size: QSize, view: str, detail: str | None = None) -> str | None:
         """Alvo do clique: "led", "prev"/"playpause"/"next", "card:cpu|gpu|ram", "detail" (fecha
-        o painel aberto), "face" (mascote → push-to-talk), "learning" (botão ``[ LEARNING ]`` do
-        painel e da espera, LM1.7: o HUD pede ``lm_mode``) ou None. Na view learning só os alvos
+        o painel aberto), "face" (mascote → push-to-talk), "learning" (botão LEARNING do topo do
+        painel e ``[ LEARNING ]`` da espera, LM1.7: o HUD pede ``lm_mode``), "konsole" (card do
+        terminal do Claude Code: o HUD expande) ou None. Na view learning só os alvos
         da ``LearningScreen`` (END SESSION → "learning"): o retrato não é push-to-talk lá; os
         eventos de mouse dessa view vão por ``learning_mouse``."""
         if view == "learning":

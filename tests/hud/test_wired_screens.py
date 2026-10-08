@@ -48,7 +48,15 @@ def render(screen, snap, size=SIZE, region=None, now=NOW) -> QImage:
 def test_paint_empty_and_full(cls, snap):
     img = render(cls(), snap)
     assert not img.isNull()
-    assert img.pixelColor(5, 5) == QColor("#09080d")
+    if cls is StandbyScreen:
+        assert img.pixelColor(5, 5) == QColor("#09080d")
+        return
+    # painel: fundo do mockup (#09080f) no vão entre colunas, longe da vinheta (scanline: +4 no máximo)
+    c = img.pixelColor(round(472 * ms.F * 4 / 3), round(480 * ms.F * 4 / 3))
+    bg = QColor(ms.M_BG)
+    pairs = ((c.red(), bg.red()), (c.green(), bg.green()), (c.blue(), bg.blue()))
+    assert all(abs(x - y) <= 5 for x, y in pairs)
+    assert img.pixelColor(2, 2).lightness() <= bg.lightness()  # canto escurecido pela vinheta
 
 
 def test_paint_other_size():
@@ -64,15 +72,19 @@ def test_hit_test_scale_4_3():
         return QPoint(round(r.center().x() * s), round(r.center().y() * s))
 
     assert sc.hit_test(at(ms.LED_BTN), SIZE) == "led"
+    assert sc.hit_test(at(ms.LEARN_BTN), SIZE) == "learning"
+    assert sc.hit_test(at(ms.KONSOLE), SIZE) == "konsole"
     for k in ("prev", "playpause", "next"):
         assert sc.hit_test(at(ms.BTNS[k]), SIZE) == k
-        assert ms.BTNS[k].width() >= 44 and ms.BTNS[k].height() >= 44  # R23.7
+        # controles do mockup: 36×32 → 41×37 na base 1920 (≈ 55×49 px no monitor 2)
+        assert ms.BTNS[k].width() >= 40 and ms.BTNS[k].height() >= 36
     for k, unit in zip(("cpu", "gpu", "ram"), ms.UNITS, strict=True):  # unidades MAGI abrem o detalhe
         assert sc.hit_test(at(unit), SIZE) == f"card:{k}"
     assert sc.hit_test(at(ms.CARD_NET), SIZE) is None
     assert sc.hit_test(at(ms.RADIO), SIZE) is None
+    assert sc.hit_test(at(ms.TALK), SIZE) is None
     assert sc.hit_test(QPoint(5, 5), SIZE) is None
-    assert ms.LED_BTN.height() >= 44
+    assert ms.LED_BTN.height() >= 38
     assert StandbyScreen().hit_test(QPoint(1000, 700), SIZE) is None
 
 
@@ -189,28 +201,19 @@ def test_chip_de_estado_ouvindo_e_pensando():
         assert _focus_px(render(cls(), heard, size)) > _focus_px(render(cls(), idle, size)) + 20
 
 
-def test_linha_condessa_no_magi():
+def test_uso_proprio_no_system_activity():
     from wired.data import SelfView
-    snap = full_snapshot(caption=None, self_usage=SelfView(cpu=9.4, ram_mb=1248.6, gpu=3.2, vram_mb=212.0))
-    assert ms.self_line(snap) == [("cpu", "9%"), ("ram", "1.2 GB"), ("gpu", "3%"), ("vram", "210 MB")]
-    assert ms.self_line(full_snapshot()) is None
-    # cabe no painel MAGI, abaixo das unidades
-    assert ms.SELF_ROW.top() >= ms.UNITS[-1].bottom() and ms.SELF_ROW.bottom() <= ms.MAGI.bottom() - 14
-    s = 4 / 3
-    box = QRect(round(ms.SELF_ROW.left() * s), round(ms.SELF_ROW.top() * s), round(ms.SELF_ROW.width() * s),
-                round(ms.SELF_ROW.height() * s))
-
-    def lit(img):
-        bg = img.pixelColor(box.left() + 2, box.top() + 2)
-        return sum(img.pixelColor(x, y) != bg for x in range(box.left(), box.right(), 2)
-                   for y in range(box.top(), box.bottom(), 2))
-
-    assert lit(render(MainScreen(), full_snapshot())) == 0  # None: nada desenhado
-    assert lit(render(MainScreen(), snap)) > 50
-    # muda só a 1ª casa depois do arredondamento: nada a redesenhar; mudou o número: só a linha
+    u = SelfView(cpu=80.0, cpu_total=9.4, ram_mb=1248.6, gpu=3.2, vram_mb=212.0)
+    snap = full_snapshot(caption=None, self_usage=u)
+    rows = ms.self_rows(snap)
+    assert [(k, v) for k, v, _ in rows] == [("CPU", "9%"), ("GPU", "3%"), ("RAM", "1.2G"), ("VRAM", "210M")]
+    assert rows[2][2] == pytest.approx(100 * 1248.6 / 1024 / 32, abs=0.1)  # barra: % da RAM da máquina
+    assert ms.self_rows(full_snapshot()) is None
+    # muda só depois do arredondamento: nada a redesenhar; mudou o número: só o corpo do card
     sc = MainScreen()
     render(sc, snap)
-    same = replace(snap, self_usage=SelfView(cpu=9.1, ram_mb=1250.0, gpu=3.4, vram_mb=209.0))
+    same = replace(snap, self_usage=SelfView(cpu=80.0, cpu_total=9.1, ram_mb=1250.0, gpu=3.4, vram_mb=209.0))
     assert sc.dirty_regions(same, NOW, SIZE) == []
-    other = replace(snap, self_usage=SelfView(cpu=14.0, ram_mb=1250.0, gpu=3.4, vram_mb=209.0))
-    assert sc.dirty_regions(other, NOW, SIZE) == [ms.dev_rect(ms.SELF_ROW, s)]
+    other = replace(snap, self_usage=SelfView(cpu=80.0, cpu_total=14.0, ram_mb=1250.0, gpu=3.4,
+                                              vram_mb=209.0))
+    assert sc.dirty_regions(other, NOW, SIZE) == sc.group_rects("activity", SIZE)

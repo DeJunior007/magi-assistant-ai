@@ -140,15 +140,15 @@ def test_botao_learning_no_hit_test(view):
 def test_botao_learning_nao_cruza_fala_nem_player():
     w = WiredUI()
     ms = main_screen
-    # painel: na linha do chip, à direita do chip mais largo e acima da legenda, dentro do card
+    # painel (nova UI): no topo, no lugar dos indicadores, entre o "私は、ここにいる。" e a data
     b = ms.LEARN_BTN
-    assert ms.MID_TOP.contains(b) and b.right() <= ms.SIDE_R
-    assert b.top() == ms.CHIP_TOP and b.bottom() <= ms.CAPTION_RECT.top()
-    chips = [*ms.CHIP_STATES.values(), "Active · 稼働中", "Standby · 待機中"]
-    widest = max(ms.width(c.upper(), "cond", 18, 600, 0.04) + 30 for c in chips)
-    assert b.left() >= ms.SIDE_X + widest + 6
-    txt = ms.width("LEARNING · ", "mono", 13, None, 0.08) + ms.width("学習", "jp", 13)
-    assert 14 + txt + 14 <= b.width()  # texto inteiro dentro da moldura
+    assert b == ms.mq(1068, 30, 196, 52)
+    assert b.bottom() <= ms.TOP_RULE_Y * ms.F  # acima da linha do topo
+    assert b.left() >= 1040 * ms.F and b.right() <= ms.HEADER_CLOCK.left()
+    assert not any(b.intersects(r) for r in ms.CARDS.values())
+    txt = 14 + 7 + 10 + ms.tw("LEARNING", "cond", 19, 600, 0.1) + 10 + ms.tw("学習", "jp", 13)
+    assert txt + 14 <= 196  # texto inteiro dentro da moldura (medidas do mockup)
+    assert 14 + ms.tw("SESSION ACTIVE · B2", "mono", 10, None, 0.12) <= 196
     sb = w.screen("idle")
     assert not sb.learn_btn.intersects(sb.talk)
     assert sb.learn_btn.bottom() <= sb.y_rule2

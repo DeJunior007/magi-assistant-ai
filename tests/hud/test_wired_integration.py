@@ -181,11 +181,8 @@ def test_termometro_nas_duas_telas_invalida_so_ele(cls):
 
 
 def test_barras_das_unidades_preenchem_a_coluna():
-    name_w, key_w, val_w = ms.unit_columns()
-    r = ms.UNITS[0]
-    seg_w = (r.right() - 15 - 70 - ms.UNIT_GAP - val_w - ms.ROW_GAP) - \
-        (r.left() + 15 + name_w + ms.UNIT_GAP + key_w + ms.ROW_GAP)
-    assert seg_w >= 90
+    # mockup: 18 barras de 4 px num espaço de 82 px (overflow: hidden) → 14 inteiras à vista
+    assert ms.BARS == 14 and ms.BARS * 6 - 2 <= ms.BAR_AREA
 
 
 # ------------------------------------------------------------------ HUD real (gamerhud)

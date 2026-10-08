@@ -128,6 +128,8 @@ def test_gamerhud_sequencia_real_sem_pisca_e_roda_na_legenda(make_hud, monkeypat
     w.on_face_speech(long, 1.0, 1)
     clock[0] = 105.0
     w.caption_tick()
+    clock[0] = 110.0  # o terminal digita o texto longo (1 caractere por vez) até alcançar a fala
+    w.caption_tick()
     main = w.wired.main
     assert main.cap.max_off > 0 and main.cap.follow
     s = main.scale(w.size())
