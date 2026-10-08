@@ -123,3 +123,23 @@ def test_junta_da_ponta_nao_fica_translucida(tmp_path):
     cover = 1 - (1 - pa[:, col]) * (1 - ta[:, col])  # cobertura das duas camadas juntas
     assert cover[480:700].min() > 0.98  # antes: ~0.75 no meio da junta
     assert pa[500 + 2 * cb.JOINT_FADE + 5, col] < 0.05  # o pai some depois que a ponta entrou
+
+
+def test_cabelo_atras_do_corpo_nao_aparece_no_esmaecimento(tmp_path):
+    """Na faixa do esmaecimento o corpo fica translúcido: o cabelo de trás que ele cobre não pode
+    aparecer pela camisa (eram as pontas fantasma no busto); fora do corpo e acima da faixa, intacto."""
+    src, out = tmp_path / "src", tmp_path / "out"
+    src.mkdir()
+    (out / "parts").mkdir(parents=True)
+    body = np.ones((cb.SIZE, cb.SIZE, 3), np.uint8) * KEY.astype(np.uint8)
+    body[600:, 300:700] = 235  # camisa branca até embaixo
+    Image.fromarray(body).save(src / "P6.png")
+    hair = np.zeros((cb.SIZE, cb.SIZE, 4), np.uint8)
+    hair[100:, 200:800] = [*PINK.astype(np.uint8), 255]
+    Image.fromarray(hair, "RGBA").save(out / "parts" / "back.png")
+    cb.hide_behind_body(src, out, Image.fromarray(body))
+    a = np.asarray(Image.open(out / "parts" / "back.png"))[..., 3] / 255
+    low = int(cb.SIZE * (1 - cb.FADE_BOTTOM)) + 20
+    assert a[low:, 330:670].max() < 0.02  # atrás da camisa, na faixa: some
+    assert a[low:, 210:280].min() > 0.98  # fora do corpo: fica
+    assert a[650:800, 330:670].min() > 0.98  # acima da faixa: o corpo é opaco, nada muda

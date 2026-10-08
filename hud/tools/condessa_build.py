@@ -54,6 +54,9 @@ RING = 1  # px logo dentro da orla tratados como orla (o verde vaza um pouco par
 # mechas regeneradas pela IA (H1–H4): só a silhueta vale; a cor vem da A1 (ver split_hair)
 SPLIT = {"H1": "lock_l", "H2": "lock_r", "H3": "bangs_c", "H4": "clip"}
 SHIFT_MAX = 8  # busca do deslocamento ótimo da silhueta contra a A1 (±px)
+# camadas desenhadas atrás do corpo (ordem do PartsPortrait) e quem as cobre na faixa do esmaecimento
+BEHIND_BODY = ("back", "back_tip", "tail_l", "tail_l_tip", "tail_r", "tail_r_tip", "arm_l", "arm_r")
+COVER_MARGIN = 6  # px de folga dentro da silhueta do corpo (o cabelo balança alguns px em relação a ele)
 
 DEFAULT_TOML = """\
 # Condessa em partes (2.5D). Olhos/bocas = IDs da checklist (eyes/<ID>.png, mouth/<ID>.png).
@@ -191,7 +194,8 @@ def neck_only() -> np.ndarray:
 def bottom_fade() -> np.ndarray:
     y = np.arange(SIZE, dtype=np.float32)[:, None]
     start = SIZE * (1 - FADE_BOTTOM)
-    return np.clip((SIZE - y) / (SIZE - start), 0, 1) * np.ones((1, SIZE), np.float32)
+    f = np.clip((SIZE - y) / (SIZE - start), 0, 1)
+    return f * f * (3 - 2 * f) * np.ones((1, SIZE), np.float32)  # smoothstep: sem quina no começo
 
 
 def with_alpha(im: Image.Image, factor: np.ndarray) -> Image.Image:
@@ -239,6 +243,7 @@ def build(src: Path, out: Path) -> list[str]:
         with_alpha(chroma(fone), m).save(out / "extra" / "fone.png")
     report += split_hair(src, out, base)
     report += build_tips(src, out)
+    report += hide_behind_body(src, out, base)
     report += build_eyes_brows(src, out, base)
     toml = out / "portrait.toml"
     if not toml.exists() or "mode = \"parts\"" not in toml.read_text(encoding="utf-8"):
@@ -276,6 +281,44 @@ def build_tips(src: Path, out: Path) -> list[str]:
         with_alpha(tip_rgba, ramp).save(out / "parts" / f"{parent_name}_tip.png")
         parent = Image.open(parent_path).convert("RGBA")
         with_alpha(parent, 1 - gone * cols).save(parent_path)
+    return report
+
+
+def hide_behind_body(src: Path, out: Path, base: Image.Image) -> list[str]:
+    """Na faixa do esmaecimento de baixo cada camada some sozinha: o corpo (P6) fica translúcido e o
+    que está atrás dele — o P1 inteiro desce atrás da camisa, as pontas das marias-chiquinhas, os
+    braços — aparecia através da camisa e da gravata como pontas de cabelo fantasma no busto. Ali
+    corta-se das camadas de trás o que o corpo (sem o esmaecimento, com uma folga para o balanço)
+    cobre: o empilhado esmaece como a A1 esmaecida. Acima da faixa o corpo é opaco e nada muda."""
+    report = []
+    body = load(src, "P6")
+    if body is None:
+        return report
+    body_a = _alpha(chroma(body))
+    cover_a = body_a
+    for arm in (load(src, i) for i in ARMS):  # o cabelo de trás também passa atrás dos braços
+        if arm is not None:
+            cover_a = np.maximum(cover_a, _alpha(chroma(arm)) * arm_area(base))
+
+    def shrink(a: np.ndarray) -> np.ndarray:
+        im = Image.fromarray((a * 255).astype(np.uint8)).filter(ImageFilter.MinFilter(2 * COVER_MARGIN + 1))
+        return np.asarray(im.filter(ImageFilter.GaussianBlur(COVER_MARGIN / 2))).astype(np.float32) / 255
+
+    y = np.arange(SIZE, dtype=np.float32)[:, None]
+    start = SIZE * (1 - FADE_BOTTOM)
+    band = np.clip((y - start + 2 * JOINT_FADE) / JOINT_FADE, 0, 1) * np.ones((1, SIZE), np.float32)
+    hair_cut, arm_cut = shrink(cover_a) * band, shrink(body_a) * band
+    for name in BEHIND_BODY:
+        path = out / "parts" / f"{name}.png"
+        if not path.exists():
+            continue
+        layer = Image.open(path).convert("RGBA")
+        before = _alpha(layer)
+        cut = arm_cut if name.startswith("arm") else hair_cut
+        with_alpha(layer, 1 - cut).save(path)
+        gone = int(((before * (1 - cut) < 0.05) & (before > 0.15)).sum())
+        if gone:
+            report.append(f"{name}: {gone} px escondidos atrás do corpo cortados na faixa do esmaecimento")
     return report
 
 
