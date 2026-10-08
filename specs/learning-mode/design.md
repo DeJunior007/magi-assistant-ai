@@ -95,7 +95,7 @@ hud/wired/                # tela "learning" DENTRO do gamerhud (P1 = A); nada de
   integration.py          # screen("learning"), hit() com os alvos novos
   main_screen.py, standby_screen.py   # botão LEARNING (alvo "learning") + grupo do cartão LAST SESSION
 hud/gamerhud.py           # view "learning", mouse (press/move/release/duplo/roda), QLineEdit, troca de foco
-hud/hud_bridge.py         # lm_hello ao conectar; lm_* → learning_model; envia lm_say/lm_action/lm_mode/lm_cfg
+hud/hud_bridge.py         # lm_* → learning_model; envia lm_say/lm_action/lm_mode/lm_cfg
 tests/learning/
 ```
 
@@ -429,8 +429,8 @@ Novas mensagens no padrão de `magi/common/contracts.py` (JSON de uma linha, cam
 spec §6. Atenção: `decode_hud` (`magi/common/events.py`) **levanta `HudDecodeError` para tipo desconhecido**;
 antes de emitir `lm_*` é preciso confirmar que o cliente do `gamerhud` registra e ignora o erro
 (sem derrubar a conexão) ou enviar `lm_*` só ao cliente que se anunciou como Learning (task LM1.2).
-Com P1 = A o cliente Learning **é o próprio `gamerhud`**: `hud/hud_bridge.py` manda `lm_hello` ao
-conectar (só ele; `magi-view.py` e outros clientes não) e entrega os `lm_*` ao `learning_model`.
+Com P1 = A o cliente Learning **é o próprio `gamerhud`**: `hud/hud_bridge.py` entrega os `lm_*` ao
+`learning_model`; sem `lm_hello` (nota LM0.2 abaixo): o núcleo filtra por modo e reenvia `lm_mode on` a quem conecta.
 
 > **Nota LM0.2 (socket do HUD com tipos novos) — decisão: (b) decoder tolerante, sem `lm_hello`.**
 > - `decode_hud` continua estrito: tipo fora de `_HUD_DECODERS` levanta `HudDecodeError` (`magi/common/events.py:363-365`). A tolerância já está em quem chama, nos dois lados.

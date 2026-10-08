@@ -204,11 +204,10 @@ com `ok = false` (LM-007). Nova `lm_action` do mesmo cliente cancela a anterior 
 
 | Tipo | Direção | Campos |
 | --- | --- | --- |
-| `lm_hello` | UI → núcleo | `{}` — a conexão se identifica como Learning (com P1 = A, o `hud_bridge` do `gamerhud`); só ela recebe `lm_*` |
 | `lm_mode` | ambos | `{"on": bool}` — UI pede (botão); núcleo confirma a todos os clientes Learning (também quando o pedido veio por voz); o `gamerhud` só troca de tela ao receber a confirmação |
 | `lm_session` | núcleo → UI | `{"id","started_at","level","track","topic","n_msgs","obs_count"}` |
 | `lm_say` | UI → núcleo | `{"text"}` |
-| `lm_msg` | núcleo → UI | `{"id","author","source","text","at","speaking"}` |
+| `lm_msg` | núcleo → UI | `{"id","author","source","text","at","speaking","text_final"}` — `text_final` só na voz do Pedro, quando o Corrector mudou o texto |
 | `lm_action` | UI → núcleo | `{"id","kind","message_id","start","end"}` |
 | `lm_result` | núcleo → UI | `ActionResult` em JSON |
 | `lm_obs` | núcleo → UI | `{"items":[Observation…],"count"}` — lista inteira da sessão (idempotente) |
@@ -410,7 +409,7 @@ learning e recarrega as últimas 200 mensagens do banco.
 | Seleção na mensagem em fala | menu não abre até terminar |
 | Selecionar dentro do balão | não abre outro menu (sem aninhamento no MVP) |
 | Sai do modo (ou o `gamerhud` cai) com ação pendente | ação continua e grava; resultado vai ao cache |
-| Dois clientes com `lm_hello` (ex.: `gamerhud` reiniciado antes da conexão velha cair) | ambos recebem `lm_*`; ações são por cliente (`id`) |
+| Dois clientes conectados (ex.: `gamerhud` reiniciado antes da conexão velha cair) | ambos recebem `lm_*`; ações são por cliente (`id`); quem conecta com a sessão ativa recebe `lm_mode on` de novo |
 | Voz "end session" dentro de uma frase de conversa ("the session ended late") | não encerra: a frase tem palavras sobrando e o roteador penaliza; coberto em teste |
 | `learning.start` com o modo já ligado / `learning.stop` desligado | só confirma, sem efeito |
 | Clique entre duas palavras / fim da linha | seleciona a palavra mais próxima na mesma linha |
@@ -461,7 +460,7 @@ learning e recarrega as últimas 200 mensagens do banco.
 | CA-15 | DAT-003, LM-010 | `003_learning.sql` não contém `DROP`, `vector` nem `ALTER … DROP`; aplicar 2× não faz nada | [test `test_migration.py`] |
 | CA-16 | MEM-002 | toda observação gravada tem `rule_key` não vazio e `session_id` | [test `test_repo.py`] |
 | CA-17 | UI-001 | tabela §7 coberta por teste puro de mapeamento | [test `test_state_label.py`] |
-| CA-18 | LM-005 | fora do modo, nenhum `lm_*` é publicado (exceto `lm_summary` logo após o fechamento) e os clientes recebem as mesmas mensagens de antes; cliente sem `lm_hello` nunca recebe `lm_*` | [test `test_socket.py`] |
+| CA-18 | LM-005 | fora do modo, nenhum `lm_*` é publicado (exceto `lm_summary` logo após o fechamento) e os clientes recebem as mesmas mensagens de antes; clientes antigos ignoram `lm_*` (decoder tolerante, nota LM0.2) e quem conecta durante a sessão recebe `lm_mode on` | [test `test_socket.py`] |
 | CA-18b | LM-005 | botão/`lm_mode` troca `full`/`idle` → `learning` e volta para a view guardada; painel e espera sem o modo pintam igual a antes (exceto o botão) e cliques antigos (LED, player, cards, rosto) seguem iguais | [test `test_learning_toggle.py`] |
 | CA-19 | PRN-001..004, SYS-* | revisão visual: captura na resolução do monitor do HUD (3440×1440 se for o ultrawide, P10) do estado padrão (sem balão, drawer fechado) e do painel/espera com o botão LEARNING, do seletor de tema aberto, do balão Vocabulary com ★ e do cartão `LAST SESSION` no painel e na espera, aprovada pelo Pedro | [manual] |
 | CA-20 | LM-011 | `summarize` com observações de exemplo: `practiced`/`new_words`/`more_*`/`duration_s` (sem cauda ociosa) corretos; `n_you = 0` não envia; com repo lento (2 s) o `lm_mode off` sai em ≤ 50 ms e o `lm_summary` depois; resumo gravado em `learning_sessions.summary` | [test `test_summary.py`] |
