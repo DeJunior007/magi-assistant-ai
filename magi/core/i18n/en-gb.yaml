@@ -137,6 +137,13 @@ fixed:
   "Tocando.": "Playing."
   "Voltando.": "Going back."
   "Tem uma novidade.": "There's one new thing."
+  # Learning Mode (LM1.4): a aula é em inglês, a resposta curta também
+  "Modo aula ligado. Bora conversar.": "Learning mode on. Let's talk."
+  "Aula encerrada. Mandou bem.": "Session ended. Good job."
+  "O modo aula já está ligado.": "Learning mode's already on."
+  "Não tem aula aberta.": "There's no session open."
+  "Modo aula indisponível agora.": "Learning mode isn't available right now."
+  "Não consegui trocar o modo aula.": "I couldn't switch learning mode."
 
 templates:
   "Já usei as {n} sessões do Claude Code de hoje. Amanhã eu vejo.": "I've used today's {n} Claude Code sessions. I'll look tomorrow."

@@ -638,3 +638,37 @@ intents:
       - "como ta o conserto"
       - "e o conserto"
       - "como ta o autoconserto"
+
+  # -- Learning Mode (LM1.4, design §10, LM-005) -------------------------------
+  # A fala chega em PT ou EN (STT com idioma automático): frases nos dois idiomas. Só existem no
+  # roteador com ``[learning] enabled`` (``magi.learning.intent_action.wire``).
+  - id: learning.start
+    label: "entrar no modo aula"
+    reply: null
+    phrases:
+      - "modo aula"
+      - "modo de estudo"
+      - "vamos estudar inglês"
+      - "bora estudar inglês"
+      - "aula de inglês"
+      - "começar a aula"
+      - "learning mode"
+      - "english class"
+      - "english lesson"
+      - "start the lesson"
+      - "let's study english"
+
+  - id: learning.stop
+    label: "encerrar a aula"
+    reply: null
+    phrases:
+      - "encerrar aula"
+      - "encerra a aula"
+      - "sair do modo aula"
+      - "sair do modo de estudo"
+      - "fim da aula"
+      - "end session"
+      - "end the class"
+      - "end the lesson"
+      - "exit learning mode"
+      - "stop learning mode"

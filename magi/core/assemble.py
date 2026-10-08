@@ -67,6 +67,7 @@ from magi.core.proactive.alerts import AlertMonitor, AlertsConfig
 from magi.core.proactive.news import DeliveryConfig, NewsDelivery
 from magi.core.proactive.sink import ProactiveSink, Targets
 from magi.core.turn import TurnDeps
+from magi.learning import intent_action as learning_voice
 
 log = logging.getLogger(__name__)
 
@@ -147,6 +148,7 @@ class Repos:
     help: Any = None  # magi.memory.help.PgHelpLogRepo (ajuda no jogo, 4.5)
     profile: Any = None  # magi.memory.profile.PgProfileRepo (perfil e estilo, 4.2)
     vocab: Any = None  # magi.memory.profile.PgVocabRepo (gírias/nomes para a dica do STT, 4.2)
+    conn: Any = None  # magi.memory.conn.SerialConn compartilhada (Learning Mode, LM1.3/LM1.4)
 
 
 class MemoryCorrectionsRepo:
@@ -213,7 +215,7 @@ async def open_postgres(config: Config, memories_dim: int | None, news_dim: int 
         corrections=CorrectionsRepo(conn), costs=CostsRepo(conn), close=conn.close,
         taste=TasteRepo(conn), news=PgNewsRepo(conn), music_signals=MusicSignalsRepo(conn),
         memories=PgMemoriesRepo(conn), turns=PgTurnsRepo(conn), mood_events=PgMoodEventsRepo(conn),
-        help=PgHelpLogRepo(conn), profile=PgProfileRepo(conn), vocab=PgVocabRepo(conn),
+        help=PgHelpLogRepo(conn), profile=PgProfileRepo(conn), vocab=PgVocabRepo(conn), conn=conn,
     )
 
 
@@ -507,6 +509,7 @@ async def assemble(
         from magi.agent.self_model import HelpHandler
 
         found = [*found, HelpHandler(core.self_model)]
+    found = learning_voice.wire(config, core.deps, found)  # "modo aula"/"end session" (LM1.4)
     core.deps.actions = actions.Registry(found)
     core.self_model.registry = core.deps.actions
     _wire_music(core, found)
@@ -539,6 +542,7 @@ async def assemble(
     _wire_profile(core)
     _wire_help(core)
     _wire_news_agent(core)
+    learning_voice.wire_persona(config, core.deps)  # bloco "Learning Mode" com sessão ativa (LM1.4)
     core.self_model.agent_ready = core.deps.agent is not None
     return core
 

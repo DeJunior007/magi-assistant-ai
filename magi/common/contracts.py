@@ -465,6 +465,8 @@ class IntentId(StrEnum):
     CONFIRM_YES = "confirm.yes"  # "confirma" (R5.4)
     CONFIRM_NO = "confirm.no"  # "cancela"
     HELP = "magi.help"  # "o que você sabe fazer?", "quem é você?" (3.9)
+    LEARNING_START = "learning.start"  # "modo aula", "english class" (LM1.4, LM-005)
+    LEARNING_STOP = "learning.stop"  # "encerrar aula", "end session"
 
 
 @dataclass(frozen=True, slots=True)

@@ -128,6 +128,13 @@ lazy:
   - "Não te mostrei notícia nenhuma agora há pouco."
   - "Tô sem o banco das notícias agora."
   - "Não entendi qual obra."
+  # Learning Mode (LM1.4): entrar/sair por voz
+  - "Modo aula ligado. Bora conversar."
+  - "Aula encerrada. Mandou bem."
+  - "O modo aula já está ligado."
+  - "Não tem aula aberta."
+  - "Modo aula indisponível agora."
+  - "Não consegui trocar o modo aula."
 
 templates:
   - "Já usei as {n} sessões do Claude Code de hoje. Amanhã eu vejo."
