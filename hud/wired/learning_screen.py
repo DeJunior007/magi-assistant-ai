@@ -8,16 +8,19 @@ exato do painel gamer (``MASCOT_MAIN.size()``, LM-015).
 Grupos: ``header`` (relógio, botão END SESSION, linha da sessão), ``mascot`` (o retrato, pintado
 pela base como nas outras telas), ``condessa`` (estado da spec §7 e nível), ``system`` (coluna
 esquerda: MAGI SYSTEM recolhível, sessão e rede, em ``TEXT_DIM``), ``footer`` (log de uma linha)
-e, ainda vazios, ``history``/``input``/``obs``/``topic``/``overlay`` (LM1.6, LM2.2, LM4.3, LM1.9).
+``history`` (LM1.6: caixas de ``learning_text.wrap``, rótulos CONDESSA/YOU, rolagem, mensagem em
+fala revelada), ``input`` (LM1.6: moldura do campo, onda de áudio por ``mouth``, ``STATUS //
+CONNECTED/DISCONNECTED``) e, ainda vazios, ``obs``/``topic``/``overlay`` (LM4.3, LM1.9, LM2.2).
 ``hit_test`` devolve ``"learning"`` no botão END SESSION (a ação é ligada no LM1.7).
 
-Os dados próprios do modo ficam em ``LearningInfo`` (``screen.info``) até o LM1.6 trazer o
-``learning_model``; o resto vem do ``Snapshot`` comum (estado da Condessa, MAGI, rede).
+Os dados do modo vêm do ``learning_model.LearningModel`` (``screen.info``/``screen.model``;
+``LearningInfo`` é o mesmo tipo, nome do LM1.5); o resto vem do ``Snapshot`` comum. O mouse da
+view learning chega por ``mouse(kind, point, delta)`` (despachante ``WiredUI.learning_mouse``).
+O campo de texto é um ``QLineEdit`` filho do gamerhud posicionado em ``entry_rect()`` × escala.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt
@@ -25,7 +28,8 @@ from PySide6.QtGui import QPainter, QPen
 
 from . import kit
 from .learning_layout import CHAR_W, LearningLayout, screen_layout, state_label
-from .learning_text import Rect
+from .learning_model import LearningModel
+from .learning_text import Point, Rect, WordBox, Wrapped, wrap
 from .main_screen import (
     JP_DAYS,
     MASCOT_MAIN,
@@ -41,7 +45,7 @@ from .main_screen import (
     text,
     width,
 )
-from .theme import GPU, HOT, LINE, LINE_STRONG, TEXT, TEXT_DIM, color
+from .theme import CPU, GPU, HOT, LINE, LINE_STRONG, TEXT, TEXT_DIM, color
 
 W, H = 1920.0, 1080.0  # quadro lógico do HUD em DP-1 (2560×1440 ÷ 1,333)
 END_LINE = "#6e5a9e"   # borda do botão END SESSION (protótipo aprovado)
@@ -49,27 +53,21 @@ END_TEXT = "#d8c7ff"
 CENTER_FILL = "#0c0b11"
 C = Qt.AlignmentFlag.AlignHCenter
 R = Qt.AlignmentFlag.AlignRight
+TEXT_PX = 16           # mono da conversa (CHAR_W = avanço do mono 16)
+LINE_H = 30.0          # altura da linha do histórico
+MSG_GAP = 14.0         # entre mensagens
+LABEL_W = 112.0        # coluna dos rótulos CONDESSA/YOU
+BASE = 21.0            # da linha ao baseline do texto
+WHEEL_STEP = 3 * LINE_H  # px lógicos por "clique" da roda
+ENTRY_PAD_L = 34.0     # ">" antes do campo
+ENTRY_HINT_W = 92.0    # "ENTER ↵" à direita do campo
 
 
 def qr(r: Rect) -> QRectF:
     return QRectF(r.x, r.y, r.w, r.h)
 
 
-@dataclass
-class LearningInfo:
-    """Estado do modo mostrado pela tela (o LM1.6 passa a alimentar pelo ``learning_model``)."""
-
-    session_active: bool = True
-    session_no: int = 1
-    language: str = "ENGLISH"
-    level: str = "B2"
-    mode: str = "CONVERSATION"
-    action_running: bool = False
-    connected: bool = True
-    speak_replies: bool = True   # SPEAKING ● ACTIVE/OFF
-    muted: bool = False          # LISTENING ● READY/MUTED
-    magi_open: bool = True       # MAGI SYSTEM aberto (três unidades) ou recolhido a uma linha
-    log: str | None = None       # linha do rodapé
+LearningInfo = LearningModel  # nome do LM1.5 (testes e chamadas antigas)
 
 
 class LearningScreen(Screen):
@@ -77,9 +75,10 @@ class LearningScreen(Screen):
 
     SCENE_KIND = "main"  # sem cenário animado: ``scene_rects`` é vazio
 
-    def __init__(self, mascot=None, info: LearningInfo | None = None):
+    def __init__(self, mascot=None, info: LearningModel | None = None):
         super().__init__(mascot)
-        self.info = info or LearningInfo()
+        self.info: LearningModel = info or LearningModel()
+        self._wrap: tuple[tuple, Wrapped] | None = None
         size = MASCOT_MAIN.size()
         self.L: LearningLayout = screen_layout(W, H, (size.width(), size.height()))
         self.MASCOT_RECT = qr(self.L.portrait)
@@ -169,7 +168,11 @@ class LearningScreen(Screen):
                     rate(snap.net_down), rate(snap.net_up))
         if name == "footer":
             return (i.log,)
-        return ()  # history/input/obs/topic/overlay: vazios até as próximas tarefas
+        if name == "history":
+            return i.history_key()
+        if name == "input":
+            return (i.connected, i.state == "speaking", i.wave_key())
+        return ()  # obs/topic/overlay: vazios até as próximas tarefas
 
     def draw_group(self, name: str, p: QPainter, snap: Snapshot, now: datetime, s: float) -> None:
         fn = getattr(self, f"_g_{name}", None)
@@ -284,6 +287,128 @@ class LearningScreen(Screen):
             label(p, x0, top3 + 70, f"↓ {rate(snap.net_down)}   ↑ {rate(snap.net_up)}", px=12,
                   upper=False, max_w=x1 - x0)
 
+    # ---------------------------------------------------------------- conversa (LM1.6)
+
+    def wrapped(self) -> Wrapped:
+        """Quebra de todas as mensagens na largura do histórico, a partir de y = 0 (cache por
+        versão da lista e largura). As caixas valem para pintar e para o hit-test (LM2.2)."""
+        h, i = self.L.history, self.info
+        key = (i.msg_version, h.w)
+        if self._wrap is None or self._wrap[0] != key:
+            self._wrap = (key, wrap(i.messages, h.w, _measure, x=h.left, y=0.0, indent=LABEL_W,
+                                    line_h=LINE_H, gap=MSG_GAP))
+        return self._wrap[1]
+
+    def max_scroll(self) -> float:
+        return max(0.0, self.wrapped().height - self.L.history.h)
+
+    def history_dy(self) -> float:
+        """Deslocamento vertical das caixas de ``wrapped()`` até a tela (últimas embaixo)."""
+        h, wr = self.L.history, self.wrapped()
+        if wr.height <= h.h:
+            return h.top
+        return h.bottom - wr.height + min(self.info.scroll, self.max_scroll())
+
+    def history_boxes(self) -> list[WordBox]:
+        """Caixas de palavra visíveis, em coordenadas lógicas da tela (para o hit-test)."""
+        h, dy = self.L.history, self.history_dy()
+        out = []
+        for b in self.wrapped().boxes:
+            r = b.rect.moved(b.rect.x, b.rect.y + dy)
+            if r.bottom > h.top and r.top < h.bottom:
+                out.append(WordBox(b.message_id, b.start, b.end, r, b.line))
+        return out
+
+    def _g_history(self, p, snap, now, s):
+        h, i = self.L.history, self.info
+        hr = qr(h)
+        if not i.messages:
+            label(p, hr.center().x(), hr.center().y(), "say something — or type below", px=12,
+                  align=C)
+            return
+        wr, dy = self.wrapped(), self.history_dy()
+        texts = {m.id: m for m in i.messages}
+        p.save()
+        p.setClipRect(hr)
+        for line in wr.lines:
+            top = line.rect.y + dy
+            if top + LINE_H <= h.top or top >= h.bottom:
+                continue
+            m = texts.get(line.message_id)
+            if m is None:
+                continue
+            cond = m.author == "condessa"
+            if line.first:
+                text(p, h.left, top + BASE, "CONDESSA" if cond else "YOU", key="cond", px=16,
+                     weight=600, spacing=0.12, color_=CPU if cond else TEXT_DIM)
+            end = i.revealed_end(m)
+            for b in line.boxes:
+                if end is not None and b.end > end:
+                    break
+                text(p, b.rect.x, top + BASE, m.text[b.start:b.end], key="mono", px=TEXT_PX,
+                     color_=TEXT)
+        p.restore()
+        ms = self.max_scroll()
+        if ms > 0:  # barra fina de rolagem na borda direita da coluna
+            frac = h.h / (h.h + ms)
+            bar_h = max(24.0, h.h * frac)
+            pos = 1.0 - min(i.scroll, ms) / ms
+            y = h.top + (h.h - bar_h) * pos
+            p.fillRect(QRectF(self.L.center.right - 8, y, 2, bar_h), color(LINE_STRONG))
+
+    def entry_rect(self) -> QRectF:
+        """Onde fica o ``QLineEdit`` (lógico; o gamerhud multiplica pela escala)."""
+        e = self.L.entry
+        return QRectF(e.left + ENTRY_PAD_L, e.top + 4, max(0.0, e.w - ENTRY_PAD_L - ENTRY_HINT_W),
+                      max(0.0, e.h - 8))
+
+    def _g_input(self, p, snap, now, s):
+        L, i = self.L, self.info
+        r, e = L.input, L.entry
+        y = r.top + 18
+        label(p, r.left, y, "audio capture // input", px=11)
+        dot_col, st = (GPU, "CONNECTED") if i.connected else (HOT, "DISCONNECTED")
+        sw = label(p, r.right, y, f"status // {st}", px=11, color_=dot_col, align=R).width()
+        p.save()
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(color(dot_col))
+        p.drawEllipse(QPointF(r.right - sw - 12, y - 4), 3.5, 3.5)
+        p.restore()
+        # onda de áudio: uma barra por nível de boca recente
+        wave = list(i.wave)
+        top, bottom = y + 10, e.top - 8
+        wh = max(2.0, bottom - top)
+        ww = r.w
+        n = max(1, len(wave))
+        step = ww / n
+        mid = top + wh / 2
+        live = i.state == "speaking"
+        col = color(CPU if live else LINE_STRONG)
+        for k, v in enumerate(wave):
+            bh = max(1.0, v * wh)
+            p.fillRect(QRectF(r.left + k * step + 1, mid - bh / 2, max(1.0, step - 3), bh), col)
+        # moldura do campo (o QLineEdit é filho do gamerhud, sem moldura própria)
+        er = qr(e)
+        p.save()
+        p.setPen(QPen(color(LINE_STRONG), 1))
+        p.drawRect(er.adjusted(0.5, 0.5, -0.5, -0.5))
+        p.restore()
+        text(p, e.left + 14, e.top + e.h / 2 + 7, ">", key="mono", px=18, color_=CPU)
+        label(p, e.right - 14, e.top + e.h / 2 + 5, "enter ↵", px=11, align=R)
+
+    # ---------------------------------------------------------------- mouse (LM1.6)
+
+    def mouse(self, kind: str, point: Point, delta: float = 0.0) -> str | None:
+        """Evento de mouse da view learning em coordenadas lógicas. ``kind``: press, move,
+        release, double, wheel (``delta`` em "cliques", positivo = para cima/mensagens antigas).
+        Devolve o alvo do clique (``"learning"`` = END SESSION) ou ``None``. Seleção: LM2.2."""
+        if kind == "press" and self.L.end_btn.contains(point):
+            return "learning"
+        if kind == "wheel" and delta and self.L.history.contains(point):
+            self.info.scroll_by(delta * WHEEL_STEP, self.max_scroll())
+        return None
+
     def _g_footer(self, p, snap, now, s):
         r = self._footer_rect()
         msg = self.info.log or NA
@@ -303,6 +428,10 @@ class LearningScreen(Screen):
     def text_chars(self) -> float:
         """Caracteres do mono 16 por linha do histórico (RNF-06: ≤ ~110)."""
         return self.L.history.w / CHAR_W
+
+
+def _measure(s: str) -> float:
+    return width(s, "mono", TEXT_PX)
 
 
 def _pct(v: float | None) -> int | None:

@@ -22,6 +22,11 @@ Escolhas:
   valores do contrato). Os dois devolvem o mesmo dict normalizado (o `to_dict()` do contrato),
   e é ele que vai nos sinais: `face`/`gamerhud` não dependem de `magi`.
 - Linha inválida (JSON quebrado, tipo desconhecido, campo errado) é ignorada; a conexão segue.
+- Learning Mode (LM1.6): todo `lm_*` vindo do núcleo vai ao `learning_model` (se houver, com
+  `feed(msg)`) e ao sinal `learning(dict)`; a queda da conexão vira `set_connected(False)`. Sem
+  `lm_hello` (decisão b do LM0.2): o núcleo reenvia `lm_mode on` a quem conecta no meio da
+  sessão. `send_lm(tipo, campos)` manda `lm_say`/`lm_mode`/`lm_cfg`/`lm_action`/`lm_topic`/
+  `lm_save` (validados pelo contrato quando ele existe).
 """
 
 from __future__ import annotations
@@ -156,6 +161,17 @@ LM_TYPES = (
     "lm_obs", "lm_cfg", "lm_topic", "lm_save", "lm_saved", "lm_summary",
 )
 
+#: `lm_*` que a UI manda ao núcleo, com os campos obrigatórios (spec §6).
+LM_SEND: dict[str, tuple[str, ...]] = {
+    "lm_say": ("text",),
+    "lm_mode": ("on",),
+    "lm_cfg": (),
+    "lm_action": ("id", "kind", "message_id", "start", "end"),
+    "lm_topic": ("topic",),
+    "lm_save": ("action_id", "on"),
+}
+LM_SAY_MAX = 2000  # caracteres (spec §4.2: maior que isso é recusado na UI)
+
 _MIN_DECODERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "state": _m_state,
     "subtitle": _m_subtitle,
@@ -208,6 +224,31 @@ else:
     hud_socket_path = _contract_path  # noqa: F811 - o contrato manda quando existe
 
 
+def encode_lm(t: str, fields: dict[str, Any] | None = None) -> bytes:
+    """Linha `{"t": t, **fields}` de uma `lm_*` da UI. `DecodeError` se o tipo não sai da UI, faltar
+    campo obrigatório ou (com `magi`) o contrato recusar a mensagem."""
+    if t not in LM_SEND:
+        raise DecodeError(f"lm_* que não sai da UI: {t!r}")
+    d: dict[str, Any] = {"t": t, **dict(fields or {})}
+    missing = [k for k in LM_SEND[t] if k not in d]
+    if missing:
+        raise DecodeError(f"{t}: faltam {missing}")
+    if t == "lm_say":
+        text = str(d["text"]).strip()
+        if not text or len(text) > LM_SAY_MAX:
+            raise DecodeError("lm_say vazio ou longo demais")
+        d["text"] = text
+    line = (json.dumps(d, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+    if len(line) > MAX_LINE:
+        raise DecodeError("lm_* maior que MAX_LINE")
+    if _decode_hud is not None:
+        try:
+            _decode_hud(line)
+        except Exception as e:  # HudDecodeError, ValueError...
+            raise DecodeError(str(e)) from e
+    return line
+
+
 def _decode_magi(line: str | bytes) -> dict[str, Any]:
     """`decode_hud` do contrato, devolvendo o dict normalizado (`to_dict()`)."""
     assert _decode_hud is not None
@@ -244,6 +285,7 @@ class HudBridge(QObject):
       card(dict)             {"level","title","url"[,"source"]}
       detail(str)            painel de detalhe: cpu, gpu, memory ou none (fecha)
       connectedChanged(bool) conectou/caiu
+      learning(dict)         toda `lm_*` (depois de entregue ao `learning_model`)
     """
 
     message = Signal(dict)
@@ -256,6 +298,7 @@ class HudBridge(QObject):
     card = Signal(dict)
     detail = Signal(str)
     connectedChanged = Signal(bool)
+    learning = Signal(dict)
 
     def __init__(
         self,
@@ -264,8 +307,10 @@ class HudBridge(QObject):
         *,
         backoff_start: float = BACKOFF_START,
         backoff_max: float = BACKOFF_MAX,
+        learning_model: Any = None,
     ) -> None:
         super().__init__(parent)
+        self.learning_model = learning_model  # LearningModel (hud/wired/learning_model.py) ou None
         self.path = Path(path) if path is not None else hud_socket_path()
         self._backoff_start = backoff_start
         self._backoff_max = backoff_max
@@ -325,6 +370,20 @@ class HudBridge(QObject):
         self._sock.flush()
         return True
 
+    def send_lm(self, t: str, fields: dict[str, Any] | None = None) -> bool:
+        """Envia uma `lm_*` da UI ao núcleo (`lm_say`, `lm_mode`, `lm_cfg`, `lm_action`,
+        `lm_topic`, `lm_save`). Falso se não estiver conectado ou a mensagem for inválida."""
+        if not self._connected:
+            return False
+        try:
+            line = encode_lm(t, fields)
+        except DecodeError as e:
+            log.warning("lm_* não enviada: %s", e)
+            return False
+        self._sock.write(line)
+        self._sock.flush()
+        return True
+
     # -- conexão --------------------------------------------------------------------------
 
     def _try_connect(self) -> None:
@@ -344,6 +403,8 @@ class HudBridge(QObject):
         if value != self._connected:
             self._connected = value
             log.info("núcleo %s (%s)", "conectado" if value else "desconectado", self.path)
+            if self.learning_model is not None:
+                self.learning_model.set_connected(value)
             self.connectedChanged.emit(value)
 
     def _on_connected(self) -> None:
@@ -387,6 +448,14 @@ class HudBridge(QObject):
             log.debug("linha ignorada: %s", e)
             return
         self.message.emit(msg)
+        if msg["t"].startswith("lm_"):
+            if self.learning_model is not None:
+                try:
+                    self.learning_model.feed(msg)
+                except Exception:  # noqa: BLE001 - o modelo nunca derruba a conexão
+                    log.exception("learning_model falhou com %s", msg["t"])
+            self.learning.emit(msg)
+            return
         fn = self._dispatch.get(msg["t"])
         if fn is not None:
             fn(msg)

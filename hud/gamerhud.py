@@ -28,7 +28,7 @@ from PySide6.QtDBus import QDBusConnection, QDBusInterface
 from PySide6.QtGui import (QColor, QFont, QFontDatabase, QGuiApplication, QIcon, QImage,
                            QLinearGradient, QPainter, QPainterPath, QPen,
                            QPixmap, QPolygonF, QRegion)
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -37,8 +37,11 @@ import hud_bridge  # noqa: E402
 from face import Face  # noqa: E402
 from speech_caption import SpeechCaption  # noqa: E402
 from turn_phase import TurnPhase  # noqa: E402
+from wired import fonts as wfonts  # noqa: E402
+from wired import theme as wtheme  # noqa: E402
 from wired.data import ClaudeStats  # noqa: E402
 from wired.integration import CARD_DETAIL, WiredUI, rgb_hex  # noqa: E402
+from wired.learning_model import LearningModel, check_say  # noqa: E402
 
 TARGET_SCREEN = os.environ.get("GAMERHUD_SCREEN", "DP-1")
 CACHE = os.path.expanduser("~/.cache/gamerhud")
@@ -965,6 +968,18 @@ def en_time(h, m):
 # ---------------------------------------------------------------------- HUD
 
 class HUD(QWidget):
+    # view: 'full' | 'idle' (Meta+M) | 'learning'. Propriedade: toda troca (direta, cortina,
+    # settings.json) mostra/esconde o campo de texto da tela learning e troca a flag de foco (LM1.6).
+    @property
+    def view(self):
+        return self._view
+
+    @view.setter
+    def view(self, v):
+        self._view = v
+        if getattr(self, "lm_entry", None) is not None:
+            self.learning_entry_sync()
+
     def __init__(self, fonts, bridge=None):
         super().__init__()
         self.fonts = fonts
@@ -1043,11 +1058,13 @@ class HUD(QWidget):
             self.frame = None
             self.wired.set_state(self.face.state if self.face.state in self.FACE_STATES else "sleeping")
             self.wired.set_mood(self.magui_mood)
+            self.wired.learning.info = self.learning_model
         else:
             self.wired_keep, self.wired = self.wired, None
             self.bg = None
             self.render_caches()
         self.start_timers()
+        self.learning_entry_sync()
         self.update()
         self.face_tick()
 
@@ -1121,6 +1138,14 @@ class HUD(QWidget):
         self.caption_timer.setSingleShot(True)
         self.bridge = bridge if bridge is not None else hud_bridge.HudBridge(parent=self)
         b = self.bridge
+        # Learning Mode (LM1.6): estado da tela alimentado por todo lm_* (o bridge entrega)
+        self.learning_model = LearningModel(connected=False)
+        if self.wired:
+            self.wired.learning.info = self.learning_model
+        b.learning_model = self.learning_model
+        b.learning.connect(self.on_bridge_learning)
+        self.lm_entry = None
+        self.make_learning_entry()
         b.stateChanged.connect(self.on_face_state)
         b.mouth.connect(self.on_face_mouth)
         b.subtitle.connect(self.on_face_subtitle)
@@ -1166,6 +1191,7 @@ class HUD(QWidget):
         self.turn_phase.on_state(expr, now)
         # happy/confused/alert durante a resposta também são fala (o núcleo manda a expressão)
         self.speech_caption.on_state("speaking" if self.turn_phase.speaking else expr, now)
+        self.learning_model.on_state(expr, now, speaking=self.turn_phase.speaking)
         self.caption_tick()
         if self.wired:
             self.wired.set_state(expr)
@@ -1175,8 +1201,11 @@ class HUD(QWidget):
     def on_face_mouth(self, level):
         self.face.set_mouth_level(level)
         self.turn_phase.on_mouth(level, time.monotonic())
+        lm_input = self.learning_model.on_mouth(level, time.monotonic())
         if self.speech_caption.on_mouth(time.monotonic()):   # o áudio começou: a estimativa parte daqui
             self.caption_tick()
+        elif lm_input and self.view == "learning":
+            self.learning_refresh()   # onda de áudio do grupo input
         if self.wired:
             self.wired.set_mouth(level)
         self.face_tick()
@@ -1184,6 +1213,7 @@ class HUD(QWidget):
     def on_face_subtitle(self, text, full=""):
         # fora da fala fica pendente: se a fala vem logo, a legenda nasce vazia (sem o "pisca")
         self.speech_caption.on_subtitle(text, time.monotonic())
+        self.learning_model.on_subtitle(text, time.monotonic())
         self.caption_tick()
         if self.wired:
             self.wired_refresh()
@@ -1193,6 +1223,7 @@ class HUD(QWidget):
         """Frase começando a tocar no satélite: a legenda passa a revelá-la no tempo do áudio."""
         self.turn_phase.on_speech(time.monotonic())
         self.speech_caption.on_speech(text, dur if dur and dur > 0 else None, time.monotonic())
+        self.learning_model.on_speech(text, dur if dur and dur > 0 else None, time.monotonic())
         self.caption_tick()
 
     def caption_tick(self):
@@ -1212,6 +1243,9 @@ class HUD(QWidget):
             if main.caption_feed(self.wired.snap.caption, now) and self.view not in ("idle", "learning"):
                 rects = rects or main.group_rects("talk", self.size())   # rolagem suave da legenda
             deadlines.append(main.caption_deadline(now))
+            if self.view == "learning":   # mensagem da Condessa revelada em sincronia (LM-003)
+                deadlines.append(self.learning_model.deadline(now))
+                rects = list(rects or []) + self.learning_dirty()
             if rects and not self.trans and self.isVisible() and self.width() > 1:
                 for r in rects:
                     self.update(r)
@@ -1226,6 +1260,7 @@ class HUD(QWidget):
             self.caption_timer.start(max(1, math.ceil((deadline - now) * 1000)))
 
     def on_bridge_connected(self, up):
+        self.learning_refresh()   # STATUS // CONNECTED/DISCONNECTED (o bridge já avisou o modelo)
         if up and self.wired:   # voltou: some a interferência do retrato
             self.wired.on_connected(True)
         if not up:   # núcleo fora do ar: a Magui dorme e a legenda some
@@ -1507,8 +1542,95 @@ class HUD(QWidget):
             return "close"
         return None
 
+    # ---------- Learning Mode (LM1.6): campo de texto, despachante de mouse, lm_* ----------
+    def make_learning_entry(self):
+        """QLineEdit filho (design §4.3, caminho 1 do LM0.3): oculto fora da view learning, sem
+        moldura (a moldura é pintada no grupo input), Enter → lm_say, Esc limpa."""
+        e = QLineEdit(self)
+        e.setFrame(False)
+        e.setMaxLength(hud_bridge.LM_SAY_MAX)
+        e.setPlaceholderText("type a message…")
+        e.setAttribute(Qt.WA_MacShowFocusRect, False)
+        e.returnPressed.connect(self.learning_submit)
+        e.hide()
+        e.installEventFilter(self)
+        self.lm_entry = e
+        self.learning_entry_sync()
+
+    def eventFilter(self, obj, ev):
+        if obj is self.lm_entry and ev.type() == ev.Type.KeyPress and ev.key() == Qt.Key_Escape:
+            obj.clear()
+            return True
+        return super().eventFilter(obj, ev)
+
+    def learning_entry_sync(self):
+        """Mostra o campo só na view learning (wired), posicionado no retângulo do campo ×
+        escala, com a fonte × escala. Troca WindowDoesNotAcceptFocus pela QWindow (sem recriar
+        a superfície, LM0.3): sem a flag só na view learning; painel e espera continuam sem foco."""
+        e = self.lm_entry
+        if e is None:
+            return
+        on = self.wired is not None and self.view == "learning"
+        win = self.windowHandle()
+        if win is not None:
+            win.setFlag(Qt.WindowDoesNotAcceptFocus, not on)
+        if not on:
+            if e.isVisible():
+                e.clearFocus()
+                e.hide()
+            return
+        scr = self.wired.learning
+        s = scr.scale(self.size())
+        r = scr.entry_rect()
+        e.setGeometry(round(r.x() * s), round(r.y() * s), round(r.width() * s), round(r.height() * s))
+        e.setFont(wfonts.font("mono", 18 * s))   # o filho não passa pelo p.scale(): fonte × escala
+        e.setStyleSheet(f"QLineEdit {{ background: transparent; border: none; color: {wtheme.TEXT};"
+                        f" selection-background-color: {wtheme.CPU}; }}")
+        if not e.isVisible():
+            e.show()
+            e.setFocus(Qt.OtherFocusReason)
+
+    def learning_submit(self):
+        """Enter no campo: lm_say. Fica o texto se o núcleo estiver fora (rodapé DISCONNECTED)."""
+        txt = check_say(self.lm_entry.text())
+        if txt is None:
+            return
+        if self.bridge.send_lm("lm_say", {"text": txt}):
+            self.lm_entry.clear()
+
+    def learning_dirty(self):
+        """Retângulos da tela learning cujos grupos mudaram (vazio fora da view)."""
+        if not (self.wired and self.view == "learning") or self.trans:
+            return []
+        if not (self.isVisible() and self.width() > 1):
+            return []
+        return self.wired.learning.dirty_regions(self.wired.snap, size=self.size())
+
+    def learning_refresh(self):
+        for r in self.learning_dirty():
+            self.update(r)
+
+    def on_bridge_learning(self, msg):
+        """lm_* (o bridge já entregou ao learning_model): repinta os grupos e agenda a revelação."""
+        if msg.get("t") == "lm_msg":
+            self.caption_tick()   # prazo da revelação da fala + repintura do histórico
+        else:
+            self.learning_refresh()
+
+    def learning_mouse(self, kind, e, delta=0.0):
+        """Despachante único: com view learning, todo evento de mouse vai ao WiredUI."""
+        target = self.wired.learning_mouse(kind, e.position(), self.size(), delta)
+        if kind == "press" and self.lm_entry is not None and self.lm_entry.isVisible():
+            self.lm_entry.setFocus(Qt.MouseFocusReason)   # clicou no HUD: o teclado vai ao campo
+        if target:
+            self.wired_click(target)
+        self.learning_refresh()
+
     def mousePressEvent(self, e):
         if e.button() != Qt.LeftButton:
+            return
+        if self.wired and self.view == "learning":
+            self.learning_mouse("press", e)
             return
         target = self.clickable(e.position())
         if self.wired and target:
@@ -1522,6 +1644,14 @@ class HUD(QWidget):
             self.open_detail(self.detail)
         elif target:
             self.open_detail(target)
+
+    def mouseMoveEvent(self, e):
+        if self.wired and self.view == "learning" and e.buttons() & Qt.LeftButton:
+            self.learning_mouse("move", e)
+
+    def mouseReleaseEvent(self, e):
+        if self.wired and self.view == "learning" and e.button() == Qt.LeftButton:
+            self.learning_mouse("release", e)
 
     def wired_click(self, target):
         """Cliques do tema wired: LED → RGB Sync, player → MPRIS, cards → detalhes por processo.
@@ -1549,6 +1679,11 @@ class HUD(QWidget):
     def wheelEvent(self, e):
         """Roda do mouse sobre a legenda da Condessa: volta para ler a última fala (pausa o
         acompanhamento; volta a acompanhar no fim do texto ou com fala nova)."""
+        if self.wired and self.view == "learning":   # rolagem do histórico (LM1.6)
+            steps = e.angleDelta().y() / 120 or e.pixelDelta().y() / 27
+            self.learning_mouse("wheel", e, steps)
+            e.accept()
+            return
         main = self.wired.main if self.wired else None
         if main is None or self.view in ("idle", "learning") or not main.caption_hit(e.position(), self.size()):
             e.ignore()
@@ -1563,10 +1698,14 @@ class HUD(QWidget):
     def mouseDoubleClickEvent(self, e):
         # Duplo clique não fecha mais o HUD: dois cliques rápidos em notícias/rede derrubavam tudo.
         # Para fechar: pkill -f gamerhud/gamerhud.py (o HUD sobe sozinho no login).
+        # Na view learning ele só seleciona a frase (LM2.2), nunca fecha nada.
+        if self.wired and self.view == "learning" and e.button() == Qt.LeftButton:
+            self.learning_mouse("double", e)
         return
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
+        self.learning_entry_sync()
         if self.wired:
             return   # as telas wired guardam a camada estática por tamanho sozinhas
         self.bg = None

@@ -283,9 +283,11 @@ class WiredUI:
 
     def hit(self, pos: QPoint | QPointF, size: QSize, view: str, detail: str | None = None) -> str | None:
         """Alvo do clique: "led", "prev"/"playpause"/"next", "card:cpu|gpu|ram", "detail" (fecha
-        o painel aberto), "face" (mascote → push-to-talk) ou None."""
+        o painel aberto), "face" (mascote → push-to-talk) ou None. Na view learning só os alvos
+        da ``LearningScreen`` (END SESSION → "learning"): o retrato não é push-to-talk lá; os
+        eventos de mouse dessa view vão por ``learning_mouse``."""
         if view == "learning":
-            return None  # LM1.5 só pinta; o mouse da tela learning chega no LM1.6/LM1.7
+            return self.learning.hit_test(pos, size)
         scr = self.screen(view)
         s = scr.scale(size)
         pt = QPointF(pos.x() / s, pos.y() / s)
@@ -294,6 +296,14 @@ class WiredUI:
         if scr.MASCOT_RECT.contains(pt):
             return "face"
         return scr.hit_test(pos, size)
+
+    def learning_mouse(self, kind: str, pos: QPoint | QPointF, size: QSize,
+                       delta: float = 0.0) -> str | None:
+        """Despachante único do mouse na view learning (LM1.6): press/move/release/double/wheel
+        em pixels do widget → ``LearningScreen.mouse`` em coordenadas lógicas. Devolve o alvo de
+        um clique (``"learning"``) ou ``None``. Duplo clique nunca fecha nada (só seleção, LM2.2)."""
+        s = self.learning.scale(size)
+        return self.learning.mouse(kind, (pos.x() / s, pos.y() / s), delta)
 
     def player(self, target: str) -> bool:
         """Controles do Spotify (MPRIS). True se `target` era um deles."""
