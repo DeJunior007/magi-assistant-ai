@@ -26,6 +26,20 @@ Ciclo de uma ação (spec §5)::
   está no modelo termina e grava; vai ao cache). A cancelada não recebe ``lm_result`` (``None``).
 - **Falhas (LM-007):** 1 nova tentativa só em ``invalid``; ``timeout``/``model``/``budget`` voltam
   direto com ``ok = false``. Só resultados ``ok`` são gravados.
+
+Fila de observações (tarefa LM4.1; spec §9, design §6, ENG-001, CA-02, CA-03, CA-14)::
+
+    wiring → publish(msg do Pedro) → LearningBus (50, descarta o mais antigo) → worker
+           → gate (núcleo em listening/sleeping/followup e nenhuma ação pendente)
+           → Semaphore(1) → analyzers/observe → grava (+ recurring derivado) → on_observed
+
+- ``publish`` é síncrono e não bloqueia; só mensagens do Pedro, só com ``observe_model`` e abaixo
+  de ``observe_daily_max`` (``LearningBudget``). O orçamento é conferido de novo antes da chamada:
+  teto estourado = observação descartada (observações pausadas, spec §11).
+- **Gate de estado:** observação nunca **começa** com o núcleo em ``thinking``/``speaking`` (nem
+  ``confirming``) ou com ação pendente; espera (``gate_poll_s``) até voltar. Ações rodam sempre.
+- Falha de modelo (timeout, budget, erro) descarta a observação daquela mensagem; ``invalid`` tem
+  1 nova tentativa, como as ações.
 """
 
 from __future__ import annotations
@@ -35,13 +49,24 @@ import contextlib
 import itertools
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field, replace
+from typing import Any
 
-from magi.common.contracts import LmActionMsg
+from magi.common.contracts import LmActionMsg, TurnState
 from magi.learning.analyzers import ActionUnavailable, PromptOptions, analyze, ensure_available
+from magi.learning.analyzers import observe as observer
 from magi.learning.budget import LearningBudget, LearningCostTask
-from magi.learning.contracts import ActionKind, ActionRequest, ActionResult, Selection
+from magi.learning.bus import LearningBus
+from magi.learning.contracts import (
+    ActionKind,
+    ActionRequest,
+    ActionResult,
+    Author,
+    LearningMessage,
+    Observation,
+    Selection,
+)
 from magi.learning.model import LearningModel, ModelError, ModelInvalid
 from magi.learning.repo import LearningRepo
 
@@ -58,7 +83,32 @@ CONTEXT_BEFORE = 2
 #: Janela de mensagens recentes lida para montar o contexto.
 CONTEXT_WINDOW = 50
 
+#: Estados do núcleo em que uma observação pode começar (design §6, CA-03).
+OBSERVE_STATES = frozenset({TurnState.LISTENING, TurnState.SLEEPING, TurnState.FOLLOWUP})
+#: Intervalo de checagem do gate enquanto ele está fechado (s).
+GATE_POLL_S = 0.2
+
 Clock = Callable[[], float]
+#: ``True`` = o núcleo está num estado em que observação pode começar.
+Gate = Callable[[], bool]
+#: Recebe ``(session_id, lista inteira de observações da sessão)`` depois de gravar (``lm_obs``).
+ObsSink = Callable[[str, list[Observation]], Awaitable[None]]
+
+
+def state_gate(states: Callable[[], Iterable[Any]]) -> Gate:
+    """Gate a partir dos estados dos satélites (``TurnMachine.state``): aberto se **todos** estão
+    em ``OBSERVE_STATES`` (sem satélite = aberto). Estado desconhecido fecha o gate."""
+
+    def gate() -> bool:
+        for st in states():
+            try:
+                if TurnState(st) not in OBSERVE_STATES:
+                    return False
+            except ValueError:
+                return False
+        return True
+
+    return gate
 
 
 @dataclass(eq=False)
@@ -90,7 +140,7 @@ async def build_request(repo: LearningRepo, msg: LmActionMsg) -> ActionRequest:
 
 
 class LearningEngine:
-    """Fila de ações do Learning Mode (LM3.3). Observações entram no LM4.1 usando ``slot``."""
+    """Fila de ações (LM3.3) e de observações (LM4.1) do Learning Mode; ``slot`` é comum às duas."""
 
     def __init__(
         self,
@@ -102,6 +152,13 @@ class LearningEngine:
         timeout_s: float | None = None,
         model_name: str | None = None,
         clock: Clock = time.monotonic,
+        observe_model: LearningModel | None = None,
+        observe_timeout_s: float | None = None,
+        observe_model_name: str | None = None,
+        gate: Gate | None = None,
+        bus: LearningBus[LearningMessage] | None = None,
+        on_observed: ObsSink | None = None,
+        gate_poll_s: float = GATE_POLL_S,
     ) -> None:
         self.model = model
         self.repo = repo
@@ -116,6 +173,16 @@ class LearningEngine:
         self._pending: dict[str, _Job] = {}
         self._worker: asyncio.Task[None] | None = None
         self._seq = itertools.count()
+        # -- observações (LM4.1) --
+        self.observe_model = observe_model
+        self.observe_timeout_s = observe_timeout_s
+        self.observe_model_name = observe_model_name or getattr(observe_model, "model", None)
+        self.gate = gate
+        self.bus: LearningBus[LearningMessage] = bus if bus is not None else LearningBus()
+        self.on_observed = on_observed
+        self.gate_poll_s = gate_poll_s
+        self._observer: asyncio.Task[None] | None = None
+        self._obs_busy = False
 
     # -- ciclo de vida --------------------------------------------------------------------------
 
@@ -129,7 +196,13 @@ class LearningEngine:
             self._worker = asyncio.create_task(self._work(), name=f"learning-actions-{next(self._seq)}")
 
     async def aclose(self) -> None:
-        """Para o worker; ações ainda na fila voltam ``None``."""
+        """Para os workers; ações ainda na fila voltam ``None``, observações na fila são descartadas."""
+        if self._observer is not None:
+            self._observer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._observer
+            self._observer = None
+        self.bus.clear()
         if self._worker is not None:
             self._worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -264,6 +337,134 @@ class LearningEngine:
         except Exception:
             log.warning("learning: ação %s não gravada", req.id, exc_info=True)
 
+    # -- observações (LM4.1) --------------------------------------------------------------------
+
+    @property
+    def observing(self) -> bool:
+        """Há modelo de observação (``[learning] observe`` e ``[tasks] learning_observe``)."""
+        return self.observe_model is not None
+
+    @property
+    def observations_idle(self) -> bool:
+        """Nenhuma observação na fila nem rodando (testes e medição)."""
+        return len(self.bus) == 0 and not self._obs_busy
+
+    def publish(self, msg: LearningMessage) -> bool:
+        """Gancho do turno (síncrono, nunca bloqueia): mensagem do Pedro → bus. ``False`` = não
+        entrou (sem modelo, mensagem da Condessa ou limite diário atingido)."""
+        if self.observe_model is None or msg.author is not Author.YOU:
+            return False
+        if self.budget is not None and self.budget.observe_today >= self.budget.observe_daily_max:
+            log.info("learning: limite diário de observações (%d) atingido", self.budget.observe_daily_max)
+            return False
+        self.bus.publish(msg)
+        self._ensure_observer()
+        return True
+
+    def _ensure_observer(self) -> None:
+        if self._observer is None or self._observer.done():
+            self._observer = asyncio.create_task(self._observe_loop(), name="learning-observe")
+
+    def gate_open(self) -> bool:
+        """Observação pode começar agora: estado do núcleo ok e nenhuma ação pendente (design §6)."""
+        if self.actions_pending:
+            return False
+        if self.gate is None:
+            return True
+        try:
+            return bool(self.gate())
+        except Exception:
+            log.warning("learning: gate de estado falhou; observação espera", exc_info=True)
+            return False
+
+    async def wait_gate(self) -> None:
+        while not self.gate_open():
+            await asyncio.sleep(self.gate_poll_s)
+
+    async def _observe_loop(self) -> None:
+        while True:
+            msg = await self.bus.get()
+            self._obs_busy = True
+            try:
+                await self.observe_message(msg)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("learning: erro na observação da mensagem %s", msg.id)
+            finally:
+                self._obs_busy = False
+
+    async def observe_message(self, msg: LearningMessage) -> list[Observation] | None:
+        """Observa uma mensagem do Pedro (spec §9): espera o gate, chama o modelo, grava os itens
+        e o ``recurring`` derivado e chama ``on_observed`` com a lista inteira da sessão.
+        Devolve as observações novas gravadas (``None`` = não observou)."""
+        if self.observe_model is None or msg.author is not Author.YOU:
+            return None
+        if self.budget is not None and not await self.budget.allowed(LearningCostTask.OBSERVE):
+            log.info("learning: observação da mensagem %s pausada (orçamento/limite diário)", msg.id)
+            return None
+        context = await self._obs_context(msg)
+        items = None
+        while items is None:
+            await self.wait_gate()
+            async with self.slot:
+                if not self.gate_open():  # o estado mudou enquanto esperava o slot
+                    continue
+                items = await self._observe_call(msg, context)
+                if items is None:
+                    return None
+        try:
+            existing = await self.repo.observations(msg.session_id)
+        except Exception:
+            log.warning("learning: observações da sessão indisponíveis", exc_info=True)
+            existing = []
+        new = [*items, *observer.derive_recurring(existing, items)]
+        saved: list[Observation] = []
+        for obs in new:
+            try:
+                saved.append(await self.repo.add_observation(obs, model=self.observe_model_name))
+            except Exception:
+                log.warning("learning: observação %s não gravada", obs.rule_key, exc_info=True)
+        if saved and self.on_observed is not None:
+            try:
+                every = await self.repo.observations(msg.session_id)
+            except Exception:
+                log.warning("learning: lista de observações indisponível", exc_info=True)
+                every = [*existing, *saved]
+            await self.on_observed(msg.session_id, every)
+        return saved
+
+    async def _obs_context(self, msg: LearningMessage) -> list[LearningMessage]:
+        try:
+            recent = await self.repo.recent_messages(msg.session_id, CONTEXT_WINDOW)
+        except Exception:
+            log.warning("learning: observação sem contexto", exc_info=True)
+            return []
+        return [m for m in recent if m.id < msg.id][-observer.CONTEXT_BEFORE:]
+
+    async def _observe_call(
+        self, msg: LearningMessage, context: list[LearningMessage]
+    ) -> list[Observation] | None:
+        assert self.observe_model is not None
+        for attempt in range(1, INVALID_ATTEMPTS + 1):
+            coro = observer.observe(self.observe_model, msg, context, self.options)
+            try:
+                if self.observe_timeout_s is None:
+                    items, _cost = await coro
+                else:
+                    items, _cost = await asyncio.wait_for(coro, self.observe_timeout_s)
+            except ModelInvalid as e:
+                log.info("learning: observação de %s inválida (tentativa %d): %s", msg.id, attempt, e)
+                continue
+            except ModelError as e:
+                log.info("learning: observação de %s falhou (%s): %s", msg.id, e.code, e)
+                return None
+            except TimeoutError:
+                log.info("learning: observação de %s passou de %.1f s", msg.id, self.observe_timeout_s or 0)
+                return None
+            return items
+        return None
+
     # -- util -----------------------------------------------------------------------------------
 
     def _ms(self, started: float) -> int:
@@ -276,8 +477,11 @@ class LearningEngine:
 __all__ = [
     "CONTEXT_BEFORE",
     "DEFAULT_CLIENT",
+    "GATE_POLL_S",
     "INVALID_ATTEMPTS",
+    "OBSERVE_STATES",
     "UNAVAILABLE_ERROR",
     "LearningEngine",
     "build_request",
+    "state_gate",
 ]

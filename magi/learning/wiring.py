@@ -10,11 +10,17 @@ Fluxos (spec §4):
   a sessão (``LearningSession``) e confirma ``lm_mode`` + ``lm_session`` + histórico recente
   (retomada). ``off`` fecha a sessão (``button``/``voice``) e confirma ``lm_mode off``.
 - **Texto:** ``lm_say`` → grava/publica a ``lm_msg`` do Pedro (``source = text``) →
-  ``Transcript.raw(texto)`` → ``TurnPipeline.respond`` (sem STT) → se ``speak_replies``, entrega
-  ao TTS (``speak``) → grava/publica a ``lm_msg`` da Condessa.
+  ``Transcript.raw(texto)`` → ``TurnPipeline.respond`` (sem STT) → grava a resposta da Condessa
+  → se ``speak_replies``, entrega ao TTS (``speak``) → publica a ``lm_msg`` da Condessa logo em
+  seguida, sem nada no meio (a fala acabou de começar: ``speaking = true`` e o HUD a revela
+  acompanhando a legenda). A revelação termina sozinha no primeiro ``state`` fora da fala (spec §4,
+  ``learning_model``); se a fala não começou (satélite ocupado, erro), vai ``speaking = false``.
 - **Voz:** o ``TurnMachine`` chama ``on_turn`` **depois** da entrega (``TurnDeps.learning``); o
   gancho só agenda a gravação/publicação das duas ``lm_msg``: Pedro com ``text = heard`` e
   ``text_final = final`` (só se diferente), Condessa com ``text = result.speech``.
+- **Observações (LM4.1):** depois da entrega (texto ou voz), a mensagem do Pedro vai ao bus do
+  engine (``LearningEngine.publish``, síncrono); o engine chama ``_send_obs`` com a lista inteira
+  e o núcleo publica ``lm_obs`` (só para a sessão ainda aberta).
 - **Inatividade:** ``idle_end_min`` sem mensagem → sessão fechada (``idle``) e ``lm_mode off``.
 - **Desligamento:** ``aclose()`` fecha a sessão com ``shutdown``.
 
@@ -42,6 +48,7 @@ from magi.common.contracts import (
     LmCfgMsg,
     LmModeMsg,
     LmMsgMsg,
+    LmObsMsg,
     LmResultMsg,
     LmSayMsg,
     LmSessionMsg,
@@ -49,8 +56,9 @@ from magi.common.contracts import (
     TurnContext,
     WakeSource,
 )
+from magi.learning.analyzers.observe import distinct_count
 from magi.learning.config import LearningConfig, learning_config
-from magi.learning.contracts import ActionKind, Author, LearningMessage, Source
+from magi.learning.contracts import ActionKind, Author, LearningMessage, Observation, Source
 from magi.learning.contracts import ActionResult as LmActionResult
 from magi.learning.engine import UNAVAILABLE_ERROR, LearningEngine
 from magi.learning.repo import DEFAULT_JSONL_DIR, LearningRepo, make_repo
@@ -74,6 +82,8 @@ IDLE_CHECK_S = 30.0
 Handler = Callable[[Any], Awaitable[None]]
 #: Entrega a resposta de um turno digitado ao TTS; ``True`` se a fala começou.
 Speak = Callable[[ActionResult], Awaitable[bool]]
+#: Monta o ``LearningEngine`` sobre o repositório escolhido no ``install`` (``None`` = sem engine).
+EngineFactory = Callable[[LearningConfig, LearningRepo], "LearningEngine | None"]
 
 
 def _utcnow() -> datetime:
@@ -108,6 +118,8 @@ class LearningWiring:
         self._lock = asyncio.Lock()  # ordem das mensagens (texto e voz) e do modo
         self._tasks: set[asyncio.Task[Any]] = set()
         self._idle: asyncio.Task[None] | None = None
+        if engine is not None and engine.on_observed is None:
+            engine.on_observed = self._send_obs
 
     def _handlers(self) -> dict[type[LearningHudMsg], Handler]:
         """**Único ponto de registro** dos handlers ``lm_*`` (as próximas tarefas acrescentam aqui)."""
@@ -220,6 +232,7 @@ class LearningWiring:
                 if resumed:
                     for m in await self.session.recent():
                         await self.hud.send(self._msg(m))
+                    await self._resend_obs(info.id)
                 return
             await self.session.end(reason)
             await self.hud.send(LmModeMsg(False))
@@ -270,23 +283,30 @@ class LearningWiring:
         return m
 
     async def _say(self, text: str) -> None:
-        """Turno digitado (LM-001): Pedro → ``respond`` → (TTS) → Condessa."""
+        """Turno digitado (LM-001): Pedro → ``respond`` → grava → (TTS) → publica a Condessa."""
         async with self._lock:
-            if await self._publish(Author.YOU, Source.TEXT, text) is None:
+            you = await self._publish(Author.YOU, Source.TEXT, text)
+            if you is None:
                 return
         ctx = TurnContext(satellite=TEXT_SATELLITE, source=WakeSource.PTT, started_at=self.clock())
         result = await self.pipeline.respond(Transcript.raw(text, language=TEXT_LANGUAGE), ctx)
         speech = result.speech
-        if not speech:
-            return
-        spoken = False
-        if self.session.speak_replies and self.speak is not None:
-            try:
-                spoken = await self.speak(result)
-            except Exception:
-                log.exception("learning: falha ao falar a resposta digitada")
-        async with self._lock:
-            await self._publish(Author.CONDESSA, Source.TEXT, speech, speaking=spoken)
+        if speech:
+            # Grava antes da fala: entre o começo da fala e a ``lm_msg`` não pode haver escrita no
+            # banco, senão a mensagem chega ao HUD com a fala adiantada (ou já acabada) e aparece
+            # inteira de uma vez em vez de acompanhar a legenda (Extra B do LM4.1).
+            async with self._lock:
+                her = await self.session.add_message(Author.CONDESSA, Source.TEXT, speech)
+            if her is None:
+                return
+            spoken = False
+            if self.session.speak_replies and self.speak is not None:
+                try:
+                    spoken = await self.speak(result)
+                except Exception:
+                    log.exception("learning: falha ao falar a resposta digitada")
+            await self.hud.send(self._msg(her, speaking=spoken))
+        self._observe(you)
 
     def on_turn(self, transcript: Transcript, ctx: TurnContext, result: ActionResult) -> None:
         """``TurnDeps.learning``: turno de voz já entregue. Só agenda; fora do modo não faz nada."""
@@ -301,12 +321,41 @@ class LearningWiring:
         heard = transcript.heard.strip()
         final = (result.redo_text or transcript.final).strip()
         async with self._lock:
-            if await self._publish(Author.YOU, Source.VOICE, heard,
-                                   text_final=final if final and final != heard else None,
-                                   turn_id=ctx.turn_id) is None:
+            you = await self._publish(Author.YOU, Source.VOICE, heard,
+                                       text_final=final if final and final != heard else None,
+                                       turn_id=ctx.turn_id)
+            if you is None:
                 return
             if result.speech:
                 await self._publish(Author.CONDESSA, Source.VOICE, result.speech, speaking=speaking)
+        self._observe(you)
+
+    # -- observações (LM4.1) ------------------------------------------------------------------
+
+    def _observe(self, msg: LearningMessage) -> None:
+        """Gancho depois da entrega: mensagem do Pedro → bus do engine (síncrono, não bloqueia)."""
+        if self.engine is None or not self.cfg.observe:
+            return
+        try:
+            self.engine.publish(msg)
+        except Exception:
+            log.exception("learning: falha ao publicar a mensagem %s no bus", msg.id)
+
+    async def _send_obs(self, session_id: str, items: list[Observation]) -> None:
+        """``lm_obs`` com a lista inteira (idempotente); só para a sessão ainda aberta."""
+        if not self.session.active or self.session.id != session_id:
+            return
+        await self.hud.send(LmObsMsg(tuple(items), distinct_count(items)))
+
+    async def _resend_obs(self, session_id: str) -> None:
+        """Sessão retomada: o HUD começa do zero, então reenvia as observações que já existem."""
+        try:
+            items = await self.repo.observations(session_id)
+        except Exception:
+            log.warning("learning: observações da sessão retomada indisponíveis", exc_info=True)
+            return
+        if items:
+            await self.hud.send(LmObsMsg(tuple(items), distinct_count(items)))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -339,11 +388,14 @@ def install(
     clock: Clock = _utcnow,
     start: bool = True,
     engine: LearningEngine | None = None,
+    engine_factory: EngineFactory | None = None,
 ) -> LearningWiring | None:
     """Liga o Learning Mode ao núcleo: ``hud.on_learning`` e ``pipeline.deps.learning``.
 
     Com ``[learning] enabled = false`` (ou ``[learning]`` inválido) não toca em nada e devolve
-    ``None``. ``storage = postgres`` sem ``conn`` cai para ``jsonl``."""
+    ``None``. ``storage = postgres`` sem ``conn`` cai para ``jsonl``. Sem ``engine``,
+    ``engine_factory(cfg, repo)`` monta o ``LearningEngine`` sobre o repositório escolhido aqui;
+    se ela falhar ou devolver ``None``, o modo segue sem engine (ações respondem erro)."""
     try:
         cfg = config if isinstance(config, LearningConfig) else learning_config(config)
     except ConfigError as e:
@@ -356,6 +408,12 @@ def install(
             log.warning("learning: sem banco; histórico em jsonl")
             cfg = dataclasses.replace(cfg, storage="jsonl")
         repo = make_repo(cfg, conn=conn, jsonl_dir=jsonl_dir)
+    if engine is None and engine_factory is not None:
+        try:
+            engine = engine_factory(cfg, repo)
+        except Exception:
+            log.exception("learning: falha ao montar o Learning Engine; seguindo sem ele")
+            engine = None
     wiring = LearningWiring(cfg, repo, hud, pipeline, speak=speak, clock=clock, engine=engine)
     hud.on_learning = wiring.on_learning
     pipeline.deps.learning = wiring.on_turn

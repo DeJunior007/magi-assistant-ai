@@ -262,19 +262,69 @@ async def run(
 
 def _install_learning(config: Config | None, core: Core | None, hud: HudServer, service: CoreService) -> Any:
     """Learning Mode (LM1.3): registra ``magi.learning.wiring`` só com ``[learning] enabled``;
-    desligado, devolve ``None`` e nada muda. Usa a conexão do núcleo (a mesma dos repositórios)."""
+    desligado, devolve ``None`` e nada muda. Usa a conexão do núcleo (a mesma dos repositórios)
+    e monta o ``LearningEngine`` (ações e observações, LM3.3/LM4.1) com ``_learning_engine``."""
     if config is None:
         return None
     from magi.learning.wiring import install, speak_via
 
     repos = core.repos if core is not None else None
-    conn = getattr(getattr(repos, "turns", None), "_conn", None)
+    conn = getattr(repos, "conn", None)
     try:
         return install(config, hud, service.pipeline, conn=conn,
-                       speak=speak_via(lambda: service.satellites.values()))
+                       speak=speak_via(lambda: service.satellites.values()),
+                       engine_factory=lambda cfg, repo: _learning_engine(config, core, service, cfg, repo))
     except Exception:
         log.exception("learning: falha ao ligar o Learning Mode; seguindo sem ele")
         return None
+
+
+#: Folga do prazo do engine sobre o ``timeout_s`` da tarefa: o ``OpenAIModel`` corta primeiro
+#: (``ModelTimeout``) e o engine só segura um provedor que não respeitou o prazo.
+LEARNING_TIMEOUT_MARGIN_S = 2.0
+
+
+def _learning_engine(config: Config, core: Core | None, service: CoreService, cfg: Any, repo: Any) -> Any:
+    """``LearningEngine`` de produção: modelo de ``[tasks] learning_actions`` e, com
+    ``[learning] observe``, de ``learning_observe``; orçamento sobre o do núcleo; gate de estado
+    pelos satélites. Sem núcleo, sem tarefa ou sem chave: loga e devolve ``None`` (ações
+    respondem ``error = "model"``, como antes); só a observação falhando não impede as ações."""
+    if core is None:
+        log.warning("learning: sem núcleo montado; ações e observações desligadas")
+        return None
+    from magi.learning.analyzers import PromptOptions
+    from magi.learning.budget import LearningBudget, LearningCostTask
+    from magi.learning.config import learning_tasks
+    from magi.learning.engine import LearningEngine, state_gate
+    from magi.learning.model import build_model
+
+    budget = LearningBudget.from_config(core.budget, cfg)
+    tasks = learning_tasks(config)
+    try:
+        model = build_model(config, LearningCostTask.ACTIONS, budget=budget, registry=core.providers)
+    except Exception as e:
+        log.warning("learning: modelo de ações indisponível (%s); seguindo sem engine", e)
+        return None
+    observe_model = None
+    if cfg.observe and tasks.observe is not None:
+        try:
+            observe_model = build_model(config, LearningCostTask.OBSERVE, budget=budget,
+                                        registry=core.providers)
+        except Exception as e:
+            log.warning("learning: modelo de observação indisponível (%s); sem observações", e)
+    elif cfg.observe:
+        log.info("learning: [tasks] learning_observe ausente; sem observações")
+    actions_s = tasks.actions.timeout_s if tasks.actions is not None else None
+    observe_s = tasks.observe.timeout_s if tasks.observe is not None else None
+    return LearningEngine(
+        model, repo,
+        budget=budget,
+        options=PromptOptions.from_config(cfg),
+        timeout_s=actions_s + LEARNING_TIMEOUT_MARGIN_S if actions_s else None,
+        observe_model=observe_model,
+        observe_timeout_s=observe_s + LEARNING_TIMEOUT_MARGIN_S if observe_s else None,
+        gate=state_gate(lambda: [m.state for m in service.satellites.values()]),
+    )
 
 
 def _watch_config(

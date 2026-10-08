@@ -438,3 +438,163 @@ async def test_enabled_false_turno_de_voz_sem_lm(make_voice_rig) -> None:
     await off.until(lambda seen: any(isinstance(m, SubtitleMsg) for m in seen))
     await _wait(lambda: off.speaker.said == ["Oh, where did you go?"])
     assert not any(m.T.startswith("lm_") for m in off.seen)
+
+
+# ---------------------------------------------------------------------------------------------
+# Extra B do LM4.1: no texto, a lm_msg da Condessa sai junto com o começo da fala
+# ---------------------------------------------------------------------------------------------
+
+
+def _trace(w: LearningWiring, hud: SinkHud, events: list[str]) -> None:
+    """Registra as escritas no repositório e os envios ao HUD na ordem em que acontecem."""
+    add = w.repo.add_message
+
+    async def add_message(*a, **kw):
+        m = await add(*a, **kw)
+        events.append(f"db:{m.author.value}")
+        return m
+
+    send = hud.send
+
+    async def hud_send(msg) -> None:
+        if isinstance(msg, LmMsgMsg):
+            events.append(f"lm_msg:{msg.author.value}:{msg.speaking}")
+        await send(msg)
+
+    w.repo.add_message = add_message  # type: ignore[method-assign]
+    hud.send = hud_send  # type: ignore[method-assign]
+
+
+async def test_lm_say_resposta_publicada_no_comeco_da_fala(text_rig) -> None:
+    """A resposta é gravada **antes** da fala; a ``lm_msg`` (``speaking = true``) sai logo que a
+    fala começa, sem escrita no banco no meio — o HUD a revela acompanhando a legenda (spec §4,
+    LM-003) em vez de mostrá-la inteira no fim."""
+    events: list[str] = []
+
+    async def speak(result: ActionResult) -> bool:
+        events.append("speak")
+        return True
+
+    w, hud, _ = text_rig(speak=speak)
+    _trace(w, hud, events)
+    await w.set_mode(True)
+    await hud.on_learning(LmSayMsg("I have went home"))
+    await w.wait_idle()
+    assert events == ["db:you", "lm_msg:you:False", "db:condessa", "speak", "lm_msg:condessa:True"]
+    her = hud.of(LmMsgMsg)[-1]
+    assert her.author is Author.CONDESSA and her.speaking is True and her.text == "Oh, where did you go?"
+    assert [m.text for m in await w.repo.recent_messages(w.session.id)][-1] == her.text
+
+
+@pytest.mark.parametrize("outcome", ["ocupado", "erro"])
+async def test_lm_say_fala_que_nao_comecou_vai_inteira(text_rig, outcome) -> None:
+    """Satélite ocupado (``False``) ou erro no TTS: a mensagem vai com ``speaking = false``."""
+
+    async def speak(result: ActionResult) -> bool:
+        if outcome == "erro":
+            raise RuntimeError("tts caiu")
+        return False
+
+    w, hud, _ = text_rig(speak=speak)
+    await w.set_mode(True)
+    await hud.on_learning(LmSayMsg("hello"))
+    await w.wait_idle()
+    you, her = hud.of(LmMsgMsg)
+    assert her.author is Author.CONDESSA and her.speaking is False
+
+
+# ---------------------------------------------------------------------------------------------
+# Extra A do LM4.1: o serviço monta o LearningEngine (ações + observações)
+# ---------------------------------------------------------------------------------------------
+
+
+def _learning_config(tmp_path: Path, tasks: dict | None = None, **learning) -> object:
+    return parse_config({
+        "learning": {"enabled": True, "storage": "jsonl", **learning},
+        "providers": {"fake": {"kind": "fake"}},
+        "tasks": tasks if tasks is not None else {
+            "learning_actions": {"provider": "fake", "model": "acoes", "timeout_s": 8},
+            "learning_observe": {"provider": "fake", "model": "obs", "timeout_s": 20},
+        },
+    })
+
+
+def _jsonl_here(monkeypatch, root: Path) -> None:
+    """O ``install`` do serviço não passa ``jsonl_dir``: o histórico do teste fica em ``root``."""
+    monkeypatch.setattr("magi.learning.wiring.make_repo", lambda cfg, **kw: JsonlRepo(root))
+
+
+class _Core:
+    """O que ``_install_learning`` usa do ``Core``: orçamento, provedores e repositórios."""
+
+    def __init__(self, conn=None) -> None:
+        from magi.core.budget import MonthlyBudget
+
+        class Costs:
+            async def add(self, usage, at) -> int:
+                return 1
+
+            async def month_total(self, year: int, month: int) -> float:
+                return 0.0
+
+        self.budget = MonthlyBudget(Costs(), cap_usd=5.0, prices={})
+        self.providers = None
+        self.repos = type("Repos", (), {"conn": conn, "turns": None})()
+
+
+async def test_servico_monta_o_engine_com_observacao(sock_dir, tmp_path, monkeypatch) -> None:
+    from magi.common.contracts import TurnState
+
+    _jsonl_here(monkeypatch, tmp_path)
+    hud_server = HudServer(sock_dir / "h.sock")
+    service = CoreService(TurnDeps(), hud_server, port=0)
+    w = _install_learning(_learning_config(tmp_path), _Core(), hud_server, service)
+    try:
+        assert isinstance(w, LearningWiring) and w.engine is not None
+        eng = w.engine
+        assert eng.model.model == "acoes"
+        assert eng.observe_model is not None and eng.observe_model.model == "obs"
+        assert eng.timeout_s == 10.0 and eng.observe_timeout_s == 22.0  # timeout_s + folga de 2 s
+        assert eng.budget is not None and eng.budget.observe_daily_max == 200
+        assert eng.options is not None and eng.options.level == "B2"
+        assert eng.repo is w.repo and eng.on_observed is not None
+        assert eng.gate is not None and eng.gate() is True  # sem satélite conectado
+        service._machines = {"pc": type("M", (), {"state": TurnState.SPEAKING})()}  # noqa: SLF001
+        assert eng.gate() is False  # gate lê o estado dos satélites conectados
+    finally:
+        if w is not None:
+            await w.aclose()
+
+
+async def test_servico_sem_modelo_segue_sem_engine(sock_dir, tmp_path, monkeypatch) -> None:
+    _jsonl_here(monkeypatch, tmp_path)
+    hud_server = HudServer(sock_dir / "h.sock")
+    service = CoreService(TurnDeps(), hud_server, port=0)
+    # sem [tasks] learning_actions: o modo liga, as ações respondem erro como antes
+    w = _install_learning(_learning_config(tmp_path, tasks={}), _Core(), hud_server, service)
+    assert isinstance(w, LearningWiring) and w.engine is None
+    await w.aclose()
+    # sem núcleo montado (sem config de provedores): idem
+    w = _install_learning(_learning_config(tmp_path), None, hud_server, service)
+    assert isinstance(w, LearningWiring) and w.engine is None
+    await w.aclose()
+    # observe = false: engine só de ações
+    w = _install_learning(_learning_config(tmp_path, observe=False), _Core(), hud_server, service)
+    assert w is not None and w.engine is not None and w.engine.observe_model is None
+    await w.aclose()
+
+
+async def test_servico_usa_repos_conn(sock_dir, monkeypatch) -> None:
+    """A conexão vem de ``repos.conn`` (LM1.4), não do ``_conn`` privado do repositório de turnos."""
+    seen = {}
+
+    def fake_install(config, hud, pipeline, **kw):
+        seen.update(kw)
+        return None
+
+    monkeypatch.setattr("magi.learning.wiring.install", fake_install)
+    hud_server = HudServer(sock_dir / "h.sock")
+    service = CoreService(TurnDeps(), hud_server, port=0)
+    conn = object()
+    _install_learning(parse_config({}), _Core(conn=conn), hud_server, service)
+    assert seen["conn"] is conn and callable(seen["engine_factory"])

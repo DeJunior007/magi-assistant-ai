@@ -9,12 +9,12 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
-from magi.common.contracts import HudMessage, LmActionMsg, LmModeMsg, LmResultMsg
+from magi.common.contracts import HudMessage, LmActionMsg, LmModeMsg, LmResultMsg, TurnState
 from magi.core.budget import MonthlyBudget
 from magi.learning.budget import LearningBudget
 from magi.learning.config import LearningConfig
 from magi.learning.contracts import ActionKind, Author, Source
-from magi.learning.engine import UNAVAILABLE_ERROR, LearningEngine
+from magi.learning.engine import OBSERVE_STATES, UNAVAILABLE_ERROR, LearningEngine, state_gate
 from magi.learning.model import FakeModel, ModelFailure, ModelTimeout
 from magi.learning.repo import JsonlRepo
 from magi.learning.wiring import LearningWiring
@@ -236,3 +236,84 @@ async def test_wiring_lm_action_vira_lm_result(tmp_path) -> None:
     assert last.id == "ACT-00000009" and not last.ok and last.error == UNAVAILABLE_ERROR
     await w.aclose()
     await no_engine.aclose()
+
+
+# ---------------------------------------------------------------------------------------------
+# Gate de estado das observações (LM4.1; CA-03, design §6)
+# ---------------------------------------------------------------------------------------------
+
+OBS = {"items": [{"category": "grammar", "rule_key": "grammar.past_simple.irregular",
+                  "label": "Past tense", "span": "I make", "suggestion": "I made"}]}
+
+
+async def _until(cond, timeout: float = 2.0) -> None:
+    for _ in range(int(timeout / 0.01)):
+        if cond():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("condição não ocorreu")
+
+
+def test_state_gate() -> None:
+    assert OBSERVE_STATES == {TurnState.LISTENING, TurnState.SLEEPING, TurnState.FOLLOWUP}
+    assert state_gate(lambda: [])() is True  # sem satélite
+    assert state_gate(lambda: [TurnState.SLEEPING, "followup", TurnState.LISTENING])() is True
+    for closed in (TurnState.THINKING, TurnState.SPEAKING, TurnState.CONFIRMING, "???"):
+        assert state_gate(lambda st=closed: [TurnState.SLEEPING, st])() is False
+
+
+async def test_gate(tmp_path) -> None:
+    """CA-03: observação não começa em thinking/speaking; começa ao voltar a listening."""
+    repo, you, _ = await _repo(tmp_path)
+    msg = await repo.get_message(you)
+    assert msg is not None
+    state = {"now": TurnState.THINKING}
+    model = FakeModel({"observe:*": OBS}, label="learning_observe")
+    eng = LearningEngine(FakeModel(), repo, observe_model=model, gate_poll_s=0.01,
+                         gate=state_gate(lambda: [state["now"]]))
+    assert eng.publish(msg) is True
+    await asyncio.sleep(0.1)
+    assert model.calls == [] and not eng.observations_idle  # thinking: esperando
+    state["now"] = TurnState.SPEAKING
+    await asyncio.sleep(0.1)
+    assert model.calls == []  # speaking: ainda esperando
+    state["now"] = TurnState.LISTENING
+    await _until(lambda: eng.observations_idle)
+    assert len(model.calls) == 1
+    (o,) = await repo.observations(msg.session_id)
+    assert o.rule_key == "grammar.past_simple.irregular" and o.message_id == you
+    await eng.aclose()
+
+
+async def test_gate_espera_acao_pendente_e_acao_ignora_o_gate(tmp_path) -> None:
+    """Ações rodam em qualquer estado; observação espera a fila de ações esvaziar."""
+    repo, you, _ = await _repo(tmp_path)
+    msg = await repo.get_message(you)
+    assert msg is not None
+    order: list[str] = []
+
+    class Ordered(FakeModel):
+        async def complete(self, system: str, user: str, schema: dict) -> tuple[dict, float]:
+            order.append(f"{schema['title']}:start")
+            out = await super().complete(system, user, schema)
+            order.append(f"{schema['title']}:end")
+            return out
+
+    actions = Ordered({"explain:*": EXPLAIN}, delay_s=0.1)
+    observe = Ordered({"observe:*": OBS}, label="learning_observe")
+    eng = LearningEngine(actions, repo, observe_model=observe, gate_poll_s=0.01,
+                         gate=state_gate(lambda: [TurnState.SPEAKING]))
+    r = await eng.handle(_act(you, "make", PEDRO))  # speaking: a ação roda mesmo assim
+    assert r is not None and r.ok
+
+    eng.gate = state_gate(lambda: [TurnState.SLEEPING])
+    action = asyncio.create_task(eng.handle(_act(you, "yesterday", PEDRO, aid="ACT-00000002")))
+    await _until(lambda: order[-1:] == ["explain:start"])
+    eng.publish(msg)  # ação rodando: a observação espera
+    await asyncio.sleep(0.05)
+    assert "observe:start" not in order
+    await action
+    await _until(lambda: eng.observations_idle)
+    # a observação só começou depois da ação (nenhuma chamada de modelo simultânea)
+    assert order[-4:] == ["explain:start", "explain:end", "observe:start", "observe:end"]
+    await eng.aclose()
