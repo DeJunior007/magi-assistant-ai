@@ -29,6 +29,7 @@ from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient
 
 from . import fonts, kit, scene, sky
+from .caption_scroll import CaptionScroll
 from .mascot import Mascot
 from .theme import (
     BG,
@@ -122,6 +123,7 @@ class Snapshot:
     magui_state: str = "sleeping"  # uma das 7 expressões do R17
     mouth_level: float = 0.0
     caption: str | None = None  # legenda da fala da Magui
+    chip: str | None = None  # fase do turno (turn_phase) p/ o chip; None = pela expressão
     mood: int | None = None  # termômetro de humor 0 (pega leve) .. 4 (pode zoar), R13.7; None = sem dado
     news: list[tuple[str, str]] = field(default_factory=list)  # Rádio Ayanami: (HH:MM, manchete), novas 1º
     claude: Any = None  # data.ClaudeView: consumo e sessões do Claude Code; None = sem dado
@@ -133,12 +135,14 @@ def led_lit(snap: Snapshot) -> bool:
 
 
 # chip de estado da Condessa: ouvindo/pensando acendem na cor de foco (o Pedro vê quando ela ativou)
-CHIP_STATES = {"listening": "Listening · 聴取中", "thinking": "Thinking · 思考中"}
+CHIP_STATES = {"listening": "Listening · 聴取中", "thinking": "Thinking · 思考中",
+               "speaking": "Speaking · 発話中"}
 
 
 def chip_label(snap: Snapshot) -> tuple[str, str, bool]:
-    """(texto, cor, aceso) do chip: ouvindo/pensando, senão jogando (Active) ou Standby."""
-    lbl = CHIP_STATES.get(snap.magui_state)
+    """(texto, cor, aceso) do chip: ouvindo/pensando/falando, senão jogando (Active) ou Standby.
+    A fase vem de ``snap.chip`` (``turn_phase``, estável nas transições); sem ela, da expressão."""
+    lbl = CHIP_STATES.get(snap.chip if snap.chip is not None else snap.magui_state)
     if lbl is not None:
         return lbl, FOCUS, True
     if snap.gaming:
@@ -255,29 +259,36 @@ def width(s: str, key: str = "mono", px: float = 12, weight: int | None = None,
     return w - px * spacing if spacing else w
 
 
-def wrapped(p: QPainter, rect: QRectF, s: str, *, key: str = "jp", px: float = 16, color_=TEXT,
-            spacing: float = 0.0, line_h: float | None = None, max_lines: int = 4) -> None:
-    """Texto com quebra de linha (o Qt quebra também entre ideogramas) e reticências na última."""
-    f = fonts.font(key, px, None, spacing)
+def wrap_lines(s: str, w: float, *, key: str = "jp", px: float = 16, spacing: float = 0.0) -> list[str]:
+    """Quebra ``s`` em linhas de até ``w`` (por palavra; palavra longa por caractere)."""
     fm = _metrics(key, px, None, spacing)
-    lh = line_h or fm.height()
     words, lines = s.split(), []
     cur = ""
     for wd in words:  # quebra por palavra; palavra (ou frase CJK) longa quebra por caractere
         cand = f"{cur} {wd}" if cur else wd
-        if fm.horizontalAdvance(cand) <= rect.width():
+        if fm.horizontalAdvance(cand) <= w:
             cur = cand
             continue
         if cur:
             lines.append(cur)
         cur = ""
         for ch in wd:
-            if fm.horizontalAdvance(cur + ch) > rect.width() and cur:
+            if fm.horizontalAdvance(cur + ch) > w and cur:
                 lines.append(cur)
                 cur = ""
             cur += ch
     if cur:
         lines.append(cur)
+    return lines
+
+
+def wrapped(p: QPainter, rect: QRectF, s: str, *, key: str = "jp", px: float = 16, color_=TEXT,
+            spacing: float = 0.0, line_h: float | None = None, max_lines: int = 4) -> None:
+    """Texto com quebra de linha (o Qt quebra também entre ideogramas) e reticências na última."""
+    f = fonts.font(key, px, None, spacing)
+    fm = _metrics(key, px, None, spacing)
+    lh = line_h or fm.height()
+    lines = wrap_lines(s, rect.width(), key=key, px=px, spacing=spacing)
     if len(lines) > max_lines:
         last = " ".join(lines[max_lines - 1:])
         lines = lines[:max_lines - 1] + [fm.elidedText(last + "…", Qt.TextElideMode.ElideRight, rect.width())]
@@ -600,6 +611,11 @@ MASCOT_MAIN = QRectF(SIDE_X, _SY + 15.8 + 14, SIDE_R - SIDE_X, 302)  # retrato d
 CHIP_TOP = MASCOT_MAIN.bottom() + 14
 MOOD_MAIN = QRectF(SIDE_R - 24, MASCOT_MAIN.top() + 4, 24, MASCOT_MAIN.height() - 8)  # à direita do mascote
 TALK = QRectF(SIDE_X - 2, CHIP_TOP - 2, SIDE_R - SIDE_X + 4, MID_TOP.bottom() - CHIP_TOP - 20)
+CAPTION_LH = 27.2  # linha da legenda (jp 16 px)
+_CAP_TOP = CHIP_TOP + 35.6 + 14  # abaixo do chip
+CAPTION_VISIBLE = max(1, int((TALK.bottom() - _CAP_TOP) // CAPTION_LH))  # linhas à vista (2 na base 1920)
+# janela exata das linhas (sem a próxima espiando embaixo); 8 px à direita: barra de rolagem
+CAPTION_RECT = QRectF(SIDE_X, _CAP_TOP, SIDE_R - SIDE_X - 8, CAPTION_VISIBLE * CAPTION_LH)
 
 # MAGI system
 LED_BTN = QRectF(MAGI.right() - 21 - 150, MAGI.top() + 19, 150, 44)
@@ -730,6 +746,37 @@ class MainScreen(Screen):
     """Painel completo (Main.dc.html)."""
 
     MASCOT_RECT = MASCOT_MAIN
+    CAPTION_RECT = CAPTION_RECT
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.cap = CaptionScroll(CAPTION_VISIBLE)  # rolagem da legenda (acompanha / lê para trás)
+        self._cap_lines: tuple[str, list[str]] = ("", [])
+        self.clock = time.monotonic  # relógio da animação (os testes trocam)
+
+    # ---------------------------------------------------------------- legenda (rolagem)
+
+    def caption_lines(self, txt: str | None) -> list[str]:
+        txt = txt or ""
+        if self._cap_lines[0] != txt:
+            self._cap_lines = (txt, wrap_lines(txt, CAPTION_RECT.width(), px=16) if txt else [])
+        return self._cap_lines[1]
+
+    def caption_feed(self, txt: str | None, now: float | None = None) -> bool:
+        """Texto novo da legenda; ``True`` = a área da fala precisa redesenhar (texto ou rolagem)."""
+        now = self.clock() if now is None else now
+        return self.cap.feed(txt, len(self.caption_lines(txt)), now) or self.cap.animating(now)
+
+    def caption_deadline(self, now: float | None = None) -> float | None:
+        return self.cap.deadline(self.clock() if now is None else now)
+
+    def caption_wheel(self, lines: float, now: float | None = None) -> bool:
+        """Roda do mouse na legenda: ``lines`` > 0 volta para ler. ``True`` = rolou."""
+        return self.cap.wheel(lines, self.clock() if now is None else now)
+
+    def caption_hit(self, pos: QPoint | QPointF, size: QSize) -> bool:
+        s = self.scale(size)
+        return TALK.contains(QPointF(pos.x() / s, pos.y() / s))
     MASCOT_DIRTY = QRectF(MASCOT_MAIN.left(), MASCOT_MAIN.top(), MOOD_MAIN.left() - 4 - MASCOT_MAIN.left(),
                           MASCOT_MAIN.height())
 
@@ -858,7 +905,10 @@ class MainScreen(Screen):
         if name == "mood":
             return mood_key(sn)
         if name == "talk":
-            return (sn.gaming, chip_label(sn), sn.caption, *talk_lines(sn)[0])
+            mono = self.clock()
+            self.caption_feed(sn.caption, mono)
+            return (sn.gaming, chip_label(sn), sn.caption, sn.magui_state == "sleeping",
+                    round(self.cap.offset(mono) * CAPTION_LH * 2), *talk_lines(sn)[0])
         if name == "history":
             return (tuple((k, tuple(v)) for k, v in sorted(sn.history.items())), tuple(sn.history_axis))
         if name == "spec":
@@ -954,15 +1004,49 @@ class MainScreen(Screen):
         chip = state_chip(p, SIDE_X, CHIP_TOP, snap)
         top = chip.bottom() + 14
         wdt = SIDE_R - SIDE_X
-        if snap.caption:
-            wrapped(p, QRectF(SIDE_X, top, wdt, TALK.bottom() - top), snap.caption, px=16,
-                    line_h=27.2, max_lines=max(1, int((TALK.bottom() - top) // 27.2)))
+        if snap.caption or snap.magui_state != "sleeping":
+            # acordada: área da legenda (vazia até a 1ª palavra; sem as falas de canvas piscando)
+            self._draw_caption(p, snap.caption)
             return
         jp, en = talk_lines(snap)
         for i, ln in enumerate(jp):
             text(p, SIDE_X, baseline("jp", 16, top + i * 27.2, 27.2), ln, key="jp", px=16, max_w=wdt)
         wrapped(p, QRectF(SIDE_X, top + 2 * 27.2 + 14, wdt, 60), en, key="mono", px=12, color_=TEXT_DIM,
                 spacing=0.08, line_h=19.2, max_lines=3)
+
+    def _draw_caption(self, p: QPainter, txt: str | None) -> None:
+        """Legenda rolando: a janela de ``CAPTION_VISIBLE`` linhas acompanha a fala (as de cima
+        esmaecem) ou fica onde o Pedro rolou; barra fina à direita quando há mais texto."""
+        mono = self.clock()
+        lines = self.caption_lines(txt)
+        self.cap.feed(txt, len(lines), mono)
+        if not lines:
+            return
+        r = CAPTION_RECT
+        off = self.cap.offset(mono)
+        fm = _metrics("jp", 16, None, 0.0)
+        a = fm.ascent()
+        p.save()
+        p.setClipRect(r, Qt.ClipOperation.IntersectClip)
+        p.setFont(fonts.font("jp", 16, None, 0.0))
+        first = max(0, int(math.floor(off)) - 1)
+        for i in range(first, min(len(lines), first + CAPTION_VISIBLE + 3)):
+            y = r.top() + (i - off) * CAPTION_LH
+            if y >= r.bottom() or y + CAPTION_LH <= r.top():
+                continue
+            c = color(TEXT)
+            c.setAlphaF(self.cap.alpha(i, mono))
+            p.setPen(c)
+            p.drawText(QPointF(r.left(), y + (CAPTION_LH - fm.height()) / 2 + a), lines[i])
+        p.restore()
+        if len(lines) > CAPTION_VISIBLE:  # barra de rolagem: trilho + posição
+            track = QRectF(r.right() + 5, r.top() + 2, 2, r.height() - 4)
+            p.fillRect(track, color(LINE))
+            frac = CAPTION_VISIBLE / len(lines)
+            pos = off / max(1, self.cap.max_off)
+            th = max(10.0, track.height() * frac)
+            p.fillRect(QRectF(track.left(), track.top() + (track.height() - th) * pos, 2, th),
+                       color(TEXT if self.cap.follow else FOCUS))
 
     def _g_history(self, p, snap, now, s):
         r = HIST

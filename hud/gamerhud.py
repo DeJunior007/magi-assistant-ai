@@ -36,6 +36,7 @@ import orgb  # noqa: E402
 import hud_bridge  # noqa: E402
 from face import Face  # noqa: E402
 from speech_caption import SpeechCaption  # noqa: E402
+from turn_phase import TurnPhase  # noqa: E402
 from wired.data import ClaudeStats  # noqa: E402
 from wired.integration import CARD_DETAIL, WiredUI, rgb_hex  # noqa: E402
 
@@ -1080,6 +1081,8 @@ class HUD(QWidget):
             return
         snap = w.build(self.sensors.data, spec=self.spec, pads=self.pads,
                        gaming=(self.steam_game or self.fpsrc.name) is not None)
+        if getattr(self, "turn_phase", None) is not None:   # chip pela fase do turno (estável)
+            snap.chip = self.turn_phase.chip(time.monotonic())
         if not (self.isVisible() and self.width() > 1) or self.trans:
             return
         for r in w.screen(self.view).dirty_regions(snap, size=self.size()):
@@ -1113,6 +1116,7 @@ class HUD(QWidget):
         self.face_timer.setTimerType(Qt.PreciseTimer)
         # legenda que se escreve conforme ela fala: timer próprio, só enquanto revela
         self.speech_caption = SpeechCaption()
+        self.turn_phase = TurnPhase()   # fase do turno: chip estável e "falando" da legenda
         self.caption_timer = QTimer(self, timeout=self.caption_tick)
         self.caption_timer.setSingleShot(True)
         self.bridge = bridge if bridge is not None else hud_bridge.HudBridge(parent=self)
@@ -1158,7 +1162,10 @@ class HUD(QWidget):
             self.face.set_state(expr)
         except ValueError:
             return
-        self.speech_caption.on_state(expr, time.monotonic())
+        now = time.monotonic()
+        self.turn_phase.on_state(expr, now)
+        # happy/confused/alert durante a resposta também são fala (o núcleo manda a expressão)
+        self.speech_caption.on_state("speaking" if self.turn_phase.speaking else expr, now)
         self.caption_tick()
         if self.wired:
             self.wired.set_state(expr)
@@ -1167,6 +1174,7 @@ class HUD(QWidget):
 
     def on_face_mouth(self, level):
         self.face.set_mouth_level(level)
+        self.turn_phase.on_mouth(level, time.monotonic())
         if self.speech_caption.on_mouth(time.monotonic()):   # o áudio começou: a estimativa parte daqui
             self.caption_tick()
         if self.wired:
@@ -1174,7 +1182,8 @@ class HUD(QWidget):
         self.face_tick()
 
     def on_face_subtitle(self, text, full=""):
-        self.speech_caption.on_subtitle(text)
+        # fora da fala fica pendente: se a fala vem logo, a legenda nasce vazia (sem o "pisca")
+        self.speech_caption.on_subtitle(text, time.monotonic())
         self.caption_tick()
         if self.wired:
             self.wired_refresh()
@@ -1182,6 +1191,7 @@ class HUD(QWidget):
 
     def on_face_speech(self, text, dur=-1.0, index=0):
         """Frase começando a tocar no satélite: a legenda passa a revelá-la no tempo do áudio."""
+        self.turn_phase.on_speech(time.monotonic())
         self.speech_caption.on_speech(text, dur if dur and dur > 0 else None, time.monotonic())
         self.caption_tick()
 
@@ -1191,8 +1201,17 @@ class HUD(QWidget):
         now = time.monotonic()
         sc = self.speech_caption
         txt = sc.text(now)
+        deadlines = [sc.deadline(now), self.turn_phase.deadline(now)]
         if self.wired:
             rects = self.wired.caption_rects(txt, self.view, self.size())
+            main = self.wired.main
+            chip = self.turn_phase.chip(now)
+            if chip != self.wired.snap.chip:   # chip mudou (fase do turno / tempo mínimo)
+                self.wired.snap.chip = chip
+                rects = rects or self.wired.screen(self.view).group_rects("talk", self.size())
+            if main.caption_feed(self.wired.snap.caption, now) and self.view not in ("idle", "learning"):
+                rects = rects or main.group_rects("talk", self.size())   # rolagem suave da legenda
+            deadlines.append(main.caption_deadline(now))
             if rects and not self.trans and self.isVisible() and self.width() > 1:
                 for r in rects:
                     self.update(r)
@@ -1200,7 +1219,7 @@ class HUD(QWidget):
             self.face.set_subtitle(txt)
             if not self.wired:
                 self.face_tick()
-        deadline = sc.deadline(now)
+        deadline = min((d for d in deadlines if d is not None), default=None)
         if deadline is None:
             self.caption_timer.stop()
         else:
@@ -1213,6 +1232,9 @@ class HUD(QWidget):
             self.face.set_state("sleeping")
             self.face.set_subtitle("")
             self.speech_caption = SpeechCaption()
+            self.turn_phase = TurnPhase()
+            if self.wired:
+                self.wired.snap.chip = None
             self.caption_timer.stop()
             if self.wired:
                 self.wired.on_connected(False)
@@ -1523,6 +1545,20 @@ class HUD(QWidget):
         if self.on_close:
             self.on_close()
         super().closeEvent(e)
+
+    def wheelEvent(self, e):
+        """Roda do mouse sobre a legenda da Condessa: volta para ler a última fala (pausa o
+        acompanhamento; volta a acompanhar no fim do texto ou com fala nova)."""
+        main = self.wired.main if self.wired else None
+        if main is None or self.view in ("idle", "learning") or not main.caption_hit(e.position(), self.size()):
+            e.ignore()
+            return
+        steps = e.angleDelta().y() / 120 or e.pixelDelta().y() / 27
+        if steps and main.caption_wheel(steps):
+            for r in main.group_rects("talk", self.size()):
+                self.update(r)
+            self.caption_tick()   # agenda os quadros da rolagem
+        e.accept()
 
     def mouseDoubleClickEvent(self, e):
         # Duplo clique não fecha mais o HUD: dois cliques rápidos em notícias/rede derrubavam tudo.

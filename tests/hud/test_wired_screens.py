@@ -172,7 +172,11 @@ def test_chip_de_estado_ouvindo_e_pensando():
     assert chip_label(Snapshot(magui_state="listening"))[0] == "Listening · 聴取中"
     assert chip_label(Snapshot(magui_state="thinking"))[0] == "Thinking · 思考中"
     assert chip_label(Snapshot(gaming=True, magui_state="sleeping"))[0] == "Active · 稼働中"
-    assert chip_label(Snapshot(magui_state="speaking"))[0] == "Standby · 待機中"
+    assert chip_label(Snapshot(magui_state="speaking"))[0] == "Speaking · 発話中"  # falando não é Standby
+    assert chip_label(Snapshot(magui_state="happy"))[0] == "Standby · 待機中"
+    # a fase do turno (turn_phase) manda no chip: "happy" na resposta falada continua Speaking
+    assert chip_label(Snapshot(magui_state="happy", chip="speaking"))[0] == "Speaking · 発話中"
+    assert chip_label(Snapshot(magui_state="listening", chip="idle"))[0] == "Standby · 待機中"
     assert chip_label(Snapshot(magui_state="listening"))[2]  # aceso (cor de foco)
     size = QSize(1280, 720)
     for cls in (MainScreen, StandbyScreen):

@@ -11,6 +11,11 @@ palavra inteira (a palavra aparece quando ela começa a dizê-la, nunca cortada 
   ``FALLBACK_WAIT_S`` depois de entrar em ``speaking``.
 - Fora de ``speaking`` (a fala acabou, foi interrompida, resposta só em texto): mostra inteiro,
   como antes.
+- O ``subtitle`` chega *antes* do ``speaking`` (o núcleo manda a legenda e logo depois entra na
+  fala). Com ``now`` ele fica pendente por até ``PENDING_S``: se a fala começa, a legenda nova
+  nasce vazia e se escreve; se vier outro estado (ou o prazo passar), aparece inteira (resposta
+  só em texto). Antes, ela era pintada inteira e logo resetada pelo ``speaking`` (o "pisca").
+- A estimativa sem aviso nunca encolhe o que já foi mostrado quando o primeiro ``speech`` chega.
 
 ``deadline(now)`` diz quando a legenda muda de novo (próxima palavra), no máximo
 ``MAX_FPS`` vezes por segundo; ``None`` = parada, nada a redesenhar.
@@ -23,6 +28,7 @@ import re
 LEAD_S = 0.08  # a palavra aparece um pouco antes do som
 FALLBACK_CPS = 15.0  # velocidade estimada da fala sem duração (caracteres/s)
 FALLBACK_WAIT_S = 1.0  # sem boca nem aviso de frase: espera a síntese antes de começar
+PENDING_S = 0.6  # subtitle fora da fala espera o speaking por até isso antes de aparecer inteiro
 MAX_FPS = 30.0
 _WORD = re.compile(r"\S+")
 
@@ -65,16 +71,25 @@ class SpeechCaption:
         self._cur: tuple[str, float, float] | None = None  # (frase, início, duração)
         self._speak_at = 0.0  # entrou em speaking
         self._mouth_at: float | None = None  # primeiro nível de boca da fala (áudio tocando)
+        self._pending: tuple[str, float] | None = None  # subtitle esperando o speaking (texto, prazo)
+        self._floor = ""  # já mostrado pela estimativa quando o 1º ``speech`` chegou (não encolhe)
 
     # -- eventos ---------------------------------------------------------------------------
+
+    def _promote(self) -> None:
+        if self._pending is not None:
+            self.full = self._pending[0]
+            self._spoken, self._cur, self._pending = [], None, None
 
     def on_state(self, expr: str, now: float) -> None:
         if expr == "speaking":
             if not self.speaking:  # fala nova: começa do zero
+                self._promote()
                 self.speaking = True
-                self._spoken, self._cur = [], None
+                self._spoken, self._cur, self._floor = [], None, ""
                 self._speak_at, self._mouth_at = now, None
             return
+        self._promote()  # resposta só em texto: aparece inteira
         self.speaking = False  # fim (ou interrupção): a legenda fica inteira
 
     def on_mouth(self, now: float) -> bool:
@@ -85,7 +100,12 @@ class SpeechCaption:
             return True
         return False
 
-    def on_subtitle(self, text: str) -> None:
+    def on_subtitle(self, text: str, now: float | None = None) -> None:
+        """Legenda da fala inteira. Fora da fala e com ``now``: pendente até o ``speaking`` (ou
+        ``PENDING_S``); sem ``now``: vale na hora."""
+        if not self.speaking and now is not None:
+            self._pending = (text or "", now + PENDING_S)
+            return
         self.full = text or ""
         if not self.speaking:
             self._spoken, self._cur = [], None  # resposta só em texto ou aviso: vale o subtitle
@@ -96,6 +116,8 @@ class SpeechCaption:
             return  # aviso atrasado de uma fala que já acabou
         if self._cur is not None:
             self._spoken.append(self._cur[0])
+        elif not self._spoken:  # 1º aviso: o que a estimativa já escreveu não some
+            self._floor = self.text(now)
         text = " ".join(text.split())
         if dur is None or dur <= 0:
             dur = len(text) / FALLBACK_CPS
@@ -119,8 +141,13 @@ class SpeechCaption:
             return self.full, (now + LEAD_S - origin) * FALLBACK_CPS / max(1, len(self.full))
         return None
 
+    def _check_pending(self, now: float) -> None:
+        if self._pending is not None and not self.speaking and now >= self._pending[1]:
+            self._promote()
+
     def text(self, now: float) -> str:
         """Legenda a desenhar agora."""
+        self._check_pending(now)
         if not self.speaking:
             if self.full:
                 return self.full
@@ -132,10 +159,16 @@ class SpeechCaption:
         part = reveal_words(text, frac)
         if self._cur is None:
             return part
-        return " ".join(x for x in (*self._spoken, part) if x)
+        out = " ".join(x for x in (*self._spoken, part) if x)
+        if self._floor and len(out) < len(self._floor) and self._floor.startswith(out):
+            return self._floor  # a fala alcança o que a estimativa já tinha mostrado
+        return out
 
     def deadline(self, now: float) -> float | None:
         """Próximo instante em que ``text`` muda (``None`` = parada)."""
+        self._check_pending(now)
+        if self._pending is not None and not self.speaking:
+            return max(now + 1 / MAX_FPS, self._pending[1])
         prog = self._progress(now)
         if prog is None:
             return None
