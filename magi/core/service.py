@@ -232,7 +232,9 @@ async def run(
     followup_ms = followup_ms_from_config(config.raw if config is not None else None)
     service = CoreService(deps, hud, host=host, port=port, followup_ms=followup_ms)
     hud.on_command = service.on_hud_command
-    learning = _install_learning(config, core, hud, service)
+    runtime = _learning_runtime(config)
+    runtime.boot()  # container órfão de um núcleo que caiu: parado já na partida
+    learning = _install_learning(config, core, hud, service, runtime=runtime)
     try:
         await hud.start()
     except OSError as e:
@@ -254,26 +256,54 @@ async def run(
                 await watch
         if learning is not None:
             await learning.aclose()
+        else:
+            await runtime.stop()
         await service.stop()
         await hud.stop()
         if core is not None:
             await core.aclose()
 
 
-def _install_learning(config: Config | None, core: Core | None, hud: HudServer, service: CoreService) -> Any:
+def _learning_runtime(config: Config | None) -> Any:
+    """Container local das observações (``[learning] local_container``; ``magi.learning.runtime``).
+    Montado mesmo com ``[learning] enabled = false``: a partida garante o container parado.
+    Sem config, config inválida ou ``local_container`` vazio = ``NullRuntime`` (nada a ligar)."""
+    from magi.learning.config import learning_config
+    from magi.learning.runtime import NullRuntime, make_runtime
+
+    if config is None:
+        return NullRuntime()
+    try:
+        return make_runtime(learning_config(config))
+    except ConfigError as e:
+        log.warning("learning: config inválida (%s); sem container local", e)
+        return NullRuntime()
+
+
+def _install_learning(
+    config: Config | None, core: Core | None, hud: HudServer, service: CoreService, *,
+    runtime: Any = None,
+) -> Any:
     """Learning Mode (LM1.3): registra ``magi.learning.wiring`` só com ``[learning] enabled``;
     desligado, devolve ``None`` e nada muda. Usa a conexão do núcleo (a mesma dos repositórios)
-    e monta o ``LearningEngine`` (ações e observações, LM3.3/LM4.1) com ``_learning_engine``."""
+    e monta o ``LearningEngine`` (ações e observações, LM3.3/LM4.1) com ``_learning_engine``.
+    ``runtime`` (container local) vem de ``_learning_runtime``; o wiring o liga e desliga com a
+    sessão."""
     if config is None:
         return None
     from magi.learning.wiring import install, speak_via
+
+    if runtime is None:
+        runtime = _learning_runtime(config)
 
     repos = core.repos if core is not None else None
     conn = getattr(repos, "conn", None)
     try:
         return install(config, hud, service.pipeline, conn=conn,
                        speak=speak_via(lambda: service.satellites.values()),
-                       engine_factory=lambda cfg, repo: _learning_engine(config, core, service, cfg, repo))
+                       engine_factory=lambda cfg, repo: _learning_engine(config, core, service, cfg, repo,
+                                                                         runtime=runtime),
+                       runtime=runtime)
     except Exception:
         log.exception("learning: falha ao ligar o Learning Mode; seguindo sem ele")
         return None
@@ -284,11 +314,15 @@ def _install_learning(config: Config | None, core: Core | None, hud: HudServer, 
 LEARNING_TIMEOUT_MARGIN_S = 2.0
 
 
-def _learning_engine(config: Config, core: Core | None, service: CoreService, cfg: Any, repo: Any) -> Any:
+def _learning_engine(
+    config: Config, core: Core | None, service: CoreService, cfg: Any, repo: Any, *, runtime: Any = None,
+) -> Any:
     """``LearningEngine`` de produção: modelo de ``[tasks] learning_actions`` e, com
     ``[learning] observe``, de ``learning_observe``; orçamento sobre o do núcleo; gate de estado
     pelos satélites. Sem núcleo, sem tarefa ou sem chave: loga e devolve ``None`` (ações
-    respondem ``error = "model"``, como antes); só a observação falhando não impede as ações."""
+    respondem ``error = "model"``, como antes); só a observação falhando não impede as ações.
+    Com ``runtime``, o gate também fecha enquanto o container sobe (teto: ``local_start_timeout_s``;
+    depois disso a observação vai e falha quieta, ou o wiring já a descarta)."""
     if core is None:
         log.warning("learning: sem núcleo montado; ações e observações desligadas")
         return None
@@ -323,8 +357,15 @@ def _learning_engine(config: Config, core: Core | None, service: CoreService, cf
         timeout_s=actions_s + LEARNING_TIMEOUT_MARGIN_S if actions_s else None,
         observe_model=observe_model,
         observe_timeout_s=observe_s + LEARNING_TIMEOUT_MARGIN_S if observe_s else None,
-        gate=state_gate(lambda: [m.state for m in service.satellites.values()]),
+        gate=_runtime_gate(state_gate(lambda: [m.state for m in service.satellites.values()]), runtime),
     )
+
+
+def _runtime_gate(gate: Any, runtime: Any) -> Any:
+    """Gate de estado + container: fechado enquanto o ``runtime`` está subindo."""
+    if runtime is None or not runtime.configured:
+        return gate
+    return lambda: not runtime.starting and gate()
 
 
 def _watch_config(

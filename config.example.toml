@@ -128,6 +128,13 @@ storage           = "postgres"      # "postgres" | "jsonl"
 default_topic     = "free"          # tema inicial: free | interview | game | news (LM-013)
 topic_picker_s    = 10              # segundos até o seletor de tema fechar sozinho
 summary_show_s    = 60              # segundos do cartão LAST SESSION depois de sair (LM-011)
+max_session_min   = 180             # sessão aberta há mais que isso fecha sozinha (watchdog)
+# Container local das observações (deploy/docker-compose.yml, serviço qwen). Vazio = sem
+# container; "magi-qwen" = o núcleo dá docker start ao abrir a sessão e docker stop ao fechar.
+local_container   = ""
+local_url         = "http://127.0.0.1:11435"
+local_model       = "qwen-learning"
+local_start_timeout_s = 60          # espera do Ollama subir; passou disso, segue sem observações
 
 [satellite]
 # Fim de fala (1.26), lido ao iniciar o satélite. Corta cedo demais? Aumente end_silence_ms.

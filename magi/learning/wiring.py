@@ -22,7 +22,12 @@ Fluxos (spec §4):
   engine (``LearningEngine.publish``, síncrono); o engine chama ``_send_obs`` com a lista inteira
   e o núcleo publica ``lm_obs`` (só para a sessão ainda aberta).
 - **Inatividade:** ``idle_end_min`` sem mensagem → sessão fechada (``idle``) e ``lm_mode off``.
+  Watchdog: sessão aberta há mais de ``max_session_min`` também fecha com ``idle``.
 - **Desligamento:** ``aclose()`` fecha a sessão com ``shutdown``.
+- **Container local (``runtime``):** sessão aberta (botão, voz ou retomada) → ``launch()`` em
+  segundo plano (``lm_mode`` não espera); fechada por qualquer motivo → ``stop()``. O Qwen não
+  ocupa recurso fora da aula. Sem ``ready`` nem subida em andamento, a observação é descartada
+  em silêncio (o gate do engine espera enquanto o container sobe; ver ``core.service``).
 
 Fora do modo nada é gravado nem publicado. ``install`` só liga tudo com ``[learning] enabled``;
 com ``enabled = false`` devolve ``None`` e o núcleo fica exatamente como antes.
@@ -35,7 +40,7 @@ import contextlib
 import dataclasses
 import logging
 from collections.abc import Awaitable, Callable, Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -62,6 +67,7 @@ from magi.learning.contracts import ActionKind, Author, LearningMessage, Observa
 from magi.learning.contracts import ActionResult as LmActionResult
 from magi.learning.engine import UNAVAILABLE_ERROR, LearningEngine
 from magi.learning.repo import DEFAULT_JSONL_DIR, LearningRepo, make_repo
+from magi.learning.runtime import LearningRuntime, NullRuntime
 from magi.learning.session import Clock, LearningSession
 
 if TYPE_CHECKING:
@@ -104,8 +110,10 @@ class LearningWiring:
         clock: Clock = _utcnow,
         idle_check_s: float = IDLE_CHECK_S,
         engine: LearningEngine | None = None,
+        runtime: LearningRuntime | None = None,
     ) -> None:
         self.cfg = cfg
+        self.runtime: LearningRuntime = runtime if runtime is not None else NullRuntime()
         self.engine = engine  # LM3.3: fila de ações (None = ações respondem erro)
         self.repo = repo
         self.hud = hud
@@ -153,6 +161,10 @@ class LearningWiring:
                 await self.session.end("shutdown")
             except Exception:
                 log.exception("learning: falha ao fechar a sessão no desligamento")
+        try:
+            await self.runtime.stop()  # sempre: o container nunca sobrevive ao núcleo
+        except Exception:
+            log.exception("learning: falha ao parar o container no desligamento")
 
     async def wait_idle(self) -> None:
         """Espera as gravações/publicações agendadas (testes)."""
@@ -227,6 +239,7 @@ class LearningWiring:
         async with self._lock:
             if on:
                 info, resumed = await self.session.start()
+                self.runtime.launch()  # sobe em segundo plano; a confirmação não espera
                 await self.hud.send(LmModeMsg(True))
                 await self.hud.send(self._session_msg())
                 if resumed:
@@ -235,7 +248,13 @@ class LearningWiring:
                     await self._resend_obs(info.id)
                 return
             await self.session.end(reason)
+            self._stop_runtime()
             await self.hud.send(LmModeMsg(False))
+
+    def _stop_runtime(self) -> None:
+        """Sessão fechada: para o container em segundo plano (``docker stop`` leva segundos)."""
+        if self.runtime.configured:
+            self._spawn(self.runtime.stop(), "parar o container")
 
     def _session_msg(self) -> LmSessionMsg:
         info = self.session.info
@@ -261,10 +280,24 @@ class LearningWiring:
             with contextlib.suppress(Exception):
                 await flush()
         async with self._lock:
-            if await self.session.end_if_idle() is None:
+            if await self.session.end_if_idle() is None and not await self._end_if_too_long():
                 return False
+            self._stop_runtime()
             await self.hud.send(LmModeMsg(False))
             return True
+
+    async def _end_if_too_long(self) -> bool:
+        """Watchdog: sessão aberta há mais de ``max_session_min`` fecha com ``idle`` (o contrato
+        só tem ``button | voice | idle | shutdown``) e o container para."""
+        info = self.session.info
+        if info is None:
+            return False
+        if self.clock() - info.started_at < timedelta(minutes=self.cfg.max_session_min):
+            return False
+        log.info("learning: sessão %s aberta há mais de %d min; fechando", info.id,
+                 self.cfg.max_session_min)
+        await self.session.end("idle")
+        return True
 
     # -- conversa -------------------------------------------------------------------------------
 
@@ -336,6 +369,9 @@ class LearningWiring:
         """Gancho depois da entrega: mensagem do Pedro → bus do engine (síncrono, não bloqueia)."""
         if self.engine is None or not self.cfg.observe:
             return
+        if not self.runtime.available:
+            log.debug("learning: container local indisponível; observação de %s descartada", msg.id)
+            return
         try:
             self.engine.publish(msg)
         except Exception:
@@ -389,6 +425,7 @@ def install(
     start: bool = True,
     engine: LearningEngine | None = None,
     engine_factory: EngineFactory | None = None,
+    runtime: LearningRuntime | None = None,
 ) -> LearningWiring | None:
     """Liga o Learning Mode ao núcleo: ``hud.on_learning`` e ``pipeline.deps.learning``.
 
@@ -414,7 +451,8 @@ def install(
         except Exception:
             log.exception("learning: falha ao montar o Learning Engine; seguindo sem ele")
             engine = None
-    wiring = LearningWiring(cfg, repo, hud, pipeline, speak=speak, clock=clock, engine=engine)
+    wiring = LearningWiring(cfg, repo, hud, pipeline, speak=speak, clock=clock, engine=engine,
+                            runtime=runtime)
     hud.on_learning = wiring.on_learning
     pipeline.deps.learning = wiring.on_turn
     if start:

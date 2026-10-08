@@ -45,6 +45,13 @@ class LearningConfig:
     default_topic: Topic = Topic.FREE
     topic_picker_s: int = 10
     summary_show_s: int = 60
+    #: Container local das observações (``magi-qwen``); vazio = sem container (nada a ligar).
+    local_container: str = ""
+    local_url: str = "http://127.0.0.1:11435"
+    local_model: str = "qwen-learning"
+    local_start_timeout_s: int = 60
+    #: Sessão aberta há mais que isso é fechada (``idle``) e o container para (watchdog).
+    max_session_min: int = 180
 
     @property
     def level_label(self) -> str:
@@ -104,6 +111,13 @@ def _str(sec: dict[str, Any], key: str, default: str) -> str:
     return v.strip()
 
 
+def _opt_str(sec: dict[str, Any], key: str, default: str) -> str:
+    v = sec.get(key, default)
+    if not isinstance(v, str):
+        raise ConfigError(f"learning.{key} deve ser um texto")
+    return v.strip()
+
+
 def parse_learning(raw: dict[str, Any]) -> LearningConfig:
     """``LearningConfig`` a partir do dicionário do TOML inteiro (lê só ``[learning]``)."""
     sec = raw.get("learning") or {}
@@ -125,6 +139,11 @@ def parse_learning(raw: dict[str, Any]) -> LearningConfig:
         default_topic=Topic(topic),
         topic_picker_s=_int(sec, "topic_picker_s", d.topic_picker_s, 1),
         summary_show_s=_int(sec, "summary_show_s", d.summary_show_s, 1),
+        local_container=_opt_str(sec, "local_container", d.local_container),
+        local_url=_str(sec, "local_url", d.local_url).rstrip("/"),
+        local_model=_str(sec, "local_model", d.local_model),
+        local_start_timeout_s=_int(sec, "local_start_timeout_s", d.local_start_timeout_s, 1),
+        max_session_min=_int(sec, "max_session_min", d.max_session_min, 1),
     )
 
 
