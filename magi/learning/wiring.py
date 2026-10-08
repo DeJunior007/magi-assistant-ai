@@ -38,9 +38,11 @@ from magi.common.contracts import (
     ActionResult,
     HudSink,
     LearningHudMsg,
+    LmActionMsg,
     LmCfgMsg,
     LmModeMsg,
     LmMsgMsg,
+    LmResultMsg,
     LmSayMsg,
     LmSessionMsg,
     Transcript,
@@ -48,7 +50,9 @@ from magi.common.contracts import (
     WakeSource,
 )
 from magi.learning.config import LearningConfig, learning_config
-from magi.learning.contracts import Author, LearningMessage, Source
+from magi.learning.contracts import ActionKind, Author, LearningMessage, Source
+from magi.learning.contracts import ActionResult as LmActionResult
+from magi.learning.engine import UNAVAILABLE_ERROR, LearningEngine
 from magi.learning.repo import DEFAULT_JSONL_DIR, LearningRepo, make_repo
 from magi.learning.session import Clock, LearningSession
 
@@ -89,8 +93,10 @@ class LearningWiring:
         speak: Speak | None = None,
         clock: Clock = _utcnow,
         idle_check_s: float = IDLE_CHECK_S,
+        engine: LearningEngine | None = None,
     ) -> None:
         self.cfg = cfg
+        self.engine = engine  # LM3.3: fila de ações (None = ações respondem erro)
         self.repo = repo
         self.hud = hud
         self.pipeline = pipeline
@@ -109,6 +115,7 @@ class LearningWiring:
             LmModeMsg: self._on_mode,
             LmSayMsg: self._on_say,
             LmCfgMsg: self._on_cfg,
+            LmActionMsg: self._on_action,
         }
 
     # -- ciclo de vida --------------------------------------------------------------------------
@@ -127,6 +134,8 @@ class LearningWiring:
             self._idle = None
         if self._tasks:
             await asyncio.gather(*list(self._tasks), return_exceptions=True)
+        if self.engine is not None:
+            await self.engine.aclose()
         if self.session.active:
             try:
                 await self.session.end("shutdown")
@@ -179,6 +188,24 @@ class LearningWiring:
             return
         # O leitor do socket do HUD não pode esperar o agente: o turno roda à parte.
         self._spawn(self._say(text), "lm_say")
+
+    async def _on_action(self, msg: LmActionMsg) -> None:
+        """``lm_action`` → ``lm_result`` (LM3.3, spec §5 "Ciclo"). Roda à parte do leitor do
+        socket; fora do modo é ignorada. Se o modo sair com a ação pendente, ela termina e grava
+        (vai ao cache), mas o ``lm_result`` não é publicado (spec §6, §11)."""
+        if not self.session.active:
+            return
+        self._spawn(self._action(msg), "lm_action")
+
+    async def _action(self, msg: LmActionMsg) -> None:
+        if self.engine is None:
+            log.warning("learning: lm_action %s sem engine de ações", msg.id)
+            result: LmActionResult | None = LmActionResult(
+                msg.id, ActionKind(msg.kind), False, None, UNAVAILABLE_ERROR, False, 0, 0.0)
+        else:
+            result = await self.engine.handle(msg)
+        if result is not None and self.session.active:
+            await self.hud.send(LmResultMsg(result))
 
     # -- modo -----------------------------------------------------------------------------------
 
@@ -311,6 +338,7 @@ def install(
     jsonl_dir: Path | str = DEFAULT_JSONL_DIR,
     clock: Clock = _utcnow,
     start: bool = True,
+    engine: LearningEngine | None = None,
 ) -> LearningWiring | None:
     """Liga o Learning Mode ao núcleo: ``hud.on_learning`` e ``pipeline.deps.learning``.
 
@@ -328,7 +356,7 @@ def install(
             log.warning("learning: sem banco; histórico em jsonl")
             cfg = dataclasses.replace(cfg, storage="jsonl")
         repo = make_repo(cfg, conn=conn, jsonl_dir=jsonl_dir)
-    wiring = LearningWiring(cfg, repo, hud, pipeline, speak=speak, clock=clock)
+    wiring = LearningWiring(cfg, repo, hud, pipeline, speak=speak, clock=clock, engine=engine)
     hud.on_learning = wiring.on_learning
     pipeline.deps.learning = wiring.on_turn
     if start:
