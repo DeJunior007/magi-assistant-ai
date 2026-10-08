@@ -332,3 +332,106 @@ def test_self_usage_tolera_processo_que_some(tmp_path):
     su.rescan = 0
     assert su.poll(2.0).cpu is None
     assert su.poll(3.0).cpu == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------- SysExtra / net_info / GitStatus
+
+
+def test_sys_extra_clock_swap_disco(tmp_path):
+    from wired.data import SysExtra
+    for i, khz in enumerate((3_000_000, 4_000_000)):
+        d = tmp_path / f"cpu{i}" / "cpufreq"
+        d.mkdir(parents=True)
+        (d / "scaling_cur_freq").write_text(f"{khz}\n")
+    mem = tmp_path / "meminfo"
+    mem.write_text("MemTotal: 100 kB\nSwapTotal:       4194304 kB\nSwapFree:        3145728 kB\n")
+    s = SysExtra(cpufreq_glob=str(tmp_path / "cpu*" / "cpufreq" / "scaling_cur_freq"),
+                 meminfo=str(mem), disk=str(tmp_path))
+    v = s.poll()
+    assert v["cpu_mhz"] == pytest.approx(3500.0)
+    assert v["swap_used_gb"] == pytest.approx(1.0) and v["swap_total_gb"] == pytest.approx(4.0)
+    assert 0.0 <= v["disk_pct"] <= 100.0
+
+
+def test_sys_extra_fallback_cpuinfo_e_ausentes(tmp_path):
+    from wired.data import SysExtra
+    info = tmp_path / "cpuinfo"
+    info.write_text("processor\t: 0\ncpu MHz\t\t: 2000.0\n\nprocessor\t: 1\ncpu MHz\t\t: 3000.0\n")
+    s = SysExtra(cpufreq_glob=str(tmp_path / "nada*"), cpuinfo=str(info),
+                 meminfo=str(tmp_path / "x"), disk=str(tmp_path / "naoexiste"))
+    v = s.poll()
+    assert v["cpu_mhz"] == pytest.approx(2500.0)
+    assert v["swap_used_gb"] is None and v["swap_total_gb"] is None and v["disk_pct"] is None
+    s.cpuinfo = str(tmp_path / "y")
+    assert s.poll()["cpu_mhz"] is None
+
+
+ROUTE = ("Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+         "docker0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n"
+         "wlo1\t00000000\t0100A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n"
+         "enp8s0\t00000000\t FE01A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n")
+
+
+def test_net_info_rota_padrao_dns_e_cache(tmp_path):
+    from wired.data import net_info
+    route, resolv = tmp_path / "route", tmp_path / "resolv"
+    route.write_text(ROUTE)
+    resolv.write_text("# NM\nsearch lan\nnameserver 1.1.1.1\nnameserver 8.8.8.8\n")
+    asked = []
+
+    def ipv4(iface):
+        asked.append(iface)
+        return "192.168.1.50"
+
+    kw = dict(route=str(route), resolv=str(resolv), resolved=str(tmp_path / "r2"), ipv4=ipv4,
+              resolvectl=lambda t: None)
+    assert net_info(100.0, **kw) == {"ip": "192.168.1.50", "gateway": "192.168.1.254", "dns": "1.1.1.1"}
+    assert asked == ["enp8s0"]  # menor métrica
+    resolv.write_text("nameserver 9.9.9.9\n")
+    assert net_info(110.0, **kw)["dns"] == "1.1.1.1" and len(asked) == 1  # cache de 30 s
+    assert net_info(131.0, **kw)["dns"] == "9.9.9.9" and len(asked) == 2
+
+
+def test_net_info_stub_resolved_e_sem_rota(tmp_path):
+    from wired.data import net_info
+    route, resolv, real = tmp_path / "route", tmp_path / "resolv", tmp_path / "real"
+    route.write_text(ROUTE.splitlines()[0] + "\n")
+    resolv.write_text("nameserver 127.0.0.53\n")
+    kw = dict(route=str(route), resolv=str(resolv), resolved=str(real), ipv4=lambda i: "x")
+    v = net_info(0.0, resolvectl=lambda t: "10.0.0.1", **kw)
+    assert v == {"ip": None, "gateway": None, "dns": "10.0.0.1"}
+    real.write_text("nameserver 192.168.0.1\n")
+    assert net_info(0.0, resolvectl=lambda t: "10.0.0.2", **kw)["dns"] == "192.168.0.1"
+    assert net_info(0.0, route=str(tmp_path / "nada"), resolv=str(tmp_path / "nada"), ipv4=lambda i: "x") \
+        == {"ip": None, "gateway": None, "dns": None}
+
+
+def _git(path, *args):
+    import subprocess
+    subprocess.run(["git", "-C", str(path), *args], check=True, capture_output=True,
+                   env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"})
+
+
+def test_git_status_branch_diff_e_cache(tmp_path):
+    from wired.data import GitStatus
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "trunk")
+    (repo / "a.txt").write_text("1\n2\n3\n")
+    _git(repo, "add", "a.txt")
+    _git(repo, "commit", "-q", "-m", "x")
+    g = GitStatus(str(repo))
+    assert g.poll(0.0) == {"branch": "trunk", "added": 0, "removed": 0}
+    (repo / "a.txt").write_text("1\nnovo\n")  # -2 +1, não staged
+    (repo / "b.txt").write_text("b\nb\n")
+    _git(repo, "add", "b.txt")  # +2, staged
+    assert g.poll(10.0)["added"] == 0  # ainda no cache
+    assert g.poll(30.0) == {"branch": "trunk", "added": 3, "removed": 2}
+
+
+def test_git_status_repositorio_invalido(tmp_path):
+    from wired.data import GitStatus
+    none = {"branch": None, "added": None, "removed": None}
+    assert GitStatus(str(tmp_path)).poll(0.0) == none
+    assert GitStatus(str(tmp_path / "naoexiste")).poll(0.0) == none

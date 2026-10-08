@@ -10,10 +10,14 @@ funciona nele: saber se o nome existe e mandar os comandos (Previous/PlayPause/N
 
 from __future__ import annotations
 
+import fcntl
+import glob
 import hashlib
 import json
 import logging
 import os
+import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -754,3 +758,223 @@ class SelfUsage:
         self._prev = (now, ticks, gpu_ns)
         self.view = view
         return view
+
+
+# ---------------------------------------------------------------- extras do MAGI SYSTEM (clock, swap, disco)
+
+
+class SysExtra:
+    """Clock médio da CPU, swap e ocupação do disco, só lendo `/sys`, `/proc` e `statvfs` (baratos o
+    bastante para o poll de 1 Hz). Valor que não dá para ler sai como None, nunca exceção."""
+
+    def __init__(self, cpufreq_glob: str = "/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq",
+                 cpuinfo: str = "/proc/cpuinfo", meminfo: str = "/proc/meminfo", disk: str = "/home"):
+        self.cpufreq_glob = cpufreq_glob
+        self.cpuinfo = cpuinfo
+        self.meminfo = meminfo
+        self.disk = disk
+
+    @staticmethod
+    def _read(path: str) -> str | None:
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                return f.read()
+        except OSError:
+            return None
+
+    def cpu_mhz(self) -> float | None:
+        khz = []
+        for path in glob.glob(self.cpufreq_glob):
+            try:
+                khz.append(int((self._read(path) or "").strip()))
+            except ValueError:
+                continue
+        if khz:
+            return sum(khz) / len(khz) / 1000
+        mhz = []  # sem cpufreq (VM, driver ausente): "cpu MHz" de cada núcleo no cpuinfo
+        for line in (self._read(self.cpuinfo) or "").splitlines():
+            k, sep, v = line.partition(":")
+            if sep and k.strip() == "cpu MHz":
+                try:
+                    mhz.append(float(v))
+                except ValueError:
+                    continue
+        return sum(mhz) / len(mhz) if mhz else None
+
+    def swap_gb(self) -> tuple[float | None, float | None]:
+        """(usado, total) em GiB, de SwapTotal - SwapFree."""
+        kv = {}
+        for line in (self._read(self.meminfo) or "").splitlines():
+            k, sep, v = line.partition(":")
+            if sep and k in ("SwapTotal", "SwapFree"):
+                try:
+                    kv[k] = int(v.split()[0])
+                except (IndexError, ValueError):
+                    continue
+        total = kv.get("SwapTotal")
+        if total is None:
+            return None, None
+        free = kv.get("SwapFree")
+        used = max(0, total - free) / 1024 ** 2 if free is not None else None
+        return used, total / 1024 ** 2
+
+    def disk_pct(self) -> float | None:
+        """% ocupado como o `df`: usado / (usado + livre para usuário comum)."""
+        try:
+            st = os.statvfs(self.disk)
+        except OSError:
+            return None
+        used = (st.f_blocks - st.f_bfree) * st.f_frsize
+        avail = st.f_bavail * st.f_frsize
+        return 100.0 * used / (used + avail) if used + avail > 0 else None
+
+    def poll(self) -> dict:
+        used, total = self.swap_gb()
+        return {"cpu_mhz": self.cpu_mhz(), "swap_used_gb": used, "swap_total_gb": total,
+                "disk_pct": self.disk_pct()}
+
+
+# ---------------------------------------------------------------- IP / gateway / DNS (card NETWORK)
+
+NET_INFO_TTL = 30.0
+DNS_STUB = ("127.0.0.53", "127.0.0.54")  # stubs do systemd-resolved
+_net_cache: dict[tuple, tuple[float, dict]] = {}
+
+
+def _hex_ip(h: str) -> str | None:
+    """Endereço de `/proc/net/route` (hex little-endian) → "a.b.c.d"."""
+    try:
+        return socket.inet_ntoa(struct.pack("<I", int(h, 16)))
+    except (ValueError, struct.error):
+        return None
+
+
+def _default_route(route: str) -> tuple[str, str] | None:
+    """(interface, gateway) da rota padrão de menor métrica em `/proc/net/route`."""
+    try:
+        with open(route) as f:
+            lines = f.read().splitlines()[1:]
+    except OSError:
+        return None
+    best = None
+    for line in lines:
+        cols = line.split()
+        if len(cols) < 8 or cols[1] != "00000000" or cols[7] != "00000000":
+            continue
+        try:
+            flags, metric = int(cols[3], 16), int(cols[6])
+        except ValueError:
+            continue
+        if not flags & 0x1:  # RTF_UP
+            continue
+        gw = _hex_ip(cols[2])
+        if gw and (best is None or metric < best[0]):
+            best = (metric, cols[0], gw)
+    return best[1:] if best else None
+
+
+def _iface_ipv4(iface: str) -> str | None:
+    """IPv4 da interface via ioctl SIOCGIFADDR (não manda nada pela rede)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            raw = fcntl.ioctl(s.fileno(), 0x8915, struct.pack("256s", iface[:15].encode()))
+        return socket.inet_ntoa(raw[20:24])
+    except OSError:
+        return None
+
+
+def _nameserver(path: str) -> str | None:
+    try:
+        with open(path) as f:
+            for line in f:
+                cols = line.split()
+                if len(cols) >= 2 and cols[0] == "nameserver":
+                    return cols[1]
+    except OSError:
+        pass
+    return None
+
+
+def _resolvectl_dns(timeout: float) -> str | None:
+    """Primeiro servidor do `resolvectl dns` (linhas "Link 3 (wlo1): 192.168.0.1 ...")."""
+    try:
+        out = subprocess.run(["resolvectl", "dns"], capture_output=True, text=True, timeout=timeout,
+                             check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    for line in out.stdout.splitlines():
+        servers = line.partition(":")[2].split()
+        if servers:
+            return servers[0]
+    return None
+
+
+def net_info(now: float | None = None, *, route: str = "/proc/net/route", resolv: str = "/etc/resolv.conf",
+             resolved: str = "/run/systemd/resolve/resolv.conf", ipv4=_iface_ipv4, resolvectl=_resolvectl_dns,
+             ttl: float = NET_INFO_TTL) -> dict:
+    """{"ip", "gateway", "dns"} da rota padrão (None no que faltar). Fica em cache por `ttl` s
+    (por combinação de caminhos), então pode ser chamada no thread de UI à vontade."""
+    now = time.monotonic() if now is None else now
+    key = (route, resolv, resolved, ipv4, resolvectl)
+    hit = _net_cache.get(key)
+    if hit is not None and now - hit[0] < ttl:
+        return dict(hit[1])
+    dr = _default_route(route)
+    ip = ipv4(dr[0]) if dr else None
+    dns = _nameserver(resolv)
+    if dns in DNS_STUB:
+        # stub do systemd-resolved: o servidor de verdade está no resolv.conf dele ou no resolvectl
+        dns = _nameserver(resolved) or resolvectl(0.5) or dns
+    info = {"ip": ip, "gateway": dr[1] if dr else None, "dns": dns}
+    _net_cache[key] = (now, info)
+    return dict(info)
+
+
+# ---------------------------------------------------------------- git (barra de status do KONSOLE)
+
+
+class GitStatus:
+    """Branch e +/- de linhas do working tree (staged + não staged) contra o HEAD. O `git` roda no
+    máximo a cada `ttl` s, com `timeout` s; repositório inválido (ou git ausente) → valores None."""
+
+    def __init__(self, path: str, ttl: float = 30.0, timeout: float = 2.0):
+        self.path = path
+        self.ttl = ttl
+        self.timeout = timeout
+        self._at: float | None = None
+        self._last: dict = {"branch": None, "added": None, "removed": None}
+
+    def _git(self, *args: str) -> str | None:
+        try:
+            out = subprocess.run(["git", "-C", self.path, *args], capture_output=True, text=True,
+                                 timeout=self.timeout, check=False)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return out.stdout if out.returncode == 0 else None
+
+    def _read(self) -> dict:
+        res: dict = {"branch": None, "added": None, "removed": None}
+        branch = self._git("rev-parse", "--abbrev-ref", "HEAD")
+        if branch is None:
+            return res
+        res["branch"] = branch.strip() or None
+        diff = self._git("diff", "--numstat", "HEAD")  # sem commit ainda: HEAD falha → +/- None
+        if diff is None:
+            return res
+        added = removed = 0
+        for line in diff.splitlines():
+            cols = line.split("\t")
+            if len(cols) >= 2 and cols[0].isdigit() and cols[1].isdigit():  # binário vem "-"
+                added += int(cols[0])
+                removed += int(cols[1])
+        res["added"], res["removed"] = added, removed
+        return res
+
+    def poll(self, now: float | None = None) -> dict:
+        now = time.monotonic() if now is None else now
+        if self._at is None or now - self._at >= self.ttl:
+            self._at = now
+            self._last = self._read()
+        return dict(self._last)

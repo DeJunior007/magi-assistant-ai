@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Painel MAGI</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Noto+Sans+JP:wght@400;500&amp;family=Noto+Serif+JP:wght@500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#07060c;overflow:hidden}
+a{color:#b49af0}a:hover{color:#ece8f5}
+@keyframes caret{0%,49%{opacity:1}50%,100%{opacity:0}}
+button:focus-visible,input:focus-visible{outline:1px solid #b49af0;outline-offset:2px}
+</style>
+</helmet>
+<!-- tela: desenhada em 1672×941 (16:9, a referência) e escalada inteira; no monitor 2 (2560×1440) vira ×1,53 -->
+<div style="width: 100vw; height: 100vh; background: #07060c; display: flex; align-items: center; justify-content: center; overflow: hidden">
+<div style="{{ stage }}">
+
+  <!-- ================= TOPO ================= -->
+  <div style="position: absolute; left: 23px; top: 26px; display: flex; flex-direction: column; gap: 8px">
+    <div style="font-family: 'Noto Serif JP', serif; font-size: 40px; font-weight: 500; letter-spacing: 0.05em; color: #f1eef8; line-height: 1">汎用監視システム</div>
+    <div style="font-size: 12px; letter-spacing: 0.14em; color: #a39eb8">GENERAL PURPOSE MONITORING SYSTEM -- MAGI-01</div>
+  </div>
+  <div style="position: absolute; left: 650px; top: 30px; width: 390px; height: 52px; border-left: 1px solid #221f2e; border-right: 1px solid #221f2e; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px">
+    <div style="font-family: 'Noto Sans JP', sans-serif; font-size: 15px; letter-spacing: 0.18em; color: #ddd8ea">私は、ここにいる。</div>
+    <div style="font-size: 12px; letter-spacing: 0.12em; color: #a39eb8">// I AM HERE · NODE 01 ONLINE</div>
+  </div>
+  <!-- botão LEARNING (no lugar dos indicadores) -->
+  <button type="button" onClick="{{ toggleLearn }}" style="{{ learnBtn }}">
+    <span style="display: flex; align-items: center; gap: 10px">
+      <span style="{{ learnDot }}"></span>
+      <span style="font-family: 'Barlow Condensed', sans-serif; font-size: 19px; font-weight: 600; letter-spacing: 0.1em">LEARNING</span>
+      <span style="font-family: 'Noto Sans JP', sans-serif; font-size: 13px; color: #a39eb8">学習</span>
+    </span>
+    <span style="font-size: 10px; letter-spacing: 0.12em; color: #a39eb8">{{ learnSub }}</span>
+  </button>
+  <div style="position: absolute; right: 22px; top: 22px; display: flex; align-items: flex-end; gap: 22px; height: 66px">
+    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px; padding-bottom: 4px">
+      <div style="font-family: 'Noto Sans JP', sans-serif; font-size: 17px; color: #a39eb8">水曜日</div>
+      <div style="font-size: 13px; letter-spacing: 0.1em; color: #ddd8ea">QUA 07 OUT 2026</div>
+    </div>
+    <div style="display: flex; align-items: flex-end; gap: 6px">
+      <div style="font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 76px; line-height: 0.82; color: #f3f0fa">{{ hhmm }}</div>
+      <div style="font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 26px; line-height: 1; color: #b49af0">{{ ss }}</div>
+    </div>
+  </div>
+  <div style="position: absolute; left: 23px; right: 22px; top: 100px; height: 1px; background: #221f2e"></div>
+
+  <!-- ================= COLUNA 1 ================= -->
+  <!-- MAGI SYSTEM 23,125 440×353 -->
+  <section style="position: absolute; left: 23px; top: 125px; width: 440px; height: 353px; box-sizing: border-box; background: #0e0d15; border: 1px solid #262333; padding: 14px 14px 14px; display: flex; flex-direction: column; justify-content: space-between">
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <div style="display: flex; align-items: baseline; gap: 10px"><span style="font-family: 'Barlow Condensed', sans-serif; font-size: 21px; font-weight: 600; letter-spacing: 0.03em">MAGI SYSTEM</span><span style="font-family: 'Noto Sans JP', sans-serif; font-size: 10px; color: #a39eb8">三体合議制</span></div>
+      <button type="button" onClick="{{ toggleLed }}" aria-pressed="{{ ledOn }}" style="{{ ledBtn }}"><span style="{{ ledDot }}"></span><span style="font-family: 'Noto Sans JP', sans-serif; font-size: 11px">{{ ledJp }}</span><span>{{ ledLabel }}</span></button>
+    </div>
+    <sc-for list="{{ units }}" as="u" hint-placeholder-count="3">
+      <div style="{{ u.box }}">
+        <div style="width: 96px; display: flex; flex-direction: column; gap: 4px">
+          <span style="{{ u.nameStyle }}">{{ u.name }}</span>
+          <span style="font-size: 10px; letter-spacing: 0.08em; color: #a39eb8">{{ u.sub }}</span>
+        </div>
+        <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+          <sc-for list="{{ u.rows }}" as="r" hint-placeholder-count="2">
+            <div style="display: flex; align-items: center; gap: 8px; height: 12px">
+              <span style="font-family: 'Noto Sans JP', sans-serif; font-size: 10px; color: #a39eb8; width: 58px; white-space: nowrap">{{ r.k }}</span>
+              <span style="display: flex; gap: 2px; flex: 1 1 auto; min-width: 0; overflow: hidden">
+                <sc-for list="{{ r.bars }}" as="b" hint-placeholder-count="18"><span style="{{ b.s }}"></span></sc-for>
+              </span>
+              <span style="font-size: 11px; color: #ddd8ea; width: 54px; text-align: right; white-space: nowrap">{{ r.v }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="border-left: 1px solid #2a2738; padding-left: 11px; width: 44px; display: flex; flex-direction: column; align-items: center; gap: 2px">
+          <span style="{{ u.okStyle }}">正常</span>
+          <span style="font-size: 8px; letter-spacing: 0.1em; color: #a39eb8">NORMAL</span>
+        </div>
+      </div>
+    </sc-for>
+  </section>
+
+  <!-- SYSTEM ACTIVITY 23,493 440×218 -->
+  <section style="position: absolute; left: 23px; top: 493px; width: 440px; height: 218px; box-sizing: border-box; background: #0e0d15; border: 1px solid #262333; padding: 14px 16px 14px; display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; align-items: baseline; gap: 10px"><span style="font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 600">SYSTEM ACTIVITY</span><span style="font-family: 'Noto Sans JP', sans-serif; font-size: 10px; color: #a39eb8">システム動作状況</span></div>
+    <div style="flex: 1 1 auto; display: flex; gap: 16px; min-height: 0">
+      <div style="width: 220px; display: flex; flex-direction: column; gap: 6px; border-right: 1px solid #262333; padding-right: 14px">
+        <span style="font-family: 'Barlow Condensed', sans-serif; font-size: 13px; color: #ddd8ea">FPS</span>
+        <div style="display: flex; align-items: center; gap: 12px">
+          <span style="font-family: 'Barlow Condensed', sans-serif; font-size: 24px; font-weight: 600; color: #f1eef8; line-height: 1">376</span>
+          <svg viewBox="0 0 130 28" style="width: 130px; height: 28px" aria-hidden="true"><polyline points="0,24 30,24 45,23 52,6 56,18 62,14 70,22 100,23 130,22" fill="none" stroke="#8f89a6" stroke-width="1.2"></polyline></svg>
+        </div>
+        <span style="font-family: 'Noto Sans JP', sans-serif; font-size: 11px; color: #ddd8ea; margin-top: 2px">ネットワーク</span>
+        <div style="font-size: 11px; color: #ddd8ea; display: flex; gap: 20px"><span>↓&nbsp; 566 B/s</span><span>↑&nbsp; 376 B/s</span></div>
+        <div style="display: flex; gap: 12px; align-items: baseline; margin-top: auto"><span style="font-family: 'Barlow Condensed', sans-serif; font-size: 15px; letter-spacing: 0.04em; color: #b49af0">NO SIGNAL</span><span style="font-family: 'Noto Sans JP', sans-serif; font-size: 11px; color: #a39eb8">ゲーム未検出</span></div>
+      </div>
+      <div style="flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-between">
+        <span style="font-family: 'Barlow Condensed', sans-serif; font-size: 13px; color: #ddd8ea">MAGI <span style="font-family: 'Noto Sans JP', sans-serif; font-size: 10px; color: #a39eb8">自己</span> <span style="font-size: 11px; color: #a39eb8">· USO PRÓPRIO</span></span>
+        <sc-for list="{{ loads }}" as="l" hint-placeholder-count="5">
+          <div style="display: flex; align-items: center; gap: 10px; font-size: 10px; height: 14px">
+            <span style="width: 34px; color: #ddd8ea">{{ l.k }}</span>
+            <span style="flex: 1 1 auto; height: 8px; background: #1b1926; position: relative"><span style="{{ l.fill }}"></span></span>
+            <span style="width: 38px; text-align: right; color: #ddd8ea">{{ l.v }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+
+  <!-- NETWORK 23,727 440×132 -->
+  <section style="position: absolute; left: 23px; top: 727px; width: 440px; height: 132px; box-sizing: border-box; background: #0e0d15; border: 1px solid #262333; padding: 13px 16px 12px; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; align-items: baseline; justify-content: space-between">
+      <div style="display: flex; align-items: baseline; gap: 10px"><span style="font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 600">NETWORK</span><span style="font-family: 'Noto Sans JP', sans-serif; font-size: 9px; color: #a39eb8">ネットワーク接続</span></div>
+      <span style="display: flex; align-items: center; gap: 8px; font-family: 'Noto Sans JP', sans-serif; font-size: 10px; color: #a39eb8">接続中 <span style="width: 7px; height: 7px; border-radius: 50%; background: #5fd38d"></span></span>
+    </div>
+    <div style="flex: 1 1 auto; display: flex; gap: 14px; min-height: 0">
+      <div style="display: grid; grid-template-columns: 72px auto; row-gap: 6px; align-content: center; font-size: 10px; color: #ddd8ea; border-right: 1px solid #262333; padding-right: 14px">
+        <span>IP</span><span>192.168.1.45</span><span>GATEWAY</span><span>192.168.1.1</span><span>DNS</span><span>1.1.1.1</span>
+      </div>
+      <div style="flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-between">
+        <div style="font-size: 11px; color: #ddd8ea; display: flex; gap: 26px; justify-content: center"><span>↓&nbsp; 376 B/s</span><span>↑&nbsp; 566 B/s</span></div>
+        <svg viewBox="0 0 210 34" preserveAspectRatio="none" style="width: 100%; height: 34px" aria-hidden="true"><polyline points="0,30 40,29 70,30 90,29 96,10 100,29 140,28 170,30 186,27 196,29 210,26" fill="none" stroke="#8f89a6" stroke-width="1.1"></polyline></svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= COLUNA 2 ================= -->
+  <!-- CAM 01 482,125 509×428 -->
+  <section style="position: absolute; left: 482px; top: 125px; width: 509px; height: 428px; box-sizing: border-box; background: #121020; border: 1px solid #262333; overflow: hidden">
+    <svg viewBox="0 0 510 428" preserveAspectRatio="xMidYMid slice" style="position: absolute; inset: 0; width: 100%; height: 100%" aria-hidden="true">
+      <defs><linearGradient id="ceu" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1c1930"></stop><stop offset="1" stop-color="#2b2742"></stop></linearGradient></defs>
+      <rect width="510" height="428" fill="url(#ceu)"></rect>
+      <circle cx="270" cy="118" r="26" fill="#4a4566" opacity="0.7"></circle>
+      <g fill="#17152a">
+        <rect x="52" y="292" width="58" height="136"></rect><rect x="110" y="318" width="44" height="110"></rect>
+        <rect x="196" y="270" width="64" height="158"></rect><rect x="262" y="330" width="40" height="98"></rect>
+        <rect x="300" y="276" width="58" height="152"></rect><rect x="358" y="246" width="70" height="182"></rect>
+        <rect x="428" y="300" width="82" height="128"></rect><rect x="0" y="350" width="60" height="78"></rect>
+      </g>
+      <rect x="88" y="340" width="5" height="5" fill="#c89a5a"></rect><rect x="394" y="338" width="5" height="5" fill="#c89a5a"></rect><rect x="236" y="300" width="4" height="4" fill="#6b5a7a"></rect>
+      <g stroke="#0c0b14" fill="none">
+        <rect x="166" y="52" width="9" height="376" fill="#0c0b14"></rect>
+        <rect x="120" y="98" width="100" height="6" fill="#0c0b14"></rect><rect x="132" y="124" width="76" height="5" fill="#0c0b14"></rect>
+        <rect x="354" y="198" width="7" height="230" fill="#0c0b14"></rect>
+        <rect x="322" y="226" width="70" height="5" fill="#0c0b14"></rect><rect x="332" y="246" width="50" height="4" fill="#0c0b14"></rect>
+        <path d="M0 72 Q 80 108 170 100" stroke-width="2"></path><path d="M0 92 Q 90 132 170 126" stroke-width="2"></path>
+        <path d="M170 100 Q 270 190 356 228" stroke-width="2"></path><path d="M170 126 Q 270 210 356 248" stroke-width="2"></path>
+        <path d="M356 228 Q 440 250 510 236" stroke-width="2"></path><path d="M356 248 Q 440 270 510 262" stroke-width="2"></path>
+        <path d="M120 100 Q 240 230 330 228" stroke-width="1.5"></path>
+      </g>
+    </svg>
+    <div style="position: absolute; inset: 0; background-image: repeating-linear-gradient(0deg, rgba(0,0,0,0.12) 0px, rgba(0,0,0,0.12) 1px, transparent 1px, transparent 3px)"></div>
+    <div style="position: absolute; top: 14px; left: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; letter-spacing: 0.08em">
+      <span>CAM 01 // <span style="font-family: 'Noto Sans JP', sans-serif">電線</span></span>
+      <span style="display: flex; align-items: center; gap: 7px; font-size: 11px">REC <span style="width: 7px; height: 7px; border-radius: 50%; background: #b49af0"></span> {{ recTime }}</span>
+    </div>
+    <div style="position: absolute; top: 14px; right: 16px; display: grid; grid-template-columns: auto auto; gap: 5px 12px; font-size: 11px; letter-spacing: 0.06em">
+      <span>SIGNAL: 98%</span><span>LATENCY: 12ms</span><span></span><span style="text-align: right">SOURCE: LOCAL</span>
+    </div>
+    <div style="position: absolute; top: 70px; right: 16px; bottom: 16px; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 10px; color: #a39eb8">
+      <span style="font-family: 'Noto Sans JP', sans-serif">電線</span><span>98%</span>
+      <span style="flex: 1 1 auto; width: 2px; background: #4a4566; position: relative"><span style="position: absolute; left: -5px; right: -5px; top: 0; height: 1px; background: #a39eb8"></span></span>
+      <span style="font-family: 'Noto Sans JP', sans-serif">電線</span>
+    </div>
+    <div style="position: absolute; left: 18px; bottom: 20px; display: flex; flex-direction: column; gap: 6px">
+      <span style="font-family: 'Noto Sans JP', sans-serif; font-size: 18px; letter-spacing: 0.12em; color: #ece8f5">信号は、まだ届いている。</span>
+      <span style="font-size: 12px; letter-spacing: 0.06em; color: #b5b0c8">the signal is still arriving.</span>
+    </div>
+  </section>
+
+  <!-- LOAD HISTORY 482,572 509×287 -->
+  <section style="position: absolute; left: 482px; top: 572px; width: 509px; height: 287px; box-sizing: border-box; background: #0e0d15; border: 1px solid #262333; padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; align-items: baseline; justify-content: space-between">
+      <div style="display: flex; align-items: baseline; gap: 10px"><span style="font-family: 'Barlow Condensed', sans-serif; font-size: 21px; font-weight: 600">LOAD HISTORY</span><span style="font-family: 'Noto Sans JP', sans-serif; font-size: 10px; color: #a39eb8">負荷履歴</span></div>
+      <div style="display: flex; gap: 16px; font-size: 11px; color: #ddd8ea">
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; background: #b49af0"></span>CPU</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; background: #5fd38d"></span>GPU</span>
+        <span style="display: flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; background: #a39eb8"></span>RAM</span>
+      </div>
+    </div>
+    <svg viewBox="0 0 476 226" style="width: 476px; height: 226px" aria-hidden="true">
+      <g stroke="#221f2e" stroke-width="1">
+        <line x1="38" y1="10" x2="476" y2="10"></line><line x1="38" y1="98" x2="476" y2="98"></line><line x1="38" y1="186" x2="476" y2="186"></line>
+        <line x1="38" y1="10" x2="38" y2="186"></line><line x1="142" y1="10" x2="142" y2="186"></line><line x1="246" y1="10" x2="246" y2="186"></line><line x1="350" y1="10" x2="350" y2="186"></line><line x1="454" y1="10" x2="454" y2="186"></line>
+      </g>
+      <g font-family="JetBrains Mono, monospace" font-size="11" fill="#a39eb8">
+        <text x="0" y="14">100%</text><text x="7" y="102">50%</text><text x="14" y="190">0%</text>
+        <text x="22" y="214">10:57</text><text x="126" y="214">10:52</text><text x="230" y="214">11:07</text><text x="334" y="214">11:22</text><text x="438" y="214">11:36</text>
+      </g>
+      <polyline points="40,184 120,184 200,183 230,182 240,164 246,154 252,156 262,162 300,162 320,157 330,152 336,159 380,161 420,160 446,158 456,150 466,154" fill="none" stroke="#a39eb8" stroke-width="1.4"></polyline>
+      <polyline points="40,182 200,182 230,181 236,170 240,172 246,176 256,178 270,176 290,178 300,176 320,178 340,176 360,179 380,176 400,178 420,176 440,179 456,174 466,177" fill="none" stroke="#5fd38d" stroke-width="1.3"></polyline>
+      <polyline points="40,183 200,183 228,182 234,156 238,176 244,180 256,176 270,180 290,177 310,180 330,176 350,180 370,177 390,180 410,177 430,180 450,176 458,171 466,178" fill="none" stroke="#b49af0" stroke-width="1.3"></polyline>
+    </svg>
+  </section>
+
+  <!-- ================= COLUNA 3 ================= -->
+  <!-- CONDESSA 1012,125 310×428 -->
+  <section style="position: absolute; left: 1012px; top: 125px; width: 310px; height: 428px; box-sizing: border-box; background: #0e0d15; border: 1px solid #262333">
+    <div style="position: absolute; left: 12px; right: 12px; top: 12px; display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 0.06em; color: #a39eb8"><span>MAGI-01 // CONDESSA</span><span style="font-family: 'Noto Sans JP', sans-serif">人格</span></div>
+    <!-- retrato: 272×272 (maior que no HUD atual), quase a largura toda do card -->
+    <div style="position: absolute; left: 19px; top: 30px; width: 272px; height: 272px">
+      <img src="/_blob/b1f14412dc510d342be04be99e9a3d71" alt="Condessa" style="position: absolute; inset: 0; width: 272px; height: 272px; object-fit: cover; -webkit-mask-image: linear-gradient(to bottom, #000 90%, transparent); mask-image: linear-gradient(to bottom, #000 90%, transparent)">
+    </div>
+    <div style="position: absolute; left: 8px; top: 150px; display: flex; flex-direction: column; gap: 9px">
+      <span style="width: 5px; height: 5px; border-radius: 50%; border: 1px solid #6d6884"></span><span style="width: 5px; height: 5px; border-radius: 50%; border: 1px solid #6d6884"></span><span style="width: 5px; height: 5px; border-radius: 50%; border: 1px solid #6d6884"></span>
+    </div>
+    <div style="position: absolute; right: 7px; top: 34px; height: 262px; display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 9px; color: #a39eb8">
+      <span style="font-family: 'Noto Sans JP', sans-serif">在</span>
+      <span style="flex: 1 1 auto; width: 3px; background: #1d1b28; position: relative"><span style="position: absolute; left: -4px; right: -4px; top: 6px; height: 1px; background: #a39eb8"></span></span>
+      <span>01</span>
+    </div>
+    <div style="{{ chipStyle }}">{{ chipLabel }} <span style="font-family: 'Noto Sans JP', sans-serif">{{ chipJp }}</span></div>
+    <!-- fala: caixa de terminal; o texto é digitado 1 caractere por vez enquanto ela fala -->
+    <button type="button" onClick="{{ speakNext }}" aria-label="Próxima fala da Condessa" style="position: absolute; left: 12px; right: 12px; top: 342px; height: 74px; box-sizing: border-box; margin: 0; padding: 8px 10px 8px 12px; background: #08070d; border: 1px solid #262333; border-left: 2px solid {{ speakAccent }}; text-align: left; cursor: pointer; overflow: hidden; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.55; color: #ddd8ea; white-space: normal; word-break: break-word"><span style="color: #b49af0">›</span> {{ typed }}<span style="{{ typeCursor }}"></span></button>
+  </section>
+
+  <!-- UNIT SPEC 1012,572 310×287 -->
+  <section style="position: absolute; left: 1012px; top: 572px; width: 310px; height: 287px; box-sizing: border-box; background: #0e0d15; border: 1px solid #262333; padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; align-items: baseline; gap: 10px"><span style="font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 600">UNIT SPEC</span><span style="font-family: 'Noto Sans JP', sans-serif; font-size: 10px; color: #a39eb8">機体情報</span></div>
+    <div style="display: grid; grid-template-columns: 44px 1fr; row-gap: 5px; font-size: 10.5px; color: #ddd8ea">
+      <span style="color: #a39eb8">CPU</span><span>INTEL CORE I5-11400F · 6C/12T</span>
+      <span style="color: #a39eb8">GPU</span><span>AMD RADEON RX 9060 XT · 16 GB</span>
+      <span style="color: #a39eb8">M/B</span><span>GIGABYTE Z490 AORUS PRO AX</span>
+      <span style="color: #a39eb8">RAM</span><span>32 GB</span>
+      <span style="color: #a39eb8">OS</span><span>NOBARA LINUX 44 · 7.2.9</span>
+      <span style="color: #a39eb8">MESA</span><span>26.2.4</span>
+    </div>
+    <div style="margin-top: auto; border-top: 1px solid #262333; padding-top: 9px; display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; align-items: baseline; gap: 10px"><span style="font-family: 'Barlow Condensed', sans-serif; font-size: 15px">PILOTS</span><span style="font-family: 'Noto Sans JP', sans-serif; font-size: 9px; color: #a39eb8">操縦者</span></div>
+      <div style="display: flex; justify-content: space-between; border: 1px solid #2a2738; padding: 6px 10px; font-size: 10.5px"><span>01&nbsp;&nbsp; DUALSENSE BT</span><span>85%</span></div>
+      <div style="border: 1px solid #2a2738; padding: 6px 10px; font-size: 10.5px; color: #a39eb8">02&nbsp;&nbsp; <span style="font-family: 'Noto Sans JP', sans-serif">未接続</span> — empty</div>
+    </div>
+  </section>
+
+  <!-- ================= COLUNA 4 ================= -->
+  <!-- NOW PLAYING 1340,125 310×240 -->
+  <section style="position: absolute; left: 1340px; top: 125px; width: 310px; height: 240px; box-sizing: border-box; background: #0e0d15; border: 1px solid #262333; padding: 14px 16px 14px; display: flex; flex-direction: column; justify-content: space-between">
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <div style="display: flex; align-items: baseline; gap: 10px"><span style="font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 600">NOW PLAYING</span><span style="font-family: 'Noto Sans JP', sans-serif; font-size: 9px; color: #a39eb8">再生中</span></div>
+      <span style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #5fd38d"><span style="width: 6px; height: 6px; border-radius: 50%; background: #5fd38d"></span>spotify</span>
+    </div>
+    <div style="display: flex; gap: 14px; align-items: flex-start">
+      <div style="width: 80px; height: 80px; flex: 0 0 80px; background: #f2832a"></div>
+      <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 2px">
+        <span style="font-family: 'Barlow Condensed', sans-serif; font-size: 22px; line-height: 1.1; color: #f1eef8">Monks</span>
+        <span style="font-size: 12px; color: #ddd8ea">Frank Ocean</span>
+        <span style="font-size: 12px; color: #ddd8ea">channel ORANGE</span>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span style="height: 2px; background: #2a2738; position: relative"><span style="position: absolute; left: 0; top: 0; bottom: 0; width: 27%; background: #e3b977"></span></span>
+      <div style="display: flex; justify-content: space-between; font-size: 10px; color: #a39eb8"><span>0:34</span><span>3:20</span></div>
+    </div>
+    <div style="display: flex; align-items: flex-end; gap: 8px">
+      <button type="button" aria-label="Anterior" style="width: 36px; height: 32px; background: #12111a; border: 1px solid #2f2c40; color: #ddd8ea; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3 2v8M10 2L4.5 6 10 10z"></path></svg></button>
+      <button type="button" aria-label="{{ playAria }}" onClick="{{ togglePlay }}" style="width: 36px; height: 32px; background: #12111a; border: 1px solid #2f2c40; color: #ddd8ea; display: flex; align-items: center; justify-content: center; cursor: pointer">
+        <sc-if value="{{ playing }}" hint-placeholder-val="{{ true }}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 2v8M8 2v8"></path></svg></sc-if>
+        <sc-if value="{{ paused }}" hint-placeholder-val="{{ false }}"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M3.5 2l6 4-6 4z"></path></svg></sc-if>
+      </button>
+      <button type="button" aria-label="Próxima" style="width: 36px; height: 32px; background: #12111a; border: 1px solid #2f2c40; color: #ddd8ea; display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M9 2v8M2 2l5.5 4L2 10z"></path></svg></button>
+      <div style="margin-left: auto; display: flex; align-items: flex-end; gap: 2px; height: 32px">
+        <sc-for list="{{ eq }}" as="e" hint-placeholder-count="16"><span style="{{ e.s }}"></span></sc-for>
+      </div>
+    </div>
+  </section>
+
+  <!-- RÁDIO AYANAMI 1340,381 310×128 -->
+  <section style="position: absolute; left: 1340px; top: 381px; width: 310px; height: 128px; box-sizing: border-box; overflow: hidden; background: #0d0c15; border: 1px solid #2d2a3c; padding: 14px 16px 12px">
+    <img src="/_blob/3c09a2276c734fec9147df1d076168fc" alt="" aria-hidden="true" style="position: absolute; right: 4px; bottom: 0; width: 146px; height: 124px; mix-blend-mode: lighten; opacity: 0.85">
+    <div style="position: relative; display: flex; justify-content: space-between; align-items: baseline">
+      <div style="display: flex; align-items: baseline; gap: 8px"><span style="font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 600; letter-spacing: 0.02em">RÁDIO AYANAMI</span><span style="font-size: 12px; color: #a39eb8">//</span><span style="font-family: 'Noto Sans JP', sans-serif; font-size: 11px; color: #a39eb8">放送</span></div>
+      <span style="font-size: 10px; letter-spacing: 0.1em; color: #a39eb8">LIVE {{ hhmm }}</span>
+    </div>
+    <div style="position: relative; margin-top: 14px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #c9c2e6">
+      <span>nenhuma notícia ainda</span>
+      <span>diga "novidades"</span>
+    </div>
+  </section>
+
+  <!-- KONSOLE // CLAUDE CODE 1340,526 310×333 -->
+  <section style="position: absolute; left: 1340px; top: 526px; width: 310px; height: 333px; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; background: #07060c; border: 1px solid #3a3550; box-shadow: inset 0 0 30px rgba(0,0,0,0.6)">
+    <div style="height: 34px; flex: 0 0 34px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 10px; border-bottom: 1px solid #2b2738; background: #0f0d16">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#c9c3dc" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1"></rect><path d="M7 9l3 3-3 3"></path><path d="M12 15h5"></path></svg>
+      <span style="font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 600; letter-spacing: 0.05em; white-space: nowrap">KONSOLE // CLAUDE CODE</span>
+      <span style="margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 9px; letter-spacing: 0.08em; color: #a39eb8; white-space: nowrap">NODE 01 <span style="width: 6px; height: 6px; border-radius: 50%; background: #5fd38d"></span></span>
+      <span style="display: flex; color: #a39eb8">
+        <span style="width: 16px; text-align: center; font-size: 11px">–</span><span style="width: 16px; text-align: center; font-size: 10px">□</span><span style="width: 16px; text-align: center; font-size: 12px">×</span>
+      </span>
+    </div>
+    <div style="height: 24px; flex: 0 0 24px; display: flex; border-bottom: 1px solid #2b2738; background: #0d0b13; font-size: 9px; letter-spacing: 0.1em">
+      <span style="display: flex; align-items: center; gap: 10px; padding: 0 9px; border-right: 1px solid #2b2738; border-top: 1px solid #b49af0; margin-top: -1px; background: #07060c">SESSION 01 <span style="color: #6d6884">×</span></span>
+      <span style="display: flex; align-items: center; padding: 0 9px; border-right: 1px solid #2b2738; color: #a39eb8; font-size: 12px">+</span>
+    </div>
+    <div style="flex: 1 1 auto; display: flex; min-height: 0">
+      <div style="flex: 1 1 auto; min-width: 0; padding: 8px 10px 6px; font-size: 11px; line-height: 1.5; display: flex; flex-direction: column; font-variant-ligatures: none; text-shadow: 0 0 6px rgba(200,190,240,0.12); white-space: nowrap; overflow: hidden">
+        <div style="display: flex; align-items: center; gap: 6px">
+          <span><span style="color: #6fd49a">deilton@magi</span><span style="color: #ddd8ea">:~$</span> <span style="color: #f1eef8">claude</span></span>
+          <span style="margin-left: auto; border: 1px solid #3d3752; color: #a39eb8; font-size: 8px; letter-spacing: 0.1em; padding: 0 5px">RUNNING</span>
+          <span style="font-size: 9px; color: #a39eb8">01:24:15</span>
+        </div>
+        <span style="color: #8f89b8; padding-left: 6px; margin-bottom: 6px">Claude Code</span>
+        <span style="color: #f1eef8"><b>&gt;</b> analisando o painel da MAGI...</span>
+        <div style="display: flex; flex-direction: column; padding: 3px 0 6px 12px; color: #c9c2e6">
+          <sc-for list="{{ steps }}" as="st" hint-placeholder-count="4"><span style="display: flex; align-items: center; gap: 8px"><span style="width: 5px; height: 5px; border-radius: 50%; background: #5fd38d; flex: 0 0 5px"></span>{{ st }}</span></sc-for>
+        </div>
+        <div style="align-self: flex-start; border: 1px dashed #3f8f62; color: #6fd49a; padding: 3px 10px; display: flex; align-items: center; gap: 8px"><span style="font-weight: 700">✓</span>Proposta de melhorias pronta.</div>
+        <sc-for list="{{ log }}" as="ln" hint-placeholder-count="0"><span style="{{ ln.s }}">{{ ln.t }}</span></sc-for>
+        <div style="display: flex; align-items: center; gap: 6px; margin-top: auto">
+          <label for="kon-in" style="color: #f1eef8; font-weight: 700">&gt;</label>
+          <span style="flex: 1 1 auto; min-width: 0; display: flex; align-items: center; position: relative">
+            <input id="kon-in" type="text" value="{{ cmd }}" onInput="{{ onCmd }}" onKeyDown="{{ onCmdKey }}" autocomplete="off" spellcheck="false" aria-label="Comando" style="flex: 1 1 auto; min-width: 0; background: transparent; border: none; color: #f1eef8; font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 1px 0; caret-color: transparent">
+            <span style="{{ cursorPos }}"></span>
+          </span>
+        </div>
+      </div>
+      <div style="width: 4px; flex: 0 0 4px; margin: 8px 4px 8px 0; background: #14121b; position: relative"><div style="position: absolute; top: 0; left: 0; right: 0; height: 70%; background: #3d3752"></div></div>
+    </div>
+    <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid #2b2738; background: #0f0d16; font-size: 9.5px; color: #a39eb8; padding: 5px 10px; white-space: nowrap">
+      <div style="display: flex; gap: 7px"><span>~/projetos/magi</span><span style="color: #3d3752">|</span><span>main</span><span style="color: #3d3752">|</span><span><span style="color: #6fd49a">+3</span> <span style="color: #e88f8f">-1</span></span></div>
+      <div style="display: flex; gap: 7px; align-items: center"><span>CLAUDE CODE</span><span style="color: #3d3752">|</span><span>TOKENS 2.4M</span><span style="margin-left: auto; display: flex; align-items: center; gap: 5px; color: #6fd49a"><span style="width: 6px; height: 6px; border-radius: 50%; background: #5fd38d"></span>ONLINE</span></div>
+    </div>
+  </section>
+
+  <!-- ================= RODAPÉ ================= -->
+  <div style="position: absolute; left: 23px; right: 22px; top: 876px; height: 1px; background: #221f2e"></div>
+  <div style="position: absolute; left: 23px; right: 22px; top: 892px; display: flex; justify-content: space-between; align-items: center; font-size: 11px; letter-spacing: 0.1em; color: #a39eb8; white-space: nowrap">
+    <span><b style="color: #f1eef8; font-weight: 700; font-size: 13px">MAGI</b>&nbsp; MULTI AGENT GUIDANCE INTERFACE</span>
+    <span style="letter-spacing: 0.04em; display: flex; gap: 8px"><span>[11:20:31] magi ativada</span><span>·</span><span>[11:36:24] ♪ Loveeeeeee Song - Rihanna</span><span>·</span><span>[11:36:31] ♪ Monks - Frank Ocean</span></span>
+    <span>META+M · PAINEL COMPLETO</span>
+  </div>
+
+  <!-- clima: varredura discreta e vinheta -->
+  <div aria-hidden="true" style="pointer-events: none; position: absolute; inset: 0; background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.014) 0px, rgba(255,255,255,0.014) 1px, transparent 1px, transparent 3px), radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.4) 100%)"></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1672,"height":941}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { t: 11 * 3600 + 37 * 60 + 5, playing: true, led: false, learn: false, line: 0, typedN: 0, speaking: false, cmd: '', log: [], k: 1 };
+    this.fit = () => {
+      const w = window.innerWidth || 1672, h = window.innerHeight || 941;
+      this.setState({ k: Math.min(w / 1672, h / 941) });
+    };
+  }
+  componentDidMount() {
+    this.fit();
+    window.addEventListener('resize', this.fit);
+    this.tick = setInterval(() => this.setState({ t: this.state.t + 1 }), 1000);
+    this.idle = setTimeout(() => this.speak(0), 700);
+  }
+  componentWillUnmount() { clearInterval(this.tick); clearInterval(this.typer); clearTimeout(this.idle); window.removeEventListener('resize', this.fit); }
+
+  lines() {
+    return [
+      'You ver primeiro o que eu tenho de comando pra isso. Não tenho ferramenta pra desinstalar app daqui.',
+      'Sinal estável. Melchior e Balthasar dentro do normal; Casper com memória folgada.',
+      'Monks de novo? Boa escolha. Vou deixar o volume onde está.',
+      'Se quiser treinar inglês, aperta LEARNING lá em cima. Eu espero.'
+    ];
+  }
+
+  // fala: digita 1 caractere por vez (~38 ms, ritmo da voz) e volta a STANDBY 2,5 s depois
+  speak(idx) {
+    clearInterval(this.typer); clearTimeout(this.idle);
+    const text = this.lines()[idx];
+    this.setState({ line: idx, typedN: 0, speaking: true });
+    this.typer = setInterval(() => {
+      const n = this.state.typedN + 1;
+      if (n >= text.length) {
+        clearInterval(this.typer);
+        this.setState({ typedN: text.length });
+        this.idle = setTimeout(() => this.setState({ speaking: false }), 2500);
+      } else {
+        this.setState({ typedN: n });
+      }
+    }, 38);
+  }
+
+  run() {
+    const c = (this.state.cmd || '').trim();
+    if (!c) return;
+    const reply = c === '/help' ? 'comandos: /help, /status, /clear' : c === '/status' ? 'MAGI · 3/3 NORMAL · NODE 01' : 'ok — trabalhando nisso...';
+    const log = c === '/clear' ? [] : this.state.log.concat([{ t: '> ' + c, s: 'color: #f1eef8' }, { t: '  ' + reply, s: 'color: #c9c2e6' }]).slice(-2);
+    this.setState({ cmd: '', log });
+  }
+
+  renderVals() {
+    const s = this.state;
+    const pad = (n) => String(n).padStart(2, '0');
+    const h = Math.floor(s.t / 3600) % 24, m = Math.floor(s.t / 60) % 60, sec = s.t % 60;
+    const bars = (n, on, color) => Array.from({ length: n }, (_, i) => ({ s: 'width: 4px; height: 10px; flex: 0 0 4px; background: ' + (i < on ? color : '#222030') }));
+    const units = [
+      { name: 'MELCHIOR', sub: 'CPU', color: '#b49af0', bg: 'rgba(180,154,240,0.07)', bd: '#3d3560', rows: [{ k: '負荷 load', bars: bars(18, 1, '#b49af0'), v: '4%' }, { k: '温度 temp', bars: bars(18, 6, '#b49af0'), v: '36°C' }, { k: '周波 clock', bars: bars(18, 10, '#b49af0'), v: '4.2GHz' }] },
+      { name: 'BALTHASAR', sub: 'GPU', color: '#5fd38d', bg: 'rgba(95,211,141,0.07)', bd: '#2f5c43', rows: [{ k: '負荷 load', bars: bars(18, 3, '#5fd38d'), v: '16%' }, { k: '温度 temp', bars: bars(18, 8, '#5fd38d'), v: '45°C' }, { k: '映像 vram', bars: bars(18, 3, '#5fd38d'), v: '3.0/16G' }] },
+      { name: 'CASPER', sub: 'MEMORY', color: '#ddd8ea', bg: 'transparent', bd: '#2a2738', rows: [{ k: '主記 ram', bars: bars(18, 5, '#a39eb8'), v: '8.3/32G' }, { k: '交換 swap', bars: bars(18, 1, '#a39eb8'), v: '0.2/8G' }, { k: '記憶 disk', bars: bars(18, 6, '#a39eb8'), v: '34%' }] }
+    ].map((u) => ({
+      ...u,
+      box: 'height: 84px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; background: ' + u.bg + '; border: 1px solid ' + u.bd + '; border-left: 3px solid ' + (u.bg === 'transparent' ? '#4a4560' : u.color),
+      nameStyle: 'font-family: \'Barlow Condensed\', sans-serif; font-size: 20px; font-weight: 600; letter-spacing: 0.02em; line-height: 1; color: ' + u.color,
+      okStyle: 'font-family: \'Noto Sans JP\', sans-serif; font-size: 14px; color: ' + (u.color === '#ddd8ea' ? '#5fd38d' : u.color)
+    }));
+    // consumo da própria MAGI (núcleo + HUD + voz), não do PC: barra relativa ao total da máquina
+    const loads = [['CPU', '14%', 14], ['GPU', '1%', 1], ['RAM', '1.4G', 4], ['VRAM', '70M', 1]].map(([k, v, pct]) => ({
+      k, v, fill: 'position: absolute; left: 0; top: 0; bottom: 0; width: ' + Math.max(pct, 1.5) + '%; background: #b49af0'
+    }));
+    const eqH = [8, 16, 12, 22, 28, 18, 24, 32, 20, 14, 26, 18, 10, 16, 8, 12];
+    const eq = eqH.map((v) => ({ s: 'width: 3px; height: ' + (s.playing ? v : 3) + 'px; background: #8f89a6; transition: height 0.3s' }));
+
+    return {
+      stage: 'position: relative; flex: 0 0 auto; width: 1672px; height: 941px; background: #09080f; color: #e2deee; font-family: \'JetBrains Mono\', monospace; zoom: ' + s.k,
+      hhmm: pad(h) + ':' + pad(m), ss: pad(sec), recTime: pad(h) + ':' + pad(m) + ':' + pad(sec),
+      units, loads, eq,
+      // RGB Sync dos LEDs, como no HUD atual: 消灯 LED OFF ↔ 点灯 LED ON
+      ledOn: s.led,
+      toggleLed: () => this.setState({ led: !s.led }),
+      ledJp: s.led ? '点灯' : '消灯',
+      ledLabel: s.led ? 'LED ON' : 'LED OFF',
+      ledDot: 'width: 8px; height: 8px; border-radius: 50%; background: ' + (s.led ? '#5fd38d' : '#4a4560') + '; box-shadow: ' + (s.led ? '0 0 6px rgba(95,211,141,0.7)' : 'none'),
+      ledBtn: 'display: flex; align-items: center; gap: 8px; background: ' + (s.led ? 'rgba(95,211,141,0.08)' : '#100f18') + '; border: 1px solid ' + (s.led ? '#2f5c43' : '#34304a') + '; color: ' + (s.led ? '#5fd38d' : '#a39eb8') + '; font-family: \'JetBrains Mono\', monospace; font-size: 10px; letter-spacing: 0.1em; padding: 8px 14px; cursor: pointer',
+      toggleLearn: () => this.setState({ learn: !s.learn }),
+      learnBtn: 'position: absolute; left: 1068px; top: 30px; width: 196px; height: 52px; box-sizing: border-box; background: ' + (s.learn ? 'rgba(180,154,240,0.12)' : '#0e0d15') + '; border: 1px solid ' + (s.learn ? '#b49af0' : '#34304a') + '; color: #ece8f5; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; padding: 0 14px; cursor: pointer; font-family: \'JetBrains Mono\', monospace; text-align: left',
+      learnDot: 'width: 7px; height: 7px; border-radius: 50%; background: ' + (s.learn ? '#b49af0' : '#4a4560'),
+      learnSub: s.learn ? 'SESSION ACTIVE · B2' : 'ENGLISH · B2',
+      playing: s.playing, paused: !s.playing, playAria: s.playing ? 'Pausar' : 'Tocar',
+      togglePlay: () => this.setState({ playing: !s.playing }),
+      chipLabel: s.speaking ? 'SPEAKING ·' : 'STANDBY ·',
+      chipJp: s.speaking ? '発話中' : '待機中',
+      typed: this.lines()[s.line].slice(0, s.typedN),
+      // cursor só enquanto ela fala, fixo (a digitação já dá o movimento); parada, nada pisca
+      typeCursor: s.speaking ? 'display: inline-block; width: 7px; height: 13px; margin-left: 2px; vertical-align: -2px; background: #b49af0' : 'display: none',
+      speakAccent: s.speaking ? '#b49af0' : '#3d3752',
+      speakNext: () => this.speak((s.line + 1) % this.lines().length),
+      chipStyle: 'position: absolute; left: 14px; top: 310px; border: 1px solid ' + (s.speaking ? '#b49af0' : '#4a4560') + '; color: ' + (s.speaking ? '#b49af0' : '#f1eef8') + '; padding: 3px 9px; font-family: \'Barlow Condensed\', sans-serif; font-size: 14px; letter-spacing: 0.04em',
+      steps: ['Lendo estrutura do projeto...', 'Analisando componentes do layout...', 'Planejando melhorias no sistema...', 'Gerando sugestões de design...'],
+      log: s.log, cmd: s.cmd,
+      cursorPos: 'position: absolute; left: ' + ((s.cmd || '').length * 6.6) + 'px; top: 2px; width: 7px; height: 14px; background: #6d6884; pointer-events: none',
+      onCmd: (e) => this.setState({ cmd: e.target.value }),
+      onCmdKey: (e) => { if (e.key === 'Enter') { e.preventDefault(); this.run(); } }
+    };
+  }
+}
+</script>
+</body>
+</html>
