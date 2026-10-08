@@ -1033,6 +1033,8 @@ class HUD(QWidget):
         app = QCoreApplication.instance()
         if app is not None:
             app.aboutToQuit.connect(self.konsole_stop)
+        if load_settings().get("konsole_tmux", True) and konsole_term.tmux_has_session():
+            QTimer.singleShot(0, self.konsole_start)   # o claude sobreviveu ao HUD: reconecta
         self.setWindowTitle("MAGI Gamer")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_OpaquePaintEvent)
@@ -1590,7 +1592,8 @@ class HUD(QWidget):
         return self.kon_open and self.wired is not None and self.view == "full" and not self.trans
 
     def konsole_start(self):
-        """Sobe a sessão se não houver uma viva (comando e pasta: settings.json konsole_cmd/konsole_cwd)."""
+        """Sobe a sessão se não houver uma viva (comando e pasta: settings.json konsole_cmd/konsole_cwd).
+        Com tmux (konsole_tmux, padrão ligado) a sessão é persistente: reconecta se já existir."""
         if self.kon is not None and self.kon.alive:
             return
         self.konsole_stop()
@@ -1598,7 +1601,9 @@ class HUD(QWidget):
         cfg = load_settings()
         cols, rows = kview.cells_for(kview.EXPANDED_RECT, self.konsole_scale())
         try:
-            self.kon = konsole_term.KonsoleSession(cfg.get("konsole_cmd"), cfg.get("konsole_cwd"), cols, rows)
+            persist = konsole_term.TMUX_SESSION if cfg.get("konsole_tmux", True) else None
+            self.kon = konsole_term.KonsoleSession(cfg.get("konsole_cmd"), cfg.get("konsole_cwd"), cols, rows,
+                                                   persist=persist)
         except RuntimeError:   # sem pyte no Python do sistema
             self.kon = None
             kview.VIEW.error = konsole_term.MISSING_PYTE
@@ -1614,7 +1619,8 @@ class HUD(QWidget):
         self.kon_notifier = n
 
     def konsole_stop(self):
-        """Encerra a sessão (SIGTERM/SIGKILL ao grupo, sem zumbi). A view mostra "encerrada"."""
+        """Encerra a sessão (SIGTERM/SIGKILL ao grupo, sem zumbi). A view mostra "encerrada".
+        Persistente: só desconecta o cliente tmux; o claude segue rodando."""
         if self.kon_notifier is not None:
             self.kon_notifier.setEnabled(False)
             self.kon_notifier.deleteLater()

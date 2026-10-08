@@ -159,7 +159,8 @@ def hud(tmp_path, monkeypatch):
     from wired.integration import WiredUI
 
     cfg = {"view": "full", "transition": False, "ui": "wired",
-           "konsole_cmd": ["bash", "-c", "printf 'pronto\\n'; exec cat"], "konsole_cwd": str(tmp_path)}
+           "konsole_cmd": ["bash", "-c", "printf 'pronto\\n'; exec cat"], "konsole_cwd": str(tmp_path),
+           "konsole_tmux": False}
     monkeypatch.setattr(gamerhud, "load_settings", lambda: dict(cfg))
     monkeypatch.setattr(gamerhud, "save_settings", lambda d: None)
     monkeypatch.setattr(gamerhud.orgb, "board_color", lambda: None)

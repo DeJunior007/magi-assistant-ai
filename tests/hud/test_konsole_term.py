@@ -203,3 +203,34 @@ def test_aceita_flags_com_value():
         value = CTRL
 
     assert qt_key_to_bytes(ord("C"), "", Flags()) == b"\x03"
+
+
+@pytest.mark.skipif(kt.tmux_bin() is None, reason="sem tmux")
+def test_tmux_sobrevive_ao_close_e_reconecta(tmp_path):
+    name = f"magi-teste-{os.getpid()}"
+    script = "printf 'vivo\\n'; exec cat"
+    try:
+        s = kt.KonsoleSession(["bash", "-c", script], cwd=tmp_path, cols=40, rows=10, persist=name)
+        assert s.persistent and not s.reattached
+        assert wait_for(s, lambda: "vivo" in text(s))
+        s.write(b"marca\r")
+        assert wait_for(s, lambda: text(s).count("marca") >= 2)
+        s.close(grace=0.5)
+        assert kt.tmux_has_session(name)   # fechar o HUD só desconecta
+
+        s2 = kt.KonsoleSession(["bash", "-c", script], cwd=tmp_path, cols=40, rows=10, persist=name)
+        assert s2.reattached
+        assert wait_for(s2, lambda: "marca" in text(s2))   # a mesma tela de antes
+        s2.close(grace=0.5)
+    finally:
+        kt.tmux_kill_session(name)
+    assert not kt.tmux_has_session(name)
+
+
+@pytest.mark.skipif(kt.tmux_bin() is None, reason="sem tmux")
+def test_tmux_comando_ou_pasta_inexistente(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        kt.KonsoleSession(["/nao/existe/claude"], cwd=tmp_path, persist="magi-teste-x")
+    with pytest.raises(FileNotFoundError):
+        kt.KonsoleSession(["bash"], cwd=tmp_path / "nada", persist="magi-teste-x")
+    assert not kt.tmux_has_session("magi-teste-x")

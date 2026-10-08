@@ -19,6 +19,11 @@ um card de estatísticas.
   `~/.config/kwinrulesrc.bak-acceptfocus`).
 - **Sair do expandido:** botão "–" da barra de título ou clique fora; `Esc` vai para o Claude
   (ele usa Esc para interromper). A sessão continua rodando ao recolher.
+- **Persistente (tmux):** com o tmux instalado, o `claude` vive num servidor tmux próprio
+  (`tmux -L magi`, sessão `magi-claude`, `hud/tmux-magi.conf`); o HUD só tem o cliente. Fechar ou
+  reiniciar o HUD só desconecta; ao abrir, ele reconecta sozinho se a sessão existir. Nesse modo
+  o HUD não responde às perguntas de terminal (quem responde ao claude é o tmux).
+  `"konsole_tmux": false` no `settings.json` desliga.
 - **Nada pisca** com o terminal ocioso (cursor fixo).
 
 ## Peças

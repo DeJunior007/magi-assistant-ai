@@ -7,6 +7,11 @@ para o ``pyte``) e expõe as células com atributos e o cursor para a pintura
 (``wired/konsole_view.py``). ``close()`` manda SIGTERM ao grupo, depois SIGKILL, e colhe o filho:
 nunca fica zumbi.
 
+Persistente (``persist``): com tmux instalado o comando roda num servidor tmux próprio
+(``tmux -L magi``, config ``hud/tmux-magi.conf``) na sessão ``persist``; o pty do HUD só tem o
+cliente. ``close()`` derruba o cliente (desconecta) e o ``claude`` segue vivo; abrir de novo
+reconecta (``new-session -A``). Sem tmux, cai no pty direto.
+
 ``qt_key_to_bytes`` traduz uma tecla do Qt (constantes numéricas, sem importar o Qt) na sequência
 que um xterm mandaria. Ver ``docs/design/nova-ui/KONSOLE.md``.
 
@@ -44,7 +49,11 @@ READ_BUDGET = 1 << 20    # por pump(): não segura o laço do Qt com uma enxurra
 # o HUD sobe pelo login, às vezes sem ~/.local/bin no PATH
 EXTRA_PATH = ("~/.local/bin", "~/.claude/local", "~/.npm-global/bin", "~/bin")
 # variáveis de uma sessão do Claude Code que não podem vazar para o claude filho
-DROP_ENV = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT")
+# (TMUX/TMUX_PANE: o HUD aberto de dentro de um tmux não pode virar tmux aninhado)
+DROP_ENV = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "TMUX", "TMUX_PANE")
+TMUX_SOCKET = "magi"                     # servidor tmux só do HUD (não mexe nos tmux do usuário)
+TMUX_SESSION = "magi-claude"
+TMUX_CONF = Path(__file__).resolve().parent / "tmux-magi.conf"
 
 # modos privados do DEC no pyte (guardados como n << 5)
 MODE_APP_CURSOR = 1 << 5          # DECCKM: setas/Home/End como ESC O x
@@ -76,6 +85,42 @@ def resolve_cmd(cmd) -> list[str]:
         if found:
             cmd[0] = found
     return cmd
+
+
+def tmux_bin() -> str | None:
+    """Caminho do tmux, ou None se não estiver instalado."""
+    path = resolve_cmd(["tmux"])[0]
+    return path if os.path.isabs(path) else None
+
+
+def tmux_has_session(name: str = TMUX_SESSION) -> bool:
+    """A sessão persistente ``name`` existe no servidor do HUD? (False sem tmux)."""
+    tmux = tmux_bin()
+    if not tmux:
+        return False
+    try:
+        r = subprocess.run([tmux, "-L", TMUX_SOCKET, "has-session", "-t", f"={name}"],
+                           capture_output=True, timeout=2)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+
+def tmux_kill_session(name: str = TMUX_SESSION) -> None:
+    """Encerra de vez a sessão persistente (o ``claude`` dentro dela morre junto)."""
+    tmux = tmux_bin()
+    if tmux:
+        subprocess.run([tmux, "-L", TMUX_SOCKET, "kill-session", "-t", f"={name}"],
+                       capture_output=True, timeout=2)
+
+
+def tmux_wrap(cmd, cwd: str, name: str) -> list[str] | None:
+    """O comando dentro da sessão tmux ``name`` (cria ou reconecta). None sem tmux."""
+    tmux = tmux_bin()
+    if not tmux:
+        return None
+    return [tmux, "-L", TMUX_SOCKET, "-f", str(TMUX_CONF), "new-session", "-A", "-s", name,
+            "-c", cwd, "--", *cmd]
 
 
 def git_status(cwd) -> dict:
@@ -114,19 +159,34 @@ if HAVE_PYTE:
         def write_process_input(self, data):
             self.replies.append(data)
 
+        def report_device_status(self, mode=0, private=False, **kw):
+            """O tmux pergunta ``ESC[?…n`` (privado) e o pyte quebraria: só responde os ANSI."""
+            if not private:
+                super().report_device_status(mode)
+
 
 class KonsoleSession:
     """Um programa num pty com a tela emulada pelo pyte.
 
     ``cmd`` (padrão ``["claude"]``), ``cwd`` (padrão o repositório), tamanho inicial em células.
+    ``persist``: nome da sessão tmux (ver o topo do módulo); ``persistent`` diz se pegou.
     Lança ``RuntimeError`` sem pyte e ``FileNotFoundError`` se o comando não existir."""
 
     def __init__(self, cmd=None, cwd=None, cols: int = 80, rows: int = 24, env: dict | None = None,
-                 history: int = HISTORY):
+                 history: int = HISTORY, persist: str | None = None):
         if not HAVE_PYTE:
             raise RuntimeError(MISSING_PYTE)
         self.cmd = resolve_cmd(cmd or DEFAULT_CMD)
         self.cwd = str(Path(cwd).expanduser()) if cwd else str(REPO)
+        if not os.path.isdir(self.cwd):   # o tmux não reclamaria: falha aqui, como sem ele
+            raise FileNotFoundError(errno.ENOENT, "pasta inexistente", self.cwd)
+        wrapped = tmux_wrap(self.cmd, self.cwd, persist) if persist else None
+        self.persistent = wrapped is not None
+        self.reattached = self.persistent and tmux_has_session(persist)
+        if wrapped:
+            if not os.path.isabs(self.cmd[0]) or not os.access(self.cmd[0], os.X_OK):
+                raise FileNotFoundError(errno.ENOENT, "comando não encontrado", self.cmd[0])
+            self.cmd = wrapped
         self.cols, self.rows = max(2, int(cols)), max(2, int(rows))
         self.screen = _Screen(self.cols, self.rows, history)
         self.stream = pyte.ByteStream(self.screen)
@@ -192,7 +252,10 @@ class KonsoleSession:
             got += len(data)
             changed = True
         if self.screen.replies:
-            self.write("".join(self.screen.replies).encode())
+            # no tmux quem responde ao claude é o próprio tmux; as respostas do pyte às perguntas
+            # do cliente (DA) viravam texto digitado no painel
+            if not self.persistent:
+                self.write("".join(self.screen.replies).encode())
             self.screen.replies.clear()
         if changed and got:
             self.scroll = 0 if self.scroll == 0 else min(self.scroll, self.history_len())
@@ -247,7 +310,7 @@ class KonsoleSession:
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", self.rows, self.cols, 0, 0))
 
     def close(self, grace: float = 1.0) -> None:
-        """Encerra: SIGTERM ao grupo, espera ``grace`` s, SIGKILL; colhe o filho e fecha o pty."""
+        """Encerra (persistente: só o cliente tmux, ou seja, desconecta): SIGTERM ao grupo, espera ``grace`` s, SIGKILL; colhe o filho e fecha o pty."""
         proc = self.proc
         if proc.poll() is None:
             _killpg(proc.pid, signal.SIGHUP)

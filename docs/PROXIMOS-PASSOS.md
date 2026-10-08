@@ -108,10 +108,11 @@ Regra do KWin "MAGI Gamer" sem `acceptfocus` forçado (backup `~/.config/kwinrul
 `settings.json` do HUD com `konsole_cwd = /home/pedrojr` (memória do Claude Code e `/resume`).
 
 Próximos passos, em ordem:
-1. **Konsole persistente com tmux** (depende de `sudo dnf install tmux`): `KonsoleSession` roda
-   `tmux new-session -A -s magi-claude -c <cwd> claude` (status do tmux desligado); o HUD só
-   se conecta; ao abrir, reconecta sozinho se a sessão existir; fechar o HUD só desconecta.
-   **Até isso entrar, não pedir ao Claude do Konsole para reiniciar o HUD** (a sessão morre junto).
+1. ~~**Konsole persistente com tmux**~~ — feito: o `claude` roda em `tmux -L magi` (sessão
+   `magi-claude`, config `hud/tmux-magi.conf`, sem barra/prefixo, `escape-time 0`); fechar o HUD
+   só desconecta, e ao abrir o HUD reconecta sozinho. `konsole_tmux: false` no `settings.json`
+   volta ao pty direto. Encerrar de vez: `tmux -L magi kill-session -t magi-claude` (ou sair do
+   claude). Mudou o `.conf`? `tmux -L magi kill-server`.
 2. Konsole: TOKENS na barra de status (hoje mostra PID/células); linhas cortadas no card recolhido.
 3. Testes manuais: digitação no Konsole (texto, setas, Enter, Esc), foco volta ao recolher,
    HUD não rouba foco do jogo sem clique; digitação na tela learning (mesma regra do KWin).
