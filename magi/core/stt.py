@@ -33,6 +33,13 @@ CHARS_PER_TOKEN = 3.5
 #: Contexto em português: só a lista de nomes (quase todos de jogos em inglês) puxava a
 #: transcrição para o inglês ("Is it early?", "The Earlids").
 HINT_PREFIX = "Pedro fala em português do Brasil com a assistente Condessa, no PC de jogos. Vocabulário: "
+#: Escuta em "auto"/"en" (ela fala inglês): a dica em português puxava a detecção para o
+#: português e palavras em inglês viravam parecidas em PT. Em inglês, o inglês fica como
+#: padrão e o português segue entendido.
+HINT_PREFIX_EN = (
+    "Pedro mostly speaks English with the assistant Condessa, on his gaming PC; "
+    "sometimes Brazilian Portuguese. Vocabulary: "
+)
 HINT_SEP = ", "
 HINT_END = "."
 
@@ -61,12 +68,23 @@ class HintTerm:
     score: float
 
 
-def build_hint(terms: Iterable[HintTerm], max_tokens: int = STT_HINT_MAX_TOKENS) -> str:
-    """Monta a dica em português: termos por nota (desc.), sem repetição, ≤ ``max_tokens``.
+def hint_prefix() -> str:
+    """Contexto da dica conforme ``[speech] listen``: "pt" em português, o resto em inglês."""
+    from magi.core import i18n
+
+    return HINT_PREFIX if i18n.listen_language() == "pt" else HINT_PREFIX_EN
+
+
+def build_hint(
+    terms: Iterable[HintTerm], max_tokens: int = STT_HINT_MAX_TOKENS, prefix: str | None = None
+) -> str:
+    """Monta a dica (contexto de ``hint_prefix()``): termos por nota (desc.), sem repetição,
+    ≤ ``max_tokens``.
 
     Empate mantém a ordem de chegada; repetido fica com a maior nota. Termo que não cabe é
     pulado (um menor pode caber).
     """
+    prefix = hint_prefix() if prefix is None else prefix
     ordered = sorted((-t.score, i, term) for i, t in enumerate(terms) if (term := " ".join(t.term.split())))
     seen: set[str] = set()
     picked: list[str] = []
@@ -74,10 +92,10 @@ def build_hint(terms: Iterable[HintTerm], max_tokens: int = STT_HINT_MAX_TOKENS)
         if (key := term.casefold()) in seen:
             continue
         seen.add(key)
-        candidate = HINT_PREFIX + HINT_SEP.join([*picked, term]) + HINT_END
+        candidate = prefix + HINT_SEP.join([*picked, term]) + HINT_END
         if estimate_tokens(candidate) <= max_tokens:
             picked.append(term)
-    return HINT_PREFIX + HINT_SEP.join(picked) + HINT_END if picked else ""
+    return prefix + HINT_SEP.join(picked) + HINT_END if picked else ""
 
 
 class HintedStt:

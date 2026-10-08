@@ -233,3 +233,15 @@ async def test_plugs_into_turn_pipeline(no_disk_writes: list) -> None:
 @pytest.mark.live
 async def test_live_registry_stt() -> None:  # pragma: no cover - precisa de chaves
     pytest.skip("transcrição real: rodar manualmente com áudio gravado em memória")
+
+
+def test_dica_em_ingles_quando_a_escuta_nao_e_pt(monkeypatch):
+    """Com ``listen`` em "auto"/"en" a dica vai em inglês, para não puxar a detecção ao PT."""
+    from magi.core import i18n
+    from magi.core.stt import HINT_PREFIX_EN
+
+    terms = [HintTerm("Hollow Knight", 1.0)]
+    monkeypatch.setattr(i18n, "_listen", "auto")
+    assert build_hint(terms) == f"{HINT_PREFIX_EN}Hollow Knight."
+    monkeypatch.setattr(i18n, "_listen", "pt")
+    assert build_hint(terms) == f"{HINT_PREFIX}Hollow Knight."
