@@ -149,6 +149,9 @@ class TurnDeps:
     - ``prewarm`` (1.23): disparado em segundo plano a cada ativação, abre as conexões HTTP dos
       provedores (STT/TTS/agente) enquanto o usuário ainda fala; erro é ignorado.
     - ``save_audio`` (1.26): ``[debug] save_audio``; grava cada fala enviada ao STT em WAV.
+    - ``learning`` (Learning Mode, LM1.3): chamado **depois** da entrega de um turno de voz com
+      ``(transcript, ctx, result)``; síncrono, só agenda (``magi.learning.wiring``). Só existe com
+      ``[learning] enabled``; ``None`` = nada muda.
     """
 
     stt: SttProvider | None = None
@@ -161,6 +164,7 @@ class TurnDeps:
     mood: Any = None
     prewarm: Callable[[], Awaitable[Any]] | None = None
     save_audio: UtteranceSaver | None = None
+    learning: Callable[[Transcript, TurnContext, ActionResult], None] | None = None
 
 
 def _short(text: str, limit: int = 120) -> str:
@@ -397,6 +401,16 @@ class TurnPipeline:
         if actions is None or not actions.handles(req.intent.id):
             return ActionResult(ok=False, speech=SAY_UNAVAILABLE, expression=Expression.CONFUSED)
         return await actions.run(req)
+
+    def after_delivery(self, transcript: Transcript, ctx: TurnContext, result: ActionResult) -> None:
+        """Gancho do Learning Mode (LM1.3) depois da entrega ao TTS/HUD. Nunca levanta."""
+        hook = self.deps.learning
+        if hook is None:
+            return
+        try:
+            hook(transcript, ctx, result)
+        except Exception:
+            log.exception("learning: falha no gancho do turno")
 
     def is_no(self, transcript: Transcript, ctx: TurnContext) -> bool:
         """A resposta é "não"/"cancela"? (pergunta proativa, 5.4)."""
@@ -792,6 +806,7 @@ class TurnMachine:
                 # Texto efetivo deste turno: o próximo turno o recebe em ``ctx.previous_text``.
                 self._last_text, self._last_at = text, ctx.started_at
             await self._deliver(result, early=early)
+            self.pipeline.after_delivery(transcript, ctx, result)
         finally:
             if early is not None:
                 early.cancel()  # interrupção/erro no meio: para o envio (fim normal: já terminou)
@@ -830,6 +845,7 @@ class TurnMachine:
             result = await self.pipeline.respond(transcript, ctx)
             self._last_text, self._last_at = result.redo_text or transcript.final, ctx.started_at
             await self._deliver(result)
+            self.pipeline.after_delivery(transcript, ctx, result)
             return
         if answer is not True and not self.pipeline.is_yes(transcript, ctx):
             if declined := pending.args.get(ARG_DECLINED):
@@ -860,6 +876,7 @@ class TurnMachine:
         result = await self.pipeline.respond(transcript, ctx)
         self._last_text, self._last_at = result.redo_text or transcript.final, ctx.started_at
         await self._deliver(result)
+        self.pipeline.after_delivery(transcript, ctx, result)
 
     async def _deliver(
         self, result: ActionResult, *, followup: bool = True, early: EarlySpeech | None = None

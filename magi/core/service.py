@@ -23,6 +23,7 @@ import logging
 import signal
 from collections.abc import AsyncIterable, Mapping
 from pathlib import Path
+from typing import Any
 
 from wyoming.event import Event, async_read_event, async_write_event
 
@@ -231,6 +232,7 @@ async def run(
     followup_ms = followup_ms_from_config(config.raw if config is not None else None)
     service = CoreService(deps, hud, host=host, port=port, followup_ms=followup_ms)
     hud.on_command = service.on_hud_command
+    learning = _install_learning(config, core, hud, service)
     try:
         await hud.start()
     except OSError as e:
@@ -250,10 +252,29 @@ async def run(
             watch.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await watch
+        if learning is not None:
+            await learning.aclose()
         await service.stop()
         await hud.stop()
         if core is not None:
             await core.aclose()
+
+
+def _install_learning(config: Config | None, core: Core | None, hud: HudServer, service: CoreService) -> Any:
+    """Learning Mode (LM1.3): registra ``magi.learning.wiring`` só com ``[learning] enabled``;
+    desligado, devolve ``None`` e nada muda. Usa a conexão do núcleo (a mesma dos repositórios)."""
+    if config is None:
+        return None
+    from magi.learning.wiring import install, speak_via
+
+    repos = core.repos if core is not None else None
+    conn = getattr(getattr(repos, "turns", None), "_conn", None)
+    try:
+        return install(config, hud, service.pipeline, conn=conn,
+                       speak=speak_via(lambda: service.satellites.values()))
+    except Exception:
+        log.exception("learning: falha ao ligar o Learning Mode; seguindo sem ele")
+        return None
 
 
 def _watch_config(
