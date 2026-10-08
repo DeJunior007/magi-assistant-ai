@@ -983,7 +983,7 @@ class HUD(QWidget):
         self.rgb_sync = True
         self.settings_mtime = -1.0
         cfg = load_settings()
-        self.view = cfg.get("view", "full")   # 'full' | 'idle' (Meta+M alterna) | 'learning' (LM1.5, só wired)
+        self.view = cfg.get("view", "full")   # 'full' | 'idle' (Meta+M) | 'learning' (LM1.5, só wired)
         self.ui = "eva" if cfg.get("ui", UI_DEFAULT) == "eva" else "wired"
         self.wired = WiredUI() if self.ui == "wired" else None   # tema wired (U4)
         self.claude_stats = None
