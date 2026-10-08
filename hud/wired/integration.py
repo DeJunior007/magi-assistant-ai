@@ -30,6 +30,7 @@ from .data import (
     SelfUsage,
     SelfView,
 )
+from .learning_screen import LearningScreen
 from .main_screen import (
     NA,
     SCENE,
@@ -136,6 +137,7 @@ class WiredUI:
         self.mascot = mascot or make_mascot("sleeping")  # retrato da Condessa, se houver a arte
         self.main = MainScreen(self.mascot)
         self.standby = StandbyScreen(self.mascot)
+        self.learning = LearningScreen(self.mascot)  # view "learning" (LM1.5)
         self.now_playing = now_playing if now_playing is not None else NowPlaying()
         self.net = net or NetRate()
         self.history = history or LoadHistory()
@@ -156,8 +158,10 @@ class WiredUI:
         self.snap = Snapshot()
         self.reactor = Reactor()  # reações dela ao HUD, à música e aos cliques (só rosto/texto)
 
-    def screen(self, view: str) -> MainScreen | StandbyScreen:
-        self.mascot.layout = "idle" if view == "idle" else "main"
+    def screen(self, view: str) -> MainScreen | StandbyScreen | LearningScreen:
+        self.mascot.layout = "idle" if view == "idle" else "main"  # learning: retrato do painel
+        if view == "learning":
+            return self.learning
         return self.standby if view == "idle" else self.main
 
     # ---------------------------------------------------------------- dados (1 Hz)
@@ -280,6 +284,8 @@ class WiredUI:
     def hit(self, pos: QPoint | QPointF, size: QSize, view: str, detail: str | None = None) -> str | None:
         """Alvo do clique: "led", "prev"/"playpause"/"next", "card:cpu|gpu|ram", "detail" (fecha
         o painel aberto), "face" (mascote → push-to-talk) ou None."""
+        if view == "learning":
+            return None  # LM1.5 só pinta; o mouse da tela learning chega no LM1.6/LM1.7
         scr = self.screen(view)
         s = scr.scale(size)
         pt = QPointF(pos.x() / s, pos.y() / s)

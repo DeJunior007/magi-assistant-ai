@@ -983,7 +983,7 @@ class HUD(QWidget):
         self.rgb_sync = True
         self.settings_mtime = -1.0
         cfg = load_settings()
-        self.view = cfg.get("view", "full")   # 'full' | 'idle' (Meta+M alterna)
+        self.view = cfg.get("view", "full")   # 'full' | 'idle' (Meta+M alterna) | 'learning' (LM1.5, só wired)
         self.ui = "eva" if cfg.get("ui", UI_DEFAULT) == "eva" else "wired"
         self.wired = WiredUI() if self.ui == "wired" else None   # tema wired (U4)
         self.claude_stats = None
@@ -1084,7 +1084,7 @@ class HUD(QWidget):
             return
         for r in w.screen(self.view).dirty_regions(snap, size=self.size()):
             self.update(r)
-        if detail and self.detail and self.view != "idle":
+        if detail and self.detail and self.view not in ("idle", "learning"):
             self.update(w.detail_rect(self.size()))
 
     def paint_wired(self, p, region):
@@ -1092,7 +1092,7 @@ class HUD(QWidget):
         scr = w.screen(self.view)
         for r in region:   # retângulos separados: relógio + rodapé não viram a tela inteira
             scr.paint(p, size, w.snap, region=r)
-            if self.detail and self.view != "idle":
+            if self.detail and self.view not in ("idle", "learning"):
                 w.paint_detail(p, size, r, self.detail, self.detail_rows)
 
     # ---------- Magui: rosto e ponte com o núcleo (tarefa 1.16) ----------
@@ -1140,7 +1140,7 @@ class HUD(QWidget):
             screen = self.wired.screen(self.view)
             rect, deadline = screen.mascot_tick(now, self.size())
             rects, scene_deadline = screen.scene_tick(now, self.size())  # cenário animado
-            if self.detail and self.view != "idle":
+            if self.detail and self.view not in ("idle", "learning"):
                 rects = []  # o painel de detalhes cobre o "cam 01": não redesenha por baixo
             if not self.trans and self.isVisible():
                 for r in ([rect] if rect is not None else []) + rects:
