@@ -99,3 +99,25 @@ de teste e "aplica o conserto" para ver o vigia reiniciar (e desfazer, se quebra
   ter voz própria no rádio.
 - **Voz:** decidida — `gpt-4o-mini-tts` com a voz `marin` e instruções de voz jovem
   (`~/.config/magi/config.toml`). Alternativas locais ficaram em `~/Music/magi-vozes/`.
+
+## 11. Nova UI do painel e Konsole (2026-10-08)
+
+Feito: painel redesenhado pelo mockup (`docs/design/nova-ui/`), Konsole interativo do Claude Code
+no HUD (troca de lugar com o CAM 01 ao expandir), dados novos (clock, swap, disco, IP/DNS, git).
+Regra do KWin "MAGI Gamer" sem `acceptfocus` forçado (backup `~/.config/kwinrulesrc.bak-acceptfocus`).
+`settings.json` do HUD com `konsole_cwd = /home/pedrojr` (memória do Claude Code e `/resume`).
+
+Próximos passos, em ordem:
+1. **Konsole persistente com tmux** (depende de `sudo dnf install tmux`): `KonsoleSession` roda
+   `tmux new-session -A -s magi-claude -c <cwd> claude` (status do tmux desligado); o HUD só
+   se conecta; ao abrir, reconecta sozinho se a sessão existir; fechar o HUD só desconecta.
+   **Até isso entrar, não pedir ao Claude do Konsole para reiniciar o HUD** (a sessão morre junto).
+2. Konsole: TOKENS na barra de status (hoje mostra PID/células); linhas cortadas no card recolhido.
+3. Testes manuais: digitação no Konsole (texto, setas, Enter, Esc), foco volta ao recolher,
+   HUD não rouba foco do jogo sem clique; digitação na tela learning (mesma regra do KWin).
+4. Learning Mode onda 6: LM3.4 (balão com resultado real), LM4.2, LM4.3 (observações na tela),
+   LM1.8 (tema da sessão) — `specs/learning-mode/tasks.md`. Learning ligado na config, ações no
+   gpt-5.4-mini, observações no Qwen local (`magi-qwen`, só CPU, só durante a aula).
+5. Pendências antigas: revogar os tokens `glpat` nas URLs dos remotes do GitLab; `scratch/` no
+   `.gitignore`?; `LearningConfig.enabled` padrão True; comando `magi learning` de terminal.
+6. `git push` da `main` (116+ commits à frente de `origin/main`).
