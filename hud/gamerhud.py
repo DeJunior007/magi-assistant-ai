@@ -23,7 +23,7 @@ import sys
 import time
 from collections import deque
 
-from PySide6.QtCore import QCoreApplication, QPointF, QRectF, Qt, QTimer
+from PySide6.QtCore import QCoreApplication, QPointF, QRectF, QSocketNotifier, Qt, QTimer
 from PySide6.QtDBus import QDBusConnection, QDBusInterface
 from PySide6.QtGui import (QColor, QFont, QFontDatabase, QGuiApplication, QIcon, QImage,
                            QLinearGradient, QPainter, QPainterPath, QPen,
@@ -34,10 +34,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import orgb  # noqa: E402
 import hud_bridge  # noqa: E402
+import konsole_term  # noqa: E402
 from face import Face  # noqa: E402
 from speech_caption import SpeechCaption  # noqa: E402
 from turn_phase import TurnPhase  # noqa: E402
 from wired import fonts as wfonts  # noqa: E402
+from wired import konsole_view as kview  # noqa: E402
 from wired import theme as wtheme  # noqa: E402
 from wired.data import ClaudeStats  # noqa: E402
 from wired.integration import CARD_DETAIL, WiredUI, learning_toggle, rgb_hex  # noqa: E402
@@ -977,6 +979,8 @@ class HUD(QWidget):
     @view.setter
     def view(self, v):
         self._view = v
+        if getattr(self, "kon_open", False) and v != "full":
+            self.konsole_collapse()   # o Konsole expandido só existe no painel completo
         if getattr(self, "lm_entry", None) is not None:
             self.learning_entry_sync()
 
@@ -1018,6 +1022,17 @@ class HUD(QWidget):
         self.detail_until = 0.0
         self.theme_frame = 0
         self.bg = self.frame = self.plot_pm = None
+        # Konsole // Claude Code: sessão sob demanda (1º clique no card), expandido sobre as colunas 2–3
+        self.kon = None
+        self.kon_open = False
+        self.kon_notifier = None
+        self.kon_full = False     # repintar o expandido inteiro (e não só as linhas sujas)
+        self.kon_last = 0.0
+        self.kon_timer = QTimer(self, timeout=self.konsole_flush)
+        self.kon_timer.setSingleShot(True)
+        app = QCoreApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.konsole_stop)
         self.setWindowTitle("MAGI Gamer")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_OpaquePaintEvent)
@@ -1111,10 +1126,19 @@ class HUD(QWidget):
     def paint_wired(self, p, region):
         w, size = self.wired, self.size()
         scr = w.screen(self.view)
+        kon = self.konsole_dev(kview.EXPANDED_RECT) if self.konsole_shown() else None
         for r in region:   # retângulos separados: relógio + rodapé não viram a tela inteira
-            scr.paint(p, size, w.snap, region=r)
-            if self.detail and self.view not in ("idle", "learning"):
-                w.paint_detail(p, size, r, self.detail, self.detail_rows)
+            if kon is None or not kon.contains(r):   # dentro do Konsole opaco: só ele
+                scr.paint(p, size, w.snap, region=r)
+                if self.detail and self.view not in ("idle", "learning"):
+                    w.paint_detail(p, size, r, self.detail, self.detail_rows)
+            if kon is not None and kon.intersects(r):
+                s = self.konsole_scale()
+                p.save()
+                p.setClipRect(r)
+                p.scale(s, s)
+                kview.paint_expanded(p, kview.EXPANDED_RECT, s)
+                p.restore()
 
     # ---------- Magui: rosto e ponte com o núcleo (tarefa 1.16) ----------
     # O rosto não entra no cache (frame): o paintEvent o desenha por cima, e só a região dele
@@ -1546,6 +1570,179 @@ class HUD(QWidget):
             return "close"
         return None
 
+    # ---------- Konsole // Claude Code (docs/design/nova-ui/KONSOLE.md) ----------
+    # O `claude` roda num pty (konsole_term.KonsoleSession); o QSocketNotifier no fd chama
+    # pump(), e a repintura (card ou expandido) sai no máximo a ~30 fps. Só no expandido o HUD
+    # aceita foco e teclado (mesma troca de WindowDoesNotAcceptFocus do Learning, LM0.3).
+    KON_FRAME_S = 0.033
+
+    def konsole_scale(self):
+        return self.width() / 1920.0
+
+    def konsole_dev(self, r):
+        """Retângulo base 1920 → dispositivo (com 1 px de folga para o antialias)."""
+        s = self.konsole_scale()
+        return QRectF(r.x() * s, r.y() * s, r.width() * s, r.height() * s).toAlignedRect().adjusted(-1, -1, 1, 1)
+
+    def konsole_shown(self):
+        return self.kon_open and self.wired is not None and self.view == "full" and not self.trans
+
+    def konsole_start(self):
+        """Sobe a sessão se não houver uma viva (comando e pasta: settings.json konsole_cmd/konsole_cwd)."""
+        if self.kon is not None and self.kon.alive:
+            return
+        self.konsole_stop()
+        kview.VIEW.error = None
+        cfg = load_settings()
+        cols, rows = kview.cells_for(kview.EXPANDED_RECT, self.konsole_scale())
+        try:
+            self.kon = konsole_term.KonsoleSession(cfg.get("konsole_cmd"), cfg.get("konsole_cwd"), cols, rows)
+        except RuntimeError:   # sem pyte no Python do sistema
+            self.kon = None
+            kview.VIEW.error = konsole_term.MISSING_PYTE
+        except OSError as ex:   # claude fora do PATH, pasta inexistente…
+            self.kon = None
+            kview.VIEW.error = f"[falha ao abrir: {ex.strerror or ex}]"
+            print(f"konsole: {ex}", file=sys.stderr)
+        kview.VIEW.session = self.kon
+        if self.kon is None:
+            return
+        n = QSocketNotifier(self.kon.fileno(), QSocketNotifier.Type.Read, self)
+        n.activated.connect(self.konsole_read)
+        self.kon_notifier = n
+
+    def konsole_stop(self):
+        """Encerra a sessão (SIGTERM/SIGKILL ao grupo, sem zumbi). A view mostra "encerrada"."""
+        if self.kon_notifier is not None:
+            self.kon_notifier.setEnabled(False)
+            self.kon_notifier.deleteLater()
+            self.kon_notifier = None
+        if self.kon is not None and self.kon.fd is not None:
+            self.kon.close()
+
+    def konsole_read(self, *_):
+        k = self.kon
+        if k is None:
+            return
+        changed = k.pump()
+        if not k.alive:   # saiu: o fd fica legível para sempre (EIO), desliga o notifier
+            self.konsole_stop()
+            self.kon_full = True
+            changed = True
+        if changed:
+            self.konsole_schedule()
+
+    def konsole_schedule(self):
+        if not self.kon_timer.isActive():
+            wait = self.kon_last + self.KON_FRAME_S - time.monotonic()
+            self.kon_timer.start(max(0, int(wait * 1000)))
+
+    def konsole_flush(self):
+        """Repinta o que mudou: as linhas sujas do expandido ou o card (o painel pinta o miolo)."""
+        self.kon_last = time.monotonic()
+        k = self.kon
+        rows = k.take_dirty() if k is not None else set()
+        if not (self.wired and self.view == "full" and self.isVisible()) or self.trans:
+            return
+        if not self.kon_open:
+            self.update(self.konsole_dev(kview.CARD_RECT))
+            return
+        s = self.konsole_scale()
+        if self.kon_full or k is None:
+            self.kon_full = False
+            self.update(self.konsole_dev(kview.EXPANDED_RECT))
+            return
+        area = kview.term_rect(kview.EXPANDED_RECT)
+        track = QRectF(area.right(), area.top(), kview.EXPANDED_RECT.right() - area.right(), area.height())
+        for r in kview.VIEW.row_rects(rows, kview.EXPANDED_RECT, s) + [track]:
+            self.update(self.konsole_dev(r))
+
+    def konsole_expand(self):
+        """Clique no card: abre o Konsole grande (sobe a sessão se preciso) com foco e teclado."""
+        if not self.wired or self.view != "full":
+            return
+        self.konsole_start()
+        self.kon_open = True
+        if self.kon is not None:
+            self.kon.resize(*kview.cells_for(kview.EXPANDED_RECT, self.konsole_scale()))
+            kview.VIEW.status = konsole_term.git_status(self.kon.cwd)
+        self.konsole_focus(True)
+        self.kon_full = False
+        self.update(self.konsole_dev(kview.EXPANDED_RECT))
+        self.update(self.konsole_dev(kview.CARD_RECT))
+
+    def konsole_collapse(self):
+        """Recolhe (a sessão continua viva): devolve a flag de foco e repinta as colunas 2–3."""
+        if not self.kon_open:
+            return
+        self.kon_open = False
+        self.konsole_focus(False)
+        self.update(self.konsole_dev(kview.EXPANDED_RECT))
+        self.update(self.konsole_dev(kview.CARD_RECT))
+
+    def konsole_focus(self, on):
+        win = self.windowHandle()
+        if win is not None:
+            learning = self.wired is not None and self.view == "learning"
+            win.setFlag(Qt.WindowDoesNotAcceptFocus, not (on or learning))
+        if on:
+            self.setFocusPolicy(Qt.StrongFocus)
+            self.activateWindow()
+            self.setFocus(Qt.MouseFocusReason)
+        else:
+            self.clearFocus()
+            self.setFocusPolicy(Qt.NoFocus)
+
+    def konsole_mouse(self, e):
+        s = self.konsole_scale()
+        hit = kview.VIEW.hit_expanded(QPointF(e.position().x() / s, e.position().y() / s))
+        if hit == "term":
+            if self.kon is None or not self.kon.alive:
+                if e.button() == Qt.LeftButton:
+                    self.konsole_expand()   # sessão encerrada: clique abre outra
+                    self.kon_full = True
+                    self.konsole_schedule()
+            else:
+                self.konsole_focus(True)
+            return
+        self.konsole_collapse()   # botão – □ × ou clique fora
+
+    def focusNextPrevChild(self, nxt):
+        if self.konsole_shown():
+            return False   # Tab/Shift+Tab vão para o terminal (keyPressEvent)
+        return super().focusNextPrevChild(nxt)
+
+    def keyPressEvent(self, e):
+        """Teclado do Konsole expandido → pty (Esc também: o Claude usa para interromper).
+        Ctrl+Shift+V cola; Shift+PgUp/PgDn rolam o histórico."""
+        if not self.konsole_shown():
+            super().keyPressEvent(e)
+            return
+        e.accept()
+        k, key, mods = self.kon, e.key(), e.modifiers()
+        if k is None or not k.alive:
+            if key in (Qt.Key_Return, Qt.Key_Enter):
+                self.konsole_expand()
+                self.kon_full = True
+                self.konsole_schedule()
+            return
+        if key == Qt.Key_V and mods & Qt.ControlModifier and mods & Qt.ShiftModifier:
+            k.paste(QGuiApplication.clipboard().text())
+            return
+        if key in (Qt.Key_PageUp, Qt.Key_PageDown) and mods & Qt.ShiftModifier:
+            step = max(1, k.rows // 2)
+            if k.scroll_by(step if key == Qt.Key_PageUp else -step):
+                self.kon_full = True
+                self.konsole_schedule()
+            return
+        data = konsole_term.qt_key_to_bytes(key, e.text(), mods, k.app_cursor)
+        if data:
+            if k.scroll:   # digitou: volta a acompanhar o fim
+                k.scroll_by(-k.scroll)
+                self.kon_full = True
+                self.konsole_schedule()
+            k.write(data)
+
     # ---------- Learning Mode (LM1.6): campo de texto, despachante de mouse, lm_* ----------
     def make_learning_entry(self):
         """QLineEdit filho (design §4.3, caminho 1 do LM0.3): oculto fora da view learning, sem
@@ -1586,7 +1783,7 @@ class HUD(QWidget):
         on = self.wired is not None and self.view == "learning"
         win = self.windowHandle()
         if win is not None:
-            win.setFlag(Qt.WindowDoesNotAcceptFocus, not on)
+            win.setFlag(Qt.WindowDoesNotAcceptFocus, not (on or getattr(self, "kon_open", False)))
         if not on:
             if e.isVisible():
                 e.clearFocus()
@@ -1656,6 +1853,9 @@ class HUD(QWidget):
         self.learning_refresh()
 
     def mousePressEvent(self, e):
+        if self.konsole_shown():   # expandido: dentro é dele, fora (qualquer botão) recolhe
+            self.konsole_mouse(e)
+            return
         if e.button() != Qt.LeftButton:
             return
         if self.wired and self.view == "learning":
@@ -1695,6 +1895,8 @@ class HUD(QWidget):
             self.bridge.send_cmd("push_to_talk")
         elif target == "led":
             self.toggle_rgb_sync()
+        elif target == "konsole":
+            self.konsole_expand()
         elif target == "detail":
             self.open_detail(self.detail)   # mesmo tipo de novo = fecha
         elif target in CARD_DETAIL:
@@ -1705,6 +1907,7 @@ class HUD(QWidget):
     on_close = None   # main() liga a restauração do wallpaper aqui
 
     def closeEvent(self, e):
+        self.konsole_stop()
         if self.on_close:
             self.on_close()
         super().closeEvent(e)
@@ -1712,6 +1915,13 @@ class HUD(QWidget):
     def wheelEvent(self, e):
         """Roda do mouse sobre a legenda da Condessa: volta para ler a última fala (pausa o
         acompanhamento; volta a acompanhar no fim do texto ou com fala nova)."""
+        if self.konsole_shown():   # Konsole expandido: a roda rola o histórico do terminal
+            steps = e.angleDelta().y() / 120 or e.pixelDelta().y() / 27
+            if self.kon is not None and self.kon.scroll_by(round(steps * 3)):
+                self.kon_full = True
+                self.konsole_schedule()
+            e.accept()
+            return
         if self.wired and self.view == "learning":   # rolagem do histórico (LM1.6)
             steps = e.angleDelta().y() / 120 or e.pixelDelta().y() / 27
             self.learning_mouse("wheel", e, steps)
@@ -1739,6 +1949,8 @@ class HUD(QWidget):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self.learning_entry_sync()
+        if self.kon_open and self.kon is not None:
+            self.kon.resize(*kview.cells_for(kview.EXPANDED_RECT, self.konsole_scale()))
         if self.wired:
             return   # as telas wired guardam a camada estática por tamanho sozinhas
         self.bg = None
