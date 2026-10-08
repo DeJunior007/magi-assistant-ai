@@ -1022,7 +1022,7 @@ class HUD(QWidget):
         self.detail_until = 0.0
         self.theme_frame = 0
         self.bg = self.frame = self.plot_pm = None
-        # Konsole // Claude Code: sessão sob demanda (1º clique no card), expandido sobre as colunas 2–3
+        # Konsole // Claude Code: sessão sob demanda (1º clique no card), expandido trocado com o cam 01
         self.kon = None
         self.kon_open = False
         self.kon_notifier = None
@@ -1127,6 +1127,8 @@ class HUD(QWidget):
         w, size = self.wired, self.size()
         scr = w.screen(self.view)
         kon = self.konsole_dev(kview.EXPANDED_RECT) if self.konsole_shown() else None
+        if w.konsole_swap(kon is not None):   # transição etc.: câmera de volta / no slot do card
+            self.konsole_swap_update()
         for r in region:   # retângulos separados: relógio + rodapé não viram a tela inteira
             if kon is None or not kon.contains(r):   # dentro do Konsole opaco: só ele
                 scr.paint(p, size, w.snap, region=r)
@@ -1668,15 +1670,21 @@ class HUD(QWidget):
             kview.VIEW.status = konsole_term.git_status(self.kon.cwd)
         self.konsole_focus(True)
         self.kon_full = False
-        self.update(self.konsole_dev(kview.EXPANDED_RECT))
-        self.update(self.konsole_dev(kview.CARD_RECT))
+        self.wired.konsole_swap(True)   # a câmera vai para o lugar do card
+        self.konsole_swap_update()
 
     def konsole_collapse(self):
-        """Recolhe (a sessão continua viva): devolve a flag de foco e repinta as colunas 2–3."""
+        """Recolhe (a sessão continua viva): devolve a flag de foco e destroca câmera e card."""
         if not self.kon_open:
             return
         self.kon_open = False
         self.konsole_focus(False)
+        if self.wired:
+            self.wired.konsole_swap(False)
+        self.konsole_swap_update()
+
+    def konsole_swap_update(self):
+        """Troca Konsole ⇄ cam 01: só as duas caixas (a do cam 01 e a do card KONSOLE)."""
         self.update(self.konsole_dev(kview.EXPANDED_RECT))
         self.update(self.konsole_dev(kview.CARD_RECT))
 
@@ -1705,7 +1713,7 @@ class HUD(QWidget):
             else:
                 self.konsole_focus(True)
             return
-        self.konsole_collapse()   # botão – □ × ou clique fora
+        self.konsole_collapse()   # botão – □ ×, câmera pequena ("cam") ou clique fora
 
     def focusNextPrevChild(self, nxt):
         if self.konsole_shown():
@@ -1897,6 +1905,8 @@ class HUD(QWidget):
             self.toggle_rgb_sync()
         elif target == "konsole":
             self.konsole_expand()
+        elif target == "cam":   # câmera pequena no slot do card: recolhe o Konsole
+            self.konsole_collapse()
         elif target == "detail":
             self.open_detail(self.detail)   # mesmo tipo de novo = fecha
         elif target in CARD_DETAIL:

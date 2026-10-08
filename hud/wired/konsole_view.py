@@ -4,8 +4,9 @@ Dois modos, em px lógicos da grade 1920×1080 (o painter já vem escalado por `
 
 - ``paint_compact(p, rect, scale)``: miolo do card (sem moldura — a moldura é do card do painel):
   as últimas linhas da tela que cabem, JetBrains Mono pequena.
-- ``paint_expanded(p, rect, scale)``: a janela grande sobre as colunas 2–3, com a moldura do
-  mockup (barra de título, aba SESSION 01, terminal, barra de status em 2 linhas).
+- ``paint_expanded(p, rect, scale)``: a janela grande na caixa do cam 01 (o painel troca: a câmera
+  vai para o lugar do card), com a moldura do mockup (barra de título, aba SESSION 01, terminal,
+  barra de status em 2 linhas). A Condessa, o LOAD HISTORY e o UNIT SPEC nunca são cobertos.
 
 Cores ANSI/256/truecolor viram a paleta do mockup (``docs/design/nova-ui/painel.dc.html``,
 bloco KONSOLE). Cursor em bloco fixo: nada pisca com o terminal ocioso.
@@ -64,8 +65,9 @@ GREYS = [FAINT, "#8f89a6", DIM, "#c9c2e6", TEXT, TEXT_HI]
 
 # ---------------------------------------------------------------- geometria (base 1920)
 
-EXPANDED_RECT = QRectF(553.5, 143.5, 1518.1 - 553.5, 986.4 - 143.5)   # CAM 01 … UNIT SPEC
-CARD_RECT = QRectF(1538.8, 604.0, 356.0, 382.4)                        # card KONSOLE do painel
+EXPANDED_RECT = QRectF(553.5, 143.5, 584.5, 491.5)   # caixa do CAM 01 (main_screen.CAM)
+CARD_RECT = QRectF(1539.0, 604.0, 355.5, 382.5)      # card KONSOLE (main_screen.KONSOLE): a câmera
+                                                     # fica aqui enquanto o Konsole está expandido
 TITLE_H = 34 * F
 TAB_H = 24 * F
 STATUS_H = 36 * F
@@ -502,8 +504,12 @@ class KonsoleView:
         p.restore()
 
     # -- cliques
-    def hit_expanded(self, pt: QPointF, rect: QRectF = EXPANDED_RECT) -> str | None:
-        """Clique (base 1920) no expandido: "collapse" (– □ ×), "term" (dentro) ou None (fora)."""
+    def hit_expanded(self, pt: QPointF, rect: QRectF = EXPANDED_RECT,
+                     cam: QRectF = CARD_RECT) -> str | None:
+        """Clique (base 1920) no expandido: "collapse" (– □ ×), "term" (dentro), "cam" (a câmera
+        pequena no lugar do card: recolhe) ou None (fora: recolhe também)."""
+        if cam.contains(pt):
+            return "cam"
         if not rect.contains(pt):
             return None
         for r in self.button_rects(rect).values():

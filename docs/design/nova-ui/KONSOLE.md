@@ -12,11 +12,11 @@ um card de estatísticas.
 - **Sessão:** um processo `claude` num pty, `cwd` = repositório da MAGI
   (`~/Documentos/magi-assistant-ai`, configurável). Sobe **sob demanda** (primeiro clique no card),
   não com o HUD. Saiu → miolo mostra `[sessão encerrada · clique para abrir outra]`.
-- **Expandido (para usar de verdade):** clique no card abre o Konsole grande por cima das colunas
-  2–3 (área da câmera + Condessa + load history + unit spec, base 1920 ≈ x 553–1519, y 143–986),
-  com a mesma moldura. Só no expandido o HUD aceita foco e teclado (mesma troca de
-  `WindowDoesNotAcceptFocus` usada pela entrada do Learning, LM0.3/LM1.6). O redimensionamento
-  ajusta o pty (`TIOCSWINSZ`) ao tamanho em células.
+- **Expandido (para usar de verdade):** clique no card **troca de lugar com o CAM 01**: o Konsole
+  ocupa a caixa da câmera (pty ≈ 66×19 em 2560×1440) e a câmera, escalada inteira, vai para o lugar
+  do card. A Condessa nunca é coberta (pedido do Pedro, 2026-10-08). Só no expandido o HUD aceita
+  teclado; a regra do KWin "MAGI Gamer" deixou de forçar `acceptfocus=false` (backup em
+  `~/.config/kwinrulesrc.bak-acceptfocus`).
 - **Sair do expandido:** botão "–" da barra de título ou clique fora; `Esc` vai para o Claude
   (ele usa Esc para interromper). A sessão continua rodando ao recolher.
 - **Nada pisca** com o terminal ocioso (cursor fixo).

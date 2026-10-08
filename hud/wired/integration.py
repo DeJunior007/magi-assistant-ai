@@ -280,6 +280,15 @@ class WiredUI:
         sess = self.konsole_session()
         return bool(sess is not None and getattr(sess, "alive", False))
 
+    def konsole_swap(self, on: bool) -> bool:
+        """Konsole expandido na caixa do cam 01: o painel desenha a câmera no slot do card KONSOLE
+        (e o card some). ``True`` se mudou; o gamerhud invalida as duas caixas."""
+        on = bool(on)
+        if self.main.kon_swap == on:
+            return False
+        self.main.kon_swap = on
+        return True
+
     def konsole_rects(self, size: QSize) -> list[QRect]:
         """Retângulos (dispositivo) do miolo do KONSOLE, para o gamerhud repintar só o terminal."""
         return self.main.group_rects("konsole", size)

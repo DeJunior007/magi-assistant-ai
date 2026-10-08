@@ -51,9 +51,9 @@ def test_reverse_troca_texto_e_fundo():
 
 def test_cells_for():
     cols, rows = kv.cells_for(kv.EXPANDED_RECT, S)
-    assert 90 <= cols <= 140 and 28 <= rows <= 50
+    assert 55 <= cols <= 90 and 15 <= rows <= 30   # caixa do cam 01 (troca de lugar com ela)
     small = kv.cells_for(kv.CARD_RECT, S, expanded=False)
-    assert small[0] < cols and small[1] < rows
+    assert small[0] < cols   # o card é mais estreito (e mais alto) que a caixa do cam 01
     wide = kv.cells_for(QRectF(0, 0, 1800, 900), S)
     assert wide[0] > cols
     assert kv.cells_for(QRectF(0, 0, 10, 10), S) == (2, 2)
@@ -224,3 +224,30 @@ def test_hud_expande_digita_e_recolhe(hud):
     assert not hud.kon.alive
     import os
     assert not os.path.exists(f"/proc/{pid}")
+
+
+@pytest.mark.skipif(not kt.HAVE_PYTE, reason="sem pyte")
+def test_hud_expandido_troca_com_cam01(hud):
+    """Expandido = caixa do cam 01; a câmera vai para o slot do card; clicar nela recolhe."""
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QMouseEvent
+    from wired import main_screen as ms
+
+    def click(pt):
+        s = hud.width() / 1920
+        pos = QPointF(pt.x() * s, pt.y() * s)
+        hud.mousePressEvent(QMouseEvent(QEvent.Type.MouseButtonPress, pos, pos, Qt.MouseButton.LeftButton,
+                                        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))
+
+    main = hud.wired.main
+    hud.wired_click("konsole")
+    assert hud.kon_open and main.kon_swap
+    assert not hud.grab().isNull()
+    click(kv.EXPANDED_RECT.center())          # terminal: mantém
+    assert hud.kon_open and main.kon_swap
+    click(ms.CAM_SWAPPED.center())            # câmera pequena: recolhe e destroca
+    assert not hud.kon_open and not main.kon_swap and hud.kon.alive
+    hud.wired_click("konsole")
+    b = kv.VIEW.button_rects()["min"]
+    click(b.center())                         # "–": recolhe
+    assert not hud.kon_open and not main.kon_swap

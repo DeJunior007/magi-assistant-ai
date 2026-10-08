@@ -41,6 +41,7 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
     QRadialGradient,
+    QTransform,
 )
 
 from . import fonts, kit, scene, sky
@@ -470,7 +471,9 @@ class Screen:
         self.mascot = mascot or Mascot("sleeping")
         self.anim = anim or scene.SceneAnimator(self.SCENE_KIND)
         self.sky = sky.NIGHT
-        self._static: tuple[tuple, QPixmap] | None = None
+        # camada estática: (tamanho + céu, {variante: pixmap}); a variante é da tela (ex.: o painel
+        # com o Konsole expandido no lugar do cam 01) e trocar de variante não invalida as outras
+        self._static: tuple[tuple, dict[tuple, QPixmap]] | None = None
         self._keys: dict[str, tuple] = {}
         self._snap: Snapshot | None = None
 
@@ -494,6 +497,10 @@ class Screen:
     def scene_rects(self) -> list[QRectF]:
         raise NotImplementedError
 
+    def static_variant(self) -> tuple:
+        """Variante da camada estática (as duas ficam em cache: alternar não refaz o fundo)."""
+        return ()
+
     def set_time(self, now: datetime) -> None:
         """Dia e noite: paleta do céu para ``now`` (o fundo em cache muda junto, a cada 5 min)."""
         self.sky = sky.sky_at(now)
@@ -515,6 +522,11 @@ class Screen:
     def static_pixmap(self, size: QSize) -> QPixmap:
         key = (size.width(), size.height(), self.sky.key)
         if self._static is None or self._static[0] != key:
+            self._static = (key, {})
+            self._keys.clear()
+        var = self.static_variant()
+        pm = self._static[1].get(var)
+        if pm is None:
             s = self.scale(size)
             pm = QPixmap(size)
             pm.fill(color(BG))
@@ -523,9 +535,8 @@ class Screen:
             p.scale(s, s)
             self.draw_static(p, s)
             p.end()
-            self._static = (key, pm)
-            self._keys.clear()
-        return self._static[1]
+            self._static[1][var] = pm
+        return pm
 
     def paint(self, p: QPainter, size: QSize, snap: Snapshot, now: datetime | None = None,
               mono: float | None = None, region: QRect | None = None) -> None:
@@ -754,6 +765,23 @@ KONSOLE_STATUS = mq(1341, KON_STATUS_TOP, 308, KON_STATUS_H)
 KONSOLE_CWD = str(Path(__file__).resolve().parents[2])  # a sessão roda no repositório da MAGI
 
 REC = mq(498, 160, 140, 22)
+
+# Konsole expandido: ele ocupa a caixa do cam 01 e a câmera vai para o lugar do card KONSOLE
+# (a Condessa, o LOAD HISTORY e o UNIT SPEC nunca são cobertos)
+CAM_SLOT = KONSOLE
+
+
+def cam_swap_transform() -> QTransform:
+    """Base 1920: ``SCENE`` → dentro de ``CAM_SLOT``, escala uniforme que cabe inteira (o cenário
+    não é cortado) e centrada; sobra uma faixa em cima e embaixo (o slot é mais alto que largo)."""
+    k = min(CAM_SLOT.width() / SCENE.width(), CAM_SLOT.height() / SCENE.height())
+    ox = CAM_SLOT.left() + (CAM_SLOT.width() - SCENE.width() * k) / 2
+    oy = CAM_SLOT.top() + (CAM_SLOT.height() - SCENE.height() * k) / 2
+    return QTransform(k, 0, 0, k, ox - SCENE.left() * k, oy - SCENE.top() * k)
+
+
+CAM_SWAP_K = cam_swap_transform().m11()
+CAM_SWAPPED = cam_swap_transform().mapRect(SCENE)  # onde a câmera fica com o Konsole expandido
 LIVE = mq(1540, 400, 94, 22)
 FOOTER = mq(23, 884, 1627, 34)
 FOOT_Y = 905.0  # linha de base do rodapé
@@ -1141,6 +1169,7 @@ class MainScreen(Screen):
         self._cap_lines: tuple[str, list[str]] = ("", [])
         self._overlay: tuple[tuple, QPixmap] | None = None
         self.clock = time.monotonic  # relógio da animação (os testes trocam)
+        self.kon_swap = False  # Konsole expandido na caixa do cam 01; a câmera no slot do card
 
     # ---------------------------------------------------------------- fala (digitação + rolagem)
 
@@ -1299,15 +1328,16 @@ class MainScreen(Screen):
         x = 1357 + title(p, 1357, 416, "RÁDIO AYANAMI", None, ls=0.02) + 8
         x += tx(p, x, 416, "//", px=12, c=M_DIM) + 8
         tx(p, x, 416, "放送", key="jp", px=11, c=M_DIM)
-        # konsole (moldura)
-        self._konsole_frame(p)
+        # konsole (moldura); trocado com o cam 01, o slot é da câmera
+        if not self.kon_swap:
+            self._konsole_frame(p)
         # ---- rodapé
         p.fillRect(QRectF(23, FOOT_RULE_Y, 1650 - 23, 1), color(M_RULE))
         x = 23 + tx(p, 23, FOOT_Y, "MAGI", px=13, weight=700, ls=0.1, c=M_BRIGHT)
         tx(p, x, FOOT_Y, "  MULTI AGENT GUIDANCE INTERFACE", px=11, ls=0.1, c=M_DIM)
         tx(p, 1650, FOOT_Y, "META+M · PAINEL COMPLETO", px=11, ls=0.1, c=M_DIM, align=R)
         p.restore()
-        self._scene_frame(p, s, None)
+        self._cam(p, s, None)
         draw_learning_box(p, LEARN_BTN)  # Learning Mode (LM1.7)
 
     def _konsole_frame(self, p: QPainter) -> None:
@@ -1386,16 +1416,36 @@ class MainScreen(Screen):
         tx(p, 501, 528.4, "the signal is still arriving.", px=12, ls=0.06, c="#b5b0c8")
         p.restore()
 
+    def _cam(self, p: QPainter, s: float, mono: float | None) -> None:
+        """O cam 01 no lugar dele ou, com o Konsole expandido, inteiro e escalado no slot do card
+        KONSOLE (mesmo cenário, textos e scanlines, só menor)."""
+        if not self.kon_swap:
+            self._scene_frame(p, s, mono)
+            return
+        p.save()
+        p.setClipRect(CAM_SLOT, Qt.ClipOperation.IntersectClip)
+        box(p, CAM_SLOT, M_PANEL, M_LINE)
+        p.setTransform(cam_swap_transform(), True)
+        self._scene_frame(p, s * CAM_SWAP_K, mono)
+        p.restore()
+
+    def static_variant(self) -> tuple:
+        return (self.kon_swap,)
+
     def paint_scene(self, p: QPainter, snap: Snapshot, mono: float, s: float) -> None:
-        self._scene_frame(p, s, mono)
+        self._cam(p, s, mono)
 
     def scene_rects(self) -> list[QRectF]:
-        return self.anim.regions(SCENE)
+        rects = self.anim.regions(SCENE)
+        if self.kon_swap:
+            xf = cam_swap_transform()
+            return [xf.mapRect(r) for r in rects]
+        return rects
 
     # ---------------------------------------------------------------- grupos
 
     def groups(self) -> dict[str, list[QRectF]]:
-        return {
+        g = {
             "scene": self.scene_rects(),  # primeiro: REC e o resto do cam 01 vão por cima
             "clock": [HEADER_CLOCK, REC, LIVE],
             "magi": [mq(_MX, _MY - 1, _MW, 323 + 2)],
@@ -1412,6 +1462,10 @@ class MainScreen(Screen):
             "konsole_status": [KONSOLE_STATUS],
             "footer": [FOOTER],
         }
+        if self.kon_swap:  # câmera no slot do card; o Konsole (gamerhud) pinta a caixa do cam 01
+            g["clock"] = [HEADER_CLOCK, cam_swap_transform().mapRect(REC), LIVE]
+            del g["konsole"], g["konsole_status"]
+        return g
 
     def group_key(self, name: str, snap: Snapshot, now: datetime) -> tuple:
         sn = snap
@@ -1485,10 +1539,16 @@ class MainScreen(Screen):
         tx(p, x, d_bottom - 13 * LH["mono"] + asc("mono", 13), date, px=13, ls=0.1, c=M_TEXT2, align=R)
         jp_top = d_bottom - 13 * LH["mono"] - 8 - 17 * LH["jp"]
         tx(p, x, jp_top + asc("jp", 17), JP_DAYS[now.weekday()], key="jp", px=17, c=M_DIM, align=R)
-        # REC do cam 01 e LIVE do rádio
+        # REC do cam 01 (junto com a câmera, também no slot trocado) e LIVE do rádio
+        p.save()
+        if self.kon_swap:
+            p.scale(1 / F, 1 / F)
+            p.setTransform(cam_swap_transform(), True)
+            p.scale(F, F)
         x = 499 + tx(p, 499, 176.6, "REC", px=11, ls=0.08, c=M_TEXT) + 7
         dot(p, x + 3.5, 176.6 - 4, 7, M_LILAC)
         tx(p, x + 7 + 7, 176.6, now.strftime("%H:%M:%S"), px=11, ls=0.08, c=M_TEXT)
+        p.restore()
         tx(p, 1633, 416, f"LIVE {now:%H:%M}", px=10, ls=0.1, c=M_DIM, align=R)
 
     # ---------------------------------------------------------------- MAGI SYSTEM
@@ -1845,11 +1905,13 @@ class MainScreen(Screen):
     # ---------------------------------------------------------------- cliques
 
     def hit_rects(self, snap: Snapshot | None = None) -> dict[str, QRectF]:
-        # unidades MAGI abrem o detalhe por processo; LEARNING no topo (LM1.7); KONSOLE expande
+        # unidades MAGI abrem o detalhe por processo; LEARNING no topo (LM1.7); KONSOLE expande;
+        # trocado, o slot do card é a câmera pequena ("cam": recolhe o Konsole)
         return {"learning": LEARN_BTN, "led": LED_BTN, **BTNS, "card:cpu": UNITS[0], "card:gpu": UNITS[1],
-                "card:ram": UNITS[2], "konsole": KONSOLE}
+                "card:ram": UNITS[2], ("cam" if self.kon_swap else "konsole"): KONSOLE}
 
 
-__all__ = ["CARDS", "F", "KONSOLE", "KONSOLE_CWD", "KONSOLE_VIEW", "LEARN_BTN", "LEARN_W", "MainScreen", "NA",
+__all__ = ["CAM", "CAM_SLOT", "CAM_SWAPPED", "CARDS", "F",
+           "KONSOLE", "KONSOLE_CWD", "KONSOLE_VIEW", "LEARN_BTN", "LEARN_W", "MainScreen", "NA",
            "Pilot", "Screen", "Snapshot", "Track", "accent", "draw_learning_box", "draw_learning_btn",
            "draw_mood", "led_lit", "mood_color", "mq"]
