@@ -7,6 +7,7 @@ Os testes rodam nos dois backends: ``jsonl`` (pasta temporária) e ``postgres`` 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -36,7 +37,7 @@ from magi.learning.repo import (
 from magi.memory import migrate as mig
 from magi.memory.conn import SerialConn
 
-SCHEMA = "learning_test"
+SCHEMA = f"learning_test_{os.getpid()}"  # por processo: rodadas em paralelo não se apagam
 T0 = datetime(2026, 10, 7, 15, 0, tzinfo=UTC)
 DAY = T0.astimezone().strftime("%Y%m%d")
 

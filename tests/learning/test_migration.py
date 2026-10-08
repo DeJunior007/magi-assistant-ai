@@ -6,6 +6,7 @@ O teste com banco usa só o schema ``learning_test`` (apagado no fim por ele mes
 
 from __future__ import annotations
 
+import os
 import re
 
 import psycopg
@@ -14,7 +15,7 @@ from psycopg import sql
 
 from magi.memory import migrate as mig
 
-SCHEMA = "learning_test"
+SCHEMA = f"learning_test_{os.getpid()}"  # por processo: rodadas em paralelo não se apagam
 SQL_FILE = mig.MIGRATIONS_DIR / "003_learning.sql"
 LEARNING_TABLES = {
     "learning_sessions", "learning_messages", "learning_observations",
