@@ -511,7 +511,8 @@ class Reactor:
         ctx = self.ctx
         ctx.update(
             defs=self.defs, estado=self.estado, agora=now, relogio=self.clock(), hora=hour,
-            madrugada=_in_hours(hour, self.taste.ctx("madrugada", [22, 4])), humor=3,
+            madrugada=_in_hours(hour, self.taste.ctx("madrugada", [22, 4])),
+            humor=snap.mood if isinstance(getattr(snap, "mood", None), int) else 3,  # 0..4; sem dado = 3
             jogo=bool(snap.gaming), claude=bool(getattr(snap.claude, "running", 0)),
             musica_nota=v.note if v is not None else 0, ado=v is not None and v.artist == "ado",
             faixa=self._track, faixa_desde=self._track_at, veredito=v,

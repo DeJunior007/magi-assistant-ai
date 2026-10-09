@@ -14,8 +14,8 @@ ESTADO_FILE = Path.home() / ".local/state/magi/condessa-atividade.json"
 class Atividade:
     """Guarda o último evento real do Pedro e se o de hoje já foi o primeiro do dia."""
 
-    def __init__(self, caminho: Path = ESTADO_FILE) -> None:
-        self.caminho = caminho
+    def __init__(self, caminho: Path | None = None) -> None:
+        self.caminho = caminho or ESTADO_FILE  # lido na hora: os testes trocam o ESTADO_FILE
         self.ultimo: float | None = None
         self.dia: str | None = None
         self.primeiro_do_dia: bool = False

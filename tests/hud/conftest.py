@@ -27,3 +27,7 @@ def _reacoes_isoladas(tmp_path, monkeypatch):
 
     for name in ("GENRES_FILE", "CLEANUP_FILE", "TASTE_FILE", "SEEN_FILE", "FAVORITES_FILE", "SPEECH_FILE"):
         monkeypatch.setattr(reactions, name, tmp_path / "reacoes" / name.lower())
+    from wired.reacoes import atividade, registro
+
+    monkeypatch.setattr(registro, "REGISTRO_FILE", tmp_path / "reacoes" / "reacoes.jsonl")
+    monkeypatch.setattr(atividade, "ESTADO_FILE", tmp_path / "reacoes" / "atividade.json")
