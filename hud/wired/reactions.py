@@ -518,6 +518,9 @@ class Reactor:
             faixa=self._track, faixa_desde=self._track_at, veredito=v,
             magui=getattr(snap, "magui_state", PARADA), atividade=self.atividade, taste=self.taste,
             desligadas=frozenset(self.taste.section("reacoes").get("desligadas", ())),
+            favorita_dia=self.favorite_of_day(),
+            pc_problema=self._hot or self._low_fps >= 2 or (snap.cpu or 0) >= 90,
+            fps_estavel=not (snap.fps is not None and snap.fps_avg and snap.fps < 0.9 * snap.fps_avg),
         )
         ctx["parada"] = ctx["magui"] == PARADA and self.active(now) is None
         return ctx
