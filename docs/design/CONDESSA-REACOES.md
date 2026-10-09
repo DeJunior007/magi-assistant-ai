@@ -4,7 +4,7 @@ SDD: `specs/condessa-reacoes/`. Aqui fica só o que o Pedro instala à mão.
 
 ## Hooks do Claude Code (sinal C → reações 54 e 55)
 
-Decisão D2: o agente **não** mexe em `~/.claude/settings.json`. O Pedro cola o trecho abaixo.
+**Instalado em 2026-10-09** (com autorização do Pedro) em `~/.claude/settings.json`, usando `PostToolUseFailure` (só dispara quando a ferramenta falha) e `async: true`; backup em `~/.claude/settings.json.bak-hooks`. Para desligar: `/hooks` no Claude Code ou apagar as três entradas.
 
 O script `hud/tools/claude_hook.py` lê o JSON do hook no stdin e acrescenta uma linha em
 `~/.cache/magi/claude-events.jsonl` (`{"t": epoch, "ev": "fail"|"notify"|"stop", "proj": "<pasta>"}`;

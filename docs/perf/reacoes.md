@@ -83,8 +83,8 @@ Conferir cada item durante a semana; anotar o que mudar.
   falhou ~1 em 5 rodadas (R1.1, R1.6). Investigar fora da semana.
 - [ ] **Arte nova (R3.1):** posição e escala dos `extra/D*.png` e `extra/P*.png` (quadro de 1024)
   conferidas com a arte real; I20 só entra em `ATIVAS` com `extra/P13.png` (reabrir o HUD).
-- [ ] **Hooks do Claude Code (54/55, R2.C):** colar o trecho do `settings.json` que está em
-  `docs/design/CONDESSA-REACOES.md`; sem ele 54/55 não saem ao vivo.
+- [x] **Hooks do Claude Code (54/55, R2.C):** instalados em 2026-10-09 (`PostToolUseFailure`,
+  `Notification`, `Stop`); conferido ao vivo. Na semana, ver se 54/55 aparecem no relatório.
 
 ### Ajustes feitos (preencher)
 
