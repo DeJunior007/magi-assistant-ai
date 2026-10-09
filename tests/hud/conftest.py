@@ -31,3 +31,7 @@ def _reacoes_isoladas(tmp_path, monkeypatch):
 
     monkeypatch.setattr(registro, "REGISTRO_FILE", tmp_path / "reacoes" / "reacoes.jsonl")
     monkeypatch.setattr(atividade, "ESTADO_FILE", tmp_path / "reacoes" / "atividade.json")
+    from wired.reacoes import det_tempo
+
+    monkeypatch.setattr(det_tempo, "GIT", lambda: None)  # nunca o git do repositório real
+    monkeypatch.setattr(det_tempo, "_CACHE", {})
