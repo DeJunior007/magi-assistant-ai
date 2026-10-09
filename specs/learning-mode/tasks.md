@@ -224,7 +224,7 @@ tamanho do painel, `MASCOT_MAIN` 302 de altura na base 1920 (LM-015 → LM1.5). 
   - Pronto: CA-01 verde; se falhar, a tarefa para e propõe tirar o worker para processo à parte (design §1), sem implementar.
   - Paralelo: LM3.4, LM4.3
 
-- [ ] **LM4.3 Indicador e drawer de observações** — `hud/wired/learning_obs.py` (grupo `obs` da `LearningScreen`, QPainter): `OBSERVATIONS [nn] ▾` recolhido por padrão; drawer na coluna direita com VOCABULARY / GRAMMAR / RECURRING; clique rola até a mensagem e destaca uma vez; contador atualiza sem animação piscante; botão `[ VIEW LEARNING PROFILE ]` desabilitado ("coming later"). Lógica de agrupamento pura e testada. *(OBS-001, OBS-002, PRN-003, PRN-004, UI-003)*
+- [x] **LM4.3 Indicador e drawer de observações** — `hud/wired/learning_obs.py` (grupo `obs` da `LearningScreen`, QPainter): `OBSERVATIONS [nn] ▾` recolhido por padrão; drawer na coluna direita com VOCABULARY / GRAMMAR / RECURRING; clique rola até a mensagem e destaca uma vez; contador atualiza sem animação piscante; botão `[ VIEW LEARNING PROFILE ]` desabilitado ("coming later"). Lógica de agrupamento pura e testada. *(OBS-001, OBS-002, PRN-003, PRN-004, UI-003)*
   - Lê: design §4.1, §11, spec §6 (`lm_obs`), §9 (itens 4–6), APIs de `learning_model.py` (rolar/destacar) e `learning_screen.py` (grupos, `learning_mouse`) por grep `def `
   - Escreve: `hud/wired/learning_obs.py`, `hud/wired/learning_screen.py` (só grupo `obs` e clique nele), `tests/learning/test_obs_view.py`
   - Depende de: LM1.6 (pode usar `lm_obs` falso antes do LM4.1)
@@ -367,3 +367,14 @@ aberto) só o fallback de `topic.py` (LM1.8); **P13** (lugar do cartão no paine
   agente orquestrador). O teste leva ~21 s.
 - **LM4.2:** pendente a medição real com o núcleo (10 turnos, ligado × desligado, *gasta API*) —
   fica para o teste ponta a ponta (LMF.1) do Pedro; roteiro em `docs/perf/learning.md`.
+- **LM4.3:** o destaque do item clicado é pintado no grupo `history` (`_g_history` e a chave do
+  grupo ganham o `flash` do `learning_obs`), fora do "só grupo `obs`" do *Escreve*, porque a
+  mensagem destacada mora lá. O destaque dura `FLASH_S` = 1 s e some no batimento seguinte (sem
+  timer próprio: `gamerhud.py` fora do *Escreve*), então fica visível 1–2 s.
+- **LM4.3:** o contador mostra o `count` do `lm_obs` (spec §9 item 5: distintos por categoria e
+  rótulo); com os dados fixos do *Pronto* (3 palavras, Past tense, Prepositions em GRAMMAR e em
+  RECURRING) o distinto dá 6, e o `[03]` do exemplo do PDF só aparece se o núcleo mandar
+  `count: 3`. Sem `count`, a tela conta sozinha. Captura offscreen conferida (drawer aberto com os
+  três grupos; `LM_OBS_CAPTURE=<png> pytest tests/learning/test_obs_view.py` salva a imagem).
+- **LM4.3:** item cuja mensagem não está carregada (fora das últimas 200) não rola nem destaca;
+  o botão `[ VIEW LEARNING PROFILE ]` só escreve "learning profile — coming later" no rodapé.

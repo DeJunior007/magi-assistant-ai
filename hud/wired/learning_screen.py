@@ -11,8 +11,9 @@ esquerda: MAGI SYSTEM recolhível, sessão e rede, em ``TEXT_DIM``), ``footer`` 
 ``history`` (LM1.6: caixas de ``learning_text.wrap``, rótulos CONDESSA/YOU, rolagem, mensagem em
 fala revelada; LM2.2: destaque lilás translúcido da seleção), ``input`` (LM1.6: moldura do campo,
 onda de áudio por ``mouth``, ``STATUS // CONNECTED/DISCONNECTED``), ``overlay`` (LM2.2: menu e
-balão de ``learning_overlay``; retângulos dinâmicos, os antigos entram até serem repintados) e,
-ainda vazios, ``obs``/``topic`` (LM4.3, LM1.9).
+balão de ``learning_overlay``; retângulos dinâmicos, os antigos entram até serem repintados),
+``obs`` (LM4.3: ``OBSERVATIONS [nn] ▾`` e drawer de ``learning_obs``; clique num item rola o
+histórico até a mensagem e a destaca uma vez) e, ainda vazio, ``topic`` (LM1.9).
 ``hit_test`` devolve ``"learning"`` no botão END SESSION (a ação é ligada no LM1.7).
 
 Os dados do modo vêm do ``learning_model.LearningModel`` (``screen.info``/``screen.model``;
@@ -36,6 +37,7 @@ from PySide6.QtCore import QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import QPainter, QPen
 
 from . import kit
+from . import learning_obs as obsv
 from . import learning_overlay as ov
 from .learning_layout import CHAR_W, LearningLayout, bubble_rect, menu_rect, screen_layout, state_label
 from .learning_model import LearningModel
@@ -123,6 +125,8 @@ class LearningScreen(Screen):
         self.overlay = Overlay(provider=ModelProvider(self))
         self._ov_shown: list[QRectF] = []          # retângulos do overlay já pintados (a apagar)
         self._ov_geom: tuple[tuple, tuple] | None = None
+        # LM4.3: observações
+        self.obs_view = obsv.ObsView()
 
     # ---------------------------------------------------------------- estático
 
@@ -210,12 +214,15 @@ class LearningScreen(Screen):
         if name == "footer":
             return (i.log,)
         if name == "history":
-            return (*i.history_key(), self._sel_key())
+            return (*i.history_key(), self._sel_key(), self.obs_view.flash.active())
         if name == "overlay":
             return self._overlay_key()
         if name == "input":
             return (i.connected, i.state == "speaking", i.wave_key())
-        return ()  # obs/topic: vazios até as próximas tarefas
+        if name == "obs":
+            groups = self.obs_groups()
+            return self.obs_view.key(self.obs_count(groups), groups)
+        return ()  # topic: vazio até o LM1.9
 
     def draw_group(self, name: str, p: QPainter, snap: Snapshot, now: datetime, s: float) -> None:
         fn = getattr(self, f"_g_{name}", None)
@@ -376,6 +383,10 @@ class LearningScreen(Screen):
         sel_fill = color(ov.SEL_FILL)
         for r in self._highlight_rects():  # destaque da seleção, por baixo do texto
             p.fillRect(qr(r), sel_fill)
+        flash = self.obs_view.flash.active()
+        if flash is not None:  # LM4.3: mensagem do item clicado nas observações, uma vez
+            for r in self._message_rects(flash):
+                p.fillRect(qr(r), sel_fill)
         for line in wr.lines:
             top = line.rect.y + dy
             if top + LINE_H <= h.top or top >= h.bottom:
@@ -457,6 +468,9 @@ class LearningScreen(Screen):
             if self.L.end_btn.contains(point):
                 self.clear_selection()
                 return "learning"
+            if self.L.obs.contains(point) and not self._overlay_hit(point):
+                self._obs_press(point)
+                return None
             if self._overlay_press(point):
                 return None
             self.overlay.close()
@@ -487,6 +501,57 @@ class LearningScreen(Screen):
             idx = ov.item_at(menu, len(self.overlay.items), point) if menu else None
             self.overlay.set_hover(idx)
         return None
+
+    # ---------------------------------------------------------------- observações (LM4.3)
+
+    def obs_groups(self) -> dict[str, list[obsv.ObsEntry]]:
+        return obsv.group(self.info.obs_items)
+
+    def obs_count(self, groups: dict[str, list[obsv.ObsEntry]] | None = None) -> int:
+        """``count`` do ``lm_obs`` (itens distintos por categoria e rótulo); sem ele, conta aqui."""
+        return self.info.obs_count or obsv.distinct_count(groups or self.obs_groups())
+
+    def _obs_press(self, point: Point) -> None:
+        hit = self.obs_view.press(point, self.L.obs, self.obs_groups())
+        if hit is None:
+            return
+        what, entry = hit
+        if what == "profile":
+            self.info.log = "learning profile — coming later"
+        elif what == "item" and entry is not None and entry.message_id is not None:
+            self.scroll_to_message(entry.message_id)
+
+    def scroll_to_message(self, message_id: int) -> bool:
+        """Rola o histórico até a mensagem e a destaca uma vez. ``False`` se ela não está
+        carregada (fora das últimas 200)."""
+        lines = [ln for ln in self.wrapped().lines if ln.message_id == message_id]
+        if not lines:
+            return False
+        top = min(ln.rect.y for ln in lines)
+        bottom = max(ln.rect.y + LINE_H for ln in lines)
+        self.clear_selection()
+        self.info.scroll = obsv.scroll_to(top, bottom, self.wrapped().height, self.L.history.h)
+        self.obs_view.flash.start(message_id)
+        return True
+
+    def _message_rects(self, message_id: int) -> list[Rect]:
+        """Faixas (uma por linha) cobrindo a mensagem inteira, como o destaque da seleção."""
+        out: dict[float, Rect] = {}
+        for b in self.history_boxes():
+            if b.message_id != message_id:
+                continue
+            r = Rect(b.rect.x - 2, b.rect.y + 4, b.rect.w + 4, b.rect.h - 6)
+            cur = out.get(r.y)
+            if cur is None:
+                out[r.y] = r
+            else:
+                left, right = min(cur.left, r.left), max(cur.right, r.right)
+                out[r.y] = Rect(left, r.y, right - left, r.h)
+        return list(out.values())
+
+    def _g_obs(self, p, snap, now, s):
+        groups = self.obs_groups()
+        obsv.paint(p, self.L.obs, self.obs_view, self.obs_count(groups), groups)
 
     # ---------------------------------------------------------------- seleção e overlay (LM2.2)
 
