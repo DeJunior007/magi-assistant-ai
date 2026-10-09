@@ -58,6 +58,8 @@ class Reaction:
     bob: bool = False  # balança a cabeça no ritmo
     prio: int = 1
     line: str | None = None  # texto curto na legenda (sem voz)
+    efeitos: tuple[str, ...] = ()  # até 3 efeitos do passo (reacoes.contratos.EFEITO); effect = o 1º
+    corpo: tuple[str, ...] = ()  # extras: "bob", "sway", "tails", "fone_on/off", "braco:P*", "iris:<olhar>"
 
 
 R = Reaction

@@ -46,7 +46,7 @@ R0.1 ─┬─ R0.2 ─┐
 
 ## Fase R0 — Motor
 
-- [ ] **R0.1 Contratos e esqueleto** — pacote `hud/wired/reacoes/` com `contratos.py` (spec §2:
+- [x] **R0.1 Contratos e esqueleto** — pacote `hud/wired/reacoes/` com `contratos.py` (spec §2:
   `EFEITO`, `Passo`, `Classe`, `Def`, `Disparo`), `__init__.py` com `DETECTORES` já listando todos
   os módulos do spec §5, e **stubs** de `det_tempo`, `det_musica`, `det_sistema`, `det_claude`,
   `det_entrada`, `det_conversa`, `det_volume`, `det_notif`, `det_extras`, `passivas`, `humor`,
@@ -244,3 +244,5 @@ merge trivial, resolvido pelo orquestrador).
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
+
+- R0.1: `Def` ganhou `variante` e `substituida` (citados em R0.4/spec §1, fora do bloco do spec §2). Stubs extras: `atividade.Atividade(caminho)` com `evento`/`parado_s`, `registro.gravar(d, disparo, agora, caminho)`, `catalogo.DEFS`/`ATIVAS`; R0.2/R1.4 podem ajustar.
