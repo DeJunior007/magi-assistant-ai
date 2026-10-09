@@ -232,3 +232,22 @@ def test_efeito_usa_o_png_quando_existe():
         PartsPortrait._reaction_effect(me, p, 1.0, "vein", 0.0, 0.0)
         assert p.drawPixmap.called is desenha
         assert p.drawArc.called is not desenha  # sem o PNG, a veia em código
+
+
+def test_recorte_de_braco_ignora_fio_de_cabelo_e_tapa_buraco():
+    """Braço/fone pela diferença: fio fino e lasca cor de cabelo saem; buraco pequeno é tapado."""
+    size = cb.SIZE
+    mask = np.zeros((size, size), np.float32)
+    mask[400:800, 600:760] = 1.0          # braço: mancha grande
+    mask[560:600, 660:700] = 0.0          # buraco pequeno dentro dele (pele sobre pele)
+    mask[100:110, 50:900] = 1.0           # fio de cabelo: fino e comprido
+    rgb = np.zeros((size, size, 3), np.uint8)
+    rgb[...] = (240, 200, 180)            # pele
+    rgb[200:330, 100:230] = (225, 60, 110)  # lasca grande com cor de cabelo
+    mask[200:330, 100:230] = 1.0
+    keep = cb.only_blobs(mask, Image.fromarray(rgb))
+    assert keep[600, 680] > 0.9 and keep[580, 680] > 0.9   # braço e o buraco tapado
+    assert keep[105, 300] < 0.1                            # fio sumiu
+    assert keep[265, 165] < 0.1                            # lasca cor de cabelo sumiu
+    hair = cb.hair_colored(Image.fromarray(rgb))
+    assert hair[265, 165] and not hair[600, 680]

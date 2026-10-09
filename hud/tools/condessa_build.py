@@ -270,13 +270,94 @@ def diff_mask(im: Image.Image, base: Image.Image) -> np.ndarray:
     return np.asarray(m.filter(ImageFilter.GaussianBlur(2))).astype(np.float32) / 255
 
 
-def detail(im: Image.Image, base: Image.Image, solid: np.ndarray | None = None) -> Image.Image:
+BLOB_MIN = 11  # px: na diferença de braço/fone, o que for mais fino que isso é ruído da IA
+BLOB_AREA = 250  # px na grade de 256: mancha menor que isso (~63×63 no quadro) é lasca de cabelo
+BLOB_GRID = 256
+HOLE_MAX = 1500  # px na grade: buraco menor que isso dentro da mancha é tapado (braço sobre pele)
+
+
+def _components(grid: np.ndarray) -> list[list[tuple[int, int]]]:
+    """Componentes conexas (vizinhança 4) de uma máscara booleana pequena (a grade de 256)."""
+    from collections import deque
+
+    h, w = grid.shape
+    seen = np.zeros_like(grid, dtype=bool)
+    out = []
+    for y0, x0 in zip(*np.nonzero(grid), strict=True):
+        if seen[y0, x0]:
+            continue
+        comp, q = [], deque([(y0, x0)])
+        seen[y0, x0] = True
+        while q:
+            y, x = q.popleft()
+            comp.append((y, x))
+            for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+                if 0 <= ny < h and 0 <= nx < w and grid[ny, nx] and not seen[ny, nx]:
+                    seen[ny, nx] = True
+                    q.append((ny, nx))
+        out.append(comp)
+    return out
+
+
+def _fill_holes(grid: np.ndarray, most: int = HOLE_MAX) -> np.ndarray:
+    """Tapa os buracos pequenos (até ``most`` px): onde o braço novo passa por cima de pele ou
+    camisa parecida da base, a diferença fura. Buraco grande é fundo de verdade e fica."""
+    pad = np.pad(~grid, 1, constant_values=True)
+    img = Image.fromarray((pad * 255).astype(np.uint8))
+    from PIL import ImageDraw
+
+    ImageDraw.floodfill(img, (0, 0), 128)
+    holes = (np.asarray(img)[1:-1, 1:-1] == 255)
+    out = grid.copy()
+    for comp in _components(holes):
+        if len(comp) <= most:
+            ys, xs = zip(*comp, strict=True)
+            out[list(ys), list(xs)] = True
+    return out
+
+
+def hair_colored(im: Image.Image) -> np.ndarray:
+    """Pixels com a cor do cabelo dela (rosa/vermelho saturado): a maior parte da sujeira da IA."""
+    hsv = np.asarray(im.convert("HSV")).astype(np.int32)
+    h, sat, val = hsv[..., 0], hsv[..., 1], hsv[..., 2]  # 0–255
+    return ((h >= 225) | (h <= 8)) & (sat > 90) & (val > 70)
+
+
+def only_blobs(mask: np.ndarray, im: Image.Image | None = None, width: int = BLOB_MIN,
+               area: int = BLOB_AREA) -> np.ndarray:
+    """Só as manchas grandes da máscara 0–1, sem buracos. A IA redesenha a imagem inteira de leve,
+    e a diferença com a base pega fios de cabelo e traços do rosto (no retrato, linha fantasma que
+    não acompanha a cabeça); onde o braço novo passa por cima de pele ou camisa parecida da base, a
+    diferença fura. Abertura morfológica tira o fino, a área mínima tira a lasca, e os buracos
+    dentro do que sobra são tapados. Com ``im``, o que tem cor de cabelo sai antes. Braço e fone
+    são grandes e ficam."""
+    hard = mask > 0.5
+    if im is not None:
+        hard &= ~hair_colored(im)
+    m = Image.fromarray((hard * 255).astype(np.uint8))
+    m = m.filter(ImageFilter.MinFilter(width)).filter(ImageFilter.MaxFilter(width))
+    grid = np.asarray(m.resize((BLOB_GRID, BLOB_GRID), Image.Resampling.BOX)) > 64
+    keep = np.zeros_like(grid)
+    for comp in _components(grid):
+        if len(comp) >= area:
+            ys, xs = zip(*comp, strict=True)
+            keep[list(ys), list(xs)] = True
+    keep = _fill_holes(keep)
+    big = Image.fromarray((keep * 255).astype(np.uint8)).resize((SIZE, SIZE), Image.Resampling.NEAREST)
+    big = big.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.GaussianBlur(2.5))
+    return np.asarray(big).astype(np.float32) / 255
+
+
+def detail(im: Image.Image, base: Image.Image, solid: np.ndarray | None = None,
+           blobs: bool = False) -> Image.Image:
     """Camada de um extra: o recorte pelo verde, ou só a diferença da base quando a imagem é o
-    busto inteiro com o detalhe (cobre mais de ``BUST_OVERLAP`` do busto da A1)."""
+    busto inteiro com o detalhe (cobre mais de ``BUST_OVERLAP`` do busto da A1). ``blobs``: da
+    diferença, só as manchas largas (braços e fone; os detalhes D são finos e ficam como estão)."""
     rgba = chroma(im)
     solid = _alpha(chroma(base)) > 0.5 if solid is None else solid
     if solid.any() and float((_alpha(rgba)[solid] > 0.5).mean()) > BUST_OVERLAP:
-        return with_alpha(rgba, diff_mask(im, base))
+        mask = diff_mask(im, base)
+        return with_alpha(rgba, only_blobs(mask, im) if blobs else mask)
     return rgba
 
 
@@ -294,7 +375,7 @@ def build_extras(src: Path, out: Path, base: Image.Image) -> list[str]:
             continue
         if solid is None:  # busto da A1, uma vez só
             solid = _alpha(chroma(base)) > 0.5
-        layer = detail(im, base, solid)
+        layer = detail(im, base, solid, blobs=ident == "E3" or ident in POSES)
         if ident in POSES:  # braço: some embaixo como o corpo
             layer = with_alpha(layer, bottom_fade())
         layer.save(dst)
