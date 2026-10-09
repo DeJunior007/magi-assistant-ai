@@ -115,6 +115,8 @@ CONFIRM_GRACE_MS = 1_500
 #: Janela de continuação padrão (``[conversation] followup_s``, 1.20): prazo para começar a falar
 #: depois que a Magui termina a resposta.
 FOLLOWUP_S = 3.0
+#: Clique no rosto do HUD (``push_to_talk``): prazo para começar a falar depois do clique.
+TAP_LISTEN_MS = 6_000
 #: Quanto tempo o rosto fica ``happy`` ao ser dispensada, antes de dormir (sem fala, 1.20).
 DISMISS_FACE_S = 0.8
 #: Frases que dispensam a Magui quando são a fala inteira (normalizadas, 1.20). "pode ir" e
@@ -152,6 +154,8 @@ class TurnDeps:
     - ``learning`` (Learning Mode, LM1.3): chamado **depois** da entrega de um turno de voz com
       ``(transcript, ctx, result)``; síncrono, só agenda (``magi.learning.wiring``). Só existe com
       ``[learning] enabled``; ``None`` = nada muda.
+    - ``revive``: sem STT (ou agente) porque o keyring estava trancado na subida, tenta reler as
+      chaves e remontar antes de responder "não peguei" (``Core.revive``, com intervalo mínimo).
     """
 
     stt: SttProvider | None = None
@@ -165,6 +169,7 @@ class TurnDeps:
     prewarm: Callable[[], Awaitable[Any]] | None = None
     save_audio: UtteranceSaver | None = None
     learning: Callable[[Transcript, TurnContext, ActionResult], None] | None = None
+    revive: Callable[[], Awaitable[bool]] | None = None
 
 
 def _short(text: str, limit: int = 120) -> str:
@@ -242,6 +247,12 @@ class TurnPipeline:
         ``stream`` (1.25): sessão aberta na gravação; só espera o texto final e, se ela falhou,
         estourou o tempo ou veio vazia, manda o áudio inteiro como antes."""
         stt = self.deps.stt
+        if stt is None and audio and self.deps.revive is not None:
+            try:
+                await self.deps.revive()  # keyring destravado depois da subida: relê as chaves
+            except Exception as e:  # noqa: BLE001 - a fala segue como "não peguei"
+                log.warning("releitura das chaves falhou: %s", e)
+            stt = self.deps.stt
         if stt is None or not audio:
             if stream is not None:
                 await stream.cancel()
@@ -570,6 +581,32 @@ class TurnMachine:
         self._started_at = datetime.now(UTC)
         self.pipeline.prewarm()
         await self._go(TurnState.LISTENING)
+
+    async def listen_now(self) -> bool:
+        """Clique no rosto do HUD (``push_to_talk``): ativa sem wake word. Como o satélite não
+        grava sozinho nesse caso (o atalho dele é de segurar), pede uma escuta com ``magi-listen``
+        e ela termina pelo VAD, como na janela de continuação. ``False`` = já está ouvindo."""
+        if self._state in _RECORDING_STATES:
+            return False
+        await self.wake(WakeSource.PTT)
+        await self.link.send(ListenRequest(timeout_ms=TAP_LISTEN_MS, reason="tap"))
+        self._timer = asyncio.create_task(self._tap_deadline())
+        return True
+
+    async def _tap_deadline(self) -> None:
+        """Rede de segurança da escuta pelo clique: sem gravação no prazo (satélite não respondeu),
+        ou passada a gravação máxima, dorme calado."""
+        await asyncio.sleep((TAP_LISTEN_MS + self.confirm_grace_ms) / 1000)
+        if self._recording:
+            await asyncio.sleep(max(0, MAX_RECORDING_MS - TAP_LISTEN_MS) / 1000)
+        if self._state is not TurnState.LISTENING:
+            return
+        self._timer = None
+        self._recording = False
+        self._audio.clear()
+        await self._drop_stream()
+        log.info("%s: escuta pelo clique expirou sem resposta do satélite", self.satellite)
+        await self._go(TurnState.SLEEPING)
 
     async def announce(
         self, text: str, expression: Expression | None = None, *, offer: Offer | None = None

@@ -142,7 +142,16 @@ class CoreService:
             self._server = None
 
     async def on_hud_command(self, cmd: CmdMsg) -> None:
-        """Comandos vindos do HUD (§6). Ainda nenhum é tratado no núcleo."""
+        """Comandos vindos do HUD (§6). ``push_to_talk`` (clique no rosto): o satélite do PC
+        (ou o único conectado) começa a ouvir sem wake word."""
+        if cmd.name == "push_to_talk":
+            machine = self._machines.get("pc") or next(iter(self._machines.values()), None)
+            if machine is None:
+                log.info("HUD pediu push_to_talk sem satélite conectado")
+                return
+            if await machine.listen_now():
+                log.info("%s: ouvindo pelo clique no rosto", machine.satellite)
+            return
         log.info("HUD pediu %s (sem tratamento ainda)", cmd.name)
 
     async def _serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:

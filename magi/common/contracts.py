@@ -311,7 +311,8 @@ class ListenRequest:
 
     O satélite grava com VAD e encerra com ``no_speech`` se ninguém falar em ``timeout_ms``
     (prazo só para começar a falar; a gravação segue até o fim pelo VAD, teto de 15 s).
-    ``reason``: ``"confirm"`` (R5.4) ou ``"followup"`` (janela de continuação, 1.20). Nenhuma
+    ``reason``: ``"confirm"`` (R5.4), ``"followup"`` (janela de continuação, 1.20) ou ``"tap"``
+    (clique no rosto do HUD, sem wake word). Nenhuma
     escuta pedida pelo núcleo toca bip: o HUD mostra o rosto em ``listening``.
     """
 

@@ -224,3 +224,53 @@ def test_config() -> None:
     assert followup_ms_from_config({"conversation": {"followup_s": 2.5}}) == 2_500
     assert followup_ms_from_config({"conversation": {"followup": False}}) is None
     assert followup_ms_from_config({"conversation": {"followup_s": 0}}) is None
+
+
+async def test_clique_no_rosto_ouve_sem_wake_word() -> None:
+    """HUD ``push_to_talk``: pede escuta ao satélite e a fala vira um turno normal."""
+    from magi.core.turn import TAP_LISTEN_MS
+
+    r = Rig()
+    assert await r.m.listen_now()
+    assert r.m.state is TurnState.LISTENING
+    assert r.link.listens() == [ListenRequest(timeout_ms=TAP_LISTEN_MS, reason="tap")]
+    assert not await r.m.listen_now()  # já ouvindo: segundo clique não pede outra escuta
+    await r.record("que horas são")
+    assert r.agent.asked == ["que horas são"] and r.m.state is TurnState.SPEAKING
+    await r.m.close()
+
+
+async def test_clique_no_rosto_calado_dorme_e_prazo_sem_satelite(monkeypatch) -> None:
+    from magi.core import turn
+
+    r = Rig()
+    await r.m.listen_now()
+    await r.record("", AudioEndReason.NO_SPEECH)
+    assert r.m.state is TurnState.SLEEPING and r.speaker.said == []
+    monkeypatch.setattr(turn, "TAP_LISTEN_MS", 20)
+    await r.m.listen_now()
+    await asyncio.sleep(0.2)  # satélite nunca respondeu à escuta
+    assert r.m.state is TurnState.SLEEPING
+
+
+async def test_clique_no_rosto_interrompe_a_fala() -> None:
+    r = Rig()
+    await r.m.handle(WakeEvent(source=WakeSource.WAKE, satellite="pc"))
+    await r.record("conta uma história")
+    assert r.m.state is TurnState.SPEAKING
+    assert await r.m.listen_now()
+    assert r.m.state is TurnState.LISTENING
+    await r.m.close()
+
+
+async def test_servico_encaminha_push_to_talk_ao_satelite_do_pc() -> None:
+    from magi.common.contracts import CmdMsg
+    from magi.core.service import CoreService
+
+    svc = CoreService()
+    await svc.on_hud_command(CmdMsg(name="push_to_talk"))  # sem satélite: só registra
+    r = Rig()
+    svc._machines["pc"] = r.m
+    await svc.on_hud_command(CmdMsg(name="push_to_talk"))
+    assert r.m.state is TurnState.LISTENING and len(r.link.listens()) == 1
+    await r.m.close()
