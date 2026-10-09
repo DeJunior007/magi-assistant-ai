@@ -216,7 +216,7 @@ tamanho do painel, `MASCOT_MAIN` 302 de altura na base 1920 (LM-015 → LM1.5). 
   - Pronto: CA-02, CA-03, CA-14 verdes.
   - Paralelo: LM2.2, LM4.3
 
-- [ ] **LM4.2 Medição de latência** — teste CA-01 (200 turnos falsos, engine ligado × desligado) e medição real curta com o núcleo (10 turnos por texto) registrada no PR. *(ENG-001, RNF-01)*
+- [x] **LM4.2 Medição de latência** — teste CA-01 (200 turnos falsos, engine ligado × desligado) e medição real curta com o núcleo (10 turnos por texto) registrada no PR. *(ENG-001, RNF-01)* (medição real pendente do Pedro)
   - Lê: spec §12 (CA-01), design §6, §15, `magi/core/turn.py` (linhas do gancho do LM1.3)
   - Escreve: `tests/learning/test_latency.py`
   - Depende de: LM1.3, LM4.1
@@ -359,3 +359,11 @@ aberto) só o fallback de `topic.py` (LM1.8); **P13** (lugar do cartão no paine
   `LearningScreen.on_lm_result` segue sem chamador (o `poll` cobre). Envio com o núcleo fora do
   ar vira erro `offline` ("not connected") com retry.
 - **LM3.4:** pendente o manual *(gasta API)*: as 4 ações no exemplo do PDF em ≤ 4 s.
+- **LM4.2:** CA-01 verde com turno falso de 50 ms: razão p95 1,015–1,018 (sobra ~0,8 ms). Com turno
+  falso de 20 ms a razão vai a ~1,08: a sobra é absoluta (~1–1,5 ms, quando a observação termina
+  durante o turno seguinte), irrelevante em turnos reais de 0,5–4 s; por isso o teste também exige
+  sobra p95 ≤ 3 ms. Se o Pedro quiser o critério com turnos mais curtos, aí sim avaliar o worker em
+  processo à parte. Números e roteiro em `docs/perf/learning.md` (fora do *Escreve*, pedido do
+  agente orquestrador). O teste leva ~21 s.
+- **LM4.2:** pendente a medição real com o núcleo (10 turnos, ligado × desligado, *gasta API*) —
+  fica para o teste ponta a ponta (LMF.1) do Pedro; roteiro em `docs/perf/learning.md`.
