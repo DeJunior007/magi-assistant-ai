@@ -129,8 +129,8 @@ Próximos passos, em ordem:
    gpt-5.4-mini, observações no Qwen local (`magi-qwen`, só CPU, só durante a aula).
 5. ~~Pendências antigas~~ — feito (2026-10-09): tokens `glpat` tirados dos remotes, do
    `~/.gitconfig`, do `~/.git-credentials` e do `glab` (os acessos já estavam revogados);
-   `scratch/` no `.gitignore`; `LearningConfig.enabled` já tinha padrão True. Falta só o comando
-   `magi learning` de terminal.
+   `scratch/` no `.gitignore`; `LearningConfig.enabled` já tinha padrão True. O comando
+   `magi learning` de terminal foi descartado pelo Pedro.
 6. ~~`git push` da `main`~~ — feito (2026-10-09).
 
 ## 12. Voz e serviços (2026-10-09)
@@ -145,9 +145,8 @@ Próximos passos, em ordem:
   do headset (ELITE 08), não o software.
 
 Próximos passos, do mais rápido ao mais trabalhoso:
-1. Comando `magi learning` de terminal (~30 min).
-2. Testes manuais do Konsole no HUD e as validações antigas da seção 3.
-3. Refazer o P13 (seção 7).
-4. Espera mais viva (seção 2): animação de "pensando", frase curta e resposta em lotes.
-5. Learning Mode onda 6 (LM3.4, LM4.2, LM4.3, LM1.8), em agentes por tarefa como as reações.
-6. Depois de uso: semana de validação das reações (~16/10) e calibração da memória (seção 4).
+1. Testes manuais do Konsole no HUD e as validações antigas da seção 3.
+2. Refazer o P13 (seção 7).
+3. Espera mais viva (seção 2): animação de "pensando", frase curta e resposta em lotes.
+4. Learning Mode onda 6 (LM3.4, LM4.2, LM4.3, LM1.8), em agentes por tarefa como as reações.
+5. Depois de uso: semana de validação das reações (~16/10) e calibração da memória (seção 4).
