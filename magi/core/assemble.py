@@ -34,6 +34,7 @@ import asyncio
 import dataclasses
 import logging
 import shutil
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -318,6 +319,29 @@ class Core:
     game_task: asyncio.Task[Any] | None = None
     news_feedback: Any = None  # magi.news.feedback.NewsFeedback (6.11): ``cfg`` trocada na recarga (1.22)
     autofix: Any = None  # magi.maintenance.autofix.Autofix: autoconserto com o Claude Code
+    _brain_args: tuple | None = None  # (config, catalog, agent) para ``revive``
+    _revived_at: float = -1e9
+
+    async def revive(self) -> bool:
+        """Keyring trancado na subida deixou STT/TTS/agente de fora: relê as chaves e remonta o que
+        faltou. No máximo a cada ``REVIVE_EVERY_S``. ``True`` se algo voltou."""
+        missing = self.deps.stt is None or self.deps.speaker is None or self.deps.agent is None
+        now = time.monotonic()
+        if not missing or self.providers is None or self._brain_args is None \
+                or now - self._revived_at < REVIVE_EVERY_S:
+            return False
+        self._revived_at = now
+        refresh = getattr(self.providers, "refresh_unreadable", None)
+        if refresh is None or not refresh():
+            return False
+        before = (self.deps.stt, self.deps.speaker, self.deps.agent)
+        await _wire_brain(self, *self._brain_args)
+        back = [n for n, a, b in zip(("STT", "TTS", "agente"), before,
+                                     (self.deps.stt, self.deps.speaker, self.deps.agent), strict=True)
+                if a is None and b is not None]
+        if back:
+            log.info("chaves relidas do keyring: %s de volta", ", ".join(back))
+        return bool(back)
 
     def warn(self, msg: str) -> None:
         if msg not in self.warnings:
@@ -517,14 +541,23 @@ async def assemble(
     _wire_news_feedback(core, config, found)
 
     core.profile = _profile_updater(core, catalog)
+    await _wire_brain(core, config, catalog, agent)
+    core.deps.revive = core.revive
+    core._brain_args = (config, catalog, agent)
+    return core
 
-    # STT e TTS
-    if core.providers is not None:
+
+async def _wire_brain(core: Core, config: Config, catalog: GameCatalog, agent: Any) -> None:
+    """STT, TTS e agente (com as ferramentas dele). Chamado na subida e de novo por
+    ``Core.revive`` quando o keyring estava trancado e algum deles ficou de fora."""
+    if core.providers is not None and (core.deps.stt is None or core.deps.speaker is None):
         _wire_voice(core, config, catalog)
     if core.deps.stt is None:
         core.warn("STT indisponível: toda fala responde 'não peguei'")
     if core.deps.speaker is None:
         core.warn("TTS indisponível: respostas só na legenda do HUD")
+    if core.deps.agent is not None:
+        return
     if agent is not None and core.providers is not None:
         why = _has_key_safe(core.providers, "agent")
         if why is None:
@@ -544,10 +577,10 @@ async def assemble(
     _wire_news_agent(core)
     learning_voice.wire_persona(config, core.deps)  # bloco "Learning Mode" com sessão ativa (LM1.4)
     core.self_model.agent_ready = core.deps.agent is not None
-    return core
 
 
 SPOTIFY_CHECK_TTL_S = 60.0
+REVIVE_EVERY_S = 30.0  # releitura do keyring quando a voz/agente ficou de fora na subida
 
 
 def _self_model(core: Core, config: Config) -> Any:

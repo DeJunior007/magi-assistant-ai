@@ -538,3 +538,43 @@ async def test_historico_da_conversa_volta_ao_reiniciar() -> None:
     await _wire_history(quebrado)
     assert not quebrado.deps.agent._history
     assert any("histórico da conversa" in w for w in quebrado.warnings)
+
+
+async def test_keyring_destravado_depois_da_subida_volta_a_ouvir(rig_factory, caplog) -> None:
+    """Subiu com o keyring trancado (sem chave): na próxima fala relê as chaves e entende."""
+    caplog.set_level(logging.INFO, "magi.core.assemble")
+    rig = await rig_factory(keys=0)
+    assert rig.core.deps.stt is None
+    await rig.sat.say("abre o dedi cels")
+    assert (await rig.subtitle()).text == SAY_NOT_HEARD  # ainda trancado: nada a reler
+    await _until(lambda: rig.state is TurnState.SLEEPING)
+
+    providers = rig.core.providers
+    providers.keys = 1  # o Pedro destravou a carteira
+    providers.refresh_unreadable = lambda: {"openai"}
+    rig.core._revived_at = -1e9  # sem esperar o intervalo mínimo
+    await rig.sat.say("abre o dedi cels")
+    assert (await rig.subtitle()).text != SAY_NOT_HEARD
+    assert rig.core.deps.stt is not None and rig.core.deps.speaker is not None
+    assert any("chaves relidas do keyring: STT, TTS de volta" in r.getMessage() for r in caplog.records)
+
+
+def test_registro_rele_o_keyring_so_dos_provedores_sem_chave() -> None:
+    from magi.providers.registry import Registry
+
+    trancado = [True]
+
+    def get_secret(name: str) -> str:
+        if trancado[0]:
+            raise RuntimeError("Failed to unlock the collection!")
+        return "segredo"
+
+    reg = Registry(make_config(Path("/tmp")), NullBudget(), backends={}, get_secret=get_secret)
+    names = list(reg.config.providers)
+    pools = {n: reg.pool(n) for n in names}
+    vazios = {n for n, p in pools.items() if p.available() == 0}
+    assert vazios == {"fake"}  # trancado: nenhuma chave lida
+    assert reg.refresh_unreadable() == vazios
+    trancado[0] = False
+    assert all(reg.pool(n).available() > 0 for n in vazios)
+    assert reg.refresh_unreadable() == set()  # tudo legível: nada a reler

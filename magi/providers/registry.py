@@ -424,6 +424,22 @@ class Registry:
                 del self._pools[name]
         return rebuilt
 
+    def refresh_unreadable(self) -> set[str]:
+        """Descarta os pools sem nenhuma chave utilizável (o keyring estava trancado ou vazio na
+        primeira leitura), com os backends e objetos de tarefa desses provedores: o próximo uso
+        relê o keyring. Devolve os provedores descartados."""
+        def local(name: str) -> bool:
+            cfg = self._config.providers.get(name)
+            return bool(cfg is not None and cfg.options.get("local"))
+
+        gone = {name for name, (_, pool) in self._pools.items() if pool.available() == 0 and not local(name)}
+        for name in gone:
+            del self._pools[name]
+            self._backends.pop(name, None)
+        for ck in [ck for ck, obj in self._cache.items() if obj.name in gone]:
+            del self._cache[ck]
+        return gone
+
     def pool(self, provider: str) -> KeyPool:
         """KeyPool do provedor (criado na primeira vez, lendo o keyring)."""
         cfg = self._config.providers.get(provider)
