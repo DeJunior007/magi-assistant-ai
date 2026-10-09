@@ -30,7 +30,7 @@ def test_110_itens_chaves_unicas():
 
 
 def test_87_ativas_e_ca05():
-    assert len(catalogo.ATIVAS) == 87
+    assert len(catalogo.ATIVAS) >= 87  # onda 1; cada sinal R2 soma as suas
     for k, d in catalogo.DEFS.items():
         if d.sinal is not None:  # CA-05
             assert d.sinal in _SINAIS and k not in catalogo.ATIVAS
