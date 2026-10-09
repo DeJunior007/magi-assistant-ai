@@ -456,6 +456,20 @@ class Reactor:
         elif target.startswith("card:"):
             self._click("card", now)
 
+    def on_hover(self, evento: str, now: float) -> None:
+        """Mouse no retrato (sinal A, R2.A): ``"in"``/``"move"``/``"out"`` e os gestos ``"dbl"``,
+        ``"long"``, ``"arrasto"``. Não reage aqui: deixa no ``ctx`` para o ``det_entrada``
+        (``ctx["gestos"]`` = ``(monotônico, evento)`` dos últimos ``CLIQUES_S``, só ``in`` e os
+        gestos; ``ctx["rosto_parado"]`` = desde quando o cursor está parado no rosto, ou None)."""
+        if evento in ("in", "move"):
+            self.ctx["rosto_parado"] = now
+        elif evento == "out":
+            self.ctx["rosto_parado"] = None
+        if evento in ("move", "out"):
+            return
+        antes = [g for g in self.ctx.get("gestos") or () if now - g[0] <= CLIQUES_S]
+        self.ctx["gestos"] = (*antes, (now, evento))
+
     def _click(self, key: str, now: float) -> None:
         """Clique comum: ela sempre olha; comenta só de vez em quando (1 em 4)."""
         line = self.pick(key) if self.rng.random() < CLICK_TALK else None

@@ -1162,6 +1162,14 @@ class HUD(QWidget):
         self.face_timer = QTimer(self, timeout=self.face_tick)
         self.face_timer.setSingleShot(True)
         self.face_timer.setTimerType(Qt.PreciseTimer)
+        # retrato clicável (R2.A, D1 = a): clique simples = push-to-talk, mas só depois de
+        # FACE_DBL_MS sem o 2º clique (duplo, longo e arrasto são reações, não PTT)
+        self.setMouseTracking(True)
+        self.mono = time.monotonic   # relógio dos gestos (injetável nos testes)
+        self.face_ptt_timer = QTimer(self, timeout=self.face_ptt)
+        self.face_ptt_timer.setSingleShot(True)
+        self.face_press = None        # (monotônico, posição, na metade de cima, arrastou)
+        self.face_hover = False
         # legenda que se escreve conforme ela fala: timer próprio, só enquanto revela
         self.speech_caption = SpeechCaption()
         self.turn_phase = TurnPhase()   # fase do turno: chip estável e "falando" da legenda
@@ -1897,6 +1905,9 @@ class HUD(QWidget):
             self.learning_mouse("press", e)
             return
         target = self.clickable(e.position())
+        if self.wired and target == "face":
+            self.face_down(e.position())
+            return
         if self.wired and target:
             self.wired_click(target)
             return
@@ -1912,10 +1923,75 @@ class HUD(QWidget):
     def mouseMoveEvent(self, e):
         if self.wired and self.view == "learning" and e.buttons() & Qt.LeftButton:
             self.learning_mouse("move", e)
+            return
+        self.face_move(e.position())
 
     def mouseReleaseEvent(self, e):
         if self.wired and self.view == "learning" and e.button() == Qt.LeftButton:
             self.learning_mouse("release", e)
+            return
+        if e.button() == Qt.LeftButton:
+            self.face_up()
+
+    def leaveEvent(self, e):
+        self.face_move(None)
+        super().leaveEvent(e)
+
+    # ---------- retrato (R2.A, spec §6 A; D1 = a) ----------
+    FACE_DBL_MS = 250     # PTT espera o 2º clique; 2º clique antes disso = duplo (69)
+    FACE_LONG_S = 0.8     # segurou ≥ isso = 70
+    FACE_DRAG = 40        # px (base 1920) de arrasto na metade de cima = 67
+
+    def face_rect(self):
+        """Retângulo do retrato em pixels do widget (o mesmo ``MASCOT_RECT`` do ``hit``)."""
+        scr = self.wired.screen(self.view)
+        s = scr.scale(self.size())
+        r = scr.MASCOT_RECT
+        return QRectF(r.x() * s, r.y() * s, r.width() * s, r.height() * s), s
+
+    def face_down(self, pos):
+        if self.face_ptt_timer.isActive():   # 2º clique dentro da espera: duplo, sem PTT
+            self.face_ptt_timer.stop()
+            self.face_press = None
+            self.wired.on_hover("dbl", self.mono())
+            return
+        r, _ = self.face_rect()
+        self.face_press = (self.mono(), QPointF(pos), pos.y() < r.center().y(), False)
+
+    def face_move(self, pos):
+        """Hover (``in``/``move``/``out``) e arrasto no retrato; ``pos`` None = saiu do HUD."""
+        if not self.wired:
+            return
+        if self.view == "learning" or self.konsole_shown():
+            pos = None
+        inside = pos is not None and self.clickable(pos) == "face"
+        if inside != self.face_hover:
+            self.face_hover = inside
+            self.wired.on_hover("in" if inside else "out", self.mono())
+        elif inside:
+            self.wired.on_hover("move", self.mono())
+        p = self.face_press
+        if p is None or pos is None or p[3] or not p[2]:
+            return
+        _, s = self.face_rect()
+        d = pos - p[1]
+        if math.hypot(d.x(), d.y()) >= self.FACE_DRAG * s:
+            self.face_press = (*p[:3], True)
+            self.wired.on_hover("arrasto", self.mono())
+
+    def face_up(self):
+        p, self.face_press = self.face_press, None
+        if p is None or p[3] or not self.wired:   # arrastou: já reagiu, não é PTT
+            return
+        if self.mono() - p[0] >= self.FACE_LONG_S:
+            self.wired.on_hover("long", self.mono())
+            return
+        self.face_ptt_timer.start(self.FACE_DBL_MS)
+
+    def face_ptt(self):
+        """Ninguém clicou de novo em ``FACE_DBL_MS``: clique simples = push-to-talk."""
+        if self.wired:
+            self.wired_click("face")
 
     def wired_click(self, target):
         """Cliques do tema wired: LED → RGB Sync, player → MPRIS, cards → detalhes por processo,

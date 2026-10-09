@@ -326,6 +326,11 @@ class WiredUI:
         if self.magui_state in IDLE_STATES:
             self.mascot.react(self.reactor.active(mono), self.reactor.until)
 
+    def on_hover(self, evento: str, mono: float | None = None) -> None:
+        """Mouse no retrato (R2.A): ``in``/``move``/``out`` e gestos ``dbl``/``long``/``arrasto``;
+        a reação sai no próximo tick pelo ``det_entrada``."""
+        self.reactor.on_hover(evento, time.monotonic() if mono is None else mono)
+
     # ---------------------------------------------------------------- LED (RGB Sync)
 
     def set_led(self, on: bool, rgb: str | None) -> None:
