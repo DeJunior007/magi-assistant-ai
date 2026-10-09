@@ -1036,3 +1036,61 @@ class GitStatus:
             self._at = now
             self._last = self._read()
         return dict(self._last)
+
+
+def _wpctl_volume(timeout: float = 1.0) -> str | None:
+    """Saída de ``wpctl get-volume @DEFAULT_AUDIO_SINK@`` (None sem ``wpctl`` ou com erro)."""
+    try:
+        out = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True,
+                             text=True, timeout=timeout, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout if out.returncode == 0 else None
+
+
+class Volume:
+    """Volume da saída padrão do PipeWire (spec §6 D), lido por ``wpctl`` a cada ``intervalo`` s numa
+    thread. ``run`` (injetável) devolve a saída do ``wpctl`` ou None. ``atual`` = ``(pct, mudo)``
+    (pct 0–150) ou None (sem ``wpctl``/erro: o 31 nunca dispara)."""
+
+    def __init__(self, run=None, intervalo: float = 1.0):
+        self.run = run if run is not None else _wpctl_volume
+        self.intervalo = intervalo
+        self.atual: tuple[float, bool] | None = None
+        self._parar = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    @staticmethod
+    def parse(txt: str | None) -> tuple[float, bool] | None:
+        """``"Volume: 0.45 [MUTED]"`` → ``(45.0, True)``; texto sem volume → None."""
+        for line in (txt or "").splitlines():
+            cols = line.split()
+            if len(cols) >= 2 and cols[0] == "Volume:":
+                try:
+                    pct = round(float(cols[1]) * 100.0, 1)
+                except ValueError:
+                    return None
+                return pct, "[MUTED]" in line
+        return None
+
+    def ler(self) -> tuple[float, bool] | None:
+        try:
+            self.atual = self.parse(self.run())
+        except Exception:  # noqa: BLE001 - leitor injetado/subprocesso que falhou
+            self.atual = None
+        return self.atual
+
+    def _loop(self) -> None:
+        while not self._parar.is_set():
+            self.ler()
+            self._parar.wait(self.intervalo)
+
+    def start(self) -> Volume:
+        if self._thread is None or not self._thread.is_alive():
+            self._parar.clear()
+            self._thread = threading.Thread(target=self._loop, name="magi-volume", daemon=True)
+            self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._parar.set()

@@ -82,7 +82,7 @@ _LINHAS: tuple = (
     (28, "musica_repetida", None, "Música repetida", "B7 C12 1000 | F7 C11 1200", {_M}, None, 600.0, {}),
     (29, "musica_triste", None, "Música triste", "B10 C9 E2 1200 | F7 C1 D7 2500", {_M, _NOT}, None, 600.0, {}),
     (30, "musica_dancante", None, "Música dançante", "B4 C10 E2 sway 1500 | B5 C6 D6 tails 2000", {_M}, None, 600.0, {}),
-    (31, "volume_alto", None, "Volume alto demais", "B9 C4 D2 E3 600 | B7 C9 700", {_M}, "D", 600.0, {}),
+    (31, "volume_alto", None, "Volume alto demais", "B9 C4 D2 E3 600 | B7 C9 700", {_M}, None, 600.0, {}),
     (32, "acabou_fila", None, "Acabou a fila", "B5 C5 E2 1200 | B2 C1 1000 | B1 C1 E3 800", {_M}, None, 600.0, {}),
     (33, "music_new", "amou", "Descobriu música que amou", "B13 C7 800 | B9 C7 D5 500 | B5 C13 D9 D6 2500", {_M}, None, 600.0, {}),
     (34, "hot", None, "Temperatura escalando", "F1 C8 D2 3000 | B9 C7 D5 D2 1500", {_S, _COB}, None, 600.0, {}),
