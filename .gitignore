@@ -9,3 +9,4 @@ secrets/
 .claude/
 keys.txt
 *.kate-swp
+scratch/

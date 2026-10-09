@@ -200,6 +200,8 @@ def make_hud(tmp_path, monkeypatch):
         monkeypatch.setattr(gamerhud, "load_settings", lambda: {**cfg, **saved})
         monkeypatch.setattr(gamerhud, "save_settings", lambda d: saved.update(d))
         monkeypatch.setattr(gamerhud.orgb, "board_color", lambda: None)
+        monkeypatch.setattr(gamerhud, "steam_game", lambda: None)  # nunca o jogo aberto de verdade
+        monkeypatch.setattr(gamerhud, "FPS_DIR", tmp_path / "fps")  # nem os logs reais do MangoHud
         np = FakeNP()
         monkeypatch.setattr(gamerhud, "WiredUI", lambda: WiredUI(now_playing=np, net=FakeNet()))
         bridge = hud_bridge.HudBridge(tmp_path / f"hud{len(made)}.sock")

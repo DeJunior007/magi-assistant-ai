@@ -62,19 +62,20 @@ Implementado e testado com dublês; falta conferir no uso real:
   boca pela voz, fundo com parallax que muda de cor pelo humor e cresce com a voz); reações só no
   rosto ao HUD, à música e aos cliques (`hud/wired/reactions.py`); personalidade e gosto decididos
   pelo **Conselho da Condessa** (`persona/`, comando `/conselho`).
+- **Reações (2026-10-09):** as 110 do Conselho implementadas (SDD `specs/condessa-reacoes/`, todas
+  as tarefas R0–R3 feitas); 108 ativas (49 e 68 foram substituídas). Sinais novos ligados: retrato
+  clicável/hover, tag do turno (elogio/zoeira/correção/sussurro), hooks do Claude Code (instalados no
+  `~/.claude/settings.json`), volume do PipeWire, notificações (D-Bus, só escuta), ventoinha,
+  reinício pendente, capturas e `[datas]`. Arte nova montada (E3, B16, B17, P9–P13); os efeitos D
+  ficam em código por decisão do Pedro (animação própria).
 - **O que falta:**
-  - **B15** (olhos totalmente fechados, dormindo): gerar e rodar `hud/tools/condessa_build.py`.
-  - **D1–D9** (rubor, suor, zz, ?, !, notas, lágrima, veia, brilho) como arte: hoje são desenhados
-    em código; com a arte, trocar pelo PNG.
+  - **Semana de validação** (até ~16/10): `uv run python -m hud.tools.reacoes_relatorio` e o roteiro
+    `docs/perf/reacoes.md` (limiares chutados: sussurro −42 dBFS, ventoinha, capturas).
+  - **P13** (braços cruzados) refeito com os braços na altura do peito: hoje cai na faixa em que o
+    corpo esmaece e quase some.
   - **Favoritas do Pedro** automáticas: hoje só por `[pedro] favoritas` no
     `~/.config/magi/condessa-gosto.toml`; dá para puxar do top do Spotify (o núcleo já tem o OAuth).
   - **"Condessa, sem comentário de música"** por voz: hoje só pelo arquivo (`[falas] musica = false`).
-  - **Reações decididas pelo Conselho (ata `2026-10-08-reacoes`; SDD em `specs/condessa-reacoes/`, 15 tarefas para agentes de ≤ 128k):** 110 na lista, 87 rodam com
-    sinais que o HUD já tem — **onda 1 pronta** (R0–R1.6: as 87 em `catalogo.ATIVAS`, detectores ligados
-    no `Reactor`, `tests/hud` verde). Próximo: sinais novos (R2). Implementar em ondas no `hud/wired/reactions.py` (cotas e variantes
-    das regras 1–6 do acordo primeiro) e depois os sinais novos, nesta ordem: A retrato
-    clicável/hover → B tag do turno publicada pelo núcleo → C hooks do Claude Code → volume do
-    PipeWire, D-Bus de notificações, microfone, ventoinha.
 - **Como validar:** uma semana de uso olhando se as reações e falas aparecem na medida (sem
   poluir) e se a Favorita do Dia/madrugada fazem sentido; CPU do HUD ≤ 10% de um núcleo.
 
@@ -126,6 +127,27 @@ Próximos passos, em ordem:
 4. Learning Mode onda 6: LM3.4 (balão com resultado real), LM4.2, LM4.3 (observações na tela),
    LM1.8 (tema da sessão) — `specs/learning-mode/tasks.md`. Learning ligado na config, ações no
    gpt-5.4-mini, observações no Qwen local (`magi-qwen`, só CPU, só durante a aula).
-5. Pendências antigas: revogar os tokens `glpat` nas URLs dos remotes do GitLab; `scratch/` no
-   `.gitignore`?; `LearningConfig.enabled` padrão True; comando `magi learning` de terminal.
-6. `git push` da `main` (116+ commits à frente de `origin/main`).
+5. ~~Pendências antigas~~ — feito (2026-10-09): tokens `glpat` tirados dos remotes, do
+   `~/.gitconfig`, do `~/.git-credentials` e do `glab` (os acessos já estavam revogados);
+   `scratch/` no `.gitignore`; `LearningConfig.enabled` já tinha padrão True. Falta só o comando
+   `magi learning` de terminal.
+6. ~~`git push` da `main`~~ — feito (2026-10-09).
+
+## 12. Voz e serviços (2026-10-09)
+
+- **Clique no rosto faz ela ouvir:** o `push_to_talk` do HUD agora ativa sem wake word e pede uma
+  escuta ao satélite (`magi-listen`, `reason="tap"`), que termina pelo VAD.
+- **Keyring trancado na subida:** a fala que chega sem STT faz o núcleo reler as chaves e remontar
+  voz e agente (`Core.revive`, no máximo a cada 30 s). Antes, só reiniciando o `magi-core`.
+- **`docker down-all`** (função no `~/.bashrc`) não derruba mais o projeto compose `magi`: ele tinha
+  apagado o `magi-pg` (memórias, volume intacto) e o `magi-qwen`; os dois foram recriados.
+- **Microfone em zero:** se o log do satélite disser "silêncio digital (só zeros)", é o mudo físico
+  do headset (ELITE 08), não o software.
+
+Próximos passos, do mais rápido ao mais trabalhoso:
+1. Comando `magi learning` de terminal (~30 min).
+2. Testes manuais do Konsole no HUD e as validações antigas da seção 3.
+3. Refazer o P13 (seção 7).
+4. Espera mais viva (seção 2): animação de "pensando", frase curta e resposta em lotes.
+5. Learning Mode onda 6 (LM3.4, LM4.2, LM4.3, LM1.8), em agentes por tarefa como as reações.
+6. Depois de uso: semana de validação das reações (~16/10) e calibração da memória (seção 4).
