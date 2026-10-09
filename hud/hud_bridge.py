@@ -123,6 +123,16 @@ def _m_mood(d: dict[str, Any]) -> dict[str, Any]:
     return {"t": "mood", "v": v}
 
 
+TURN_TAGS = frozenset({"elogio", "zoeira", "correcao", "sussurro"})  # = magi.common.contracts
+
+
+def _m_turn_tag(d: dict[str, Any]) -> dict[str, Any]:
+    v = _field(d, "v", str)
+    if v not in TURN_TAGS:
+        raise DecodeError(f"tag de turno desconhecida: {v!r}")
+    return {"t": "turn_tag", "v": v}
+
+
 def _m_vote(d: dict[str, Any]) -> dict[str, Any]:
     out = {"t": "vote", "verdict": _choice(d, "verdict", VERDICTS)}
     return _opt(out, label=_field(d, "label", str, None))
@@ -178,6 +188,7 @@ _MIN_DECODERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "speech": _m_speech,
     "mouth": _m_mouth,
     "mood": _m_mood,
+    "turn_tag": _m_turn_tag,
     "vote": _m_vote,
     "card": _m_card,
     "cmd": _m_cmd,
@@ -281,6 +292,7 @@ class HudBridge(QObject):
       speech(str, float, int) frase começando a tocar: texto, duração em s (-1 = sem) e índice
       mouth(float)           nível da boca 0..1 (~20/s enquanto fala)
       mood(int)              termômetro 0..4
+      turnTag(str)           tag local do turno do Pedro (elogio, zoeira, correcao, sussurro)
       vote(str, str)         veredito (pending/approved/denied) e rótulo da ação
       card(dict)             {"level","title","url"[,"source"]}
       detail(str)            painel de detalhe: cpu, gpu, memory ou none (fecha)
@@ -294,6 +306,7 @@ class HudBridge(QObject):
     speech = Signal(str, float, int)
     mouth = Signal(float)
     mood = Signal(int)
+    turnTag = Signal(str)
     vote = Signal(str, str)
     card = Signal(dict)
     detail = Signal(str)
@@ -336,6 +349,7 @@ class HudBridge(QObject):
             "speech": lambda m: self.speech.emit(m["text"], float(m.get("dur", -1.0)), int(m.get("i", 0))),
             "mouth": lambda m: self.mouth.emit(float(m["v"])),
             "mood": lambda m: self.mood.emit(int(m["v"])),
+            "turn_tag": lambda m: self.turnTag.emit(m["v"]),
             "vote": lambda m: self.vote.emit(m["verdict"], m.get("label") or ""),
             "card": lambda m: self.card.emit({k: v for k, v in m.items() if k != "t"}),
             "detail": lambda m: self.detail.emit(m["v"]),

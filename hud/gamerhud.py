@@ -1191,6 +1191,7 @@ class HUD(QWidget):
         b.speech.connect(self.on_face_speech)
         b.detail.connect(self.on_bridge_detail)
         b.mood.connect(self.on_bridge_mood)
+        b.turnTag.connect(self.on_bridge_turn_tag)
         b.vote.connect(self.on_bridge_vote)
         b.card.connect(self.on_bridge_card)
         b.connectedChanged.connect(self.on_bridge_connected)
@@ -1314,6 +1315,11 @@ class HUD(QWidget):
                 self.wired.on_connected(False)
                 self.wired_refresh()
             self.face_tick()
+
+    def on_bridge_turn_tag(self, tag):
+        """Tag do turno do Pedro (elogio, zoeira…): as reações da Condessa leem no próximo tick."""
+        if self.wired:
+            self.wired.set_turn_tag(tag)
 
     def on_bridge_mood(self, v):
         self.magui_mood = v
