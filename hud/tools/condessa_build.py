@@ -3,8 +3,10 @@
 Uso: python3 hud/tools/condessa_build.py [PASTA] [--out ~/.local/share/magi/condessa]
 
 Entrada (``docs/design/CONDESSA-RETRATO.md`` e a checklist "Arte da Condessa"): A1 (base), B2..B15
-(olhos), F1..F7 (olhares), C2..C14 (bocas), E1 (franja), E2 (fone), P1/P2/P3 (cabelo de trás e
-marias-chiquinhas), P5 (rosto sem cabelo), P6 (corpo), P7/P8 (braços). Qualquer tamanho quadrado
+(olhos; B16/B17 da R3.1), F1..F7 (olhares), C2..C14 (bocas), E1 (franja), E2 (fone), P1/P2/P3
+(cabelo de trás e marias-chiquinhas), P5 (rosto sem cabelo), P6 (corpo), P7/P8 (braços). Da R3.1,
+todos opcionais: D1..D9 (efeitos: rubor, suor, zz, ?, !, notas, lágrima, veia, brilho), E3 (fone
+no pescoço), P9..P13 (braços das reações; P13 = braços cruzados). Qualquer tamanho quadrado
 (normaliza para 1024); .jpg ou .png.
 
 Saída (lida por ``wired.portrait.PartsPortrait``):
@@ -16,6 +18,10 @@ Saída (lida por ``wired.portrait.PartsPortrait``):
 - ``eyes/<ID>.png`` e ``mouth/<ID>.png``: "remendos" — a região dos olhos/boca da variação, com a
   borda esfumada, no quadro inteiro (o resto transparente). A1 dá os neutros (B1, C1).
 - ``extra/fone.png``: o que o E2 tem de diferente da base (o fone).
+- ``extra/<ID>.png`` para D1..D9, E3 e P9..P13 (``build_extras``): o detalhe recortado pelo verde ou,
+  se a imagem for o busto inteiro com o detalhe (inpainting), só o que difere da A1. O retrato usa o
+  PNG do efeito no lugar do desenho em código e o braço da reação (``braco:P*``); sem o arquivo, o
+  efeito continua em código e o braço some. ``extra/P13.png`` ativa a I20 (``catalogo.ATIVAS``).
 - ``portrait.toml``: ``mode = "parts"`` e o mapeamento estado → olhos/boca (só é escrito se não existir).
 
 Roda com o Python do sistema (Pillow + numpy), como o HUD.
@@ -40,6 +46,10 @@ NECK_X = (370, 660)  # abaixo do queixo a cabeça (P5) fica só com pescoço e g
 CHIN_Y = 560
 ARMS = ("P7", "P8")
 ARM_TOP_Y = 740  # os braços só aparecem abaixo disto (acima, o ombro é do corpo)
+EFFECTS = tuple(f"D{i}" for i in range(1, 10))  # efeitos por cima (contratos.EFEITO) → extra/D*.png
+POSES = tuple(f"P{i}" for i in range(9, 14))  # braços das reações (braco:P*) → extra/P*.png
+EXTRAS = (*EFFECTS, "E3", *POSES)
+BUST_OVERLAP = 0.6  # fração do busto da A1 coberta: acima disto a imagem é o busto inteiro (usa a diferença)
 PARTS = {"P1": "back", "P2": "tail_l", "P3": "tail_r", "P7": "arm_l", "P8": "arm_r", "P6": "body",
          "E1": "bangs"}
 # pontas (H5–H7): a parte de baixo do segmento-pai, com junta esfumada (cabelo em dois segmentos)
@@ -229,7 +239,7 @@ def build(src: Path, out: Path) -> list[str]:
     eyes, mouth = rect_mask(EYES_BOX), rect_mask(MOUTH_BOX)
     patch(base, eyes).save(out / "eyes" / "B1.png")
     patch(base, mouth).save(out / "mouth" / "C1.png")
-    for ident in [f"B{i}" for i in range(2, 16)] + [f"F{i}" for i in range(1, 8)]:
+    for ident in [f"B{i}" for i in range(2, 18)] + [f"F{i}" for i in range(1, 8)]:
         im = load(src, ident)
         (patch(im, eyes).save(out / "eyes" / f"{ident}.png") if im else report.append(f"falta {ident}"))
     for ident in [f"C{i}" for i in range(2, 15)] + [f"V{i}" for i in range(1, 7)]:
@@ -237,10 +247,8 @@ def build(src: Path, out: Path) -> list[str]:
         (patch(im, mouth).save(out / "mouth" / f"{ident}.png") if im else report.append(f"falta {ident}"))
     fone = load(src, "E2")
     if fone is not None:
-        diff = np.abs(np.asarray(fone).astype(int) - np.asarray(base).astype(int)).sum(axis=2) > DIFF_MIN
-        m = Image.fromarray((diff * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(5))
-        m = np.asarray(m.filter(ImageFilter.GaussianBlur(2))).astype(np.float32) / 255
-        with_alpha(chroma(fone), m).save(out / "extra" / "fone.png")
+        with_alpha(chroma(fone), diff_mask(fone, base)).save(out / "extra" / "fone.png")
+    report += build_extras(src, out, base)
     report += split_hair(src, out, base)
     report += build_tips(src, out)
     report += hide_behind_body(src, out, base)
@@ -253,6 +261,44 @@ def build(src: Path, out: Path) -> list[str]:
 
 def _alpha(im: Image.Image) -> np.ndarray:
     return np.asarray(im).astype(np.float32)[..., 3] / 255
+
+
+def diff_mask(im: Image.Image, base: Image.Image) -> np.ndarray:
+    """0–1 onde ``im`` difere da base (máscara dilatada e esfumada), como o fone do E2."""
+    diff = np.abs(np.asarray(im).astype(int) - np.asarray(base).astype(int)).sum(axis=2) > DIFF_MIN
+    m = Image.fromarray((diff * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(5))
+    return np.asarray(m.filter(ImageFilter.GaussianBlur(2))).astype(np.float32) / 255
+
+
+def detail(im: Image.Image, base: Image.Image, solid: np.ndarray | None = None) -> Image.Image:
+    """Camada de um extra: o recorte pelo verde, ou só a diferença da base quando a imagem é o
+    busto inteiro com o detalhe (cobre mais de ``BUST_OVERLAP`` do busto da A1)."""
+    rgba = chroma(im)
+    solid = _alpha(chroma(base)) > 0.5 if solid is None else solid
+    if solid.any() and float((_alpha(rgba)[solid] > 0.5).mean()) > BUST_OVERLAP:
+        return with_alpha(rgba, diff_mask(im, base))
+    return rgba
+
+
+def build_extras(src: Path, out: Path, base: Image.Image) -> list[str]:
+    """D1..D9, E3, P9..P13 → ``extra/<ID>.png``. Ausente: avisa e apaga o PNG antigo (o retrato
+    volta ao efeito em código; sem P13 a I20 sai de ``ATIVAS``)."""
+    report: list[str] = []
+    solid = None
+    for ident in EXTRAS:
+        dst = out / "extra" / f"{ident}.png"
+        im = load(src, ident)
+        if im is None:
+            report.append(f"falta {ident} (opcional)")
+            dst.unlink(missing_ok=True)
+            continue
+        if solid is None:  # busto da A1, uma vez só
+            solid = _alpha(chroma(base)) > 0.5
+        layer = detail(im, base, solid)
+        if ident in POSES:  # braço: some embaixo como o corpo
+            layer = with_alpha(layer, bottom_fade())
+        layer.save(dst)
+    return report
 
 
 def build_tips(src: Path, out: Path) -> list[str]:

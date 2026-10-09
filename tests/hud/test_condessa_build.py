@@ -143,3 +143,92 @@ def test_cabelo_atras_do_corpo_nao_aparece_no_esmaecimento(tmp_path):
     assert a[low:, 330:670].max() < 0.02  # atrás da camisa, na faixa: some
     assert a[low:, 210:280].min() > 0.98  # fora do corpo: fica
     assert a[650:800, 330:670].min() > 0.98  # acima da faixa: o corpo é opaco, nada muda
+
+
+# --- R3.1: arte nova (D1–D9, E3, B16/B17, P9–P13) --------------------------------------------------
+
+NOVOS = ("D1", "D2", "D6", "D7", "D8", "D9", "E3", "B16", "B17", "P9", "P10", "P11", "P12", "P13")
+
+
+def _busto() -> np.ndarray:
+    a = np.ones((cb.SIZE, cb.SIZE, 3), np.float32) * KEY
+    a[200:900, 250:780] = PINK  # busto liso
+    return a
+
+
+def _save(folder: Path, ident: str, a: np.ndarray) -> None:
+    Image.fromarray(a.round().clip(0, 255).astype(np.uint8)).save(folder / f"{ident}.png")
+
+
+def _arte_nova(tmp_path: Path) -> tuple[Path, Path]:
+    src, out = tmp_path / "src", tmp_path / "out"
+    src.mkdir()
+    _save(src, "A1", _busto())
+    for ident in NOVOS:
+        if ident.startswith("D"):  # só o detalhe no verde
+            a = np.ones((cb.SIZE, cb.SIZE, 3), np.float32) * KEY
+            a[100:160, 800:860] = DARK
+        else:  # busto inteiro com a mudança (inpainting)
+            a = _busto()
+            a[600:700, 300:700] = DARK
+        _save(src, ident, a)
+    return src, out
+
+
+def test_build_gera_os_ids_novos(tmp_path):
+    src, out = _arte_nova(tmp_path)
+    report = cb.build(src, out)
+    for ident in ("D1", "D2", "D6", "D7", "D8", "D9", "E3", "P9", "P10", "P11", "P12", "P13"):
+        assert (out / "extra" / f"{ident}.png").is_file(), ident
+        assert f"falta {ident} (opcional)" not in report
+    for ident in ("B16", "B17"):
+        assert (out / "eyes" / f"{ident}.png").is_file()
+    # detalhe solto: recorte pelo verde (o fundo some, o detalhe fica)
+    d1 = np.asarray(Image.open(out / "extra" / "D1.png"))
+    assert d1[130, 830, 3] == 255 and d1[500, 500, 3] == 0
+    # busto inteiro: só a diferença da A1 (o resto do busto não vira camada)
+    p13 = np.asarray(Image.open(out / "extra" / "P13.png"))
+    assert p13[650, 500, 3] > 200 and p13[300, 500, 3] == 0
+
+
+def test_build_sem_os_novos_nao_quebra_e_apaga_o_antigo(tmp_path):
+    src, out = _arte_nova(tmp_path)
+    cb.build(src, out)
+    for ident in NOVOS:
+        (src / f"{ident}.png").unlink()
+    report = cb.build(src, out)
+    for ident in cb.EXTRAS:
+        assert f"falta {ident} (opcional)" in report
+        assert not (out / "extra" / f"{ident}.png").exists()  # retrato volta ao efeito em código
+
+
+def test_i20_entra_em_ativas_com_p13(tmp_path, monkeypatch):
+    from hud.wired.reacoes import catalogo
+
+    assert "bracos_cruzados" not in catalogo.ativas(lambda rel: False)
+    assert "bracos_cruzados" in catalogo.ativas(lambda rel: rel == "extra/P13.png")
+    assert catalogo.ativas(lambda rel: True) - catalogo.ativas(lambda rel: False) == {"bracos_cruzados"}
+    monkeypatch.setenv("MAGI_PORTRAIT_DIR", str(tmp_path))
+    assert "bracos_cruzados" not in catalogo.ativas()
+    (tmp_path / "extra").mkdir()
+    (tmp_path / "extra" / "P13.png").write_bytes(b"png")
+    assert "bracos_cruzados" in catalogo.ativas()
+
+
+def test_efeito_usa_o_png_quando_existe():
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from hud.wired.portrait import PartsPortrait
+
+    pm = MagicMock()
+    from PySide6.QtCore import QRect
+
+    pm.rect.return_value = QRect(0, 0, 1024, 1024)
+    for tem, desenha in ((True, True), (False, False)):
+        assets = SimpleNamespace(pix=lambda rel, tem=tem: pm if tem and rel == "extra/D8.png" else None)
+        me = SimpleNamespace(assets=assets, reaction_until=10.0)
+        p = MagicMock()
+        PartsPortrait._reaction_effect(me, p, 1.0, "vein", 0.0, 0.0)
+        assert p.drawPixmap.called is desenha
+        assert p.drawArc.called is not desenha  # sem o PNG, a veia em código

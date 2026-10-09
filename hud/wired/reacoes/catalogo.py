@@ -7,7 +7,10 @@ chave atual + ``variante``: em ``DEFS`` a chave é ``chave`` (sem variante) ou `
 como o governador procura (``_achar``).
 
 ``TODAS``: as 110 ``Def`` em ordem. ``DEFS``: por chave. ``ATIVAS``: chaves de ``DEFS`` sem sinal
-pendente e não substituídas (R8, CA-05).
+pendente e não substituídas (R8, CA-05). Sinal de arte (``ARTE``, hoje só ``P13`` da I20): conta como
+pronto se o PNG existe na pasta do retrato montada (``$MAGI_PORTRAIT_DIR`` ou
+``~/.local/share/magi/condessa``), checado uma vez na importação — depois de rodar o
+``condessa_build`` com a arte nova, reabra o HUD (R3.1).
 
 Notação das sequências: passos separados por ``|``; em cada passo, ``B*``/``F*`` = olhos,
 ``C*``/``V*`` = boca, ``D*`` = efeito (``contratos.EFEITO``), ``E2`` = fone na cabeça (``fone_on``),
@@ -16,6 +19,10 @@ O1, ``bob``/``sway``/``tails`` = corpo, número = ms.
 """
 
 from __future__ import annotations
+
+import os
+from collections.abc import Callable
+from pathlib import Path
 
 from .contratos import EFEITO, Classe, Def, Passo
 
@@ -171,6 +178,22 @@ TODAS: tuple[Def, ...] = tuple(
 DEFS: dict[str | tuple[str, str], Def] = {
     (d.chave if d.variante is None else (d.chave, d.variante)): d for d in TODAS
 }
-ATIVAS: frozenset[str | tuple[str, str]] = frozenset(
-    k for k, d in DEFS.items() if d.sinal is None and not d.substituida
-)
+# sinal que é só a arte existir: sinal → arquivo na pasta do retrato (o mesmo que o retrato desenha)
+ARTE: dict[str, str] = {"P13": "extra/P13.png"}
+
+
+def tem_arte(rel: str) -> bool:
+    """O arquivo existe na pasta do retrato (mesma regra de ``wired.portrait.portrait_dir``)."""
+    pasta = os.environ.get("MAGI_PORTRAIT_DIR") or Path.home() / ".local/share/magi/condessa"
+    return (Path(pasta).expanduser() / rel).is_file()
+
+
+def ativas(tem: Callable[[str], bool] = tem_arte) -> frozenset[str | tuple[str, str]]:
+    """Chaves sem sinal pendente: sem sinal, ou com sinal de arte (``ARTE``) cujo PNG existe."""
+    return frozenset(
+        k for k, d in DEFS.items()
+        if not d.substituida and (d.sinal is None or (d.sinal in ARTE and tem(ARTE[d.sinal])))
+    )
+
+
+ATIVAS: frozenset[str | tuple[str, str]] = ativas()

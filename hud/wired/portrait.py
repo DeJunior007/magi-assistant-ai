@@ -1182,13 +1182,19 @@ class PartsPortrait(Mascot):
         p.restore()
 
     def _reaction_effect(self, p: QPainter, now: float, kind: str, hx: float, hy: float) -> None:
-        """Efeitos da reação (quadro de 1024): suor, notas, ?, !, rubor. Somem no fim."""
+        """Efeitos da reação (quadro de 1024): suor, notas, ?, !, rubor. Somem no fim. Com a arte
+        ``extra/D*.png`` (R3.1, ``condessa_build``) o PNG entra no lugar do desenho em código."""
         from . import fonts
+        from .reacoes.contratos import EFEITO
 
         alpha = max(0.0, min(1.0, (self.reaction_until - now) / 0.6))
         p.save()
         p.setOpacity(alpha)
-        if kind == "sweat":  # gota escorrendo ao lado da testa
+        ident = next((k for k, v in EFEITO.items() if v == kind), None)
+        pm = self.assets.pix(f"extra/{ident}.png") if ident else None
+        if pm is not None:  # quadro inteiro de 1024, acompanha a cabeça
+            p.drawPixmap(QRectF(hx, hy, 1024, 1024), pm, QRectF(pm.rect()))
+        elif kind == "sweat":  # gota escorrendo ao lado da testa
             x, y = 330 + hx, 300 + hy + 18 * ((now * 0.5) % 1.0)
             path = QPainterPath(QPointF(x, y - 30))
             path.cubicTo(QPointF(x + 19, y - 4), QPointF(x + 26, y + 16), QPointF(x, y + 16))

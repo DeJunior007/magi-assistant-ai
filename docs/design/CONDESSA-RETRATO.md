@@ -17,6 +17,36 @@ boca e piscada; fala pelo volume; olhares). O HUD usa `wired.portrait.PartsPortr
 cabelo em pêndulo, olhar com parallax e efeitos em código (rubor, zz, ?, !). Reabra o HUD depois de
 remontar.
 
+## Arte nova das reações (R3.1) — o que falta gerar
+
+O código já aceita estes IDs; basta pôr a imagem na pasta de origem (`~/Downloads/Condessa`) com o
+nome `<ID>.png` (ou `.jpg`/`.webp`, maiúsculo ou minúsculo), fundo verde, mesmo enquadramento da A1,
+e rodar o `condessa_build.py` de novo. Cada um é opcional: sem ele o efeito continua desenhado em
+código (D*), o braço da reação não aparece (P*) e o fone some (E3). Pode ser **só o detalhe** no
+verde ou o **busto inteiro com o detalhe** (inpainting): se a imagem cobrir mais de 60% do busto da
+A1, o build guarda só o que difere da A1.
+
+| Prio | ID | O que é | Arquivo de origem | Gera |
+| --- | --- | --- | --- | --- |
+| 0 | D1 | rubor nas bochechas (`blush`) | `D1.png` | `extra/D1.png` |
+| 0 | D2 | gota de suor (`sweat`) | `D2.png` | `extra/D2.png` |
+| 0 | D6 | notas musicais (`notes`) | `D6.png` | `extra/D6.png` |
+| 0 | D8 | veia de raiva (`vein`) | `D8.png` | `extra/D8.png` |
+| 1 | E3 | fone no pescoço (tirando o fone) | `E3.png` | `extra/E3.png` |
+| 1 | B16 | olhos/sobrancelhas novos | `B16.png` | `eyes/B16.png` |
+| 1 | D7 | lágrima (`tear`) | `D7.png` | `extra/D7.png` |
+| 2 | P9, P10, P12 | braços das reações (`braco:P*`) | `P9.png` … | `extra/P9.png` … |
+| 2 | B17 | olhos/sobrancelhas novos | `B17.png` | `eyes/B17.png` |
+| 2 | P13 | braços cruzados — **ativa a I20** | `P13.png` | `extra/P13.png` |
+| 3 | P11 | braço da reação | `P11.png` | `extra/P11.png` |
+| – | D9, D3, D4, D5 | brilho (`sparkle`), "zz", "?", "!" (opcionais; hoje em código) | `D9.png` … | `extra/D9.png` … |
+
+Os efeitos D* são desenhados no quadro inteiro (1024) acompanhando a cabeça, com o mesmo
+esmaecer do fim da reação. A I20 (Braços cruzados) entra em `catalogo.ATIVAS` quando
+`extra/P13.png` existe na pasta montada (`~/.local/share/magi/condessa` ou `$MAGI_PORTRAIT_DIR`),
+checado ao abrir o HUD: depois do build, reabra o HUD. Remover a imagem de origem e remontar apaga
+o `extra/<ID>.png` antigo.
+
 ## Lista completa estilo Persona 3 Reload (rosto solo, camadas)
 
 O retrato do P3R é **uma pose só** (busto de frente ou levemente 3/4, enquadramento fixo) e o que
