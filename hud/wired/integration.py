@@ -60,6 +60,7 @@ SysExtra = getattr(_data, "SysExtra", None)
 net_info = getattr(_data, "net_info", None)
 GitStatus = getattr(_data, "GitStatus", None)
 Volume = getattr(_data, "Volume", None)  # R2.D: volume do PipeWire (wpctl numa thread)
+Notificacoes = getattr(_data, "Notificacoes", None)  # R2.E: dbus-monitor (só escuta) numa thread
 
 CARD_DETAIL = {"card:cpu": "cpu", "card:gpu": "gpu", "card:ram": "mem"}  # alvo → ProcStats.poll
 PLAYER = ("prev", "playpause", "next")
@@ -186,7 +187,8 @@ class WiredUI:
                  history: LoadHistory | None = None, fps: FpsStats | None = None,
                  events: EventLog | None = None, mascot: Mascot | None = None,
                  claude: ClaudeStats | None = None, self_usage: SelfUsage | None = None,
-                 sys_extra=None, git=None, konsole_cwd: str | None = None, volume=None):
+                 sys_extra=None, git=None, konsole_cwd: str | None = None, volume=None,
+                 notif=None):
         self.mascot = mascot or make_mascot("sleeping")  # retrato da Condessa, se houver a arte
         self.main = MainScreen(self.mascot)
         self.standby = StandbyScreen(self.mascot)
@@ -224,6 +226,10 @@ class WiredUI:
         if volume is None and Volume is not None and os.environ.get("MAGI_NO_VOLUME") != "1":
             volume = Volume().start()
         self.volume = volume
+        # notificações (R2.E): dbus-monitor só escutando Notify; MAGI_NO_NOTIF=1 desliga (testes)
+        if notif is None and Notificacoes is not None and os.environ.get("MAGI_NO_NOTIF") != "1":
+            notif = Notificacoes().start()
+        self.notif = notif
 
     def screen(self, view: str) -> MainScreen | StandbyScreen | LearningScreen:
         self.mascot.layout = "idle" if view == "idle" else "main"  # learning: retrato do painel
@@ -311,6 +317,7 @@ class WiredUI:
         self.snap.git_head = head if isinstance(head, str) else None
         self.snap.turn_tag = self.turn_tag
         self.snap.volume = getattr(self.volume, "atual", None)
+        self.snap.notif = getattr(self.notif, "atual", None)
         self.snap.project = self.konsole_cwd
         self.snap.konsole_online = self.konsole_alive()
         self.snap.konsole_rev = self.konsole_rev

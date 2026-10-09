@@ -1094,3 +1094,150 @@ class Volume:
 
     def stop(self) -> None:
         self._parar.set()
+
+
+# --- notificações (R2.E): só ESCUTA o barramento de sessão; nada de chamar métodos no D-Bus ---
+NOTIF_ARGV = ("dbus-monitor", "--session",
+              "interface='org.freedesktop.Notifications',member='Notify'")
+
+
+def _morrer_com_o_pai() -> None:
+    """No filho (``preexec_fn``): SIGTERM quando a thread que o criou morrer (PR_SET_PDEATHSIG)."""
+    try:
+        import ctypes
+
+        ctypes.CDLL(None).prctl(1, 15)  # PR_SET_PDEATHSIG = 1, SIGTERM = 15
+    except Exception:  # noqa: BLE001 - fora do Linux só fica sem o seguro
+        pass
+
+
+def _dbus_monitor(popen=subprocess.Popen):
+    """Sobe o ``dbus-monitor`` (só escuta ``Notify``); None sem o binário."""
+    try:
+        return popen(list(NOTIF_ARGV), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                     stdin=subprocess.DEVNULL, text=True, bufsize=1, preexec_fn=_morrer_com_o_pai)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+_DBUS_CABECALHOS = ("method call ", "method return ", "signal ", "error ")
+
+
+class Notificacoes:
+    """Notificações do desktop (spec §6 E) lidas do ``dbus-monitor`` numa thread. ``spawn``
+    (injetável) devolve um processo com ``stdout`` (linhas) e ``terminate``/``kill``/``wait``.
+    ``atual`` = ``(contador, urgência, monotônico da última)`` ou None antes da primeira; urgência
+    0 baixa, 1 normal (padrão), 2 crítica. ``ultima`` = ``{"app", "titulo", "urgencia"}``. O
+    processo morre com o HUD: ``stop`` (também no ``atexit``), PR_SET_PDEATHSIG e SIGPIPE."""
+
+    def __init__(self, spawn=None, clock=time.monotonic):
+        self.spawn = spawn if spawn is not None else _dbus_monitor
+        self.clock = clock
+        self.contador = 0
+        self.atual: tuple[int, int, float] | None = None
+        self.ultima: dict | None = None
+        self.proc = None
+        self._msg: dict | None = None  # Notify em leitura
+        self._args: list[str] = []
+        self._urg_prox = False
+        self._parar = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    @staticmethod
+    def _valor(line: str) -> str:
+        s = line.strip()
+        if s.startswith("string "):
+            v = s[len("string "):]
+            return v[1:-1] if len(v) >= 2 and v[0] == v[-1] == '"' else v
+        return s.split(" ", 1)[-1]
+
+    def linha(self, line: str) -> bool:
+        """Consome uma linha do ``dbus-monitor``; True quando fecha uma notificação."""
+        s = line.rstrip("\n")
+        fechou = False
+        if s.startswith(_DBUS_CABECALHOS):  # cabeçalho: começa outra mensagem
+            fechou = self._fechar()
+            if s.startswith("method call") and "member=Notify" in s:
+                self._msg, self._args, self._urg_prox = {"urgencia": 1}, [], False
+            return fechou
+        if self._msg is None:
+            return False
+        t = s.strip()
+        if self._urg_prox and t.startswith("variant"):
+            self._urg_prox = False
+            cols = t.split()
+            if len(cols) >= 3 and cols[1] == "byte":
+                try:
+                    self._msg["urgencia"] = int(cols[2])
+                except ValueError:
+                    pass
+            return False
+        if t == 'string "urgency"':
+            self._urg_prox = True
+            return False
+        if s.startswith("   ") and not s.startswith("    "):  # argumento de topo
+            self._args.append(self._valor(s))
+            if t.startswith("int32 ") and len(self._args) >= 8:  # expire_timeout: o último
+                return self._fechar()
+        return False
+
+    def _fechar(self) -> bool:
+        msg, self._msg = self._msg, None
+        if msg is None:
+            return False
+        a = self._args
+        self.contador += 1
+        self.ultima = {"app": a[0] if a else "", "titulo": a[3] if len(a) > 3 else "",
+                       "urgencia": msg["urgencia"]}
+        self.atual = (self.contador, msg["urgencia"], self.clock())
+        return True
+
+    def ler(self, linhas) -> None:
+        """Lê ``linhas`` até acabarem ou ``stop``."""
+        for line in linhas:
+            if self._parar.is_set():
+                break
+            self.linha(line)
+        self._fechar()
+
+    def _loop(self) -> None:
+        try:
+            self.proc = self.spawn()
+        except Exception:  # noqa: BLE001 - spawn injetado que falhou
+            self.proc = None
+        if self.proc is None or getattr(self.proc, "stdout", None) is None:
+            return
+        try:
+            self.ler(self.proc.stdout)
+        except Exception:  # noqa: BLE001 - pipe fechado no stop
+            pass
+        finally:
+            self._matar()
+
+    def _matar(self) -> None:
+        proc = self.proc
+        if proc is None:
+            return
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=1.0)
+                except Exception:  # noqa: BLE001
+                    proc.kill()
+        except Exception:  # noqa: BLE001 - já morto
+            pass
+
+    def start(self) -> Notificacoes:
+        if self._thread is None or not self._thread.is_alive():
+            import atexit
+
+            self._parar.clear()
+            atexit.register(self.stop)
+            self._thread = threading.Thread(target=self._loop, name="magi-notif", daemon=True)
+            self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._parar.set()
+        self._matar()
