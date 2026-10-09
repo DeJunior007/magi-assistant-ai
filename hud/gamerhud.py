@@ -1878,11 +1878,25 @@ class HUD(QWidget):
     def on_bridge_learning(self, msg):
         """lm_* (o bridge já entregou ao learning_model): repinta os grupos e agenda a revelação."""
         if msg.get("t") == "lm_mode":
+            if self.wired:
+                self.wired.summary_mode(bool(msg.get("on")))   # cartão LAST SESSION (LM4.6)
             self.learning_switch(msg)
+        if msg.get("t") == "lm_summary":
+            self.summary_schedule()
         if msg.get("t") == "lm_msg":
             self.caption_tick()   # prazo da revelação da fala + repintura do histórico
         else:
             self.learning_refresh()
+
+    def summary_schedule(self):
+        """Cartão LAST SESSION (LM4.6): repinta agora e agenda um ``singleShot`` para o prazo
+        (``summary_show_s``) que só remonta e marca o grupo sujo (sem timer contínuo)."""
+        if not self.wired:
+            return
+        self.wired_refresh()
+        d = self.wired.summary_deadline()
+        if d is not None:
+            QTimer.singleShot(max(0, int((d - time.monotonic()) * 1000)) + 50, self.wired_refresh)
 
     def learning_switch(self, msg):
         """``lm_mode`` confirmado pelo núcleo (botão ou voz, LM1.7): entra na view learning
@@ -2016,6 +2030,9 @@ class HUD(QWidget):
             self.bridge.send_lm("lm_mode", {"on": self.view != "learning"})
         elif target == "face":
             self.bridge.send_cmd("push_to_talk")
+        elif target == "lm_summary":   # clique no cartão LAST SESSION fecha (LM4.6)
+            self.wired.summary_close()
+            self.wired_refresh()
         elif target == "led":
             self.toggle_rgb_sync()
         elif target == "konsole":

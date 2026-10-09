@@ -248,7 +248,7 @@ tamanho do painel, `MASCOT_MAIN` 302 de altura na base 1920 (LM-015 → LM1.5). 
   - Pronto: CA-20 verde; CA-18 continua verde (só `lm_summary` passa depois do `off`); `tests/learning/test_session.py` verde.
   - Paralelo: LM1.9, LM3.5, LM4.6
 
-- [ ] **LM4.6 Cartão LAST SESSION no painel e na espera** — `hud/wired/learning_summary.py` (puro: linhas do cartão a partir do `SessionSummary`, `+N`, ★ nas salvas, `visible(now)`; descarta `lm_summary` > 10 s após o `off`; pintura); o `WiredUI` (`integration.py`) lê o resumo e o instante de chegada do `learning_model` (LM1.6 já guarda `lm_summary`), aplica `visible(now)` (inclusive sumir ao `lm_mode on` e depois do clique) e expõe o alvo `"lm_summary"` no `hit`; grupo do cartão em `MainScreen` (abaixo do botão LEARNING, P13) e `StandbyScreen` (acima de `y_rule2`), com `group_key` que muda só ao aparecer/sumir; `gamerhud.py`: `QTimer.singleShot(summary_show_s)` para marcar o grupo sujo e clique → fecha. *(LM-011, design §4.6)*
+- [x] **LM4.6 Cartão LAST SESSION no painel e na espera** — `hud/wired/learning_summary.py` (puro: linhas do cartão a partir do `SessionSummary`, `+N`, ★ nas salvas, `visible(now)`; descarta `lm_summary` > 10 s após o `off`; pintura); o `WiredUI` (`integration.py`) lê o resumo e o instante de chegada do `learning_model` (LM1.6 já guarda `lm_summary`), aplica `visible(now)` (inclusive sumir ao `lm_mode on` e depois do clique) e expõe o alvo `"lm_summary"` no `hit`; grupo do cartão em `MainScreen` (abaixo do botão LEARNING, P13) e `StandbyScreen` (acima de `y_rule2`), com `group_key` que muda só ao aparecer/sumir; `gamerhud.py`: `QTimer.singleShot(summary_show_s)` para marcar o grupo sujo e clique → fecha. *(LM-011, design §4.6)*
   - Lê: design §4.4, §4.6, §16 P13, spec §6 (`lm_summary`), §10.2 itens 5–6, §11, `hud/wired/main_screen.py` (botão LEARNING do LM1.7, `MASCOT_MAIN`/`CHIP_TOP`, `groups`/`hit_test`, por grep), `hud/wired/standby_screen.py` (`groups`, `hit_test`, `y_rule2`), `hud/wired/integration.py` (`hit`, `learning_toggle`), `hud/gamerhud.py` (`wired_click`, por grep), API de `hud_bridge.py` por grep `lm_`
   - Escreve: `hud/wired/learning_summary.py`, `hud/wired/main_screen.py` (só o grupo do cartão), `hud/wired/standby_screen.py` (só o grupo do cartão), `hud/wired/integration.py` (só estado/alvo do cartão), `hud/gamerhud.py` (só timer e clique), `tests/learning/test_summary_card.py`
   - Depende de: LM1.7 (pode usar `lm_summary` falso antes do LM4.5)
@@ -414,3 +414,20 @@ aberto) só o fallback de `topic.py` (LM1.8); **P13** (lugar do cartão no paine
   última mensagem), sem observações nem palavras salvas (o espelho do buffer do `PostgresRepo`
   já é usado quando o banco está marcado como fora). O `lm_summary` sai antes do `save_summary`
   (para não esperar a gravação). Em `shutdown` o `end()` espera o resumo (até ~2 s + gravação).
+- **LM4.6:** P13 no painel: o botão LEARNING do LM1.7 ficou no topo (no lugar dos indicadores) e
+  logo abaixo dele está o retrato; o cartão foi para a coluna da Condessa logo abaixo do card dela
+  (retrato + fala), sobrepondo o topo do card SPEC (`B_SUMMARY` = topo de `B_SPEC`, 310 × ~88 no
+  mockup) — não cobre retrato, fala, player nem o botão. Na espera: acima do `[ LEARNING ]` (e de
+  `y_rule2`), sobre a fala, sem subir no retrato. Capturas: `LM_SUMMARY_CAPTURE=<dir> pytest
+  tests/learning/test_summary_card.py -k pinta` (CA-19 pendente da aprovação do Pedro).
+- **LM4.6:** no painel (310 de largura, mono 11) "NEW WORDS" do exemplo cabe só
+  `repository · deploy  +3` (a ★ de "assistant" vai para o `+N`); na espera cabe tudo. O
+  `SessionSummary` não diz a categoria de cada label de `practiced`, então não sai o prefixo
+  "Recurring:" do mockup. Temas: rótulos juntados com " / ".
+- **LM4.6:** o instante do `lm_mode off` (descarte > 10 s) é marcado pelo `gamerhud`
+  (`on_bridge_learning` → `WiredUI.summary_mode`), no mesmo relógio do `learning_model` (o bridge
+  entrega e emite no mesmo laço). `lm_summary` sem `off` visto (HUD reiniciado) ou antes do `off`
+  deste HUD é descartado. `summary_show_s` usa o padrão 60 (`SummaryCard.show_s`): o `gamerhud`
+  não lê `[learning]`; ligar se um dia ler.
+- **LM4.6:** continua faltando a linha do `wiring.py` (Sobras do LM4.5) para o `lm_summary` real
+  chegar ao HUD; os testes usam `lm_summary` falso.

@@ -16,6 +16,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QPainter
 
 from . import kit, scene
+from . import learning_summary as lsum
 from .main_screen import (
     CHIP_STATES,
     JP_DAYS,
@@ -86,6 +87,8 @@ class StandbyScreen(Screen):
     """Tela de espera."""
 
     SCENE_KIND = "standby"
+    SUMMARY_PX, SUMMARY_LH = 13, 20.0
+    summary = None  # () -> dict | None: resumo visível agora (o WiredUI liga, LM4.6)
 
     def __init__(self, mascot=None):
         super().__init__(mascot)
@@ -119,6 +122,12 @@ class StandbyScreen(Screen):
         self.cover = QRectF(COL.left(), BOTTOM - 72, 72, 72)
         # botão do Learning Mode (LM1.7): uma linha entre a fala e o player, colado em y_rule2
         self.learn_btn = QRectF(COL.left() - 2, self.y_rule2 - 26, 196, 22)
+        # cartão LAST SESSION (LM4.6): acima do botão LEARNING (e de y_rule2), sobre a fala; nunca
+        # sobe no retrato nem desce no player
+        ch = lsum.card_height(self.SUMMARY_PX, self.SUMMARY_LH)
+        bottom = self.learn_btn.top() - 4
+        top = max(bottom - ch, self.MASCOT_RECT.bottom() + 2)
+        self.SUMMARY_RECT = QRectF(COL.left(), top, COL.width(), bottom - top)
 
     # ---------------------------------------------------------------- estático
 
@@ -154,6 +163,7 @@ class StandbyScreen(Screen):
             "mood": [self.mood],
             "talk": [self.talk],
             "player": [QRectF(COL.left() - 2, self.y_rule2 + 2, COL.width() + 4, BOTTOM - self.y_rule2 + 2)],
+            "lm_summary": [self.SUMMARY_RECT],  # por último: sobrepõe a fala (LM4.6)
         }
 
     def group_key(self, name: str, snap: Snapshot, now: datetime) -> tuple:
@@ -177,6 +187,8 @@ class StandbyScreen(Screen):
             if t.position is not None and t.length:
                 frac = round(min(1.0, t.position / t.length) * 440)  # 1 px lógico
             return (t.title, t.artist, t.playing, frac, t.cover.cacheKey() if t.cover is not None else None)
+        if name == "lm_summary":
+            return lsum.card_key(self.summary() if self.summary else None)
         return ()
 
     def draw_group(self, name: str, p: QPainter, snap: Snapshot, now: datetime, s: float) -> None:
@@ -201,6 +213,11 @@ class StandbyScreen(Screen):
 
     def _g_mood(self, p, snap, now, s):
         draw_mood(p, self.mood, snap, legend=False, bar_w=4.0)
+
+    def _g_lm_summary(self, p, snap, now, s):
+        cur = self.summary() if self.summary else None
+        if cur is not None:
+            lsum.paint_card(p, self.SUMMARY_RECT, cur, px=self.SUMMARY_PX, line_h=self.SUMMARY_LH)
 
     def _g_talk(self, p, snap, now, s):
         r = self.talk

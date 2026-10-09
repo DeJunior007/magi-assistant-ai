@@ -34,6 +34,7 @@ from .data import (
     SelfView,
 )
 from .learning_screen import LearningScreen
+from .learning_summary import SummaryCard
 from .main_screen import (
     KONSOLE_CWD,
     NA,
@@ -196,6 +197,9 @@ class WiredUI:
         self.main = MainScreen(self.mascot)
         self.standby = StandbyScreen(self.mascot)
         self.learning = LearningScreen(self.mascot)  # view "learning" (LM1.5)
+        # cartão LAST SESSION (LM4.6): o resumo e o instante de chegada ficam no learning_model
+        self.summary_card = SummaryCard()
+        self.main.summary = self.standby.summary = self.summary_now
         self.now_playing = now_playing if now_playing is not None else NowPlaying()
         self.net = net or NetRate()
         self.history = history or LoadHistory()
@@ -442,10 +446,35 @@ class WiredUI:
 
     # ---------------------------------------------------------------- cliques
 
+    # ---------------------------------------------------------------- cartão LAST SESSION (LM4.6)
+
+    def _lm_now(self) -> float:
+        return getattr(self.learning.info, "clock", time.monotonic)()
+
+    def summary_now(self, now: float | None = None) -> dict | None:
+        """Resumo da última sessão se o cartão está visível agora (``visible(now)``), senão None."""
+        return self.summary_card.current(self.learning.info, self._lm_now() if now is None else now)
+
+    def summary_mode(self, on: bool, now: float | None = None) -> None:
+        """``lm_mode`` confirmado: ``off`` marca o instante (descarte do resumo > 10 s); ``on``
+        esconde o cartão."""
+        self.summary_card.mode(on, self._lm_now() if now is None else now)
+
+    def summary_close(self) -> None:
+        """Clique no cartão: fecha (só este resumo)."""
+        self.summary_card.close(getattr(self.learning.info, "summary_at", None))
+
+    def summary_deadline(self, now: float | None = None) -> float | None:
+        """Instante (monotônico) em que o cartão visível some sozinho; None sem cartão."""
+        if self.summary_now(now) is None:
+            return None
+        return self.summary_card.deadline(getattr(self.learning.info, "summary_at", None))
+
     def hit(self, pos: QPoint | QPointF, size: QSize, view: str, detail: str | None = None) -> str | None:
         """Alvo do clique: "led", "prev"/"playpause"/"next", "card:cpu|gpu|ram", "detail" (fecha
-        o painel aberto), "face" (mascote → push-to-talk), "learning" (botão LEARNING do topo do
-        painel e ``[ LEARNING ]`` da espera, LM1.7: o HUD pede ``lm_mode``), "konsole" (card do
+        o painel aberto), "face" (mascote → push-to-talk), "lm_summary" (cartão LAST SESSION,
+        LM4.6: fecha), "learning" (botão LEARNING do topo do painel e ``[ LEARNING ]`` da espera,
+        LM1.7: o HUD pede ``lm_mode``), "konsole" (card do
         terminal do Claude Code: o HUD expande) ou None. Na view learning só os alvos
         da ``LearningScreen`` (END SESSION → "learning"): o retrato não é push-to-talk lá; os
         eventos de mouse dessa view vão por ``learning_mouse``."""
@@ -456,6 +485,8 @@ class WiredUI:
         pt = QPointF(pos.x() / s, pos.y() / s)
         if view != "idle" and detail and DETAIL_RECT.contains(pt):
             return "detail"
+        if scr.SUMMARY_RECT.contains(pt) and self.summary_now() is not None:
+            return "lm_summary"  # cartão LAST SESSION: clique fecha (LM4.6)
         if scr.MASCOT_RECT.contains(pt):
             return "face"
         return scr.hit_test(pos, size)

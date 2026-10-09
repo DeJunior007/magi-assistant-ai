@@ -45,6 +45,7 @@ from PySide6.QtGui import (
 )
 
 from . import fonts, kit, scene, sky
+from . import learning_summary as lsum
 from .caption_scroll import CaptionScroll
 from .mascot import Mascot
 from .theme import (
@@ -743,6 +744,11 @@ TALK_TEXT = (B_TALK[0] + 2 + 12, B_TALK[1] + 1 + 8, 284 - 2 - 1 - 12 - 10, 74 - 
 CAPTION_VISIBLE = int(TALK_TEXT[3] // TALK_LH)  # 3 linhas à vista
 CAPTION_LH = TALK_LH * F
 CAPTION_RECT = mq(TALK_TEXT[0], TALK_TEXT[1], TALK_TEXT[2], CAPTION_VISIBLE * TALK_LH)
+# cartão LAST SESSION (LM4.6, P13): coluna da Condessa, abaixo do botão LEARNING e do retrato,
+# sobrepondo o topo do card SPEC enquanto visível (nunca o retrato nem o player)
+SUMMARY_PX = 11
+B_SUMMARY = (B_SPEC[0], B_SPEC[1], B_SPEC[2], lsum.card_height(SUMMARY_PX))
+SUMMARY_RECT = mq(*B_SUMMARY)
 TALK_PROMPT = "› "
 
 # NOW PLAYING (conteúdo 1357..1633 × 140..350, space-between)
@@ -1168,6 +1174,8 @@ class MainScreen(Screen):
     MASCOT_RECT = MASCOT_MAIN
     MASCOT_DIRTY = MASCOT_MAIN
     CAPTION_RECT = CAPTION_RECT
+    SUMMARY_RECT = SUMMARY_RECT
+    summary = None  # () -> dict | None: resumo visível agora (o WiredUI liga, LM4.6)
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
@@ -1468,6 +1476,7 @@ class MainScreen(Screen):
             "konsole": [KONSOLE_VIEW],
             "konsole_status": [KONSOLE_STATUS],
             "footer": [FOOTER],
+            "lm_summary": [SUMMARY_RECT],  # por último: sobrepõe o SPEC (LM4.6)
         }
         if self.kon_swap:  # câmera no slot do card; o Konsole (gamerhud) pinta a caixa do cam 01
             g["clock"] = [HEADER_CLOCK, cam_swap_transform().mapRect(REC), LIVE]
@@ -1519,6 +1528,8 @@ class MainScreen(Screen):
                     short_num(None if c is None else c.tokens))
         if name == "footer":
             return tuple(sn.events)
+        if name == "lm_summary":
+            return lsum.card_key(self.summary() if self.summary else None)
         return ()
 
     def draw_group(self, name: str, p: QPainter, snap: Snapshot, now: datetime, s: float) -> None:
@@ -1901,6 +1912,11 @@ class MainScreen(Screen):
         dot(p, x1 - w - 5 - 3, y2 - 3.5, 6, M_GREEN if on else M_DARK)
 
     # ---------------------------------------------------------------- rodapé
+
+    def _g_lm_summary(self, p, snap, now, s):
+        cur = self.summary() if self.summary else None
+        if cur is not None:
+            lsum.paint_card(p, QRectF(*B_SUMMARY), cur, px=SUMMARY_PX)
 
     def _g_footer(self, p, snap, now, s):
         lw = tw("MAGI", "mono", 13, 700, 0.1) + tw("  MULTI AGENT GUIDANCE INTERFACE", "mono", 11, None, 0.1)
