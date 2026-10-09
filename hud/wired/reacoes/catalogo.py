@@ -139,7 +139,7 @@ _LINHAS: tuple = (
     (85, "indiferente", None, "Indiferente", "F6 C1 1500 | B2 C11 1000", {_M, _ZOE}, None, 600.0, {}),
     (86, "desculpa", None, "Pedindo desculpa", "B10 C9 1000 | B3 C1 1000 | B6 C10 D1 1500", {_E}, None, 600.0, {}),
     (87, "gaguejando", None, "Gaguejando", "B9 V5 D2 400 | B10 V5 D1 400 | B4 C5 D1 1200", {_E}, None, 600.0, {}),
-    (88, "sussurro", None, "Sussurrando um segredo", "F1 500 | B1 V4 600 | B4 C10 1200", {_E}, "F", 600.0, {}),
+    (88, "sussurro", None, "Sussurrando um segredo", "F1 500 | B1 V4 600 | B4 C10 1200", {_E}, None, 600.0, {}),
     (89, "indecisa", None, "Indecisa", "F1 C11 P10 900 | F6 C11 900 | B13 C7 1200", {_M}, None, 600.0, {}),
     (90, "claude", "pesado", "Concentração extrema", "F7 C8 3000 | B2 C8 300", {_E}, None, 600.0, {}),
     ("I1", "fim_expediente", None, "Fim de expediente", "B4 C5 P9 1200 | B2 C5 800", {_T}, None, 600.0, {}),

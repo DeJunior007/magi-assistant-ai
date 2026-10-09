@@ -7,9 +7,11 @@ Só sinais LOCAIS, sem LLM, com as mesmas regras de palavras do ``mood.py``:
 - ``elogio``: "valeu", "mandou bem", "perfeito"… (``_THANKS``) e elogio direto a ela
   ("linda", "fofa", "inteligente"…) — tsundere (74) ou gaguejando (87);
 - ``zoeira``: risada ("kkk", "haha", "rsrs", ``_LAUGH``) — ela ri junto (76);
-- ``sussurro``: reservado para a R2.F (voz baixa, ``ToneMetadata``).
+- ``sussurro`` (R2.F): voz baixa — ``ToneMetadata.energy_db`` (RMS médio com voz, dBFS) abaixo
+  de ``SUSSURRO_DB``, com ``duration_ms`` > 0 (sem voz medida não conta) — ela sussurra junto (88).
 
-Ordem: correção > elogio > zoeira (bronca vale mais que riso; "kkk mandou bem" é elogio). Sem
+Ordem: correção > elogio > zoeira > sussurro (bronca vale mais que riso; "kkk mandou bem" é
+elogio; a palavra decide antes do tom, então "valeu" sussurrado é elogio). Sem
 sinal: ``None`` (turno neutro, nada vai ao HUD). O ``MoodTracker.observe`` manda a tag como
 ``TurnTagMsg`` pelo mesmo canal do ``MoodMsg``.
 """
@@ -28,14 +30,19 @@ _PRAISE = re.compile(
 )
 # "boa noite" não é elogio (o ``boa`` do _THANKS pegaria)
 _GREETING = re.compile(r"\bboa (noite|tarde|madrugada|sorte)\b")
+# voz baixa: abaixo do "desanimado" do mood.py (FLAT_DB = -35), sem exigir fala lenta
+SUSSURRO_DB = -42.0
+
+
+def _sussurro(tone: ToneMetadata | None) -> bool:
+    return tone is not None and tone.duration_ms > 0 and tone.energy_db < SUSSURRO_DB
 
 
 def classify(text: str, tone: ToneMetadata | None = None) -> str | None:
-    """Tag do turno (``elogio``, ``zoeira``, ``correcao``) ou ``None``. ``tone`` fica para a R2.F."""
-    del tone  # sussurro: R2.F
+    """Tag do turno (``correcao``, ``elogio``, ``zoeira``, ``sussurro``) ou ``None``."""
     norm = normalize(text)
     if not norm:
-        return None
+        return "sussurro" if _sussurro(tone) else None
     if _CORRECTION.search(norm) or _STOP_TEASE.search(norm):
         return "correcao"
     sem_saudacao = _GREETING.sub(" ", norm)
@@ -43,4 +50,4 @@ def classify(text: str, tone: ToneMetadata | None = None) -> str | None:
         return "elogio"
     if _LAUGH.search(norm):
         return "zoeira"
-    return None
+    return "sussurro" if _sussurro(tone) else None

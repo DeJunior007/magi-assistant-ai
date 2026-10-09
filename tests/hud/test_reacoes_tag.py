@@ -18,7 +18,7 @@ def test_cada_tag_vira_sua_reacao() -> None:
     assert tick({}, "correcao", 100.0, 101.0) == ["desculpa"]
     assert tick({}, "zoeira", 100.0, 101.0) == ["rindo"]
     assert tick({}, "elogio", 100.0, 101.0) == ["tsundere"]
-    assert tick({}, "sussurro", 100.0, 101.0) == []  # 88 é da R2.F
+    assert tick({}, "sussurro", 100.0, 101.0) == ["sussurro"]  # 88 (R2.F)
 
 
 def test_tag_velha_ignorada() -> None:
@@ -43,7 +43,7 @@ def test_segundo_elogio_gagueja() -> None:
 
 def test_reacoes_da_tag_ativas() -> None:
     assert {"tsundere", "rindo", "desculpa", "gaguejando"} <= ATIVAS
-    assert "sussurro" not in ATIVAS
+    assert "sussurro" in ATIVAS  # 88 ativa (R2.F)
 
 
 class _SemPlayer:

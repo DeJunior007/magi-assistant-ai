@@ -12,6 +12,7 @@ Dono: R1.5 (cond. B: R2.B; cond. F: R2.F).
   ``TurnTagMsg`` do núcleo). Só tag nova (hora diferente da última vista) e com ≤ ``TAG_MAX_S``
   (10 s) de ``ctx["agora"]``: ``correcao`` → 86 `desculpa`; ``zoeira`` → 76 `rindo`; ``elogio`` →
   74 `tsundere`, ou 87 `gaguejando` se for o 2º elogio em ≤ ``ELOGIO_DUPLO_S`` (5 min).
+- cond. F (R2.F): tag ``sussurro`` (voz baixa, ``ToneMetadata`` no núcleo) → 88 `sussurro`.
 
 Estado próprio: ``_conversa_humor`` (último humor visto), ``_conversa_tag`` (hora da última tag
 vista), ``_conversa_elogio`` (hora do último elogio).
@@ -31,7 +32,7 @@ GRAVES = ("morte", "morre", "morreu", "mortos", "morto", "desastre", "tragedia",
 ATIVA = ("speaking", "listening", "thinking")
 TAG_MAX_S = 10.0  # tag do turno mais velha que isso é ignorada (spec §6 B)
 ELOGIO_DUPLO_S = 300.0  # 2º elogio nesse intervalo: gagueja (87) em vez do tsundere (74)
-TAG_REACAO = {"correcao": "desculpa", "zoeira": "rindo"}
+TAG_REACAO = {"correcao": "desculpa", "zoeira": "rindo", "sussurro": "sussurro"}
 
 _LISTAS = {  # recaída sem o gosto
     "noticia_boa": ("vitoria", "recorde", "lanca", "lancamento", "cura", "aprova", "conquista"),
