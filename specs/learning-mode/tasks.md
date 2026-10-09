@@ -240,7 +240,7 @@ tamanho do painel, `MASCOT_MAIN` 302 de altura na base 1920 (LM-015 → LM1.5). 
   - Pronto: tabela com ms, VRAM e qualidade em 5 frases de exemplo.
   - Paralelo: qualquer tarefa da Fase LM4
 
-- [ ] **LM4.5 Resumo ao sair — núcleo** — `magi/learning/summary.py` (puro: `summarize(...) -> SessionSummary`, regras de spec §10.2 item 3); em `session.py`, no fechamento (qualquer `end_reason`): confirma `lm_mode off` **antes**, depois tarefa própria lê `repo.session_stats` com timeout de 2 s (ou o buffer em memória), grava `repo.save_summary` e publica `lm_summary` (só `n_you > 0` e `end_reason ≠ shutdown`) pela mesma função de publicação que a sessão já usa — sem tocar em `wiring.py`. Sem LLM. *(LM-011, spec §10.2)*
+- [x] **LM4.5 Resumo ao sair — núcleo** — `magi/learning/summary.py` (puro: `summarize(...) -> SessionSummary`, regras de spec §10.2 item 3); em `session.py`, no fechamento (qualquer `end_reason`): confirma `lm_mode off` **antes**, depois tarefa própria lê `repo.session_stats` com timeout de 2 s (ou o buffer em memória), grava `repo.save_summary` e publica `lm_summary` (só `n_you > 0` e `end_reason ≠ shutdown`) pela mesma função de publicação que a sessão já usa — sem tocar em `wiring.py`. Sem LLM. *(LM-011, spec §10.2)*
   - Lê: spec §3 (`SessionSummary`), §6 (`lm_summary`), §9 item 5, §10, §10.2, §11, design §10, APIs de `session.py` e `repo.py` por grep `def `
   - Escreve: `magi/learning/summary.py`, `magi/learning/session.py` (só o fechamento), `tests/learning/test_summary.py`
   - Depende de: LM4.1 (observações e contagem), LM1.8 (dono anterior de `session.py`)
@@ -400,3 +400,17 @@ aberto) só o fallback de `topic.py` (LM1.8); **P13** (lugar do cartão no paine
   linha do título inteira); o estado vem de `screen.info.saved` via o `ModelProvider` (sem mexer
   em `learning_screen.py`). O prazo de 3 s entra em `Overlay.deadline()`, que o `caption_tick` já
   agenda. Pendente o manual (★ em "authentication", fechar/reabrir, desfazer/guardar no banco).
+- **LM4.5:** a sessão não tinha função de publicação (quem manda ao HUD é o `wiring`), e o
+  `wiring.py` estava fora do *Escreve*: `LearningSession` ganhou `send` (kwarg/atributo,
+  `None` = só grava). **Falta uma linha no `wiring.py`** para o `lm_summary` chegar ao HUD de
+  verdade: `self.session.send = hud.send` (ou `LearningSession(..., send=hud.send)`) no
+  `__init__` do `LearningWiring` — fazer junto com o LM4.6 ou LMF.1.
+- **LM4.5:** ordem "off antes do resumo" garantida porque a tarefa do resumo é criada depois do
+  último `await` do `end()` e cede uma vez antes de ler; o `wiring` manda o `lm_mode off` logo em
+  seguida, e o filtro do `HudServer` já marca o resumo pendente antes do primeiro `await`. Com
+  dois HUDs e o primeiro lento, o resumo pode chegar ao segundo antes do `off` dele (descartado
+  pelo HUD); irrelevante na prática.
+- **LM4.5:** banco sem resposta em 2 s → resumo da contagem guardada na sessão (`n_msgs`, `n_you`,
+  última mensagem), sem observações nem palavras salvas (o espelho do buffer do `PostgresRepo`
+  já é usado quando o banco está marcado como fora). O `lm_summary` sai antes do `save_summary`
+  (para não esperar a gravação). Em `shutdown` o `end()` espera o resumo (até ~2 s + gravação).
