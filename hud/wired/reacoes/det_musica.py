@@ -11,6 +11,8 @@ Tudo sai do ``Snapshot`` (``snap.track``: ``title``, ``artist``, ``position``, `
 * ``_musica_faixa``/``_musica_desde``/``_musica_nota``: faixa atual, desde quando e nota.
 * ``_musica_nota_ant``: nota da faixa anterior (81).
 * ``_musica_plays``: ``(dia, {faixa: plays})`` (28) · ``_musica_artistas``: artistas já ouvidos (33).
+  Com o ``Reactor`` (``ctx["faixa"]`` == faixa nova), valem ``ctx["plays"]`` (plays do dia) e
+  ``ctx["artista_novo"]`` (artista fora do ``_seen`` persistido); as contas locais são a recaída.
 * ``_musica_pulos``: instantes dos pulos (I3) · ``_musica_seq``: pulos seguidos antes da atual (83).
 * ``_musica_dirs``: ``(instante, "next"/"prev")`` das trocas (89)
 * ``_musica_hist``/``_musica_i``: fila vista e cursor (89).
@@ -244,11 +246,16 @@ def _comecou(ctx: dict, chave: tuple[str, str]) -> list[Disparo]:
     if dia != _dia(ctx):
         dia, plays = _dia(ctx), {}
     plays[chave] = n = plays.get(chave, 0) + 1
-    ctx["_musica_plays"] = (dia, plays)
-    ctx["_musica_n"] = n
     vistos = ctx.setdefault("_musica_artistas", set())
     novo = bool(art) and art not in vistos
     vistos.add(art)
+    faixa = ctx.get("faixa")
+    # o Reactor conta os plays do dia e conhece os artistas já vistos (persistidos) (R1.6)
+    if faixa is not None and tuple(x or "" for x in faixa) == chave and "plays" in ctx:
+        n = plays[chave] = max(1, int(ctx["plays"]))
+        novo = bool(ctx.get("artista_novo"))
+    ctx["_musica_plays"] = (dia, plays)
+    ctx["_musica_n"] = n
 
     if n == REPETIDA and not ctx.get("ado"):  # Ado: variante `happy` sem Def (Sobras)
         out.append(Disparo("musica_repetida", "terceira_vez", fmt=fmt))

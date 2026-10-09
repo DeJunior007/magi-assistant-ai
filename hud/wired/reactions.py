@@ -48,6 +48,7 @@ MUSIC_LINE_GAP = 20 * 60.0  # entre comentários de música
 LINE_SECS = 7.0
 CLEANUP_MIN_BYTES = 1_000_000_000  # faxina menor que isso não é comemorada (= cleanup_announce_gb)
 CLICK_TALK = 0.25  # chance de comentar um clique comum (player, card)
+CLIQUES_S = 30.0  # ctx["cliques"]: cliques do HUD dos últimos 30 s (det_entrada)
 PASSIVA_A_CADA = 10.0  # passivas.sortear roda a cada 10 s (design §4)
 PARADA = "sleeping"  # = integration.IDLE_STATES: só parada ela toca reação nova (fila anda à parte)
 _SPLIT = re.compile(r"\s*(?:,|&|/|;| feat\.? | ft\.? | x | e )\s*")
@@ -327,6 +328,8 @@ class Reactor:
         self._next_passiva = -1e9
         self._verdict: Verdict | None = None
         self._musica: list[tuple[Disparo, dict]] = []  # disparos de _music/_decide deste tick
+        self._cliques: list[tuple[float, str]] = []  # (monotônico, alvo) dos últimos CLIQUES_S
+        self._artista_novo = False  # a faixa atual é do 1º artista nunca visto (_seen)
 
     # ------------------------------------------------------------ saída
 
@@ -426,6 +429,18 @@ class Reactor:
     # ------------------------------------------------------------ entradas
 
     def on_click(self, target: str, now: float) -> None:
+        self._cliques = [c for c in self._cliques if now - c[0] <= CLIQUES_S] + [(now, target)]
+        self.ctx["cliques"] = tuple(self._cliques)
+        try:  # clique no HUD é evento real: o det_tempo decide a volta (57/62/20) no próximo tick
+            relogio = self.clock()
+            parado = self.atividade.parado_s(relogio)
+            primeiro = self.atividade.evento(relogio, "clique")
+            antes = self.ctx.get("volta_clique")
+            if antes is not None:  # 2º clique antes do tick: vale a medida do 1º
+                primeiro, parado = antes[0] or primeiro, antes[1]
+            self.ctx["volta_clique"] = (primeiro, parado)
+        except Exception:  # noqa: BLE001 — arquivo de estado ilegível não derruba o clique
+            pass
         if target == "led":
             self.say("led", now, cooldown=3.0)
         elif target == "next":
@@ -519,6 +534,9 @@ class Reactor:
             magui=getattr(snap, "magui_state", PARADA), atividade=self.atividade, taste=self.taste,
             desligadas=frozenset(self.taste.section("reacoes").get("desligadas", ())),
             favorita_dia=self.favorite_of_day(),
+            cliques=tuple(c for c in self._cliques if now - c[0] <= CLIQUES_S),
+            plays=self._plays.get(self._track, 0) if self._track is not None else 0,
+            artista_novo=self._artista_novo and self._track is not None,
             pc_problema=self._hot or self._low_fps >= 2 or (snap.cpu or 0) >= 90,
             fps_estavel=not (snap.fps is not None and snap.fps_avg and snap.fps < 0.9 * snap.fps_avg),
         )
@@ -590,6 +608,7 @@ class Reactor:
         if day != self._day:
             self._plays, self._day, self._fav_used = {}, day, False
         self._plays[key] = plays = self._plays.get(key, 0) + 1
+        new = self._artista_novo = bool(artist) and norm(artist) not in self._seen
         gaming = bool(snap.gaming)
         claude = bool(getattr(snap.claude, "running", 0))
         v = self._verdict = self.taste.verdict(title, artist, hour, plays, gaming, claude)
@@ -598,7 +617,6 @@ class Reactor:
         if rkey is None:
             return
         fmt = {"artist": artist}
-        new = bool(artist) and norm(artist) not in self._seen
         if new:
             self._remember(artist)
         if new and v.note >= 0 and not v.known and not gaming:

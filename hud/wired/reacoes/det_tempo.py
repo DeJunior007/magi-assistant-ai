@@ -1,9 +1,10 @@
 """Detector `det_tempo` (spec §5): 17–20, 57–62, I1, I2, I16, I17, I19. Dono: R1.4.
 
-Tempo, tédio e volta do Pedro. O ``Reactor`` ainda não chama ``atividade.evento``: os eventos
-reais são deduzidos aqui da diferença ``anterior`` → ``snap`` (faixa nova ou música voltando a
-tocar, Claude Code passou a rodar, Magui ouvindo, jogo abriu) e registrados em
-``ctx["atividade"]`` com o relógio de parede (``ctx["relogio"]``).
+Tempo, tédio e volta do Pedro. Os eventos reais são deduzidos aqui da diferença ``anterior`` →
+``snap`` (faixa nova ou música voltando a tocar, Claude Code passou a rodar, Magui ouvindo, jogo
+abriu) e registrados em ``ctx["atividade"]`` com o relógio de parede (``ctx["relogio"]``). O
+clique no HUD o ``Reactor.on_click`` já registra (R1.6) e deixa ``ctx["volta_clique"] =
+(primeiro_do_dia, parado_s_antes)``, que este módulo consome como mais um evento real.
 
 Números (acordo §1/§2; os sem número no acordo estão marcados "escolha"):
 
@@ -148,10 +149,17 @@ def _uma_vez(ctx: dict, nome: str, chave: str) -> bool:
 def _volta(anterior: Any, snap: Any, ctx: dict, relogio: float) -> list[Disparo]:
     ativ = ctx.get("atividade")
     evs = eventos(anterior, snap)
-    if not evs or ativ is None:
+    clique = ctx.pop("volta_clique", None)  # (primeiro, parado) do clique já registrado pelo Reactor
+    if ativ is None or not (evs or clique):
         return []
-    parado = ativ.parado_s(relogio)
-    primeiro = ativ.evento(relogio, evs[0])
+    if clique is not None:
+        primeiro, parado = clique
+        evs = ["clique", *evs]
+        if len(evs) > 1:
+            ativ.evento(relogio, evs[1])
+    else:
+        parado = ativ.parado_s(relogio)
+        primeiro = ativ.evento(relogio, evs[0])
     cochilou = ctx.pop("_tempo_cochilou", False)
     motivo = "+".join(evs)
     if primeiro:

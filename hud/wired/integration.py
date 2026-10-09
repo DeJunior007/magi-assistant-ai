@@ -300,6 +300,8 @@ class WiredUI:
             led_on=self.led_on, led_rgb=self.led_rgb, magui_state=self.magui_state,
             mouth_level=self.mouth_level, caption=self.caption, mood=self.mood,
             self_usage=self.self_usage.view, extra=self.extra, netinfo=self.netinfo, git=self.gitinfo)
+        head = getattr(self.git, "head", None)
+        self.snap.git_head = head if isinstance(head, str) else None
         self.snap.project = self.konsole_cwd
         self.snap.konsole_online = self.konsole_alive()
         self.snap.konsole_rev = self.konsole_rev
