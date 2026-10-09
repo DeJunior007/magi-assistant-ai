@@ -160,6 +160,9 @@ class Snapshot:
     turn_tag: tuple[str, float] | None = None  # (tag do turno, time.monotonic() da chegada); R2.B
     volume: tuple[float, bool] | None = None  # (pct 0–150, mudo) do wpctl; None sem wpctl; R2.D
     notif: tuple[int, int, float] | None = None  # (contador, urgência 0–2, monotônico); R2.E
+    fan: tuple[float, float] | None = None  # (rpm, média 5 min) do hwmon; R2.G
+    reinicio: bool | None = None  # dnf needs-restarting -r: True = precisa; None = sem dado; R2.G
+    captura: float | None = None  # mtime (epoch) da captura de tela mais nova; None sem pasta; R2.G
     konsole_online: bool | None = None  # sessão do Claude Code viva no KONSOLE
     konsole_rev: int = 0  # muda quando o terminal tem tela nova (repinta o miolo)
 

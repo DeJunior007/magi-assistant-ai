@@ -1241,3 +1241,149 @@ class Notificacoes:
     def stop(self) -> None:
         self._parar.set()
         self._matar()
+
+
+# --- sinais menores (R2.G): ventoinha (hwmon), reinício pendente (dnf), capturas de tela (mtime) ---
+HWMON_RAIZ = Path("/sys/class/hwmon")
+
+
+class _Leitor:
+    """Base dos leitores em thread da R2.G: ``ler()`` a cada ``intervalo`` s; ``start``/``stop``."""
+
+    nome = "magi-leitor"
+    intervalo = 5.0
+
+    def __init__(self) -> None:
+        self._parar = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def ler(self):  # pragma: no cover - cada leitor define
+        raise NotImplementedError
+
+    def _loop(self) -> None:
+        while not self._parar.is_set():
+            try:
+                self.ler()
+            except Exception:  # noqa: BLE001 - leitor nunca derruba o HUD
+                pass
+            self._parar.wait(self.intervalo)
+
+    def start(self):
+        if self._thread is None or not self._thread.is_alive():
+            self._parar.clear()
+            self._thread = threading.Thread(target=self._loop, name=self.nome, daemon=True)
+            self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._parar.set()
+
+
+class Ventoinha(_Leitor):
+    """Rotação das ventoinhas (spec §6 Extras): maior ``fan*_input`` (rpm) de ``raiz/*/`` a cada
+    ``intervalo`` s. ``atual`` = ``(rpm, média dos últimos JANELA_S s)`` ou None (sem hwmon de
+    ventoinha). A média inclui a leitura atual; o detector compara as duas (43)."""
+
+    nome = "magi-ventoinha"
+    JANELA_S = 300.0
+
+    def __init__(self, raiz: Path | str | None = None, intervalo: float = 5.0, clock=time.monotonic):
+        super().__init__()
+        self.raiz = Path(raiz) if raiz is not None else HWMON_RAIZ
+        self.intervalo = intervalo
+        self.clock = clock
+        self.hist: deque[tuple[float, float]] = deque()
+        self.atual: tuple[float, float] | None = None
+
+    def rpm(self) -> float | None:
+        """Maior ``fan*_input`` legível sob a raiz; None se não houver nenhum."""
+        maior = None
+        for arq in sorted(glob.glob(str(self.raiz / "*" / "fan*_input"))):
+            try:
+                v = float(Path(arq).read_text().strip())
+            except (OSError, ValueError):
+                continue
+            maior = v if maior is None else max(maior, v)
+        return maior
+
+    def ler(self) -> tuple[float, float] | None:
+        rpm, agora = self.rpm(), float(self.clock())
+        if rpm is None:
+            self.hist.clear()
+            self.atual = None
+            return None
+        self.hist.append((agora, rpm))
+        while self.hist and agora - self.hist[0][0] > self.JANELA_S:
+            self.hist.popleft()
+        media = sum(v for _, v in self.hist) / len(self.hist)
+        self.atual = (rpm, round(media, 1))
+        return self.atual
+
+
+def _dnf_needs_restarting(timeout: float = 120.0) -> int | None:
+    """Código de saída de ``dnf needs-restarting -r`` (só leitura); None sem ``dnf``/timeout."""
+    try:
+        out = subprocess.run(["dnf", "needs-restarting", "-r"], capture_output=True, text=True,
+                             timeout=timeout, check=False, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.returncode
+
+
+class Reinicio(_Leitor):
+    """Reinício pendente depois de atualização (spec §6 Extras): ``dnf needs-restarting -r`` a cada
+    ``intervalo`` s (6 h). ``run`` (injetável) devolve o código de saída ou None. ``atual``: rc 1 →
+    True (precisa reiniciar), rc 0 → False, erro/outro código → None."""
+
+    nome = "magi-reinicio"
+
+    def __init__(self, run=None, intervalo: float = 6 * 3600.0):
+        super().__init__()
+        self.run = run if run is not None else _dnf_needs_restarting
+        self.intervalo = intervalo
+        self.atual: bool | None = None
+
+    def ler(self) -> bool | None:
+        try:
+            rc = self.run()
+        except Exception:  # noqa: BLE001 - subprocesso injetado que falhou
+            rc = None
+        self.atual = {0: False, 1: True}.get(rc) if isinstance(rc, int) else None
+        return self.atual
+
+
+def _pasta_capturas() -> Path:
+    """``xdg-user-dir PICTURES``/"Capturas de tela"; sem ``xdg-user-dir``, ``~/Imagens/…``."""
+    base = None
+    try:
+        out = subprocess.run(["xdg-user-dir", "PICTURES"], capture_output=True, text=True,
+                             timeout=2.0, check=False, stdin=subprocess.DEVNULL)
+        if out.returncode == 0 and out.stdout.strip():
+            base = Path(out.stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return (base or Path.home() / "Imagens") / "Capturas de tela"
+
+
+class Capturas(_Leitor):
+    """Capturas de tela (spec §6 Extras): maior mtime (epoch) dos arquivos da ``pasta`` a cada
+    ``intervalo`` s. ``atual`` = esse mtime, 0.0 com a pasta vazia, None sem a pasta. A pasta
+    padrão é resolvida na thread (``xdg-user-dir``), nunca no construtor."""
+
+    nome = "magi-capturas"
+
+    def __init__(self, pasta: Path | str | None = None, intervalo: float = 2.0):
+        super().__init__()
+        self.pasta = Path(pasta) if pasta is not None else None
+        self.intervalo = intervalo
+        self.atual: float | None = None
+
+    def ler(self) -> float | None:
+        if self.pasta is None:
+            self.pasta = _pasta_capturas()
+        try:
+            with os.scandir(self.pasta) as it:
+                self.atual = max((e.stat().st_mtime for e in it if e.is_file()), default=0.0)
+        except OSError:
+            self.atual = None
+        return self.atual
