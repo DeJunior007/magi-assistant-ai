@@ -26,20 +26,16 @@ código (D*), o braço da reação não aparece (P*) e o fone some (E3). Pode se
 verde ou o **busto inteiro com o detalhe** (inpainting): se a imagem cobrir mais de 60% do busto da
 A1, o build guarda só o que difere da A1.
 
+**Decisão do Pedro (2026-10-09): os detalhes D1–D9 ficam em código**, porque a animação própria (zz subindo, notas flutuando, lágrima escorrendo) se perde com um PNG parado. O build continua aceitando `D*.png`, mas não é para gerar.
+
 | Prio | ID | O que é | Arquivo de origem | Gera |
 | --- | --- | --- | --- | --- |
-| 0 | D1 | rubor nas bochechas (`blush`) | `D1.png` | `extra/D1.png` |
-| 0 | D2 | gota de suor (`sweat`) | `D2.png` | `extra/D2.png` |
-| 0 | D6 | notas musicais (`notes`) | `D6.png` | `extra/D6.png` |
-| 0 | D8 | veia de raiva (`vein`) | `D8.png` | `extra/D8.png` |
 | 1 | E3 | fone no pescoço (tirando o fone) | `E3.png` | `extra/E3.png` |
 | 1 | B16 | olhos/sobrancelhas novos | `B16.png` | `eyes/B16.png` |
-| 1 | D7 | lágrima (`tear`) | `D7.png` | `extra/D7.png` |
 | 2 | P9, P10, P12 | braços das reações (`braco:P*`) | `P9.png` … | `extra/P9.png` … |
 | 2 | B17 | olhos/sobrancelhas novos | `B17.png` | `eyes/B17.png` |
 | 2 | P13 | braços cruzados — **ativa a I20** | `P13.png` | `extra/P13.png` |
 | 3 | P11 | braço da reação | `P11.png` | `extra/P11.png` |
-| – | D9, D3, D4, D5 | brilho (`sparkle`), "zz", "?", "!" (opcionais; hoje em código) | `D9.png` … | `extra/D9.png` … |
 
 Os efeitos D* são desenhados no quadro inteiro (1024) acompanhando a cabeça, com o mesmo
 esmaecer do fim da reação. A I20 (Braços cruzados) entra em `catalogo.ATIVAS` quando
