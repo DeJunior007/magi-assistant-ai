@@ -2027,6 +2027,8 @@ class HUD(QWidget):
 
     def closeEvent(self, e):
         self.konsole_stop()
+        if self.wired:
+            self.wired.stop_readers()
         if self.on_close:
             self.on_close()
         super().closeEvent(e)

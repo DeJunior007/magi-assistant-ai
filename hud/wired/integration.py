@@ -402,6 +402,17 @@ class WiredUI:
         self.caption = self.snap.caption = txt
         return self.screen(view).group_rects("talk", size)
 
+    def stop_readers(self) -> None:
+        """Fecha os leitores em thread das reações (volume, notificações, ventoinha, reinício,
+        capturas). Chamado no fechamento do HUD; as threads são daemon, isto só adianta o fim."""
+        for r in (self.volume, self.notif, self.ventoinha, self.reinicio, self.capturas):
+            stop = getattr(r, "stop", None)
+            if stop is not None:
+                try:
+                    stop()
+                except Exception:  # noqa: BLE001 - fechando: um leitor com erro não segura os outros
+                    pass
+
     def set_mood(self, v: int | None) -> None:
         self.mood = None if v is None else max(0, min(4, int(v)))
 
