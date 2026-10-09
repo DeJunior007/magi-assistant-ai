@@ -244,3 +244,32 @@ def test_falas_em_ingles_pela_config_de_voz(tmp_path, monkeypatch):
     assert t.lines_for("hot") and not t.english
     cfg.write_text("isto não é toml [", encoding="utf-8")
     assert make(tmp_path).pick("led") is not None  # config quebrada: segue em português
+
+
+def test_musica_sai_como_disparo_e_toca_pelo_fire(tmp_path):
+    r = make(tmp_path)
+    r.observe(snap(), 0.0, 15)
+    chamadas = []
+    fire = r.fire
+    r.fire = lambda key, now, *a, **kw: chamadas.append((key, kw.get("mood"))) or fire(key, now, *a, **kw)
+    r._music(snap(track=Track("Usseewa", "Ado")), 1.0, 15)
+    assert chamadas == [] and [d.chave for d, _ in r._musica] == ["music_love"]
+    assert r._musica[0][0].variante == "rival" and r._musica[0][0].fmt == {"artist": "Ado"}
+    r._musica.clear()
+    r.observe(snap(track=Track("Battle", "Evan Call")), 2.0, 15)
+    assert chamadas[0][0] == "music_love" and not r._musica
+
+
+def test_reacao_antiga_e_cancel_encerram_a_sequencia(tmp_path):
+    from wired.reacoes.catalogo import DEFS
+    from wired.reacoes.contratos import Disparo
+
+    r = make(tmp_path)
+    d = DEFS["led"]
+    r.tocar(d, Disparo("led", "teste"), 0.0)
+    assert r.active(0.1).name == "led" and r.active(0.1).eyes == d.passos[0].eyes
+    r.say("hot", 0.2, temp="90")  # prioridade 3 > 1: a antiga assume
+    assert r.active(0.3).name == "hot" and r.active(0.3).eyes is None
+    r.tocar(d, Disparo("led", "teste"), 10.0)
+    r.cancel()
+    assert r.active(10.1) is None

@@ -26,6 +26,11 @@ import unicodedata
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from .reacoes import DETECTORES, governador, passivas, registro
+from .reacoes.atividade import Atividade
+from .reacoes.catalogo import ATIVAS, DEFS
+from .reacoes.contratos import Classe, Def, Disparo, Passo
+
 COUNCIL_FILE = Path(__file__).resolve().parents[2] / "persona" / "condessa-gosto.toml"
 GENRES_FILE = Path.home() / ".local/share/magi/artist-genres.json"
 CLEANUP_FILE = Path.home() / ".local/share/magi/cleanup_state.json"
@@ -43,6 +48,8 @@ MUSIC_LINE_GAP = 20 * 60.0  # entre comentários de música
 LINE_SECS = 7.0
 CLEANUP_MIN_BYTES = 1_000_000_000  # faxina menor que isso não é comemorada (= cleanup_announce_gb)
 CLICK_TALK = 0.25  # chance de comentar um clique comum (player, card)
+PASSIVA_A_CADA = 10.0  # passivas.sortear roda a cada 10 s (design §4)
+PARADA = "sleeping"  # = integration.IDLE_STATES: só parada ela toca reação nova (fila anda à parte)
 _SPLIT = re.compile(r"\s*(?:,|&|/|;| feat\.? | ft\.? | x | e )\s*")
 
 
@@ -275,7 +282,9 @@ class Taste:
 
 class Reactor:
     def __init__(self, taste: Taste | None = None, cleanup_file: Path | None = None,
-                 seen_file: Path | None = None, clock=time.time, rng: random.Random | None = None):
+                 seen_file: Path | None = None, clock=time.time, rng: random.Random | None = None,
+                 detectores=None, sortear=None, defs: dict | None = None,
+                 registro_file: Path | None = None, atividade: Atividade | None = None):
         self.taste = taste or Taste()
         self.cleanup_file = cleanup_file or CLEANUP_FILE
         self.seen_file = seen_file or SEEN_FILE
@@ -305,13 +314,59 @@ class Reactor:
         self._cleanup_at = self._cleanup_stamp()
         self._claude_running = 0
         self._seen: set[str] = set(_load_json(self.seen_file).get("artists", []))
+        # reações novas (design §4): detectores + passivas -> governador -> sequência de passos
+        self.detectores = DETECTORES if detectores is None else tuple(detectores)
+        self.sortear = sortear or passivas.sortear
+        self.defs = defs if defs is not None else {k: DEFS[k] for k in ATIVAS}
+        self.registro_file = registro_file  # None = registro.REGISTRO_FILE (lido na hora)
+        self.atividade = atividade if atividade is not None else Atividade()
+        self.estado = governador.Estado()  # histórico do governador, o mesmo entre ticks
+        self.ctx: dict = {}
+        self._seq: tuple[Def, tuple[Passo, ...], float] | None = None  # (def, passos, início)
+        self._seq_face: tuple[int, Reaction] | None = None
+        self._next_passiva = -1e9
+        self._verdict: Verdict | None = None
+        self._musica: list[tuple[Disparo, dict]] = []  # disparos de _music/_decide deste tick
 
     # ------------------------------------------------------------ saída
 
     def active(self, now: float) -> Reaction | None:
+        if self._seq is not None:
+            if now >= self.until:
+                self._seq = self._seq_face = None
+            else:
+                return self._passo(now)
         if self.current is not None and now >= self.until:
             self.current = None
         return self.current
+
+    def _passo(self, now: float) -> Reaction:
+        """Passo atual da sequência como ``Reaction`` de 1 rosto (bloqueios já aplicados)."""
+        d, passos, inicio = self._seq
+        ms, i = (now - inicio) * 1000.0, 0
+        while i < len(passos) - 1 and ms >= passos[i].ms:
+            ms -= passos[i].ms
+            i += 1
+        if self._seq_face is not None and self._seq_face[0] == i:
+            return self._seq_face[1]
+        p = passos[i]
+        line = self.line if now < self.line_until else None
+        r = Reaction(d.chave, p.eyes, p.mouth, p.look, d.mood, p.efeitos[0] if p.efeitos else None,
+                     self.until - inicio, "bob" in p.corpo, d.prio, line, p.efeitos, p.corpo,
+                     Classe.NOTURNA in d.classes)
+        self._seq_face = (i, r)
+        return r
+
+    def tocar(self, d: Def, disparo: Disparo, now: float,
+              passos: tuple[Passo, ...] | None = None) -> Reaction:
+        """Começa a sequência ``d`` (aprovada pelo governador) agora; a fala, se houver, vai à legenda."""
+        passos = passos if passos is not None else d.passos
+        self.current, self._seq, self._seq_face = None, (d, passos, now), None
+        self.until = now + max(1, sum(p.ms for p in passos)) / 1000.0
+        if d.fala:
+            self._falar(self.pick(d.fala, disparo.variante, **disparo.fmt), now, d.prio,
+                        Classe.MUSICA in d.classes)
+        return self._passo(now)
 
     def caption(self, now: float) -> str | None:
         if self.line is not None and now >= self.line_until:
@@ -321,6 +376,7 @@ class Reactor:
     def cancel(self) -> None:
         """Ela começou a falar/pensar: a reação parada some (a fala dela manda)."""
         self.current = None
+        self._seq = self._seq_face = None
 
     # ------------------------------------------------------------ disparo
 
@@ -345,15 +401,23 @@ class Reactor:
             return None
         self._cooldown[key] = now + cooldown
         self.current, self.until = r, now + r.dur
-        if talk and line and self.taste.lines.get("musica" if music else "geral", True):
-            gap_ok = now - self._last_line >= LINE_GAP or r.prio > self._last_line_prio
-            if gap_ok and (not music or now - self._last_music_line >= MUSIC_LINE_GAP):
-                self.line, self.line_until, self._last_line = line, now + LINE_SECS, now
-                self._last_line_prio = r.prio
-                if music:
-                    self._last_music_line = now
-                self.current = replace(r, line=line)
+        self._seq = self._seq_face = None
+        if talk and self._falar(line, now, r.prio, music):
+            self.current = replace(r, line=line)
         return self.current
+
+    def _falar(self, line: str | None, now: float, prio: int, music: bool) -> bool:
+        """Põe ``line`` na legenda se as falas estão ligadas e o intervalo entre falas deixa."""
+        if not line or not self.taste.lines.get("musica" if music else "geral", True):
+            return False
+        gap_ok = now - self._last_line >= LINE_GAP or prio > self._last_line_prio
+        if not gap_ok or (music and now - self._last_music_line < MUSIC_LINE_GAP):
+            return False
+        self.line, self.line_until, self._last_line = line, now + LINE_SECS, now
+        self._last_line_prio = prio
+        if music:
+            self._last_music_line = now
+        return True
 
     def say(self, key: str, now: float, variant: str | None = None, cooldown: float = 0.0,
             mood: str | None = None, **fmt) -> Reaction | None:
@@ -383,14 +447,26 @@ class Reactor:
         self.fire(key, now, line)
 
     def observe(self, snap, now: float, hour: int | None = None) -> None:
-        """Compara o Snapshot com o anterior e dispara o que mudou (chamado a 1 Hz)."""
+        """Compara o Snapshot com o anterior e dispara o que mudou (chamado a 1 Hz).
+
+        Ordem: reações antigas (música por ``Disparo`` + HUD) e depois as novas (detectores,
+        passivas a cada 10 s, governador, sequência) com o ``ctx`` montado uma vez (design §4)."""
         hour = time.localtime(self.clock()).tm_hour if hour is None else hour
         prev, self._prev = self._prev, snap
         self._music(snap, now, hour, first=prev is None)
+        for disp, opts in self._musica:
+            self.fire(disp.chave, now, self.pick(disp.chave, disp.variante, **disp.fmt), music=True, **opts)
+        self._musica.clear()
         if prev is None:  # ao abrir o HUD só registra (não reage ao que já estava rolando)
             self._hot = self._is_hot(snap)
             self._game_since = now if snap.gaming else None
+            self._contexto(snap, now, hour)
             return
+        self._legado(snap, prev, now, hour)
+        self._reacoes(prev, snap, now, hour)
+
+    def _legado(self, snap, prev, now: float, hour: int) -> None:
+        """As 19 reações de antes (HUD): disparo direto, cooldown e prioridade próprios."""
         if snap.news and (not prev.news or snap.news[0] != prev.news[0]):
             self.say("news", now, cooldown=20.0)
         hot = self._is_hot(snap, self._hot)
@@ -429,6 +505,45 @@ class Reactor:
             self.say("claude", now, cooldown=120.0)
         self._claude_running = running
 
+    def _contexto(self, snap, now: float, hour: int) -> dict:
+        """``ctx`` do tick, montado uma vez e reaproveitado (o ``estado`` do governador fica)."""
+        v = self._verdict if self._track is not None else None
+        ctx = self.ctx
+        ctx.update(
+            defs=self.defs, estado=self.estado, agora=now, relogio=self.clock(), hora=hour,
+            madrugada=_in_hours(hour, self.taste.ctx("madrugada", [22, 4])), humor=3,
+            jogo=bool(snap.gaming), claude=bool(getattr(snap.claude, "running", 0)),
+            musica_nota=v.note if v is not None else 0, ado=v is not None and v.artist == "ado",
+            faixa=self._track, faixa_desde=self._track_at, veredito=v,
+            magui=getattr(snap, "magui_state", PARADA), atividade=self.atividade, taste=self.taste,
+            desligadas=frozenset(self.taste.section("reacoes").get("desligadas", ())),
+        )
+        ctx["parada"] = ctx["magui"] == PARADA and self.active(now) is None
+        return ctx
+
+    def _reacoes(self, prev, snap, now: float, hour: int) -> None:
+        """Detectores + passivas -> governador -> no máximo 1 sequência nova (design §4)."""
+        ctx = self._contexto(snap, now, hour)
+        disparos: list[Disparo] = []
+        for det in self.detectores:
+            try:
+                disparos.extend(det(prev, snap, ctx) or ())
+            except Exception:  # noqa: BLE001 — um detector quebrado não derruba o HUD
+                continue
+        if now >= self._next_passiva:
+            self._next_passiva = now + PASSIVA_A_CADA
+            extra = self.sortear(ctx, now, self.rng)
+            if extra is not None:
+                disparos.append(extra)
+        if not disparos and self.estado.fila is None:
+            return
+        d = governador.escolher(disparos, now, ctx)
+        if d is None:
+            return
+        disp = self.estado.ultimo or Disparo(d.chave, "governador", d.variante)
+        self.tocar(d, disp, now, governador.aplicar_bloqueios(d, ctx))
+        registro.gravar(d, disp, self.clock(), self.registro_file or registro.REGISTRO_FILE)
+
     # ------------------------------------------------------------ detalhes
 
     @staticmethod
@@ -463,7 +578,7 @@ class Reactor:
         if self._pending and now >= self._pending[0] and self._pending[1] == self._track:
             _, _, rkey, variant, mood, fmt = self._pending
             self._pending = None
-            self.fire(rkey, now, self.pick(rkey, variant, **fmt), music=True, mood=mood)
+            self._musica.append((Disparo(rkey, "musica_nota", variant, fmt), {"mood": mood}))
 
     def _new_track(self, key: tuple, snap, now: float, hour: int) -> None:
         title, artist = key[0] or "", key[1] or ""
@@ -473,7 +588,7 @@ class Reactor:
         self._plays[key] = plays = self._plays.get(key, 0) + 1
         gaming = bool(snap.gaming)
         claude = bool(getattr(snap.claude, "running", 0))
-        v = self.taste.verdict(title, artist, hour, plays, gaming, claude)
+        v = self._verdict = self.taste.verdict(title, artist, hour, plays, gaming, claude)
         pedro = self.taste.pedro_favorite(title, artist)
         rkey, variant, mood = self._decide(v, plays, gaming, hour, now, pedro)
         if rkey is None:
@@ -483,12 +598,11 @@ class Reactor:
         if new:
             self._remember(artist)
         if new and v.note >= 0 and not v.known and not gaming:
-            self.fire("music_new", now, self.pick("music_new", artist=artist), music=True)
+            self._musica.append((Disparo("music_new", "musica_nova", None, {"artist": artist}), {}))
             self._pending = (now + float(self.taste.ctx("novo_segundos", 10)), key, rkey, variant, mood, fmt)
             return
-        line = self.pick(rkey, variant, **fmt)
         talk = not gaming or variant == "batalha"  # jogando, só a fala de chefe passa
-        self.fire(rkey, now, line, music=True, mood=mood, talk=talk)
+        self._musica.append((Disparo(rkey, "musica_nota", variant, fmt), {"mood": mood, "talk": talk}))
 
     def _decide(self, v: Verdict, plays: int, gaming: bool, hour: int, now: float,
                 pedro: bool = False) -> tuple[str | None, str | None, str | None]:
