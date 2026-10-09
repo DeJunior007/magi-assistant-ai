@@ -119,6 +119,7 @@ enabled           = true
 level             = "B2"            # A1..C2; manual no MVP (LM-009), aparece como "B2 · CONVERSATION"
 track             = "CONVERSATION"
 explain_language  = "en"            # "en" | "pt-br": idioma de Improve/Explain/Vocabulary (LM-008)
+# interview_role  = "Backend Python sênior"   # tema Tech interview (P14); sem ela, entrevista genérica
 translate_to      = "pt-br"         # idioma do Translate (TRA-001)
 speak_replies     = true            # a Condessa fala a resposta (LM-004)
 idle_end_min      = 20              # minutos sem mensagem até encerrar a sessão

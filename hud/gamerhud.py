@@ -1081,6 +1081,7 @@ class HUD(QWidget):
             self.wired.set_mood(self.magui_mood)
             self.wired.learning.info = self.learning_model
             self.wired.learning.overlay.provider.inner = BridgeProvider(self.bridge.send_lm)  # LM3.4
+            self.wired.learning.send_lm = self.bridge.send_lm  # lm_topic do seletor (LM1.9)
         else:
             self.wired_keep, self.wired = self.wired, None
             self.bg = None
@@ -1184,6 +1185,7 @@ class HUD(QWidget):
         if self.wired:
             self.wired.learning.info = self.learning_model
             self.wired.learning.overlay.provider.inner = BridgeProvider(self.bridge.send_lm)  # LM3.4
+            self.wired.learning.send_lm = self.bridge.send_lm  # lm_topic do seletor (LM1.9)
         b.learning_model = self.learning_model
         b.learning.connect(self.on_bridge_learning)
         self.lm_entry = None
@@ -1289,6 +1291,7 @@ class HUD(QWidget):
             if self.view == "learning":   # mensagem da Condessa revelada em sincronia (LM-003)
                 deadlines.append(self.learning_model.deadline(now))
                 deadlines.append(self.wired.learning.overlay.deadline())   # timeout do balão (LM3.4)
+                deadlines.append(self.wired.learning.topic_picker.deadline())  # lista de temas fecha em 10 s (LM1.9)
                 rects = list(rects or []) + self.learning_dirty()
             if rects and not self.trans and self.isVisible() and self.width() > 1:
                 for r in rects:

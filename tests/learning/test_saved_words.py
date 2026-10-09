@@ -215,3 +215,21 @@ def test_estrela_reabre_marcada_e_envio_falho() -> None:
 
     o.kind = UiKind.EXPLAIN  # outros balões: sem estrela
     assert o.starred() is None and not o.toggle_save()
+
+
+async def test_resumo_chega_ao_hud_pelo_wiring_real(tmp_path):
+    """Integração LM4.5 × wiring: ao sair do modo, o lm_summary sai pelo hud do LearningWiring."""
+    from magi.common.contracts import LmSummaryMsg
+
+    w, _repo, hud, _mid = await _setup(tmp_path)
+    await w.on_learning(LmModeMsg(False))
+    await w.session.wait_summaries()
+    assert any(isinstance(m, LmSummaryMsg) for m in hud.sent)
+
+
+def test_ids_das_acoes_nao_se_repetem_entre_aberturas_do_hud():
+    """Ids das ações nunca se repetem (HUD reaberto): um ★ antigo não pega a ação de outra sessão."""
+    from hud.wired.learning_overlay import new_action_id
+
+    ids = {new_action_id() for _ in range(1000)}
+    assert len(ids) == 1000 and all(i.startswith("ui-") for i in ids)

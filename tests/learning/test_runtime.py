@@ -302,7 +302,11 @@ async def test_watchdog_fecha_sessao_longa(tmp_path) -> None:
     assert await w.check_idle() is True
     await w.wait_idle()
     assert not w.session.active and docker.verbs == ["start", "stop"]
-    assert isinstance(w.hud.sent[-1], LmModeMsg) and not w.hud.sent[-1].on  # type: ignore[attr-defined]
+    sent = w.hud.sent  # type: ignore[attr-defined]
+    offs = [i for i, m in enumerate(sent) if isinstance(m, LmModeMsg) and not m.on]
+    assert offs  # o modo saiu
+    # depois do off só pode vir o resumo da sessão (LM4.5, ligado no wiring na integração)
+    assert all(type(m).__name__ == "LmSummaryMsg" for m in sent[offs[-1] + 1:])
     await w.aclose()
 
 

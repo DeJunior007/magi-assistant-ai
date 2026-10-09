@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import re
 import time
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -297,6 +298,12 @@ class FakeProvider:
         return None
 
 
+def new_action_id() -> str:
+    """``id`` de uma ação da tela, único entre aberturas do HUD: com ``ui-<seq>`` um ``ui-1`` de
+    antes resolvia no banco o ★ de uma ação de outra sessão."""
+    return f"ui-{uuid.uuid4().hex[:12]}"
+
+
 @dataclass
 class BridgeProvider:
     """Provedor real (LM3.4): manda o ``lm_action`` por ``send("lm_action", campos)`` (o
@@ -427,7 +434,7 @@ class Overlay:
 
     def _send(self) -> dict[str, Any] | None:
         self.seq += 1
-        self.action_id = f"ui-{self.seq}"
+        self.action_id = new_action_id()
         self.result = None
         self.more = False
         self.save_pending, self.save_note = None, False

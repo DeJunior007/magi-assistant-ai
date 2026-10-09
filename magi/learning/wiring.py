@@ -144,7 +144,7 @@ class LearningWiring:
         self.speak = speak
         self.clock = clock
         self.idle_check_s = idle_check_s
-        self.session = LearningSession(repo, cfg, clock=clock)
+        self.session = LearningSession(repo, cfg, clock=clock, send=hud.send)  # lm_summary (LM4.5)
         self.handlers: dict[type[LearningHudMsg], Handler] = self._handlers()
         self._lock = asyncio.Lock()  # ordem das mensagens (texto e voz) e do modo
         self._tasks: set[asyncio.Task[Any]] = set()

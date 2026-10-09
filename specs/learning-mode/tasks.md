@@ -431,3 +431,11 @@ aberto) só o fallback de `topic.py` (LM1.8); **P13** (lugar do cartão no paine
   não lê `[learning]`; ligar se um dia ler.
 - **LM4.6:** continua faltando a linha do `wiring.py` (Sobras do LM4.5) para o `lm_summary` real
   chegar ao HUD; os testes usam `lm_summary` falso.
+- **Integração (orquestrador, 2026-10-09) — resolvidas:** `lm_summary` real chega ao HUD
+  (`LearningSession(..., send=hud.send)` no `LearningWiring`; teste pelo wiring real em
+  `test_saved_words.py`); `action_id` da tela agora é único (`new_action_id()`, `ui-<12 hex>`), sem
+  colidir com ações de sessões antigas no ★; `gamerhud` liga `learning.send_lm = bridge.send_lm`
+  (o seletor manda `lm_topic` pelo bridge) e soma `topic_picker.deadline()` aos `deadlines` (fecha
+  em 10 s exatos); `interview_role` documentado no `config.example.toml`.
+  `test_watchdog_fecha_sessao_longa` passou a aceitar o `lm_summary` depois do `off`.
+  Seguem abertos: os testes manuais (LMF.1) e a medição real (LM4.2).
