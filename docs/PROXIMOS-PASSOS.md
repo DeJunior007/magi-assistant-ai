@@ -23,11 +23,11 @@ Implementado e testado com dublês; falta conferir no uso real:
 
 | Item | O que conferir |
 | --- | --- |
-| 5.2 Mudo só para o Discord | Numa call: segurar Pause/PS+Share muta só o Discord e restaura ao soltar; derrubar o satélite no meio e ver o mudo voltar ao reiniciar. |
-| U4 LED do HUD | Com o OpenRGB ligado, clicar no LED e ver unidades MAGI, rubor do mascote e trilho da espera tingindo com a cor da placa-mãe. |
-| 2.5 "Coloca uma boa" | No Spotify real, com login: escolha faz sentido pelo gosto/jogo e o caminho `/artists/{id}/top-tracks` da Web API responde. |
-| U5 Papel de parede | Desligar o PC (ou encerrar a sessão) com o HUD aberto e ver o Wallpaper Engine voltar no login seguinte. |
+| 5.2 Mudo só para o Discord | **Prioridade baixíssima (Pedro, 2026-10-09).** Numa call: segurar Pause/PS+Share muta só o Discord e restaura ao soltar; derrubar o satélite no meio e ver o mudo voltar ao reiniciar. |
 | 1.26 Reconhecimento | Depois das mudanças (fim de fala 1 s, fala mínima 240 ms, ganho automático): usar alguns dias e conferir no log `ouvi "..."` se a queixa "reconhece mal" sumiu. |
+
+Conferidos pelo Pedro em 2026-10-09: **U4 LED do HUD**, **2.5 "Coloca uma boa"**, **U5 papel de
+parede**, **clique no rosto** (ouve sem wake word) e **digitação no Konsole** (texto e setas).
 
 ## 4. Lacunas conhecidas
 
@@ -122,8 +122,8 @@ Próximos passos, em ordem:
 2. ~~Konsole: TOKENS na barra de status; linhas cortadas no card recolhido~~ — feito: TOKENS =
    contexto do último turno (entrada + cache) lido do transcript via `~/.claude/sessions/<pid>.json`
    (`TokenMeter`); o card encolhe a fonte (até 7 px do mockup) para caber a largura da sessão.
-3. Testes manuais: digitação no Konsole (texto, setas, Enter, Esc), foco volta ao recolher,
-   HUD não rouba foco do jogo sem clique; digitação na tela learning (mesma regra do KWin).
+3. Testes manuais: ~~digitação no Konsole (texto, setas)~~ conferida em 2026-10-09; falta ver o foco
+   voltar ao recolher, o HUD não roubar o foco do jogo sem clique e a digitação na tela learning.
 4. Learning Mode onda 6: LM3.4 (balão com resultado real), LM4.2, LM4.3 (observações na tela),
    LM1.8 (tema da sessão) — `specs/learning-mode/tasks.md`. Learning ligado na config, ações no
    gpt-5.4-mini, observações no Qwen local (`magi-qwen`, só CPU, só durante a aula).
@@ -145,7 +145,7 @@ Próximos passos, em ordem:
   do headset (ELITE 08), não o software.
 
 Próximos passos, do mais rápido ao mais trabalhoso:
-1. Testes manuais do Konsole no HUD e as validações antigas da seção 3.
+1. Foco do Konsole (seção 11, item 3) e o reconhecimento de voz no uso (seção 3).
 2. Refazer o P13 (seção 7).
 3. Espera mais viva (seção 2): animação de "pensando", frase curta e resposta em lotes.
 4. Learning Mode onda 6 (LM3.4, LM4.2, LM4.3, LM1.8), em agentes por tarefa como as reações.
