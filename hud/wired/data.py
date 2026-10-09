@@ -24,7 +24,7 @@ import threading
 import time
 import urllib.request
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -517,6 +517,7 @@ class NowPlaying:
 # ---------------------------------------------------------------- Claude Code (painel)
 
 AUTOFIX_STATE = Path("~/.local/share/magi/autofix/state.json").expanduser()
+CLAUDE_EVENTS = Path("~/.cache/magi/claude-events.jsonl").expanduser()  # hud/tools/claude_hook.py
 
 
 @dataclass
@@ -531,18 +532,29 @@ class ClaudeView:
     window_end: str | None = None  # fim da janela de 5 h em curso ("01:00"); None = nenhuma aberta
     window_fresh: int = 0  # tokens novos na janela
     window_cache: int = 0  # leitura de cache na janela (pesa bem menos)
+    # último evento novo dos hooks (``hud/tools/claude_hook.py``): (epoch, "fail"|"notify"|"stop",
+    # projeto); None = nenhum desde que o HUD abriu
+    last_event: tuple | None = None
 
 
 class ClaudeStats:
     """Lê o consumo do Claude Code (``magi.maintenance.claude_usage``) numa thread, a cada
     ``every`` s: a 1ª leitura dos registros leva ~1 s e não pode travar o HUD. ``view`` é o último
-    resultado (troca atômica de referência)."""
+    resultado (troca atômica de referência).
 
-    def __init__(self, every: float = 15.0, autofix_state: Path = AUTOFIX_STATE, reader=None):
+    Também lê as linhas **novas** de ``events_file`` (gravadas pelo hook, spec §6 C): a 1ª leitura
+    só marca o fim do arquivo (o passado não reage); arquivo menor que a posição = girou, relê do
+    começo. ``last_event`` guarda o último evento válido visto."""
+
+    def __init__(self, every: float = 15.0, autofix_state: Path = AUTOFIX_STATE, reader=None,
+                 events_file: Path = CLAUDE_EVENTS):
         self.every = every
         self.autofix_state = autofix_state
+        self.events_file = events_file
         self.view = ClaudeView()
         self._reader = reader
+        self._ev_pos: int | None = None
+        self._last_event: tuple | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -553,16 +565,57 @@ class ClaudeStats:
         from magi.maintenance.claude_usage import UsageReader  # só biblioteca padrão
         return UsageReader()
 
+    def events(self) -> tuple | None:
+        """Lê as linhas novas do arquivo de eventos; devolve o último evento visto (ou None)."""
+        try:
+            size = self.events_file.stat().st_size
+        except OSError:
+            if self._ev_pos is None:
+                self._ev_pos = 0  # ainda não existe: o que vier depois é novo
+            return self._last_event
+        if self._ev_pos is None:
+            self._ev_pos = size
+            return self._last_event
+        if size < self._ev_pos:
+            self._ev_pos = 0  # girou
+        if size == self._ev_pos:
+            return self._last_event
+        try:
+            with self.events_file.open("rb") as f:
+                f.seek(self._ev_pos)
+                bloco = f.read(size - self._ev_pos)
+        except OSError:
+            return self._last_event
+        fim = bloco.rfind(b"\n")
+        if fim < 0:
+            return self._last_event  # linha ainda pela metade
+        self._ev_pos += fim + 1
+        for raw in bloco[:fim].splitlines():
+            try:
+                d = json.loads(raw)
+                ev = (float(d["t"]), str(d["ev"]), str(d.get("proj") or ""))
+            except (ValueError, TypeError, KeyError):
+                continue
+            if ev[1] in ("fail", "notify", "stop"):
+                self._last_event = ev
+        return self._last_event
+
     def refresh(self, now: datetime | None = None) -> ClaudeView:
+        last = self.events()
         if self._reader is None:
             self._reader = self._make_reader()
-        s = self._reader.summary()
+        try:
+            s = self._reader.summary()
+        except Exception:
+            if self.view.last_event != last:
+                self.view = replace(self.view, last_event=last)
+            raise
         now = now or datetime.now(UTC)
         sessions = [(x.project, x.running, max(0, int((now - x.last).total_seconds() // 60)))
                     for x in s.active[:4] if x.last is not None]
         end = s.window_end.astimezone().strftime("%H:%M") if s.window_end is not None else None
         self.view = ClaudeView(s.tokens.fresh, s.tokens.output, s.tokens.replies, sessions, s.running,
-                               self._autofix(), end, s.window.fresh, s.window.cache_read)
+                               self._autofix(), end, s.window.fresh, s.window.cache_read, last)
         return self.view
 
     def _autofix(self) -> str | None:

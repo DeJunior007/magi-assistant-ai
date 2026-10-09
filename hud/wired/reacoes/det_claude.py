@@ -8,10 +8,15 @@ Dono: R1.5 (cond. C: R2.C).
   quando os dois valem no mesmo tick).
 - 82 `claude`/`com_musica`: passou a valer Claude rodando **e** música tocando (1× por rodada).
 - 75 `ideia`: HEAD do git mudou (``snap.git_head`` ou ``ctx["git_head"]``; o 1º visto só registra).
+- 54 `claude_erro` / 55 `claude_espera` (sinal C, R2.C): ``snap.claude.last_event`` =
+  ``(epoch, "fail"|"notify", proj)`` vindo do hook (``hud/tools/claude_hook.py``). Cada evento reage
+  1× (``_claude_ev_t``) e só se tiver ≤ ``EVENTO_S`` pelo ``ctx["relogio"]``; ``stop`` não reage
+  (o 53 já sai da transição rodando → parado).
 
 Estado próprio no ``ctx`` (chaves ``_claude_*``): ``_claude_desde`` (monotônico do início da
 rodada ou None), ``_claude_feitos`` (set do que já saiu nesta rodada), ``_claude_cpu_desde``
-(início da CPU ≥ 70%), ``_claude_head`` (último HEAD visto).
+(início da CPU ≥ 70%), ``_claude_head`` (último HEAD visto), ``_claude_ev_t`` (epoch do último
+evento de hook consumido).
 """
 
 from __future__ import annotations
@@ -24,6 +29,8 @@ TERMINOU_S = 120.0  # 53: rodou pelo menos isso
 DEMORANDO_S = 15 * 60.0  # 56/90
 CPU_PESADO = 70.0  # 90
 CPU_PESADO_S = 30.0  # 90: CPU alta contínua
+EVENTO_S = 120.0  # 54/55: evento do hook mais velho que isso é ignorado (ClaudeStats lê a cada 15 s)
+_POR_EVENTO = {"fail": "claude_erro", "notify": "claude_espera"}
 
 
 def _rodando(snap: Any) -> bool:
@@ -40,10 +47,26 @@ def _head(snap: Any, ctx: dict) -> str | None:
     return h if h is not None else ctx.get("git_head")
 
 
+def _hook(snap: Any, ctx: dict) -> list[Disparo]:
+    ev = getattr(getattr(snap, "claude", None), "last_event", None)
+    if not ev or len(ev) < 2:
+        return []
+    t, nome = ev[0], ev[1]
+    if t == ctx.get("_claude_ev_t"):
+        return []
+    ctx["_claude_ev_t"] = t
+    chave = _POR_EVENTO.get(nome)
+    relogio = ctx.get("relogio")
+    if chave is None or (relogio is not None and relogio - t > EVENTO_S):
+        return []
+    proj = ev[2] if len(ev) > 2 and ev[2] else "?"
+    return [Disparo(chave, f"hook {nome} ({proj})", fmt={"proj": proj})]
+
+
 def detectar(anterior: Any, snap: Any, ctx: dict) -> list[Disparo]:
     """Compara o Snapshot ``anterior`` com ``snap`` e devolve os disparos deste tick."""
     agora = float(ctx.get("agora", 0.0))
-    out: list[Disparo] = []
+    out: list[Disparo] = _hook(snap, ctx)
 
     head = _head(snap, ctx)
     if head is not None:
