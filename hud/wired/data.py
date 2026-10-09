@@ -937,7 +937,8 @@ def net_info(now: float | None = None, *, route: str = "/proc/net/route", resolv
 
 class GitStatus:
     """Branch e +/- de linhas do working tree (staged + não staged) contra o HEAD. O `git` roda no
-    máximo a cada `ttl` s, com `timeout` s; repositório inválido (ou git ausente) → valores None."""
+    máximo a cada `ttl` s, com `timeout` s; repositório inválido (ou git ausente) → valores None.
+    ``head`` = hash curto do HEAD da última leitura (None sem commit), fora do dict do ``poll``."""
 
     def __init__(self, path: str, ttl: float = 30.0, timeout: float = 2.0):
         self.path = path
@@ -945,6 +946,7 @@ class GitStatus:
         self.timeout = timeout
         self._at: float | None = None
         self._last: dict = {"branch": None, "added": None, "removed": None}
+        self.head: str | None = None
 
     def _git(self, *args: str) -> str | None:
         try:
@@ -958,8 +960,11 @@ class GitStatus:
         res: dict = {"branch": None, "added": None, "removed": None}
         branch = self._git("rev-parse", "--abbrev-ref", "HEAD")
         if branch is None:
+            self.head = None
             return res
         res["branch"] = branch.strip() or None
+        head = self._git("rev-parse", "--short", "HEAD")
+        self.head = (head.strip() or None) if head is not None else None
         diff = self._git("diff", "--numstat", "HEAD")  # sem commit ainda: HEAD falha → +/- None
         if diff is None:
             return res
