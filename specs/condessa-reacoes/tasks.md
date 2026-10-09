@@ -148,6 +148,18 @@ Todas dependem de **R0.5** e rodam **em paralelo entre si** (cada uma só no pr�
   - Orçamento: ~60k
   - Pronto: CA-04 para estas linhas; 72/73 nunca com palavra de morte/desastre seguida de riso.
 
+- [ ] **R1.6 Integração da onda 1** — fechar as sobras de ligação deixadas por R1.1–R1.5:
+  `Snapshot.git_head` preenchido com `GitStatus.head`; `Reactor.on_click` acrescenta `(now, alvo)` em
+  `ctx["cliques"]` (últimos 30 s) e chama `atividade.evento`; `ctx["plays"]` (plays do dia da faixa
+  atual, do `Reactor`) e `ctx["artista_novo"]` (artista nunca visto, do `_seen`) para 28 e 33; e o que
+  mais a seção *Sobras* listar como "o `Reactor` precisa pôr no `ctx`", se couber no orçamento.
+  - Lê: seção *Sobras* inteira, `hud/wired/reactions.py` (`Reactor`), `hud/wired/integration.py` (trecho que monta o `Snapshot`: `grep -n "Snapshot(\|git" `), `hud/wired/main_screen.py` linhas 100–160, docstrings dos `det_*.py`
+  - Escreve: `hud/wired/reactions.py`, `hud/wired/integration.py`, `hud/wired/main_screen.py` (campo), os `det_*.py` só para trocar a dedução local pela chave nova do `ctx`, `tests/hud/test_reacoes_integracao.py`
+  - Depende de: R1.1–R1.5
+  - Orçamento: ~50k
+  - Pronto: teste de ponta a ponta (`Reactor` real + `Snapshot` sintético) dispara 28, 33, 64, 66 e 75; `tests/hud` inteiro verde; marco onda 1 abaixo cumprido.
+  - Paralelo: —
+
 > **Marco onda 1:** depois de R1.1–R1.5, rodar `tests/hud` inteiro e o teste de contagem: ≥ 87
 > reações em `ATIVAS` disparando. Atualizar `docs/PROXIMOS-PASSOS.md` §7.
 
