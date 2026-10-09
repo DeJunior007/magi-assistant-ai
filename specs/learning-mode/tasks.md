@@ -198,7 +198,7 @@ tamanho do painel, `MASCOT_MAIN` 302 de altura na base 1920 (LM-015 → LM1.5). 
   - Pronto: `test_overlay_action.py` verde; manual *(gasta API)*: as 4 ações no exemplo do PDF respondem em ≤ 4 s.
   - Paralelo: LM4.2, LM4.3
 
-- [ ] **LM3.5 Guardar palavra (★ no Vocabulary)** — núcleo: handler `lm_save` em `wiring.py` (resolve pelo `action_id`, recusa se não for vocabulary `ok`, `repo.save_word`/`unsave_word`, responde `lm_saved`); `engine.py` manda `lm_saved` do `norm` depois de cada `lm_result` de vocabulary (inclusive cache). HUD: `☆ SAVE`/`★ SAVED` no balão Vocabulary em `learning_overlay.py`, marca otimista desfeita se `lm_saved` não vier em 3 s ou vier contrário ("not saved"); estado por `norm` lido do `learning_model` (o LM1.6 já guarda `lm_saved`; esta tarefa não o altera). *(LM-012, spec §10.3, design §11.1)*
+- [x] **LM3.5 Guardar palavra (★ no Vocabulary)** — núcleo: handler `lm_save` em `wiring.py` (resolve pelo `action_id`, recusa se não for vocabulary `ok`, `repo.save_word`/`unsave_word`, responde `lm_saved`); `engine.py` manda `lm_saved` do `norm` depois de cada `lm_result` de vocabulary (inclusive cache). HUD: `☆ SAVE`/`★ SAVED` no balão Vocabulary em `learning_overlay.py`, marca otimista desfeita se `lm_saved` não vier em 3 s ou vier contrário ("not saved"); estado por `norm` lido do `learning_model` (o LM1.6 já guarda `lm_saved`; esta tarefa não o altera). *(LM-012, spec §10.3, design §11.1)*
   - Lê: design §11.1, spec §3 (`SavedWord`), §6 (`lm_save`, `lm_saved`), §8 (`learning_saved_words`), §10.3, §11, APIs de `repo.py`, `engine.py`, `wiring.py`, `learning_overlay.py`, `learning_model.py` por grep `def `
   - Escreve: `magi/learning/wiring.py` (só `lm_save`), `magi/learning/engine.py` (só `lm_saved` após vocabulary), `hud/wired/learning_overlay.py` (só a estrela), `tests/learning/test_saved_words.py`
   - Depende de: LM3.4, LM1.1
@@ -389,3 +389,14 @@ aberto) só o fallback de `topic.py` (LM1.8); **P13** (lugar do cartão no paine
   `lm_session` se o núcleo um dia mandar: `topic_hints {"game","news"}` (dica à direita das linhas)
   e `picker_s` (prazo). "Fala/digita" = chega `lm_msg` do Pedro (ou Enter com texto no campo).
   Pendente o manual (lista abre ao entrar, some em 10 s e não cobre a última mensagem).
+- **LM3.5:** o `lm_saved` depois do `lm_result` sai do `_action` do `wiring.py` (fora do "só
+  `lm_save`"): a engine não fala com o HUD, então ela só monta (`LearningEngine.saved_state`) e o
+  wiring envia logo após o `lm_result`, mantendo a ordem. O resultado do cache volta com o `id` do
+  pedido novo, que não está no banco; por isso a engine lembra os Vocabulary `ok` por `id`
+  (`vocab`, até 200) e o `lm_save` resolve primeiro ali, depois em `repo.get_action`.
+- **LM3.5:** os `action_id` da UI são `ui-N` e recomeçam a cada HUD aberto; um `ui-1` antigo pode
+  colidir no banco (`learning_action_results.id`) — vale para LM3.4/LM3.3: trocar por id único
+  (ex.: `ACT-` + aleatório) no `Overlay._send`. A estrela é etiqueta no título (alvo `save` = a
+  linha do título inteira); o estado vem de `screen.info.saved` via o `ModelProvider` (sem mexer
+  em `learning_screen.py`). O prazo de 3 s entra em `Overlay.deadline()`, que o `caption_tick` já
+  agenda. Pendente o manual (★ em "authentication", fechar/reabrir, desfazer/guardar no banco).

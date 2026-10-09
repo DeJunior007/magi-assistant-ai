@@ -23,10 +23,17 @@ ou por ``Overlay.poll(results)`` (o dicionário ``LearningModel.results``, por `
 resultado da ação corrente: o de uma ação antiga (inclusive o que chega depois do timeout ou de
 um retry) é ignorado. Sem resposta em ``UI_TIMEOUT_S`` (12 s) o balão vira erro ``timeout`` com
 retry; ``deadline()`` diz quando acordar para isso.
+
+LM3.5 (spec §10.3, design §11.1): no balão Vocabulary ``ok`` o título leva ``☆ SAVE``/``★ SAVED``
+(etiqueta à direita, alvo ``save``). O estado vem do ``lm_saved`` por ``norm`` guardado no
+``LearningModel.saved`` (lido pelo provedor: ``saved`` ou ``screen.info.saved``); o clique manda
+``lm_save {"action_id","on"}`` (``save`` do provedor interno) e marca na hora. A marca é desfeita,
+com a linha "not saved", se o ``lm_saved`` não vier em ``SAVE_TIMEOUT_S`` (3 s) ou vier contrário.
 """
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -39,6 +46,9 @@ from .learning_text import ActionKind, MenuItem, Rect, Selection, menu_items, me
 
 CLOSED, MENU, LOADING, OK, ERROR = "closed", "menu", "loading", "ok", "error"
 UI_TIMEOUT_S = 12.0   # sem lm_result nesse prazo, o balão vira erro "timeout" (com retry)
+SAVE_TIMEOUT_S = 3.0  # LM3.5: sem lm_saved nesse prazo, a marca otimista da estrela é desfeita
+STAR_OFF, STAR_ON = "☆ SAVE", "★ SAVED"
+NOT_SAVED = "not saved"
 
 BUBBLE_W = 440.0      # largura lógica do balão
 BUBBLE_PAD = 16.0     # margem interna
@@ -242,6 +252,15 @@ MOCK_VOCAB = {"term": "authentication", "meaning": "the process of proving who a
               "examples": ["We added two-factor authentication."], "synonyms": ["verification"]}
 
 
+_EDGE_PUNCT = re.compile(r"^[\W_]+|[\W_]+$")
+
+
+def norm_key(term: str) -> str:
+    """``norm`` de uma palavra salva, igual ao do núcleo (spec §10.3 item 2: minúsculas, sem
+    pontuação nas pontas, espaços simples) — a chave do ``lm_saved``."""
+    return _EDGE_PUNCT.sub("", " ".join(term.split()).lower())
+
+
 def _norm(s: str) -> str:
     return " ".join(s.lower().strip(" .,!?;:\"'").split())
 
@@ -287,6 +306,13 @@ class BridgeProvider:
     send: Callable[[str, dict[str, Any]], bool]
     calls: list[dict[str, Any]] = field(default_factory=list)
 
+    def save(self, action_id: str, on: bool) -> bool:
+        """LM3.5: ``lm_save``; ``False`` se não saiu (a estrela volta na hora)."""
+        try:
+            return bool(self.send("lm_save", {"action_id": action_id, "on": bool(on)}))
+        except Exception:  # noqa: BLE001 - socket caído não derruba o HUD
+            return False
+
     def submit(self, action: dict[str, Any], text: str) -> dict[str, Any] | None:
         fields = {k: action[k] for k in ("id", "kind", "message_id", "start", "end")}
         self.calls.append(fields)
@@ -327,6 +353,10 @@ class Overlay:
     timeout_s: float = UI_TIMEOUT_S
     clock: Callable[[], float] = field(default=time.monotonic, repr=False)
     sent_at: float | None = None          # quando o lm_action corrente saiu (para o timeout)
+    #: LM3.5: marca otimista da estrela {"norm","on","at","before"} até o ``lm_saved`` chegar.
+    save_pending: dict[str, Any] | None = None
+    save_note: bool = False               # linha "not saved" sob o título
+    save_timeout_s: float = SAVE_TIMEOUT_S
 
     @property
     def is_open(self) -> bool:
@@ -348,6 +378,7 @@ class Overlay:
         self.hover = None
         self.kind = self.action_id = self.result = None
         self.more = False
+        self.save_pending, self.save_note = None, False
         self.phase = MENU
         self._bump()
 
@@ -360,6 +391,7 @@ class Overlay:
         self.hover = None
         self.kind = self.action_id = self.result = None
         self.more = False
+        self.save_pending, self.save_note = None, False
         self._bump()
         return True
 
@@ -398,6 +430,7 @@ class Overlay:
         self.action_id = f"ui-{self.seq}"
         self.result = None
         self.more = False
+        self.save_pending, self.save_note = None, False
         self.phase = LOADING
         self.sent_at = self.clock()
         self._bump()
@@ -418,16 +451,22 @@ class Overlay:
         return True
 
     def deadline(self) -> float | None:
-        """Instante (no ``clock``) em que a ação corrente estoura o timeout de UI, ou ``None``."""
-        if self.phase != LOADING or self.sent_at is None:
-            return None
-        return self.sent_at + self.timeout_s
+        """Instante (no ``clock``) em que a ação corrente estoura o timeout de UI (ou a marca da
+        estrela, o de ``SAVE_TIMEOUT_S``), ou ``None``."""
+        ends = []
+        if self.phase == LOADING and self.sent_at is not None:
+            ends.append(self.sent_at + self.timeout_s)
+        if self.save_pending is not None:
+            ends.append(self.save_pending["at"] + self.save_timeout_s)
+        return min(ends) if ends else None
 
     def poll(self, results: Mapping[str, dict[str, Any]] | None = None,
              now: float | None = None) -> bool:
         """Carregando: pega o ``lm_result`` da ação corrente em ``results`` (por ``id``; sem
         argumento, o ``results`` do provedor, se houver) ou estoura o timeout de UI. ``True`` se o
-        balão mudou."""
+        balão mudou. Também confirma ou desfaz a marca da estrela (LM3.5)."""
+        if self.save_pending is not None:
+            return self._poll_save(now)
         if self.phase != LOADING or self.action_id is None:
             return False
         if results is None:
@@ -435,13 +474,75 @@ class Overlay:
         res = results.get(self.action_id) if results else None
         if res is not None:
             return self.on_result({**res, "id": self.action_id})
-        end = self.deadline()
+        end = self.sent_at + self.timeout_s if self.sent_at is not None else None
         if end is not None and (self.clock() if now is None else now) >= end:
             assert self.kind is not None
             return self.on_result({"id": self.action_id, "kind": self.kind.value, "ok": False,
                                    "data": None, "error": "timeout", "cached": False, "ms": 0,
                                    "cost_usd": 0.0})
         return False
+
+    # ------------------------------------------------------------ estrela (LM3.5)
+
+    def saved_map(self) -> Mapping[str, Mapping[str, Any]]:
+        """``lm_saved`` por ``norm`` (o ``LearningModel.saved``), visto pelo provedor."""
+        prov = self.provider
+        saved = getattr(prov, "saved", None)
+        if saved is None:
+            info = getattr(getattr(prov, "screen", None), "info", None)
+            saved = getattr(info, "saved", None)
+        return saved if isinstance(saved, Mapping) else {}
+
+    def save_norm(self) -> str | None:
+        """``norm`` do termo do balão Vocabulary ``ok`` (``None`` nos outros balões)."""
+        if self.phase != OK or self.kind is not ActionKind.VOCABULARY or not self.result:
+            return None
+        return norm_key(str((self.result.get("data") or {}).get("term") or "")) or None
+
+    def starred(self) -> bool | None:
+        """Estrela marcada? ``None`` = balão sem estrela."""
+        norm = self.save_norm()
+        if norm is None:
+            return None
+        if self.save_pending is not None and self.save_pending["norm"] == norm:
+            return bool(self.save_pending["on"])
+        return bool((self.saved_map().get(norm) or {}).get("saved"))
+
+    def toggle_save(self) -> bool:
+        """Clique na estrela: ``lm_save`` com o estado contrário e marca otimista."""
+        cur = self.starred()
+        if cur is None or self.action_id is None or self.save_pending is not None:
+            return False
+        norm = self.save_norm()
+        inner = getattr(self.provider, "inner", self.provider)
+        send = getattr(inner, "save", None)
+        self.save_note = False
+        try:
+            sent = bool(send(self.action_id, not cur)) if send is not None else False
+        except Exception:  # noqa: BLE001
+            sent = False
+        if sent:
+            self.save_pending = {"norm": norm, "on": not cur, "at": self.clock(),
+                                 "before": self.saved_map().get(norm)}
+        else:
+            self.save_note = True
+        self._bump()
+        return True
+
+    def _poll_save(self, now: float | None) -> bool:
+        pend = self.save_pending
+        assert pend is not None
+        entry = self.saved_map().get(pend["norm"])
+        if entry is not None and entry is not pend["before"]:  # lm_saved novo chegou
+            self.save_pending = None
+            self.save_note = bool(entry.get("saved")) != bool(pend["on"])
+        elif (self.clock() if now is None else now) >= pend["at"] + self.save_timeout_s:
+            self.save_pending = None
+            self.save_note = True
+        else:
+            return False
+        self._bump()
+        return True
 
     def toggle_more(self) -> bool:
         if self.phase != OK or self.kind is not ActionKind.VOCABULARY:
@@ -456,6 +557,8 @@ class Overlay:
             return self.toggle_more()
         if name == "retry":
             return self.retry() is not None
+        if name == "save":
+            return self.toggle_save()
         return False
 
     # ------------------------------------------------------------ teclado / hover
@@ -505,7 +608,13 @@ class Overlay:
         sel = self.selection.text if self.selection else ""
         if self.kind is None:
             return []
-        return bubble_lines(self.phase, self.kind, self.result, sel, self.more)
+        lines = bubble_lines(self.phase, self.kind, self.result, sel, self.more)
+        star = self.starred()
+        if star is not None and lines:
+            lines[0] = BubbleLine("title", lines[0].text, (STAR_ON if star else STAR_OFF,), "save")
+            if self.save_note:
+                lines.insert(1, BubbleLine("error", NOT_SAVED))
+        return lines
 
 
 def item_rect(menu: Rect, i: int) -> Rect:
@@ -675,7 +784,8 @@ def paint_bubble(p, rows: Sequence[Row], bubble: Rect) -> None:
 
 
 __all__ = [
-    "BUBBLE_W", "CLOSED", "ERROR", "LOADING", "MENU", "OK", "UI_TIMEOUT_S", "BridgeProvider",
+    "BUBBLE_W", "CLOSED", "ERROR", "LOADING", "MENU", "NOT_SAVED", "OK", "SAVE_TIMEOUT_S",
+    "STAR_OFF", "STAR_ON", "UI_TIMEOUT_S", "BridgeProvider",
     "BubbleLine", "FakeProvider",
     "Overlay", "Row", "bubble_lines", "error_text", "format_result", "item_at", "item_rect",
     "label_width", "layout_bubble", "measure", "paint_bubble", "paint_menu", "title_line",

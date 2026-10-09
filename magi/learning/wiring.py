@@ -43,6 +43,7 @@ import asyncio
 import contextlib
 import dataclasses
 import logging
+import re
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -59,6 +60,8 @@ from magi.common.contracts import (
     LmMsgMsg,
     LmObsMsg,
     LmResultMsg,
+    LmSavedMsg,
+    LmSaveMsg,
     LmSayMsg,
     LmSessionMsg,
     LmTopicMsg,
@@ -73,13 +76,14 @@ from magi.learning.contracts import (
     Author,
     LearningMessage,
     Observation,
+    SavedWord,
     Source,
     Topic,
     TopicContext,
 )
 from magi.learning.contracts import ActionResult as LmActionResult
 from magi.learning.engine import UNAVAILABLE_ERROR, LearningEngine
-from magi.learning.repo import DEFAULT_JSONL_DIR, LearningRepo, make_repo
+from magi.learning.repo import DEFAULT_JSONL_DIR, LearningRepo, make_repo, normalize_term
 from magi.learning.runtime import LearningRuntime, NullRuntime
 from magi.learning.session import Clock, LearningSession
 from magi.learning.topic import TopicBuilder
@@ -162,6 +166,7 @@ class LearningWiring:
             LmCfgMsg: self._on_cfg,
             LmActionMsg: self._on_action,
             LmTopicMsg: self._on_topic,
+            LmSaveMsg: self._on_save,
         }
 
     # -- ciclo de vida --------------------------------------------------------------------------
@@ -258,6 +263,43 @@ class LearningWiring:
             result = await self.engine.handle(msg)
         if result is not None and self.session.active:
             await self.hud.send(LmResultMsg(result))
+            saved = await self.engine.saved_state(result) if self.engine is not None else None
+            if saved is not None:  # LM3.5: estrela do Vocabulary abre no estado certo
+                await self.hud.send(saved)
+
+    # -- palavras salvas (LM3.5, spec §10.3) ----------------------------------------------------
+
+    async def _on_save(self, msg: LmSaveMsg) -> None:
+        """``lm_save {"action_id","on"}`` → ``save_word``/``unsave_word`` → ``lm_saved``. Tudo vem
+        do ``action_id`` (só Vocabulary ``ok``; outro é recusado sem resposta). Banco fora →
+        ``lm_saved`` com o estado contrário ao pedido (a UI desfaz a marca, "not saved")."""
+        if not self.session.active or self.engine is None:
+            return
+        stored = await self.engine.resolve_vocab(msg.action_id)
+        if stored is None:
+            log.info("learning: lm_save %s recusado (não é vocabulary ok)", msg.action_id)
+            return
+        data = stored.result.data or {}
+        term = str(data.get("term") or "")
+        norm = normalize_term(term)
+        now = self.clock()
+        try:
+            if msg.on:
+                source = await self.repo.get_message(stored.message_id)
+                if source is None:
+                    raise LookupError(f"mensagem {stored.message_id} desconhecida")
+                word = await self.repo.save_word(SavedWord(
+                    None, norm, term, str(data.get("meaning") or ""), data.get("pos"),
+                    data.get("cefr"), source_sentence(source.text, stored.sel_start, stored.sel_end),
+                    source.session_id, stored.message_id, stored.result.id, now, None))
+                reply = LmSavedMsg(norm, True, word.id)
+            else:
+                await self.repo.unsave_word(norm, now)
+                reply = LmSavedMsg(norm, False)
+        except Exception:
+            log.warning("learning: lm_save %s não gravado", msg.action_id, exc_info=True)
+            reply = LmSavedMsg(norm, not msg.on)
+        await self.hud.send(reply)
 
     # -- modo -----------------------------------------------------------------------------------
 
@@ -543,6 +585,22 @@ class LearningWiring:
 # ---------------------------------------------------------------------------------------------
 # Instalação no núcleo
 # ---------------------------------------------------------------------------------------------
+
+
+#: Fim de frase para o ``example`` de uma palavra salva (spec §10.3 item 2).
+_SENTENCE_END = re.compile(r"[.!?]")
+EXAMPLE_MAX = 240
+
+
+def source_sentence(text: str, start: int, end: int) -> str:
+    """A frase de ``text`` que contém a seleção ``[start, end)``, cortada por ``.``/``!``/``?``
+    e limitada a ``EXAMPLE_MAX`` caracteres (spec §10.3 item 2)."""
+    start = max(0, min(start, len(text)))
+    end = max(start, min(end, len(text)))
+    head = max((m.end() for m in _SENTENCE_END.finditer(text, 0, start)), default=0)
+    tail = _SENTENCE_END.search(text, end)
+    out = " ".join(text[head:tail.end() if tail else len(text)].split())
+    return out[:EXAMPLE_MAX]
 
 
 def speak_via(machines: Callable[[], Iterable[Any]]) -> Speak:

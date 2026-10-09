@@ -53,7 +53,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from magi.common.contracts import LmActionMsg, TurnState
+from magi.common.contracts import LmActionMsg, LmSavedMsg, TurnState
 from magi.learning.analyzers import ActionUnavailable, PromptOptions, analyze, ensure_available
 from magi.learning.analyzers import observe as observer
 from magi.learning.budget import LearningBudget, LearningCostTask
@@ -68,12 +68,14 @@ from magi.learning.contracts import (
     Selection,
 )
 from magi.learning.model import LearningModel, ModelError, ModelInvalid
-from magi.learning.repo import LearningRepo
+from magi.learning.repo import LearningRepo, StoredAction, normalize_term
 
 log = logging.getLogger(__name__)
 
 #: Cliente padrão (com P1 = A, o ``hud_bridge`` do ``gamerhud``; o socket não identifica clientes).
 DEFAULT_CLIENT = "hud"
+#: Quantos resultados de Vocabulary a engine lembra para o ``lm_save`` (LM3.5).
+VOCAB_KEEP = 200
 #: Código de erro de ação indisponível (ver docstring do módulo; sem nova tentativa).
 UNAVAILABLE_ERROR = "model"
 #: Tentativas no total quando a resposta é ``invalid`` (1 nova tentativa, LM-007).
@@ -183,6 +185,9 @@ class LearningEngine:
         self.gate_poll_s = gate_poll_s
         self._observer: asyncio.Task[None] | None = None
         self._obs_busy = False
+        # -- palavras salvas (LM3.5) --
+        #: Vocabulary ``ok`` respondidos, por ``id`` do pedido (o do cache não está no banco).
+        self.vocab: dict[str, StoredAction] = {}
 
     # -- ciclo de vida --------------------------------------------------------------------------
 
@@ -227,7 +232,47 @@ class LearningEngine:
         except Exception:
             log.exception("learning: falha ao montar a ação %s", msg.id)
             return self._fail(msg.id, ActionKind(msg.kind), "model", started)
-        return await self.request(req, client, started=started)
+        result = await self.request(req, client, started=started)
+        if result is not None and result.ok and result.kind is ActionKind.VOCABULARY:
+            sel = req.selection
+            self.vocab[result.id] = StoredAction(result, sel.message_id, sel.start, sel.end)
+            while len(self.vocab) > VOCAB_KEEP:
+                self.vocab.pop(next(iter(self.vocab)))
+        return result
+
+    # -- palavras salvas (LM3.5, spec §10.3) ----------------------------------------------------
+
+    async def resolve_vocab(self, action_id: str) -> StoredAction | None:
+        """Vocabulary ``ok`` pelo ``action_id`` (memória da sessão, depois o banco); ``None`` se
+        não existir ou for de outro ``kind``/com erro (``lm_save`` recusado)."""
+        stored = self.vocab.get(action_id)
+        if stored is None:
+            try:
+                stored = await self.repo.get_action(action_id)
+            except Exception:
+                log.warning("learning: ação %s não lida do banco", action_id, exc_info=True)
+                return None
+        if stored is None or not stored.result.ok or stored.result.kind is not ActionKind.VOCABULARY:
+            return None
+        if not normalize_term(str((stored.result.data or {}).get("term") or "")):
+            return None
+        return stored
+
+    async def saved_state(self, result: ActionResult | None) -> LmSavedMsg | None:
+        """``lm_saved`` do ``norm`` do termo depois de um ``lm_result`` de vocabulary ``ok``
+        (inclusive do cache), para a estrela abrir no estado certo; ``None`` nos outros."""
+        if result is None or not result.ok or result.kind is not ActionKind.VOCABULARY:
+            return None
+        norm = normalize_term(str((result.data or {}).get("term") or ""))
+        if not norm:
+            return None
+        try:
+            words = await self.repo.saved_words()
+        except Exception:
+            log.warning("learning: palavras salvas indisponíveis", exc_info=True)
+            return LmSavedMsg(norm, False)
+        word = next((w for w in words if w.norm == norm and w.removed_at is None), None)
+        return LmSavedMsg(norm, word is not None, word.id if word is not None else None)
 
     async def request(
         self, req: ActionRequest, client: str = DEFAULT_CLIENT, *, started: float | None = None
