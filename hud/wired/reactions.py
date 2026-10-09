@@ -60,6 +60,7 @@ class Reaction:
     line: str | None = None  # texto curto na legenda (sem voz)
     efeitos: tuple[str, ...] = ()  # até 3 efeitos do passo (reacoes.contratos.EFEITO); effect = o 1º
     corpo: tuple[str, ...] = ()  # extras: "bob", "sway", "tails", "fone_on/off", "braco:P*", "iris:<olhar>"
+    noturna: bool = False  # aparece também com ela dormindo de noite (classe NOTURNA)
 
 
 R = Reaction

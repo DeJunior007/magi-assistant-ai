@@ -71,7 +71,7 @@ R0.1 ─┬─ R0.2 ─┐
   - Pronto: CA-03 (24 h simuladas, relógio falso) e CA-07 verdes; um teste por linha da tabela do spec §3.
   - Paralelo: R0.3, R0.4
 
-- [ ] **R0.3 Retrato: efeitos, corpo e madrugada** — efeitos `zz`, `tear`, `vein`, `sparkle` no
+- [x] **R0.3 Retrato: efeitos, corpo e madrugada** — efeitos `zz`, `tear`, `vein`, `sparkle` no
   `_reaction_effect` (até 3 por passo, de `Reaction.efeitos`); extras `sway`, `tails`, `fone_on/off`,
   `braco:P*`, `iris:<olhar>` (asset ausente → ignora); `_reacting()` aceita `sleeping` de noite
   quando a reação vem marcada noturna (campo `noturna` na `Reaction`). *(R1.1, R6, design §6)*
@@ -247,3 +247,4 @@ merge trivial, resolvido pelo orquestrador).
 
 - R0.1: `Def` ganhou `variante` e `substituida` (citados em R0.4/spec §1, fora do bloco do spec §2). Stubs extras: `atividade.Atividade(caminho)` com `evento`/`parado_s`, `registro.gravar(d, disparo, agora, caminho)`, `catalogo.DEFS`/`ATIVAS`; R0.2/R1.4 podem ajustar.
 - R0.2: `escolher` guarda o histórico num `governador.Estado` em `ctx["estado"]` (o chamador reusa o mesmo `ctx` entre ticks); demais chaves de `ctx` na docstring do módulo (`defs` aceita `chave` ou `(chave, variante)`, `hora`, `humor`, `jogo`, `claude`, `musica_nota`, `ado`, `desligadas`, `parada`). O disparo aprovado fica em `Estado.ultimo` para `registro.gravar`. Janelas de 1/h e 1/dia são móveis (3600 s / 86400 s); "I16 ≤ 1/noite" sai do 1/dia. Prioridade: classe de maior posto na Def (VOLTA/VITORIA/ZOEIRA etc. não têm posto próprio — use junto com PEDRO/SISTEMA no catálogo).
+- R0.3: extras de corpo leem `extra/<ID>.png` no quadro das partes (`extra/E2.png` com recaída para `extra/fone.png`, `extra/E3.png`, `extra/P9.png`…); `condessa_build.py` ainda não gera E2/E3/P9–P13 (R3). `Reaction.efeitos` aceita nome ou ID D* (mapeado por `contratos.EFEITO`). `iris:<olhar>` só vale com a íris solta (O1). Na GPU (`renderer = "gl"`) os extras entram como camadas comuns, sem teste na GPU real.

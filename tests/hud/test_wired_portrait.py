@@ -400,3 +400,56 @@ def test_partes_ouvindo_desenha_aneis_e_barras(tmp_path):
     # barras de áudio ao lado da cabeça (x ~ 790..900 do quadro de 1024 = ~197..225 em 256)
     assert cyan(heard, 190, 235, 40, 90) > 10 and cyan(idle, 0, 256, 0, 256) == 0
     assert rings == ["listening"]  # e os anéis no fundo (atrás das peças), só ouvindo
+
+
+def test_partes_reacao_noturna_ca06(tmp_path):
+    """CA-06: reação NOTURNA aparece às 23h com ela dormindo; no fim, a pose de dormir volta."""
+    from wired.portrait import PartsAssets, PartsPortrait
+    from wired.reactions import REACTIONS, Reaction
+
+    write_parts(tmp_path)
+    m = PartsPortrait(PartsAssets(tmp_path), "sleeping", now=0.0)
+    m.hour = lambda: 23
+    m._blink_at = 1e9
+    m.react(REACTIONS["hot"], 5.0)
+    assert m._reacting(1.0) is None and m.eyes_id(1.0) == "B14"  # comum: dormindo de noite, nada
+    noite = Reaction("coruja", "B4", "C6", None, "love", "zz", 5.0, noturna=True, efeitos=("zz", "D9"))
+    m.react(noite, 5.0)
+    assert m._reacting(1.0) is noite
+    assert (m.eyes_id(1.0), m.mouth_id(1.0), m.mood(1.0)) == ("B4", "C6", "love")
+    assert render(m, 1.0) is not None
+    assert m.eyes_id(6.0) == "B14" and m.mood(6.0) == "sleepy"  # acabou: volta a dormir
+    m.set_expression("speaking")
+    assert m._reacting(1.0) is None  # acordada falando, a fala manda
+
+
+@pytest.mark.parametrize("with_assets", [False, True])
+def test_partes_efeitos_e_corpo_novos(tmp_path, with_assets):
+    from wired.portrait import PartsAssets, PartsPortrait, _effects_of
+    from wired.reactions import Reaction
+
+    write_parts(tmp_path)
+    if with_assets:  # extras da checklist (fone E2/E3, braço P9) e partes opcionais
+        for rel in ("extra/E2.png", "extra/E3.png", "extra/P9.png", "parts/arm_l.png", "parts/tail_l.png",
+                    "parts/tail_r.png", "parts/iris.png", "parts/eye_open.png", "eyes/O1.png"):
+            (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+            img = QImage(16, 16, QImage.Format.Format_ARGB32)
+            img.fill(QColor(100, 200, 100))
+            assert img.save(str(tmp_path / rel))
+    m = PartsPortrait(PartsAssets(tmp_path), "sleeping", now=0.0)
+    m.hour = lambda: 14
+    assert _effects_of(Reaction("x", efeitos=("D3", "tear", "vein", "sparkle"))) == ("zz", "tear", "vein")
+    assert _effects_of(Reaction("x", effect="sweat")) == ("sweat",)
+    for kinds, corpo in ((("zz", "tear", "vein"), ("sway", "tails", "fone_on", "braco:P9")),
+                         (("sparkle",), ("bob", "fone_off", "braco:P13", "iris:left")),
+                         (("blush", "notes", "D5"), ("iris:nada",))):
+        m.react(Reaction("efx", "B4", "C6", None, "happy", kinds[0], 5.0, efeitos=kinds, corpo=corpo), 5.0)
+        for k in range(5):
+            m.tick(1.0 + k / 30)
+        assert render(m, 1.2) is not None
+    m.react(Reaction("e", corpo=("braco:P9",)), 5.0)
+    assert m._extra(m.reaction, "braco") == "P9" and m._extra(m.reaction, "sway") is None
+    m.react(Reaction("olha", "B4", corpo=("iris:left",)), 9.0)
+    want = (-8.0, 0.0) if with_assets else None  # sem íris solta (O1), o extra é ignorado
+    assert m._iris_extra(m._reacting(6.0)) == want
+    assert m.eyes_id(6.0).startswith("live:") == with_assets

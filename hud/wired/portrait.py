@@ -602,6 +602,16 @@ def _scaled_part(assets: PartsAssets, rel: str, side: int) -> tuple[QPixmap, QRe
     return scaled.copy(x0, y0, x1 - x0, y1 - y0), QRectF(x0 * k, y0 * k, (x1 - x0) * k, (y1 - y0) * k)
 
 
+def _effects_of(r) -> tuple[str, ...]:
+    """Até 3 efeitos do passo (``efeitos``, por nome ou ID D*); sem eles, o ``effect`` antigo."""
+    if r is None:
+        return ()
+    from .reacoes.contratos import EFEITO
+
+    kinds = tuple(getattr(r, "efeitos", ()) or ((r.effect,) if r.effect else ()))
+    return tuple(EFEITO.get(k, k) for k in kinds)[:3]
+
+
 class PartsPortrait(Mascot):
     """Condessa 2.5D: partes animadas (respiração, cabelo em pêndulo, olhar com parallax),
     olhos/boca por estado e pela voz, piscada da expressão e efeitos desenhados em código."""
@@ -684,9 +694,30 @@ class PartsPortrait(Mascot):
     def _reacting(self, now: float):
         """A reação em curso, se ela está parada (falando/pensando, a fala manda)."""
         r = self.reaction
-        if r is None or now >= self.reaction_until or not self._resting():
+        if r is None or now >= self.reaction_until:
             return None
-        return r
+        if self._resting():
+            return r
+        noturna = getattr(r, "noturna", False) and self.state == "sleeping" and self._night()
+        return r if noturna else None
+
+    @staticmethod
+    def _extra(r, name: str) -> str | None:
+        """Extra de corpo da reação (``sway``, ``braco:P9``...): o valor depois de ``:``, ``""`` sem."""
+        for c in getattr(r, "corpo", ()) if r is not None else ():
+            key, _, val = str(c).partition(":")
+            if key == name:
+                return val
+        return None
+
+    def _iris_extra(self, r) -> tuple[float, float] | None:
+        """``iris:<olhar>``: a sacada do O1 para um olhar nomeado (gaze do toml ou olho F*/B*)."""
+        name = self._extra(r, "iris")
+        if not name or not self.assets.live_eyes:
+            return None
+        gaze = self.assets.gaze_by_name.get(name)
+        eyes = str(gaze.get("eyes", "")) if gaze else name
+        return IRIS_FOR.get(eyes)
 
     def _look_gaze(self, r) -> dict | None:
         if r is None or not r.look:
@@ -742,13 +773,14 @@ class PartsPortrait(Mascot):
     def eyes_id(self, now: float) -> str:
         """Olho a desenhar: o da expressão ou, com o olhar livre, ``live:dx:dy`` (íris solta)."""
         want = self._eye_target(now)
-        if self.assets.live_eyes and want in IRIS_FOR and not self.blinking(now):
+        live = want in IRIS_FOR or self._iris_extra(self._reacting(now)) is not None
+        if self.assets.live_eyes and live and not self.blinking(now):
             return f"live:{round(self._iris[0])}:{round(self._iris[1])}"
         return want
 
     def _eye_target(self, now: float) -> str:
         cfg = self._state_cfg()
-        if self.state == "sleeping" and self._night():
+        if self.state == "sleeping" and self._night() and self._reacting(now) is None:
             closed = (cfg.get("blink") or ["B15", "B15"])[-1]
             return closed if self.assets.has(f"eyes/{closed}.png") else str(cfg.get("eyes", "B1"))
         if self.blinking(now):
@@ -818,7 +850,7 @@ class PartsPortrait(Mascot):
             elif now >= self._saccade_at:
                 self._saccade = (self._rng.uniform(-1.2, 1.2), self._rng.uniform(-0.8, 0.8))
                 self._saccade_at = now + self._rng.uniform(*SACCADE_EVERY)
-            tx, ty = IRIS_FOR.get(target, (0.0, 0.0))
+            tx, ty = self._iris_extra(self._reacting(now)) or IRIS_FOR.get(target, (0.0, 0.0))
             tx, ty = tx + self._saccade[0], ty + self._saccade[1]
             self._iris[0] += (tx - self._iris[0]) * IRIS_EASE
             self._iris[1] += (ty - self._iris[1]) * IRIS_EASE
@@ -880,11 +912,14 @@ class PartsPortrait(Mascot):
             sway *= 1 - 0.7 * lk
             head_dy += self._wake(now) * -6.0  # o "pulo" de quem acordou
         r = self._reacting(now)
-        if r is not None and r.bob:  # curtindo a música: a cabeça vai no ritmo
-            fade = min(1.0, (self.reaction_until - now) / 1.0, 1.0)
+        fade = min(1.0, (self.reaction_until - now) / 1.0) if r is not None else 0.0
+        if r is not None and (r.bob or self._extra(r, "bob") is not None):  # curtindo: cabeça no ritmo
             beat = math.sin(2 * math.pi * BOB_HZ * now)
             tilt += 2.4 * fade * beat
             head_dy += 2.5 * fade * abs(beat)
+        if self._extra(r, "sway") is not None:  # o corpo vai de um lado para o outro
+            sway += 7.0 * fade * math.sin(now * 2.2)
+        tails_k = 1.0 + 1.4 * fade if self._extra(r, "tails") is not None else 1.0
         p.save()
         p.setClipRect(rect, Qt.ClipOperation.IntersectClip)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
@@ -965,7 +1000,7 @@ class PartsPortrait(Mascot):
         back_tip = (0.9 * math.sin(now * 0.7 - 0.9) + 0.3 * tilt) if gl is None else 0.0
         draw("parts/back_tip.png", *back, child=back_tip, deform=back_def)
         for name, phase in (("tail_l", 0.0), ("tail_r", 1.3)):
-            swing = 1.8 * math.sin(now * 1.05 + phase) + 0.5 * math.sin(now * 2.3 + phase * 2)
+            swing = tails_k * (1.8 * math.sin(now * 1.05 + phase) + 0.5 * math.sin(now * 2.3 + phase * 2))
             pivot = TAIL_PIVOTS[name]
             args = (0.6 * hx + sway, 0.6 * hy + head_dy, (swing + 0.6 * tilt) * rigid, pivot)
             tail_def = hair(f"parts/{name}.png", 13.0, phase, 1.05, root=pivot[1])
@@ -980,6 +1015,9 @@ class PartsPortrait(Mascot):
             draw("parts/body.png", sway, 0.0, deform=(2,))
         else:
             draw("", sway, 3.0 * breath, part=_torso_group(self.assets, side))
+        arm = self._extra(r, "braco")
+        if arm:  # braço da reação (P9–P13), se o asset existir
+            draw(f"extra/{arm}.png", sway, 3.0 * breath)
         # cabeça, olhos e boca em três desenhos com a mesma transformação (antes eram remontados
         # juntos a cada troca: com a íris solta isso virava uma remontagem por quadro)
         hpos = (hx + sway, hy + head_dy)
@@ -1008,11 +1046,18 @@ class PartsPortrait(Mascot):
         else:
             draw("parts/bangs.png", 1.25 * hx + sway, 1.2 * hy + head_dy, 0.6 * math.sin(now * 1.3),
                  (512.0, 100.0), head=True, deform=hair("parts/bangs.png", 3.0, 0.0, 1.3))
+        fone = "E2" if self._extra(r, "fone_on") is not None else (
+            "E3" if self._extra(r, "fone_off") is not None else None)
+        if fone is not None:  # fone na cabeça (E2) ou tirando (E3); sem o asset, nada
+            rel = f"extra/{fone}.png"
+            if fone == "E2" and not self.assets.has(rel):
+                rel = "extra/fone.png"
+            draw(rel, *hpos, head=True)
         if gl is not None and not self._paint_gl(p, gl, ops, now, side, breath, r):
             self._gl = None  # GPU falhou: daqui em diante, CPU
         self._effects(p, now, QColor(accent), hx, hy + head_dy)
-        if r is not None and r.effect:
-            self._reaction_effect(p, now, r.effect, hx, hy + head_dy)
+        for kind in _effects_of(r):
+            self._reaction_effect(p, now, kind, hx, hy + head_dy)
         if self._think_since is not None and now - self._think_since >= DOTS_AFTER:
             self._dots(p, now, hx, hy + head_dy)
         if lk > 0.02:
@@ -1173,6 +1218,44 @@ class PartsPortrait(Mascot):
                 for i in range(4):
                     x = cx + hx + i * 14
                     p.drawLine(QPointF(x, 515 + hy), QPointF(x + 12, 495 + hy))
+        elif kind == "zz":  # zz subindo (cochilo da reação)
+            for i in range(3):
+                ph = (now / 3.0 + i / 3) % 1.0
+                c = self.tint()
+                c.setAlphaF(max(0.0, 1.0 - ph))
+                p.setPen(c)
+                p.setFont(fonts.font("cond", 40 + i * 12, 600))
+                p.drawText(QPointF(720 + i * 34 + 20 * ph + hx, 230 - i * 40 - 70 * ph + hy), "z")
+        elif kind == "tear":  # lágrima descendo do canto do olho
+            x, y = 445 + hx, 470 + hy + 60 * ((now * 0.4) % 1.0)
+            path = QPainterPath(QPointF(x, y - 18))
+            path.cubicTo(QPointF(x + 12, y - 2), QPointF(x + 14, y + 10), QPointF(x, y + 10))
+            path.cubicTo(QPointF(x - 14, y + 10), QPointF(x - 12, y - 2), QPointF(x, y - 18))
+            p.setPen(QPen(QColor("#2a3550"), 2))
+            p.setBrush(QColor(170, 215, 255, 220))
+            p.drawPath(path)
+        elif kind == "vein":  # veia de raiva (cruz de quatro arcos) na testa
+            sc = 1.0 + 0.1 * abs(math.sin(now * 5))
+            cx, cy, r0 = 640 + hx, 250 + hy, 22 * sc
+            p.setPen(QPen(QColor("#d23a3a"), 7))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            for ang in (45, 135, 225, 315):
+                ox, oy = r0 * math.cos(math.radians(ang)), r0 * math.sin(math.radians(ang))
+                p.drawArc(QRectF(cx + ox - r0, cy + oy - r0, 2 * r0, 2 * r0), (ang + 180 - 45) * 16, 90 * 16)
+        elif kind == "sparkle":  # brilhos de quatro pontas piscando em volta
+            for i, (sx, sy) in enumerate(((300, 260), (760, 220), (800, 420))):
+                k = 0.5 + 0.5 * math.sin(now * 4 + i * 2.1)
+                s = 14 + 18 * k
+                c = QColor("#fff3c4")
+                c.setAlphaF(0.4 + 0.6 * k)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(c)
+                x, y = sx + hx, sy + hy
+                star = QPainterPath(QPointF(x, y - s))
+                for px, py in ((x + s / 4, y - s / 4), (x + s, y), (x + s / 4, y + s / 4), (x, y + s),
+                               (x - s / 4, y + s / 4), (x - s, y), (x - s / 4, y - s / 4), (x, y - s)):
+                    star.lineTo(QPointF(px, py))
+                p.drawPath(star)
         p.restore()
 
     def _effects(self, p: QPainter, now: float, accent: QColor, hx: float, hy: float) -> None:
