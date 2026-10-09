@@ -144,6 +144,14 @@ fixed:
   "Não tem aula aberta.": "There's no session open."
   "Modo aula indisponível agora.": "Learning mode isn't available right now."
   "Não consegui trocar o modo aula.": "I couldn't switch learning mode."
+  # Tema da sessão (LM1.8)
+  "Conversa livre, então.": "Free talk, then."
+  "Beleza, entrevista técnica.": "Alright, tech interview."
+  "Bora falar do jogo.": "Let's talk about your game."
+  "Bora falar das notícias.": "Let's talk about the news."
+  "Não vi jogo nenhum aberto. Conversa livre, então.": "No game detected, so free talk."
+  "Não tem notícia de hoje. Conversa livre, então.": "No news today, so free talk."
+  "Não consegui trocar o tema.": "I couldn't change the topic."
 
 templates:
   "Já usei as {n} sessões do Claude Code de hoje. Amanhã eu vejo.": "I've used today's {n} Claude Code sessions. I'll look tomorrow."

@@ -10,6 +10,8 @@
 - ``add_message``: grava a mensagem do histórico e marca atividade.
 - ``idle_expired()``/``end_if_idle()``: fim por inatividade (P9, 20 min padrão).
 - ``speak_replies``: preferência da sessão (``lm_cfg``, LM-004); começa no ``[learning]``.
+- ``set_topic(ctx)`` (LM1.8, spec §10.1): tema atual (``TopicContext``) e histórico em
+  ``learning_sessions.topic``/``topics`` (``repo.set_topic``); ``topic_block`` vai ao prompt.
 
 Sem I/O fora do repositório. O relógio é injetável (testes).
 """
@@ -18,10 +20,18 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from magi.learning.config import LearningConfig
-from magi.learning.contracts import END_REASONS, Author, LearningMessage, Source, Topic
+from magi.learning.contracts import (
+    END_REASONS,
+    Author,
+    LearningMessage,
+    Source,
+    Topic,
+    TopicContext,
+)
 from magi.learning.repo import RECENT_DEFAULT, LearningRepo, SessionInfo
 
 log = logging.getLogger(__name__)
@@ -44,6 +54,7 @@ class LearningSession:
         self._info: SessionInfo | None = None
         self._last_activity: datetime | None = None
         self._n_msgs = 0
+        self._topic: TopicContext | None = None
 
     # -- consulta -------------------------------------------------------------------------------
 
@@ -62,6 +73,31 @@ class LearningSession:
     @property
     def topic(self) -> Topic:
         return self._info.topic if self._info is not None else self.cfg.default_topic
+
+    @property
+    def topic_context(self) -> TopicContext | None:
+        """Tema escolhido nesta sessão (snapshot de ``topic.build``); ``None`` = nada escolhido."""
+        return self._topic if self._info is not None else None
+
+    @property
+    def topic_block(self) -> str | None:
+        """Bloco ``<topic_context>`` do prompt (``None`` em free ou sem sessão)."""
+        ctx = self.topic_context
+        return ctx.block if ctx is not None else None
+
+    async def set_topic(self, ctx: TopicContext, *, record: bool = True) -> bool:
+        """Guarda o tema na sessão aberta e grava o efetivo no histórico (``record``). Devolve
+        ``True`` se o tema efetivo mudou; sem sessão não faz nada (``False``)."""
+        if self._info is None:
+            return False
+        changed = ctx.topic != self._info.topic
+        self._topic = ctx
+        if record and changed:
+            at = self.clock()
+            await self.repo.set_topic(self._info.id, ctx.topic, at)
+            self._info = replace(self._info, topic=ctx.topic,
+                                 topics=[*self._info.topics, (ctx.topic, at)])
+        return changed
 
     @property
     def n_msgs(self) -> int:
@@ -114,6 +150,7 @@ class LearningSession:
         if reason not in END_REASONS:
             raise ValueError(f"end_reason inválido: {reason!r}")
         info, self._info = self._info, None
+        self._topic = None
         self._last_activity = None
         self._n_msgs = 0
         if info is None:

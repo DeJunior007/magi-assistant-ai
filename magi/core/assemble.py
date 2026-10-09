@@ -533,7 +533,8 @@ async def assemble(
         from magi.agent.self_model import HelpHandler
 
         found = [*found, HelpHandler(core.self_model)]
-    found = learning_voice.wire(config, core.deps, found)  # "modo aula"/"end session" (LM1.4)
+    found = learning_voice.wire(config, core.deps, found,  # "modo aula"/"end session" (LM1.4)
+                                topics=_learning_topics(core, config))  # tema da aula (LM1.8)
     core.deps.actions = actions.Registry(found)
     core.self_model.registry = core.deps.actions
     _wire_music(core, found)
@@ -878,6 +879,20 @@ def _wire_help(core: Core) -> None:
         agent.add_tools([SteamGameTool(core.steam, core.game.running)])
     if core.self_model is not None:
         core.self_model.tools = agent.tool_specs
+
+
+def _learning_topics(core: Core, config: Config) -> Any:
+    """Fontes do tema da aula (LM1.8): ``GameWatcher``, Steam local e ``NewsRepo`` em leitura.
+    Só com ``[learning] enabled``; ``[learning] interview_role`` opcional (P14)."""
+    if not learning_voice.enabled(config):
+        return None
+    from magi.learning.topic import TopicBuilder
+
+    raw = config.raw.get("learning") if isinstance(config.raw, dict) else None
+    role = raw.get("interview_role") if isinstance(raw, dict) else None
+    return TopicBuilder(game=core.game, steam=core.steam,
+                        news=core.repos.news if core.repos is not None else None,
+                        interview_role=str(role) if isinstance(role, str) else None)
 
 
 def _game_watcher(config: Config, catalog: GameCatalog) -> Any:

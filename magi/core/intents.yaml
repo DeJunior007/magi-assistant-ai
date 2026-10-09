@@ -672,3 +672,47 @@ intents:
       - "end the lesson"
       - "exit learning mode"
       - "stop learning mode"
+
+  # Tema da sessão (LM1.8, design §10, LM-014): só valem com sessão ativa (fora dela o filtro de
+  # ``magi.learning.intent_action`` esconde estas frases do roteador).
+  - id: learning.topic.free
+    label: "conversa livre na aula"
+    reply: null
+    phrases:
+      - "conversa livre"
+      - "tema livre"
+      - "vamos falar de qualquer coisa"
+      - "free talk"
+      - "let's just chat"
+      - "change the subject"
+
+  - id: learning.topic.interview
+    label: "simular entrevista técnica"
+    reply: null
+    phrases:
+      - "entrevista técnica"
+      - "simular entrevista"
+      - "vamos treinar entrevista"
+      - "tech interview"
+      - "interview practice"
+      - "let's do a mock interview"
+
+  - id: learning.topic.game
+    label: "falar do jogo na aula"
+    reply: null
+    phrases:
+      - "vamos falar do jogo"
+      - "falar do jogo que estou jogando"
+      - "conversar sobre o jogo"
+      - "let's talk about the game"
+      - "talk about the game I'm playing"
+      - "let's talk about my game"
+
+  - id: learning.topic.news
+    label: "falar das notícias na aula"
+    reply: null
+    phrases:
+      - "vamos falar das notícias"
+      - "conversar sobre as notícias de hoje"
+      - "let's talk about the news"
+      - "talk about today's news"

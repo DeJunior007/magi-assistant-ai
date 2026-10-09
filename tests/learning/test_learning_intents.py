@@ -24,6 +24,7 @@ from magi.common.contracts import (
     IntentId,
     LmModeMsg,
     LmSessionMsg,
+    LmTopicMsg,
     RouteKind,
     Transcript,
     TurnContext,
@@ -34,6 +35,7 @@ from magi.core.router import LocalRouter, load_intents
 from magi.core.turn import TurnDeps, TurnPipeline
 from magi.learning import intent_action
 from magi.learning.config import LearningConfig
+from magi.learning.contracts import Topic
 from magi.learning.intent_action import LearningIntentAction, wire, wiring_of
 from magi.learning.repo import JsonlRepo
 from magi.learning.wiring import install
@@ -221,3 +223,105 @@ def test_sem_atalho_global_nem_comando_de_terminal() -> None:
     for f in (ROOT / "magi" / "learning").rglob("*.py"):
         text = f.read_text(encoding="utf-8")
         assert "KGlobalAccel" not in text and "kglobalaccel" not in text.lower(), f
+
+
+# ---------------------------------------------------------------------------------------------
+# Tema por voz (LM1.8, CA-24): só com sessão ativa
+# ---------------------------------------------------------------------------------------------
+
+TOPIC_PHRASES = {
+    IntentId.LEARNING_TOPIC_FREE: ["conversa livre", "tema livre", "vamos falar de qualquer coisa",
+                                   "free talk", "let's just chat", "change the subject"],
+    IntentId.LEARNING_TOPIC_INTERVIEW: ["entrevista técnica", "simular entrevista",
+                                        "vamos treinar entrevista", "tech interview",
+                                        "interview practice", "let's do a mock interview"],
+    IntentId.LEARNING_TOPIC_GAME: ["vamos falar do jogo", "falar do jogo que estou jogando",
+                                   "conversar sobre o jogo", "let's talk about the game",
+                                   "talk about the game I'm playing", "let's talk about my game"],
+    IntentId.LEARNING_TOPIC_NEWS: ["vamos falar das notícias", "conversar sobre as notícias de hoje",
+                                   "let's talk about the news", "talk about today's news"],
+}
+#: Frases dos intents de notícias e de jogo que já existiam: nunca viram tema.
+OLD_PHRASES = ["novidades", "alguma novidade", "o que tem de novo", "me conta as novidades",
+               "proxima noticia", "fecha o jogo"]
+TOPIC_IDS = {i.value for i in TOPIC_PHRASES}
+
+
+def _plain_router() -> LocalRouter:
+    """Roteador como antes do LM1.8 (sem as frases de tema)."""
+    r = LocalRouter(None)
+    r.intents = [s for s in r.intents if s.id not in TOPIC_IDS]
+    return r
+
+
+async def test_tema_casa_so_com_sessao_ativa(rig) -> None:
+    pipeline, w, _, _ = rig
+    router = pipeline.deps.router
+    plain = _plain_router()
+    for phrases in TOPIC_PHRASES.values():
+        for text in phrases:
+            res, old = router.route(text), plain.route(text)
+            assert (res.kind, res.intent) == (old.kind, old.intent), text  # fora: caminho antigo
+    await _say(pipeline, "modo aula")
+    for intent, phrases in TOPIC_PHRASES.items():
+        for text in phrases:
+            res = router.route(text)
+            assert res.kind is RouteKind.LOCAL and res.intent is not None, text
+            assert res.intent.id == intent, (text, res)
+
+
+async def test_frases_antigas_de_noticia_e_jogo_nao_viram_tema(rig) -> None:
+    pipeline, w, _, _ = rig
+    await _say(pipeline, "english class")
+    plain = _plain_router()
+    for text in OLD_PHRASES:
+        res = pipeline.deps.router.route(text)
+        assert res.intent is None or res.intent.id not in TOPIC_IDS, text
+        assert (res.kind, res.intent) == (plain.route(text).kind, plain.route(text).intent), text
+    for phrases in TOPIC_PHRASES.values():
+        for text in phrases:
+            res = pipeline.deps.router.route(text)
+            assert res.intent is not None and not res.intent.id.startswith(("news.", "game.")), text
+
+
+def test_fora_da_sessao_vamos_falar_do_jogo_segue_o_caminho_antigo() -> None:
+    deps = TurnDeps(router=LocalRouter(None))
+    wire(parse_config({}), deps, [])
+    assert deps.router is not None
+    for text in ("vamos falar do jogo", "let's talk about the news", "free talk"):
+        res = deps.router.route(text)
+        assert res.intent is None or res.intent.id not in TOPIC_IDS, text
+
+
+async def test_tema_por_voz_e_a_mesma_acao_do_botao(rig) -> None:
+    pipeline, w, hud, agent = rig
+    res = await _say(pipeline, "tech interview")  # sem sessão: não é tema
+    assert agent.asked == ["tech interview"] and not hud.of(LmTopicMsg)
+    await _say(pipeline, "modo aula")
+    w.listening = lambda: False  # segura a abertura
+    res = await _say(pipeline, "tech interview")
+    assert res.ok and res.speech == intent_action.SAY_TOPIC[Topic.INTERVIEW]
+    last = hud.of(LmTopicMsg)[-1]
+    assert last.topic is Topic.INTERVIEW and last.requested is Topic.INTERVIEW
+    assert w.session.topic_block is not None
+    # O turno de voz que pediu o tema não cancela a abertura; o próximo (Pedro falou) cancela.
+    w.on_turn(Transcript.raw("tech interview"), _ctx(), res)
+    assert w._opening is not None and not w._opening.done()
+    w.on_turn(Transcript.raw("well, hello"), _ctx(), ActionResult(ok=True, speech="Hi."))
+    await w.wait_idle()
+    assert w._opening is None and agent.asked == ["tech interview"]
+
+    res = await _say(pipeline, "vamos falar do jogo")  # sem fontes: fallback
+    assert res.speech == intent_action.SAY_TOPIC_FALLBACK["no game detected"]
+    assert hud.of(LmTopicMsg)[-1].detail == "no game detected"
+
+
+def test_respostas_de_tema_em_ingles() -> None:
+    phrases = [*intent_action.SAY_TOPIC.values(), *intent_action.SAY_TOPIC_FALLBACK.values(),
+               intent_action.SAY_TOPIC_FAILED]
+    try:
+        i18n.configure("en-gb")
+        for phrase in phrases:
+            assert i18n.tr(phrase) != phrase, phrase
+    finally:
+        i18n.configure("pt-br")

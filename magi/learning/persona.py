@@ -6,7 +6,8 @@ abertas, **nunca** correção explícita (recast permitido). Sem sessão, o prom
 
 ``install(agent, active)`` liga isso a um ``GraphAgent`` já montado sem mexer no grafo: a cada
 ``answer`` a persona do turno é escolhida por ``active()`` (lido no começo do turno). O modelo do
-agente não muda. LM1.8 acrescenta o ``<topic_context>`` por ``compose(..., topic=...)``.
+agente não muda. LM1.8: o tema da sessão entra **depois** do bloco de persona, dentro de
+``<topic_context>`` (tratado como dado, cortado em 1500 caracteres; spec §10.1 item 4).
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from magi.common.contracts import ActionResult, TurnContext
+from magi.learning.topic import clip
 
 __all__ = ["PERSONA_PATH", "block", "compose", "install"]
 
@@ -40,8 +42,9 @@ def compose(base: str, *, active: bool, topic: str | None = None) -> str:
     if not active:
         return base
     parts = [base, block()]
-    if topic and topic.strip():
-        parts.append(f"<topic_context>\n{topic.strip()}\n</topic_context>")
+    extra = clip(topic)
+    if extra:
+        parts.append(f"<topic_context>\n{extra}\n</topic_context>")
     return "\n\n".join(p for p in parts if p)
 
 

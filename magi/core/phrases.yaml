@@ -135,6 +135,14 @@ lazy:
   - "Não tem aula aberta."
   - "Modo aula indisponível agora."
   - "Não consegui trocar o modo aula."
+  # Learning Mode (LM1.8): tema da sessão por voz
+  - "Conversa livre, então."
+  - "Beleza, entrevista técnica."
+  - "Bora falar do jogo."
+  - "Bora falar das notícias."
+  - "Não vi jogo nenhum aberto. Conversa livre, então."
+  - "Não tem notícia de hoje. Conversa livre, então."
+  - "Não consegui trocar o tema."
 
 templates:
   - "Já usei as {n} sessões do Claude Code de hoje. Amanhã eu vejo."

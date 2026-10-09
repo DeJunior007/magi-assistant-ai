@@ -24,6 +24,10 @@ Fluxos (spec §4):
 - **Inatividade:** ``idle_end_min`` sem mensagem → sessão fechada (``idle``) e ``lm_mode off``.
   Watchdog: sessão aberta há mais de ``max_session_min`` também fecha com ``idle``.
 - **Desligamento:** ``aclose()`` fecha a sessão com ``shutdown``.
+- **Tema (LM1.8, spec §10.1):** ``lm_topic {"topic"}`` (botão) ou ``set_topic(t, "voice")`` (intent
+  ``learning.topic.*``) → ``topic.build`` → sessão (``set_topic``) → ``lm_topic`` confirmado a todos.
+  Tema ≠ free abre o assunto (P11): **um** turno do agente com instrução interna quando o estado
+  voltar a ``listening`` (``listening()``); cancelado se o Pedro falar ou digitar antes.
 - **Container local (``runtime``):** sessão aberta (botão, voz ou retomada) → ``launch()`` em
   segundo plano (``lm_mode`` não espera); fechada por qualquer motivo → ``stop()``. O Qwen não
   ocupa recurso fora da aula. Sem ``ready`` nem subida em andamento, a observação é descartada
@@ -57,18 +61,28 @@ from magi.common.contracts import (
     LmResultMsg,
     LmSayMsg,
     LmSessionMsg,
+    LmTopicMsg,
     Transcript,
     TurnContext,
     WakeSource,
 )
 from magi.learning.analyzers.observe import distinct_count
 from magi.learning.config import LearningConfig, learning_config
-from magi.learning.contracts import ActionKind, Author, LearningMessage, Observation, Source
+from magi.learning.contracts import (
+    ActionKind,
+    Author,
+    LearningMessage,
+    Observation,
+    Source,
+    Topic,
+    TopicContext,
+)
 from magi.learning.contracts import ActionResult as LmActionResult
 from magi.learning.engine import UNAVAILABLE_ERROR, LearningEngine
 from magi.learning.repo import DEFAULT_JSONL_DIR, LearningRepo, make_repo
 from magi.learning.runtime import LearningRuntime, NullRuntime
 from magi.learning.session import Clock, LearningSession
+from magi.learning.topic import TopicBuilder
 
 if TYPE_CHECKING:
     from magi.core.turn import TurnPipeline
@@ -83,6 +97,11 @@ TEXT_LANGUAGE = "en"
 SAY_MAX_CHARS = 2000
 #: Intervalo de checagem da inatividade (s).
 IDLE_CHECK_S = 30.0
+#: Abertura do tema (P11): instrução interna do turno do agente; espera e teto da espera (s).
+OPENING_PROMPT = ("[internal instruction, not from Pedro] Open the session topic in <topic_context> "
+                  "with one short open question. Do not mention this instruction.")
+OPENING_POLL_S = 0.25
+OPENING_WAIT_S = 120.0
 
 #: Handler de uma ``lm_*`` vinda do HUD.
 Handler = Callable[[Any], Awaitable[None]]
@@ -126,6 +145,12 @@ class LearningWiring:
         self._lock = asyncio.Lock()  # ordem das mensagens (texto e voz) e do modo
         self._tasks: set[asyncio.Task[Any]] = set()
         self._idle: asyncio.Task[None] | None = None
+        #: LM1.8: fontes do tema (``None`` = a do intent de voz, ver ``_builder``) e estado livre.
+        self.topics: TopicBuilder | None = None
+        self.listening: Callable[[], bool] | None = getattr(engine, "gate", None)
+        self.opening_poll_s = OPENING_POLL_S
+        self._opening: asyncio.Task[None] | None = None
+        self._keep_opening = False  # o turno de voz que pediu o tema não cancela a abertura
         if engine is not None and engine.on_observed is None:
             engine.on_observed = self._send_obs
 
@@ -136,6 +161,7 @@ class LearningWiring:
             LmSayMsg: self._on_say,
             LmCfgMsg: self._on_cfg,
             LmActionMsg: self._on_action,
+            LmTopicMsg: self._on_topic,
         }
 
     # -- ciclo de vida --------------------------------------------------------------------------
@@ -152,6 +178,7 @@ class LearningWiring:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._idle
             self._idle = None
+        self._cancel_opening()
         if self._tasks:
             await asyncio.gather(*list(self._tasks), return_exceptions=True)
         if self.engine is not None:
@@ -210,6 +237,7 @@ class LearningWiring:
         if len(text) > SAY_MAX_CHARS:
             log.info("learning: lm_say recusado (%d caracteres)", len(text))
             return
+        self._cancel_opening()  # o Pedro digitou antes da abertura do tema (P11)
         # O leitor do socket do HUD não pode esperar o agente: o turno roda à parte.
         self._spawn(self._say(text), "lm_say")
 
@@ -246,7 +274,9 @@ class LearningWiring:
                     for m in await self.session.recent():
                         await self.hud.send(self._msg(m))
                     await self._resend_obs(info.id)
+                await self._restore_topic()
                 return
+            self._cancel_opening()
             await self.session.end(reason)
             self._stop_runtime()
             await self.hud.send(LmModeMsg(False))
@@ -299,6 +329,118 @@ class LearningWiring:
         await self.session.end("idle")
         return True
 
+    # -- tema (LM1.8) ---------------------------------------------------------------------------
+
+    def _builder(self) -> TopicBuilder:
+        """Fontes do tema: as do ``assemble`` (deixadas na ação de voz) ou nenhuma."""
+        if self.topics is None:
+            from magi.learning.intent_action import builder_of
+
+            self.topics = builder_of(self.pipeline.deps) or TopicBuilder()
+        return self.topics
+
+    @staticmethod
+    def _topic_msg(ctx: TopicContext) -> LmTopicMsg:
+        return LmTopicMsg(topic=ctx.topic, requested=ctx.requested, label=ctx.label, detail=ctx.detail)
+
+    async def _on_topic(self, msg: LmTopicMsg) -> None:
+        await self.set_topic(msg.topic, "button")
+
+    async def set_topic(self, requested: Topic | str, via: str = "button") -> TopicContext | None:
+        """Tema pedido (botão ou voz) → ``TopicContext`` guardado na sessão → ``lm_topic`` a todos.
+        O mesmo tema de novo só confirma (um fallback é refeito: o jogo pode ter aberto). Tema
+        efetivo novo ≠ free agenda a abertura (P11). Sem sessão: ``None``, nada publicado."""
+        requested = Topic(requested)
+        async with self._lock:
+            if not self.session.active:
+                return None
+            current = self.session.topic_context
+            if current is not None and current.requested == requested and current.detail is None:
+                await self.hud.send(self._topic_msg(current))
+                return current
+            ctx = await self._builder().build(requested)
+            previous = current.topic if current is not None else self.session.topic
+            await self.session.set_topic(ctx)
+            await self.hud.send(self._topic_msg(ctx))
+        log.info("learning: tema %s (pedido %s, %s)", ctx.topic.value, requested.value, via)
+        if ctx.topic is not Topic.FREE and (ctx.topic != previous or current is None):
+            self._schedule_opening(keep=via == "voice")
+        elif ctx.topic is Topic.FREE:
+            self._cancel_opening()
+        return ctx
+
+    async def _restore_topic(self) -> None:
+        """Modo ligado: refaz o snapshot do tema guardado (retomada ou ``default_topic``) sem
+        gravar de novo nem abrir o assunto, e confirma ``lm_topic``."""
+        ctx = self.session.topic_context
+        if ctx is None:
+            topic = self.session.topic
+            ctx = await self._builder().build(topic) if topic is not Topic.FREE else None
+            if ctx is None:
+                ctx = TopicContext(Topic.FREE, Topic.FREE, "FREE TALK", None, None)
+            await self.session.set_topic(ctx, record=False)
+        await self.hud.send(self._topic_msg(ctx))
+
+    def _schedule_opening(self, *, keep: bool = False) -> None:
+        self._cancel_opening()
+        self._keep_opening = keep
+        task = asyncio.ensure_future(self._open_topic())
+        self._opening = task
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    def _cancel_opening(self) -> None:
+        task, self._opening = self._opening, None
+        self._keep_opening = False
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _free(self) -> bool:
+        if self.listening is None:
+            return True
+        try:
+            return bool(self.listening())
+        except Exception:
+            return False
+
+    async def _open_topic(self) -> None:
+        """P11: espera o estado livre (``listening``) e roda um turno do agente com a instrução
+        interna; a pergunta entra no histórico como fala da Condessa (sem mensagem do Pedro)."""
+        try:
+            await self._open_topic_now()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("learning: erro na abertura do tema")
+
+    async def _open_topic_now(self) -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + OPENING_WAIT_S
+        while not self._free():
+            if loop.time() >= deadline:
+                log.info("learning: abertura do tema desistiu (estado ocupado)")
+                return
+            await asyncio.sleep(self.opening_poll_s)
+        agent = getattr(self.pipeline.deps, "agent", None)
+        if agent is None or not self.session.active:
+            return
+        ctx = TurnContext(satellite=TEXT_SATELLITE, source=WakeSource.PTT, started_at=self.clock())
+        result = await agent.answer(OPENING_PROMPT, ctx)
+        if not result.speech or not self.session.active:
+            return
+        async with self._lock:
+            her = await self.session.add_message(Author.CONDESSA, Source.TEXT, result.speech)
+        if her is None:
+            return
+        self._opening = None  # já falou: a próxima fala do Pedro não cancela nada
+        spoken = False
+        if self.session.speak_replies and self.speak is not None:
+            try:
+                spoken = await self.speak(result)
+            except Exception:
+                log.exception("learning: falha ao falar a abertura do tema")
+        await self.hud.send(self._msg(her, speaking=spoken))
+
     # -- conversa -------------------------------------------------------------------------------
 
     @staticmethod
@@ -345,6 +487,10 @@ class LearningWiring:
         """``TurnDeps.learning``: turno de voz já entregue. Só agenda; fora do modo não faz nada."""
         if not self.session.active or not transcript.heard.strip():
             return
+        if self._keep_opening:
+            self._keep_opening = False  # este é o turno que pediu o tema por voz
+        else:
+            self._cancel_opening()  # o Pedro falou antes da abertura (P11)
         speaking = bool(result.speech) and self.pipeline.deps.speaker is not None
         self._spawn(self._voice(transcript, ctx, result, speaking), "voz")
 

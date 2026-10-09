@@ -130,7 +130,7 @@ tamanho do painel, `MASCOT_MAIN` 302 de altura na base 1920 (LM-015 → LM1.5). 
   - Pronto: CA-18b verde; `tests/hud` antigos verdes; manual: botão no painel e na espera entra no modo, END volta para a tela de onde saiu; voz (LM1.4) faz o mesmo.
   - Paralelo: LM2.2, LM4.1 (LM1.7 não escreve `learning_screen.py`)
 
-- [ ] **LM1.8 Tema da sessão no núcleo** — `magi/learning/topic.py` (`build(requested) -> TopicContext`, spec §10.1: free/interview/game/news, fallback com `detail`, bloco ≤ 1500, nada de LLM/rede, news **sem** `mark_delivered`); `prompts/topics/{interview,game,news}.md`; tema atual e histórico em `session.py` (`repo.set_topic`); handler `lm_topic` em `wiring.py` (confirma a todos os clientes Learning); `persona.py` compõe persona + `<topic_context>`; abertura do tema (P11) quando o estado volta a `listening`, cancelada se o Pedro falar antes; intents `learning.topic.{free,interview,game,news}` com as frases PT/EN de design §10, **só com sessão ativa** (registro condicional ou filtro, o que o roteador permitir), mesma ação do botão; respostas curtas em `i18n/en-gb.yaml`. *(LM-013, LM-014, design §5.1, §10)*
+- [x] **LM1.8 Tema da sessão no núcleo** — `magi/learning/topic.py` (`build(requested) -> TopicContext`, spec §10.1: free/interview/game/news, fallback com `detail`, bloco ≤ 1500, nada de LLM/rede, news **sem** `mark_delivered`); `prompts/topics/{interview,game,news}.md`; tema atual e histórico em `session.py` (`repo.set_topic`); handler `lm_topic` em `wiring.py` (confirma a todos os clientes Learning); `persona.py` compõe persona + `<topic_context>`; abertura do tema (P11) quando o estado volta a `listening`, cancelada se o Pedro falar antes; intents `learning.topic.{free,interview,game,news}` com as frases PT/EN de design §10, **só com sessão ativa** (registro condicional ou filtro, o que o roteador permitir), mesma ação do botão; respostas curtas em `i18n/en-gb.yaml`. *(LM-013, LM-014, design §5.1, §10)*
   - Lê: design §5.1, §10, §16 P11/P12/P14, spec §3 (`Topic`, `TopicContext`), §6 (`lm_topic`), §10.1, §11, `magi/core/game_context.py` (classes `RunningGame`, `GameWatcher`, por grep `def `), `magi/agent/tools/steam.py` (`describe`, `SteamGameTool.__init__`), `magi/agent/tools/news.py` (`NewsQuery.__init__`/`whats_new`, linhas ~185–232) e o `NewsRepo` (por grep `async def`), `magi/core/assemble.py` (onde `GameWatcher`/`NewsQuery` são criados, por grep), APIs de `session.py`, `persona.py`, `intent_action.py`, `wiring.py` por grep `def `
   - Escreve: `magi/learning/topic.py`, `magi/learning/prompts/topics/*.md`, `magi/learning/session.py` (só tema), `magi/learning/wiring.py` (só `lm_topic`), `magi/learning/persona.py` (só compor o bloco), `magi/learning/intent_action.py`, `magi/core/intents.yaml`, `magi/common/contracts.py` (só `IntentId`), `magi/core/i18n/en-gb.yaml`, `magi/core/assemble.py` (só passar `GameWatcher`/Steam/`NewsRepo` ao `topic`), `tests/learning/test_topic.py`, `tests/learning/test_learning_intents.py` (casos novos)
   - Depende de: LM1.4 (persona, intents), LM1.3
@@ -337,3 +337,17 @@ valor exibido; **P4** (Postgres × JSONL, `public` × schema próprio) só o bac
 Novas (2026-10-07): **P11** (abertura do tema pela Condessa) só LM1.8; **P12** (Game sem jogo
 aberto) só o fallback de `topic.py` (LM1.8); **P13** (lugar do cartão no painel) só LM4.6;
 **P14** (vaga da Tech interview) só `prompts/topics/interview.md`.
+
+## Sobras
+
+- **LM1.8:** `magi/core/phrases.yaml` (fora do *Escreve*) ganhou as 7 respostas curtas de tema,
+  senão `tests/core/test_tts.py::test_every_fixed_core_phrase_is_cacheable` cai (o LM1.4 fez o mesmo).
+- **LM1.8:** `[learning] interview_role` (P14) é lido cru no `assemble` (`config.raw`); a seção
+  `[learning]` tipada (`config.py`) e o `config.example.toml` ainda não têm a chave. Se o leitor
+  tipado recusar chave desconhecida, acrescentar lá (dono: LM0.1).
+- **LM1.8:** o "estado livre" da abertura do tema (P11) usa o `gate` do `LearningEngine`
+  (satélites em listening/sleeping/followup **e** container local pronto, com teto). Um gate só de
+  estado dos satélites exigiria passar `listening` no `core/service.py` (fora do *Escreve*).
+- **LM1.8:** ao ligar o modo o núcleo manda também `lm_topic` (tema atual) depois de `lm_session`,
+  para o chip do LM1.9 ter o tema confirmado em sessão nova e retomada.
+

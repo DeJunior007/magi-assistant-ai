@@ -468,6 +468,10 @@ class IntentId(StrEnum):
     HELP = "magi.help"  # "o que você sabe fazer?", "quem é você?" (3.9)
     LEARNING_START = "learning.start"  # "modo aula", "english class" (LM1.4, LM-005)
     LEARNING_STOP = "learning.stop"  # "encerrar aula", "end session"
+    LEARNING_TOPIC_FREE = "learning.topic.free"  # "conversa livre", "free talk" (LM1.8, LM-014)
+    LEARNING_TOPIC_INTERVIEW = "learning.topic.interview"  # "entrevista técnica", "tech interview"
+    LEARNING_TOPIC_GAME = "learning.topic.game"  # "vamos falar do jogo" (só com sessão ativa)
+    LEARNING_TOPIC_NEWS = "learning.topic.news"  # "vamos falar das notícias"
 
 
 @dataclass(frozen=True, slots=True)
