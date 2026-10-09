@@ -150,3 +150,15 @@ Próximos passos, do mais rápido ao mais trabalhoso:
 3. Espera mais viva (seção 2): animação de "pensando", frase curta e resposta em lotes.
 4. Learning Mode onda 6 (LM3.4, LM4.2, LM4.3, LM1.8), em agentes por tarefa como as reações.
 5. Depois de uso: semana de validação das reações (~16/10) e calibração da memória (seção 4).
+
+## 13. Ideias para desenvolver (Pedro, 2026-10-09)
+
+Ainda não são tarefas: cada uma vira SDD quando for a vez. Primeira leitura de viabilidade:
+
+| Ideia | O que é | Primeira leitura |
+| --- | --- | --- |
+| **Ebook como audiolivro** | A Condessa lê um ebook com entonação que varia (narração, diálogo, emoção da cena). | Viável com o TTS atual (`gpt-4o-mini-tts` aceita instruções de voz por trecho): dividir o texto em trechos, marcar fala/narração/emoção e mandar a instrução junto. Custo por página a medir; voz local (seção 10) baratearia. Precisa de leitor de EPUB/PDF, marcador de onde parou e controles por voz (pausa, volta, "lê mais devagar"). |
+| **Learning Mode mais imersivo** | Mais temas e preparação de entrevista: o Pedro manda a descrição da vaga e ela prepara a conversa para aquela vaga. | Extensão natural do LM1.8 (tema `interview` já existe, genérico): um tema "vaga colada" que lê a descrição, extrai stack/senioridade/requisitos e monta o roteiro da entrevista. É a "coisa nova" do Learning depois da versão inicial. |
+| **FIFA 22: reagir a lances** | Ela reage a gol, entrada forte etc. e comenta o jogo ("PSG x Barcelona"). | O jogo não expõe eventos. Caminhos, do mais simples ao mais caro: (1) ler o placar na tela (OCR de um recorte, a cada segundo) para gol/fim de jogo; (2) transcrever o áudio do narrador (monitor do PipeWire só do jogo + STT local) e casar palavras-chave ("goal", "what a tackle"); (3) ler a memória do processo (frágil e arriscado). Começar pelo (1), que já dá gol, placar e times. |
+| **Overlay só da Condessa** | Só o retrato dela, pequeno, por cima do desktop, ligado no login, como Siri/Alexa, sem o HUD inteiro. | Viável: uma janela Qt sem moldura, sempre no topo e transparente a cliques fora do rosto, reaproveitando o `PartsPortrait` e o `Reactor`. Autostart no login. Clique no rosto = falar (já existe no núcleo). |
+| **Retrato com ângulos de verdade** | Usar a folha de 16 rostos (frente, 3/4, perfil, olhando para cima/baixo, mão no queixo/boca) para ela virar a cabeça e mexer o corpo, mesmo sem animação de verdade. | Viável em "2.5D de troca": cada ângulo vira um conjunto de camadas próprio (como a A1 hoje), e a troca entre ângulos é uma transição curta (dissolve + leve deslocamento/escala na direção do giro) em vez de animação. Usos: olhar para o lado do painel que reagiu, virar de perfil ao pensar, mão no queixo no "Ideia!". O custo maior é a arte: cada ângulo precisa das suas bocas/olhos para falar e piscar (ou fala só no ângulo de frente). |
