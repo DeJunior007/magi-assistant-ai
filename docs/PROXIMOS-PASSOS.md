@@ -69,7 +69,11 @@ Implementado e testado com dublês; falta conferir no uso real:
   - **Favoritas do Pedro** automáticas: hoje só por `[pedro] favoritas` no
     `~/.config/magi/condessa-gosto.toml`; dá para puxar do top do Spotify (o núcleo já tem o OAuth).
   - **"Condessa, sem comentário de música"** por voz: hoje só pelo arquivo (`[falas] musica = false`).
-  - Reações a mais da persona: Claude Code concluindo, PC travado/jogo caiu (emburrada leve, rara).
+  - **Reações decididas pelo Conselho (ata `2026-10-08-reacoes`):** 110 na lista, 87 rodam com
+    sinais que o HUD já tem. Implementar em ondas no `hud/wired/reactions.py` (cotas e variantes
+    das regras 1–6 do acordo primeiro) e depois os sinais novos, nesta ordem: A retrato
+    clicável/hover → B tag do turno publicada pelo núcleo → C hooks do Claude Code → volume do
+    PipeWire, D-Bus de notificações, microfone, ventoinha.
 - **Como validar:** uma semana de uso olhando se as reações e falas aparecem na medida (sem
   poluir) e se a Favorita do Dia/madrugada fazem sentido; CPU do HUD ≤ 10% de um núcleo.
 

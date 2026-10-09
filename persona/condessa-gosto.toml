@@ -163,6 +163,18 @@ card = "focus"
 claude = "focus"
 skips = "stress"
 
+# Listas das reações (ata 2026-10-08-reacoes): o rosto usa estas listas, nunca análise de áudio.
+[listas]
+melancolica = ["frederic chopin", "chopin", "arvo part", "marika takeuchi", "laufey",
+               "sergei rachmaninoff", "rachmaninoff"]   # 29; D7 só 22h–04h
+melancolica_titulo = ["nocturne", "noturno", "requiem", "sad", "triste", "lagrima"]
+danca = ["dance", "disco", "house", "eurobeat", "phonk", "j-rock", "rock", "metal", "pop", "kpop"]  # 30, nota ≥ 1
+noticia_boa = ["vitoria", "recorde", "lanca", "lancamento", "cura", "aprova", "conquista"]
+noticia_ruim = ["morte", "morre", "ataque", "queda", "crise", "desastre", "guerra"]
+noticia_absurda = ["bizarro", "inusitado", "inusitada", "estranho", "curioso"]
+
+[datas]                  # 63: datas cadastradas pelo Pedro ("MM-DD" = "nome"); vazio = sem festa
+
 # Falas em texto (≤70 caracteres; sem voz). {temp}, {fps}, {artist} vêm do HUD.
 # Variantes: madrugada, rival, batalha, quinta, curto, favorita, slowed.
 [falas.music_love]
