@@ -553,10 +553,22 @@ def _live_eyes(assets: PartsAssets, key: str, side: int) -> tuple[QPixmap, QRect
     return pm, bbox
 
 
+# braço da reação (extra/P*.png) → braços da base que ele substitui (P9–P12: o da direita da imagem)
+ARM_REPLACES = {"P13": ("arm_l", "arm_r")}
+ARM_REPLACES_DEFAULT = ("arm_r",)
+
+
+def arms_replaced(arm: str | None) -> tuple[str, ...]:
+    """Braços da base escondidos enquanto o braço de reação ``arm`` aparece (nenhum sem braço)."""
+    return ARM_REPLACES.get(arm, ARM_REPLACES_DEFAULT) if arm else ()
+
+
 @lru_cache(maxsize=8)
-def _torso_group(assets: PartsAssets, side: int) -> tuple[QPixmap, QRectF] | None:
-    """Braços + corpo numa imagem só (andam juntos com a respiração: um drawPixmap em vez de três)."""
-    parts = [x for x in (_scaled_part(assets, f"parts/{n}.png", side) for n in ("arm_l", "arm_r", "body"))
+def _torso_group(assets: PartsAssets, side: int, skip: tuple = ()) -> tuple[QPixmap, QRectF] | None:
+    """Braços + corpo numa imagem só (andam juntos com a respiração: um drawPixmap em vez de três).
+    ``skip``: braços da base que um braço de reação substitui (não desenha os dois ao mesmo tempo)."""
+    parts = [x for x in (_scaled_part(assets, f"parts/{n}.png", side)
+                         for n in ("arm_l", "arm_r", "body") if n not in skip)
              if x is not None]
     if not parts:
         return None
@@ -1009,14 +1021,17 @@ class PartsPortrait(Mascot):
             tip = 2.4 * math.sin(now * 1.05 + phase - 1.0) + 0.6 * math.sin(now * 2.3 + phase * 2 - 1.4)
             draw(f"parts/{name}_tip.png", *args, child=(tip - 0.6 * swing) if gl is None else 0.0,
                  deform=tail_def)
+        arm = self._extra(r, "braco")
+        arm = arm if arm and self.assets.has(f"extra/{arm}.png") else None  # sem a arte, braço da base
+        skip = arms_replaced(arm)
         if gl is not None:  # braços acompanham a respiração; o peito deforma
-            draw("parts/arm_l.png", sway, 3.0 * breath)
-            draw("parts/arm_r.png", sway, 3.0 * breath)
+            for name in ("arm_l", "arm_r"):
+                if name not in skip:
+                    draw(f"parts/{name}.png", sway, 3.0 * breath)
             draw("parts/body.png", sway, 0.0, deform=(2,))
         else:
-            draw("", sway, 3.0 * breath, part=_torso_group(self.assets, side))
-        arm = self._extra(r, "braco")
-        if arm:  # braço da reação (P9–P13), se o asset existir
+            draw("", sway, 3.0 * breath, part=_torso_group(self.assets, side, skip))
+        if arm:  # braço da reação (P9–P13) no lugar do braço da base
             draw(f"extra/{arm}.png", sway, 3.0 * breath)
         # cabeça, olhos e boca em três desenhos com a mesma transformação (antes eram remontados
         # juntos a cada troca: com a íris solta isso virava uma remontagem por quadro)

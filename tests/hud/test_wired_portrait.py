@@ -453,3 +453,34 @@ def test_partes_efeitos_e_corpo_novos(tmp_path, with_assets):
     want = (-8.0, 0.0) if with_assets else None  # sem íris solta (O1), o extra é ignorado
     assert m._iris_extra(m._reacting(6.0)) == want
     assert m.eyes_id(6.0).startswith("live:") == with_assets
+
+
+@pytest.mark.parametrize("arte", [False, True])
+def test_braco_da_reacao_substitui_o_da_base(tmp_path, monkeypatch, arte):
+    """P9–P12 trocam o braço da direita da imagem; P13 os dois. Sem a arte, fica o braço da base."""
+    from wired import portrait
+    from wired.reactions import Reaction
+
+    assert portrait.arms_replaced("P9") == ("arm_r",) and portrait.arms_replaced("P12") == ("arm_r",)
+    assert portrait.arms_replaced("P13") == ("arm_l", "arm_r") and portrait.arms_replaced(None) == ()
+    write_parts(tmp_path)
+    rels = ["parts/arm_l.png", "parts/arm_r.png"] + (["extra/P13.png"] if arte else [])
+    for rel in rels:
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        img = QImage(16, 16, QImage.Format.Format_ARGB32)
+        img.fill(QColor(100, 200, 100))
+        assert img.save(str(tmp_path / rel))
+    pedidos = []
+    real = portrait._torso_group
+
+    def espia(a, side, skip=()):
+        pedidos.append(skip)
+        return real(a, side, skip)
+
+    monkeypatch.setattr(portrait, "_torso_group", espia)
+    m = portrait.PartsPortrait(portrait.PartsAssets(tmp_path), "sleeping", now=0.0)
+    m.hour = lambda: 14
+    m.react(Reaction("cruzados", "B7", "C9", corpo=("braco:P13",)), 5.0)
+    m.tick(1.0)
+    assert render(m, 1.2) is not None
+    assert pedidos and pedidos[-1] == (("arm_l", "arm_r") if arte else ())
