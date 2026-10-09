@@ -243,7 +243,7 @@ merge trivial, resolvido pelo orquestrador).
   - Orçamento: ~50k
   - Pronto: build com pasta de teste contendo os IDs novos gera os arquivos; ausência de cada um não quebra.
 
-- [ ] **R3.2 Validação de uma semana** — **precisa do Pedro.** Usar 7 dias; script
+- [~] **R3.2 Validação de uma semana** (script pronto; falta a semana de uso do Pedro) — **precisa do Pedro.** Usar 7 dias; script
   `hud/tools/reacoes_relatorio.py` lê `reacoes.jsonl` e mostra por hora: ativas, passivas, furos
   de cota, top 10. Critérios de sucesso 3 e 4 do requirements. O que estiver poluindo volta ao
   Conselho (`/conselho`).
