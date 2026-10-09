@@ -13,7 +13,9 @@ fala revelada; LM2.2: destaque lilás translúcido da seleção), ``input`` (LM1
 onda de áudio por ``mouth``, ``STATUS // CONNECTED/DISCONNECTED``), ``overlay`` (LM2.2: menu e
 balão de ``learning_overlay``; retângulos dinâmicos, os antigos entram até serem repintados),
 ``obs`` (LM4.3: ``OBSERVATIONS [nn] ▾`` e drawer de ``learning_obs``; clique num item rola o
-histórico até a mensagem e a destaca uma vez) e, ainda vazio, ``topic`` (LM1.9).
+histórico até a mensagem e a destaca uma vez) e ``topic`` (LM1.9: chip ``TOPIC // … ▾`` com o tema
+confirmado pelo núcleo e a lista de ``learning_topic``, pintada depois do histórico; abre sozinha
+em sessão nova; escolher manda ``lm_topic`` por ``send_lm``).
 ``hit_test`` devolve ``"learning"`` no botão END SESSION (a ação é ligada no LM1.7).
 
 Os dados do modo vêm do ``learning_model.LearningModel`` (``screen.info``/``screen.model``;
@@ -39,6 +41,7 @@ from PySide6.QtGui import QPainter, QPen
 from . import kit
 from . import learning_obs as obsv
 from . import learning_overlay as ov
+from . import learning_topic as tp
 from .learning_layout import CHAR_W, LearningLayout, bubble_rect, menu_rect, screen_layout, state_label
 from .learning_model import LearningModel
 from .learning_overlay import FakeProvider, Overlay, Row
@@ -127,6 +130,10 @@ class LearningScreen(Screen):
         self._ov_geom: tuple[tuple, tuple] | None = None
         # LM4.3: observações
         self.obs_view = obsv.ObsView()
+        # LM1.9: seletor de tema
+        self.topic_picker = tp.TopicPicker()
+        self.send_lm = None                        # HudBridge.send_lm; sem ele, o do BridgeProvider
+        self._tp_shown: list[QRectF] = []          # lista já pintada (a apagar ao fechar)
 
     # ---------------------------------------------------------------- estático
 
@@ -180,7 +187,6 @@ class LearningScreen(Screen):
         L = self.L
         return {
             "header": [qr(L.clock), qr(L.end_btn), qr(L.session)],
-            "topic": [qr(L.topic)],
             "mascot": [self.MASCOT_RECT],
             "condessa": [qr(L.state), qr(L.level)],
             "system": [qr(L.left)],
@@ -188,6 +194,7 @@ class LearningScreen(Screen):
             "input": [qr(L.input)],
             "obs": [qr(L.obs)],
             "footer": [self._footer_rect()],
+            "topic": self._topic_rects(),      # chip + lista: depois do histórico
             "overlay": self._overlay_rects(),  # menu + balão: por último, por cima
         }
 
@@ -222,7 +229,9 @@ class LearningScreen(Screen):
         if name == "obs":
             groups = self.obs_groups()
             return self.obs_view.key(self.obs_count(groups), groups)
-        return ()  # topic: vazio até o LM1.9
+        if name == "topic":
+            return self._topic_key()
+        return ()
 
     def draw_group(self, name: str, p: QPainter, snap: Snapshot, now: datetime, s: float) -> None:
         fn = getattr(self, f"_g_{name}", None)
@@ -468,6 +477,8 @@ class LearningScreen(Screen):
             if self.L.end_btn.contains(point):
                 self.clear_selection()
                 return "learning"
+            if self._topic_press(point):
+                return None
             if self.L.obs.contains(point) and not self._overlay_hit(point):
                 self._obs_press(point)
                 return None
@@ -497,6 +508,8 @@ class LearningScreen(Screen):
                 if self.info.scroll_by(delta * WHEEL_STEP, self.max_scroll()):
                     self.clear_selection()  # rolagem fecha menu e balão (spec §11)
         elif kind == "hover":
+            lst = self._topic_list()
+            self.topic_picker.set_hover(tp.item_at(lst, point) if lst else None)
             menu = self._overlay_geometry()[0]
             idx = ov.item_at(menu, len(self.overlay.items), point) if menu else None
             self.overlay.set_hover(idx)
@@ -553,6 +566,65 @@ class LearningScreen(Screen):
         groups = self.obs_groups()
         obsv.paint(p, self.L.obs, self.obs_view, self.obs_count(groups), groups)
 
+    # ---------------------------------------------------------------- tema (LM1.9)
+
+    def _topic_sync(self) -> None:
+        i = self.info
+        if not i.session_active:
+            self.topic_picker.close()
+            return
+        self.topic_picker.sync(i.session, tp.last_you(i.messages))
+
+    def _topic_list(self) -> Rect | None:
+        if not self.topic_picker.is_open:
+            return None
+        return tp.list_rect(self.L.topic, self.L.history, bool(tp.hints(self.info.session)))
+
+    def _topic_now(self) -> list[QRectF]:
+        lst = self._topic_list()
+        return [qr(self.L.topic)] + ([qr(lst)] if lst is not None else [])
+
+    def _topic_rects(self) -> list[QRectF]:
+        now = self._topic_now()
+        return now + [r for r in self._tp_shown if r not in now]
+
+    def _topic_key(self) -> tuple:
+        self._topic_sync()   # sessão nova abre; timeout e mensagem do Pedro fecham
+        i = self.info
+        return (self.topic_picker.state_key(), tp.chip_parts(i.topic, i.session),
+                tuple(sorted(tp.hints(i.session).items())))
+
+    def _topic_press(self, point: Point) -> bool:
+        """Clique no chip (abre/fecha) ou na lista (escolhe). ``True`` = consumido; fora da
+        lista aberta ela fecha e o clique segue (seleção, observações…)."""
+        self._topic_sync()
+        what, topic = self.topic_picker.press(point, self.L.topic, self._topic_list(),
+                                              tp.last_you(self.info.messages))
+        if what == "choose" and topic is not None:
+            self.choose_topic(topic)
+        return what in ("toggle", "choose", "inside")
+
+    def choose_topic(self, topic: str) -> bool:
+        """Manda ``lm_topic {"topic"}`` ao núcleo; o chip só muda com a confirmação."""
+        send = self.send_lm or getattr(self.overlay.provider.inner, "send", None)
+        try:
+            ok = bool(send("lm_topic", {"topic": topic})) if send is not None else False
+        except Exception:  # noqa: BLE001 - socket caído não derruba o HUD
+            ok = False
+        if not ok:
+            self.info.log = "topic not sent — not connected"
+        return ok
+
+    def _g_topic(self, p, snap, now, s):
+        i = self.info
+        if not i.session_active:
+            return
+        tp.paint_chip(p, self.L.topic, i.topic, i.session, self.topic_picker.is_open)
+        lst = self._topic_list()
+        if lst is not None:
+            tp.paint_list(p, lst, self.topic_picker, tp.confirmed(i.topic, i.session),
+                          tp.hints(i.session))
+
     # ---------------------------------------------------------------- seleção e overlay (LM2.2)
 
     def _begin_select(self) -> None:
@@ -580,7 +652,10 @@ class LearningScreen(Screen):
         """Tecla da view learning: ``up``/``down``/``enter``/``esc``. ``True`` = consumida (o
         gamerhud não repassa ao campo). ``typing`` = o campo tem texto: Enter fica com ele
         (``lm_say``); ↑↓/Esc continuam no menu. Esc sem menu apaga a seleção, se houver."""
+        if self.topic_picker.key(name):
+            return True
         if name == "enter" and typing:
+            self.topic_picker.close()   # o Pedro digitou: a lista fecha (spec §11)
             return False
         if self.overlay.is_open:
             used = self.overlay.key(name)
@@ -693,6 +768,8 @@ class LearningScreen(Screen):
         super().paint(p, size, snap, now, mono, region)
         if self._keys.get("overlay") == self._overlay_key():
             self._ov_shown = self._overlay_now()  # os antigos já foram cobertos
+        if self._keys.get("topic") == self._topic_key():
+            self._tp_shown = self._topic_now()
 
     def _g_footer(self, p, snap, now, s):
         r = self._footer_rect()

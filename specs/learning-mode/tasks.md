@@ -138,7 +138,7 @@ tamanho do painel, `MASCOT_MAIN` 302 de altura na base 1920 (LM-015 → LM1.5). 
   - Pronto: CA-23 e CA-24 verdes; CA-05b e testes atuais do roteador/notícias/jogo continuam verdes; fora da sessão "vamos falar do jogo" segue o caminho antigo (teste).
   - Paralelo: LM3.4, LM4.2, LM4.3
 
-- [ ] **LM1.9 Seletor de tema na tela** — `hud/wired/learning_topic.py` (puro + pintura: chip `TOPIC // … ▾`, lista de 4 itens ancorada no chip, item sob o mouse, abre sozinho só em sessão nova, fecha em `topic_picker_s`/clique fora/Esc/mensagem, `detail` do fallback no chip); grupo `topic` na `LearningScreen` e clique nele → `send_lm("lm_topic", topic=…)`; o chip mostra só o tema **confirmado** pelo núcleo (`lm_topic` no `learning_model`). *(LM-013, design §4.5)*
+- [x] **LM1.9 Seletor de tema na tela** — `hud/wired/learning_topic.py` (puro + pintura: chip `TOPIC // … ▾`, lista de 4 itens ancorada no chip, item sob o mouse, abre sozinho só em sessão nova, fecha em `topic_picker_s`/clique fora/Esc/mensagem, `detail` do fallback no chip); grupo `topic` na `LearningScreen` e clique nele → `send_lm("lm_topic", topic=…)`; o chip mostra só o tema **confirmado** pelo núcleo (`lm_topic` no `learning_model`). *(LM-013, design §4.5)*
   - Lê: design §4, §4.5, spec §6 (`lm_topic`, `lm_session`), §10.1 itens 1–2, §11, APIs de `learning_screen.py`, `learning_model.py`, `learning_layout.py` por grep `def `
   - Escreve: `hud/wired/learning_topic.py`, `hud/wired/learning_screen.py` (só grupo `topic` e clique), `tests/learning/test_topic_view.py`
   - Depende de: LM1.6 (pode usar `lm_topic` falso antes do LM1.8)
@@ -378,3 +378,14 @@ aberto) só o fallback de `topic.py` (LM1.8); **P13** (lugar do cartão no paine
   três grupos; `LM_OBS_CAPTURE=<png> pytest tests/learning/test_obs_view.py` salva a imagem).
 - **LM4.3:** item cuja mensagem não está carregada (fora das últimas 200) não rola nem destaca;
   o botão `[ VIEW LEARNING PROFILE ]` só escreve "learning profile — coming later" no rodapé.
+- **LM1.9:** a tela não tem o `send_lm` do bridge (a fiação mora no `gamerhud.py`, fora do
+  *Escreve*): `LearningScreen.send_lm` fica `None` e `choose_topic` usa o `send` do
+  `BridgeProvider` que o LM3.4 já pôs no overlay. Ligar `learning.send_lm = bridge.send_lm` no
+  `gamerhud` quando alguém mexer lá. Falha de envio escreve "topic not sent — not connected" no rodapé.
+- **LM1.9:** o fechamento em 10 s é verificado na chave do grupo `topic` (`dirty_regions`), sem
+  prazo próprio no `caption_tick` (`gamerhud.py` fora do *Escreve*): na prática fecha no refresh
+  seguinte (≤ ~1 s depois). Para exatidão, somar `learning.topic_picker.deadline()` aos `deadlines`.
+- **LM1.9:** "sessão nova" = `lm_session` com `n_msgs == 0` (por `id`, uma vez). Opcionais lidos do
+  `lm_session` se o núcleo um dia mandar: `topic_hints {"game","news"}` (dica à direita das linhas)
+  e `picker_s` (prazo). "Fala/digita" = chega `lm_msg` do Pedro (ou Enter com texto no campo).
+  Pendente o manual (lista abre ao entrar, some em 10 s e não cobre a última mensagem).
