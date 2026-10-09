@@ -405,6 +405,8 @@ class Reactor:
         self._cooldown[key] = now + cooldown
         self.current, self.until = r, now + r.dur
         self._seq = self._seq_face = None
+        if key not in ("player", "card"):  # olhada de clique não é reação (não entra na conta)
+            registro.gravar_antiga(key, self.clock(), self.registro_file or registro.REGISTRO_FILE)
         if talk and self._falar(line, now, r.prio, music):
             self.current = replace(r, line=line)
         return self.current

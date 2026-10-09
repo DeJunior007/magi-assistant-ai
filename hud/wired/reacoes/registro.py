@@ -14,6 +14,14 @@ REGISTRO_FILE = Path.home() / ".local/state/magi/reacoes.jsonl"
 GIRO_BYTES = 5 * 1024 * 1024
 
 
+def gravar_antiga(chave: str, agora: float, caminho: Path = REGISTRO_FILE) -> None:
+    """Uma das 19 reações antigas (tocada pelo ``Reactor.fire``, fora do governador): entra no
+    mesmo registro, com ``motivo = "antiga"``, para o relatório da semana ver o rosto inteiro."""
+    _escrever({"t": agora, "hora": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(agora)),
+               "chave": chave, "n": None, "variante": None, "motivo": "antiga", "furou_cota": False},
+              caminho)
+
+
 def gravar(d: Def, disparo: Disparo, agora: float, caminho: Path = REGISTRO_FILE) -> None:
     """Acrescenta uma linha JSON com a reação tocada (gira o arquivo acima de ``GIRO_BYTES``).
 
@@ -28,6 +36,10 @@ def gravar(d: Def, disparo: Disparo, agora: float, caminho: Path = REGISTRO_FILE
         "motivo": disparo.motivo,
         "furou_cota": furou_cota(d),
     }
+    _escrever(linha, caminho)
+
+
+def _escrever(linha: dict, caminho: Path) -> None:
     try:
         caminho.parent.mkdir(parents=True, exist_ok=True)
         if caminho.exists() and caminho.stat().st_size >= GIRO_BYTES:
