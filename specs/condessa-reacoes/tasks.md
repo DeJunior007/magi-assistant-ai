@@ -59,7 +59,7 @@ R0.1 ─┬─ R0.2 ─┐
   - Pronto: testes dos contratos e todos de `tests/hud/test_wired_reactions.py` verdes; `ruff` limpo; cada stub tem docstring com a tarefa dona.
   - Paralelo: —
 
-- [ ] **R0.2 Governador e registro** — `governador.escolher(disparos, agora, ctx) -> Def|None` com
+- [x] **R0.2 Governador e registro** — `governador.escolher(disparos, agora, ctx) -> Def|None` com
   todas as regras do spec §3 (cotas, cooldown, prioridade, fila, bloqueios, blush, lágrima, Ado,
   desligadas do Pedro) e `aplicar_bloqueios(def, ctx) -> tuple[Passo]` (C8/C11 → C9, tira `tear`
   fora de hora). `registro.gravar(...)` em `~/.local/state/magi/reacoes.jsonl` com giro de 5 MB
@@ -246,3 +246,4 @@ merge trivial, resolvido pelo orquestrador).
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
 
 - R0.1: `Def` ganhou `variante` e `substituida` (citados em R0.4/spec §1, fora do bloco do spec §2). Stubs extras: `atividade.Atividade(caminho)` com `evento`/`parado_s`, `registro.gravar(d, disparo, agora, caminho)`, `catalogo.DEFS`/`ATIVAS`; R0.2/R1.4 podem ajustar.
+- R0.2: `escolher` guarda o histórico num `governador.Estado` em `ctx["estado"]` (o chamador reusa o mesmo `ctx` entre ticks); demais chaves de `ctx` na docstring do módulo (`defs` aceita `chave` ou `(chave, variante)`, `hora`, `humor`, `jogo`, `claude`, `musica_nota`, `ado`, `desligadas`, `parada`). O disparo aprovado fica em `Estado.ultimo` para `registro.gravar`. Janelas de 1/h e 1/dia são móveis (3600 s / 86400 s); "I16 ≤ 1/noite" sai do 1/dia. Prioridade: classe de maior posto na Def (VOLTA/VITORIA/ZOEIRA etc. não têm posto próprio — use junto com PEDRO/SISTEMA no catálogo).
