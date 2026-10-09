@@ -8,8 +8,13 @@ Dono: R1.5 (cond. B: R2.B; cond. F: R2.F).
 - 79 `triste_leve`: humor do Pedro (``ctx["humor"]``) cai de ≥ 2 para ≤ 1.
 - I18 `esperando_resposta`: Magui sai de ``speaking`` para parada (nem ``listening`` nem
   ``thinking``).
+- cond. B (R2.B): tag do turno do Pedro (``snap.turn_tag`` = ``(tag, monotônico)``, vinda do
+  ``TurnTagMsg`` do núcleo). Só tag nova (hora diferente da última vista) e com ≤ ``TAG_MAX_S``
+  (10 s) de ``ctx["agora"]``: ``correcao`` → 86 `desculpa`; ``zoeira`` → 76 `rindo`; ``elogio`` →
+  74 `tsundere`, ou 87 `gaguejando` se for o 2º elogio em ≤ ``ELOGIO_DUPLO_S`` (5 min).
 
-Estado próprio: ``_conversa_humor`` (último humor visto).
+Estado próprio: ``_conversa_humor`` (último humor visto), ``_conversa_tag`` (hora da última tag
+vista), ``_conversa_elogio`` (hora do último elogio).
 """
 
 from __future__ import annotations
@@ -24,6 +29,9 @@ from .contratos import Disparo
 GRAVES = ("morte", "morre", "morreu", "mortos", "morto", "desastre", "tragedia", "acidente",
           "guerra", "ataque", "massacre", "terremoto", "enchente", "incendio", "queda")
 ATIVA = ("speaking", "listening", "thinking")
+TAG_MAX_S = 10.0  # tag do turno mais velha que isso é ignorada (spec §6 B)
+ELOGIO_DUPLO_S = 300.0  # 2º elogio nesse intervalo: gagueja (87) em vez do tsundere (74)
+TAG_REACAO = {"correcao": "desculpa", "zoeira": "rindo"}
 
 _LISTAS = {  # recaída sem o gosto
     "noticia_boa": ("vitoria", "recorde", "lanca", "lancamento", "cura", "aprova", "conquista"),
@@ -72,6 +80,28 @@ def _manchete(snap: Any) -> str | None:
     return n[1] if isinstance(n, tuple) and len(n) > 1 else str(n)
 
 
+def _tag(snap: Any, ctx: dict) -> Disparo | None:
+    """Disparo da tag do turno (cond. B) ou None; consome a tag (cada uma reage 1×)."""
+    tt = getattr(snap, "turn_tag", None)
+    agora = ctx.get("agora")
+    if not tt or agora is None:
+        return None
+    tag, quando = tt
+    if quando == ctx.get("_conversa_tag"):
+        return None
+    ctx["_conversa_tag"] = quando
+    if not 0 <= agora - quando <= TAG_MAX_S:
+        return None
+    if tag == "elogio":
+        antes = ctx.get("_conversa_elogio")
+        ctx["_conversa_elogio"] = quando
+        if antes is not None and quando - antes <= ELOGIO_DUPLO_S:
+            return Disparo("gaguejando", "elogio de novo")
+        return Disparo("tsundere", "elogio do Pedro")
+    chave = TAG_REACAO.get(tag)
+    return Disparo(chave, f"turno: {tag}") if chave else None
+
+
 def detectar(anterior: Any, snap: Any, ctx: dict) -> list[Disparo]:
     """Compara o Snapshot ``anterior`` com ``snap`` e devolve os disparos deste tick."""
     out: list[Disparo] = []
@@ -80,6 +110,9 @@ def detectar(anterior: Any, snap: Any, ctx: dict) -> list[Disparo]:
     ctx["_conversa_humor"] = humor
     if humor is not None and antes is not None and antes >= 2 and humor <= 1:
         out.append(Disparo("triste_leve", f"humor {antes} → {humor}"))
+    tag = _tag(snap, ctx)
+    if tag is not None:
+        out.append(tag)
     if anterior is None:
         return out
     m = _manchete(snap)

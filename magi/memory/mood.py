@@ -13,7 +13,8 @@ por média móvel exponencial (α=0,3). Entre turnos a nota decai para o neutro 
 "Pega leve" põe teto 1 e "pode pegar pesado" piso 3 por ``OVERRIDE_S``; cada comando também mexe
 no viés aprendido (±0,25, limite ±1) e fica em ``mood_events`` (R13.5). O estado vai para um JSON
 em ``data_dir`` para sobreviver a reinício. O nível entra no ``TurnContext.mood`` (prompt, R13.4)
-e, quando muda, vai ao HUD como ``MoodMsg`` (R13.7).
+e, quando muda, vai ao HUD como ``MoodMsg`` (R13.7). Cada turno com sinal também manda a tag local
+(``TurnTagMsg``, ``turn_tag.py``) para as reações da Condessa.
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ from magi.common.contracts import (
     MoodMsg,
     ToneMetadata,
     TurnContext,
+    TurnTagMsg,
 )
 
 log = logging.getLogger(__name__)
@@ -253,7 +255,21 @@ class MoodTracker:
         if signals:
             log.debug("humor: %s -> %.2f", ", ".join(f"{e.signal}{e.value:+}" for e in signals), score)
         self._save()
-        return await self.publish(at)
+        level = await self.publish(at)
+        await self.publish_tag(text, ctx.tone)
+        return level
+
+    async def publish_tag(self, text: str, tone: ToneMetadata | None = None) -> str | None:
+        """Manda a tag local do turno (``TurnTagMsg``, reações R2.B) ao HUD; turno neutro não manda."""
+        from magi.memory.turn_tag import classify  # turn_tag importa as regras daqui
+
+        tag = classify(text, tone)
+        if tag is not None and self.hud is not None:
+            try:
+                await self.hud.send(TurnTagMsg(tag))
+            except Exception:
+                log.exception("falha ao mandar a tag do turno ao HUD")
+        return tag
 
     async def soften(self) -> int:
         """"Pega leve": teto 1 por algumas horas e viés aprendido para baixo (R13.5)."""

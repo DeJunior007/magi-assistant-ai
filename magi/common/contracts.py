@@ -15,8 +15,8 @@ Mapa rápido
 - Núcleo: ``Transcript``, ``Slot``, ``Intent``, ``RouteResult``, ``TurnContext``,
   ``ActionRequest``, ``ActionResult``, ids canônicos em ``IntentId`` e ``SlotName``.
 - HUD (§6): ``StateMsg``, ``SubtitleMsg``, ``SpeechMsg``, ``MouthMsg``, ``MoodMsg``, ``VoteMsg``,
-  ``CardMsg``, ``CmdMsg``, ``DetailMsg``. JSON de uma linha via ``magi.common.events.encode_hud`` /
-  ``decode_hud`` (ou ``msg.to_json()``).
+  ``TurnTagMsg``, ``CardMsg``, ``CmdMsg``, ``DetailMsg``. JSON de uma linha via
+  ``magi.common.events.encode_hud`` / ``decode_hud`` (ou ``msg.to_json()``).
   Learning Mode (``lm_*``, LM1.2): ``LmModeMsg``, ``LmSessionMsg``, ``LmSayMsg``, ``LmMsgMsg``,
   ``LmActionMsg``, ``LmResultMsg``, ``LmObsMsg``, ``LmCfgMsg``, ``LmTopicMsg``, ``LmSaveMsg``,
   ``LmSavedMsg``, ``LmSummaryMsg`` (base ``LearningHudMsg``; texto limitado por ``clip_lm_text``).
@@ -713,6 +713,24 @@ class MoodMsg(_HudMsg):
         return {"t": self.T, "v": self.v}
 
 
+TURN_TAGS = frozenset({"elogio", "zoeira", "correcao", "sussurro"})
+
+
+@dataclass(frozen=True, slots=True)
+class TurnTagMsg(_HudMsg):
+    """núcleo -> HUD ``{"t":"turn_tag","v":"elogio"}``: tag local do turno do Pedro (reações, spec §6 B)."""
+
+    T: ClassVar[str] = "turn_tag"
+    v: str
+
+    def __post_init__(self) -> None:
+        if self.v not in TURN_TAGS:
+            raise ValueError(f"tag de turno fora de {sorted(TURN_TAGS)}: {self.v!r}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"t": self.T, "v": self.v}
+
+
 class Verdict(StrEnum):
     """Estado da votação dos MAGI (R5.3)."""
 
@@ -1079,7 +1097,7 @@ LearningMessageMsg = (
 
 HudMessage = (
     StateMsg | SubtitleMsg | SpeechMsg | MouthMsg | MoodMsg | VoteMsg | CardMsg | CmdMsg | DetailMsg
-    | LearningMessageMsg
+    | LearningMessageMsg | TurnTagMsg
 )
 
 

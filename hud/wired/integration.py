@@ -198,6 +198,7 @@ class WiredUI:
         self.mouth_level = 0.0
         self.caption: str | None = None
         self.mood: int | None = None
+        self.turn_tag: tuple[str, float] | None = None  # última TurnTagMsg (tag, monotônico)
         self.led_on = False
         self.led_rgb: str | None = None
         self._game: str | None = None
@@ -302,6 +303,7 @@ class WiredUI:
             self_usage=self.self_usage.view, extra=self.extra, netinfo=self.netinfo, git=self.gitinfo)
         head = getattr(self.git, "head", None)
         self.snap.git_head = head if isinstance(head, str) else None
+        self.snap.turn_tag = self.turn_tag
         self.snap.project = self.konsole_cwd
         self.snap.konsole_online = self.konsole_alive()
         self.snap.konsole_rev = self.konsole_rev
@@ -373,6 +375,11 @@ class WiredUI:
 
     def set_mood(self, v: int | None) -> None:
         self.mood = None if v is None else max(0, min(4, int(v)))
+
+    def set_turn_tag(self, tag: str | None, mono: float | None = None) -> None:
+        """Última tag do turno do Pedro (``TurnTagMsg``, R2.B) com a hora de chegada (monotônica)."""
+        self.turn_tag = None if not tag else (str(tag), time.monotonic() if mono is None else mono)
+        self.snap.turn_tag = self.turn_tag
 
     def on_card(self, card: dict, wall: float | None = None) -> None:
         title = card.get("title")

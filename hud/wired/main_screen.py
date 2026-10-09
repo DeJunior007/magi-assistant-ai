@@ -157,6 +157,7 @@ class Snapshot:
     git_added: int | None = None
     git_removed: int | None = None
     git_head: str | None = None  # hash curto do HEAD (data.GitStatus.head); reação 75
+    turn_tag: tuple[str, float] | None = None  # (tag do turno, time.monotonic() da chegada); R2.B
     konsole_online: bool | None = None  # sessão do Claude Code viva no KONSOLE
     konsole_rev: int = 0  # muda quando o terminal tem tela nova (repinta o miolo)
 

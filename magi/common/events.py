@@ -73,6 +73,7 @@ from magi.common.contracts import (
     StopPlayback,
     SubtitleMsg,
     ToneMetadata,
+    TurnTagMsg,
     Verdict,
     VoteMsg,
     WakeEvent,
@@ -338,6 +339,10 @@ def _hud_mood(d: Mapping[str, Any]) -> MoodMsg:
     return MoodMsg(_h(d, "v", int))
 
 
+def _hud_turn_tag(d: Mapping[str, Any]) -> TurnTagMsg:
+    return TurnTagMsg(_h(d, "v", str))
+
+
 def _hud_vote(d: Mapping[str, Any]) -> VoteMsg:
     return VoteMsg(verdict=Verdict(_h(d, "verdict", str)), label=_h(d, "label", str, None))
 
@@ -460,6 +465,7 @@ _HUD_DECODERS: dict[str, Callable[[Mapping[str, Any]], HudMessage]] = {
     SpeechMsg.T: _hud_speech,
     MouthMsg.T: _hud_mouth,
     MoodMsg.T: _hud_mood,
+    TurnTagMsg.T: _hud_turn_tag,
     VoteMsg.T: _hud_vote,
     CardMsg.T: _hud_card,
     CmdMsg.T: _hud_cmd,
