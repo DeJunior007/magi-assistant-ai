@@ -190,7 +190,7 @@ tamanho do painel, `MASCOT_MAIN` 302 de altura na base 1920 (LM-015 → LM1.5). 
   - Pronto: CA-12, CA-13 verdes; teste de cache (2ª ação igual não chama o modelo).
   - Paralelo: LM1.4, LM1.6
 
-- [ ] **LM3.4 Balão com resultados reais** — trocar o provedor falso do LM2.2 por `lm_action`/`lm_result` via `hud_bridge`; correlação por `id`; "retry"; timeout de UI 12 s. *(SEL-001..003, IMP-*, EXP-001, TRA-001, VOC-*, LM-007)*
+- [x] **LM3.4 Balão com resultados reais** — trocar o provedor falso do LM2.2 por `lm_action`/`lm_result` via `hud_bridge`; correlação por `id`; "retry"; timeout de UI 12 s. *(SEL-001..003, IMP-*, EXP-001, TRA-001, VOC-*, LM-007)*
   - Lê: spec §5–§6, APIs de `learning_overlay.py`, `learning_model.py`, `hud_bridge.send_lm` (por grep `def `)
   - Escreve: `hud/wired/learning_overlay.py`, `tests/learning/test_overlay_action.py` (correlação por `id`, retry, timeout de 12 s — lógica pura)
   - Depende de: LM2.2, LM3.3
@@ -350,4 +350,12 @@ aberto) só o fallback de `topic.py` (LM1.8); **P13** (lugar do cartão no paine
   estado dos satélites exigiria passar `listening` no `core/service.py` (fora do *Escreve*).
 - **LM1.8:** ao ligar o modo o núcleo manda também `lm_topic` (tema atual) depois de `lm_session`,
   para o chip do LM1.9 ter o tema confirmado em sessão nova e retomada.
-
+- **LM3.4:** a troca do provedor precisou de fiação fora do *Escreve* (nenhum ponto existente
+  ligava o bridge ao balão): `hud/gamerhud.py` (onde já fazia `learning.info = learning_model`,
+  agora também `overlay.provider.inner = BridgeProvider(bridge.send_lm)`; o prazo do balão entra
+  nos `deadlines` do `caption_tick`, agendado pelo `learning_refresh`) e
+  `hud/wired/learning_screen.py` (`ModelProvider.results` expõe `info.results`; `_overlay_key`
+  chama `overlay.poll()`, que pega o `lm_result` por `id` ou estoura os 12 s).
+  `LearningScreen.on_lm_result` segue sem chamador (o `poll` cobre). Envio com o núcleo fora do
+  ar vira erro `offline` ("not connected") com retry.
+- **LM3.4:** pendente o manual *(gasta API)*: as 4 ações no exemplo do PDF em ≤ 4 s.

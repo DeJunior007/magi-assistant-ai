@@ -90,6 +90,11 @@ class ModelProvider:
         self.screen = screen
         self.inner = inner or FakeProvider()
 
+    @property
+    def results(self) -> dict:
+        """``lm_result`` já recebidos, por ``id`` (o ``Overlay.poll`` pega o da ação corrente)."""
+        return self.screen.info.results
+
     def submit(self, action: dict, text: str) -> dict | None:
         info = self.screen.info  # o gamerhud troca ``info`` pelo modelo dele: lê sempre na hora
         info.begin_action(action["id"])
@@ -586,6 +591,7 @@ class LearningScreen(Screen):
         return now + [r for r in self._ov_shown if r not in now]
 
     def _overlay_key(self) -> tuple:
+        self.overlay.poll()   # LM3.4: lm_result chegado ao LearningModel ou timeout de 12 s
         menu, bubble, _ = self._overlay_geometry()
         return (self.overlay.state_key(), menu, bubble)
 

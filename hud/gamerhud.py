@@ -44,6 +44,7 @@ from wired import theme as wtheme  # noqa: E402
 from wired.data import ClaudeStats  # noqa: E402
 from wired.integration import CARD_DETAIL, WiredUI, learning_toggle, rgb_hex  # noqa: E402
 from wired.learning_model import LearningModel, check_say  # noqa: E402
+from wired.learning_overlay import BridgeProvider  # noqa: E402
 
 TARGET_SCREEN = os.environ.get("GAMERHUD_SCREEN", "DP-1")
 CACHE = os.path.expanduser("~/.cache/gamerhud")
@@ -1079,6 +1080,7 @@ class HUD(QWidget):
             self.wired.set_state(self.face.state if self.face.state in self.FACE_STATES else "sleeping")
             self.wired.set_mood(self.magui_mood)
             self.wired.learning.info = self.learning_model
+            self.wired.learning.overlay.provider.inner = BridgeProvider(self.bridge.send_lm)  # LM3.4
         else:
             self.wired_keep, self.wired = self.wired, None
             self.bg = None
@@ -1181,6 +1183,7 @@ class HUD(QWidget):
         self.learning_model = LearningModel(connected=False)
         if self.wired:
             self.wired.learning.info = self.learning_model
+            self.wired.learning.overlay.provider.inner = BridgeProvider(self.bridge.send_lm)  # LM3.4
         b.learning_model = self.learning_model
         b.learning.connect(self.on_bridge_learning)
         self.lm_entry = None
@@ -1285,6 +1288,7 @@ class HUD(QWidget):
             deadlines.append(main.caption_deadline(now))
             if self.view == "learning":   # mensagem da Condessa revelada em sincronia (LM-003)
                 deadlines.append(self.learning_model.deadline(now))
+                deadlines.append(self.wired.learning.overlay.deadline())   # timeout do balão (LM3.4)
                 rects = list(rects or []) + self.learning_dirty()
             if rects and not self.trans and self.isVisible() and self.width() > 1:
                 for r in rects:
@@ -1868,6 +1872,8 @@ class HUD(QWidget):
     def learning_refresh(self):
         for r in self.learning_dirty():
             self.update(r)
+        if self.wired and self.view == "learning" and self.wired.learning.overlay.deadline():
+            self.caption_tick()   # agenda o timeout de 12 s do balão (LM3.4)
 
     def on_bridge_learning(self, msg):
         """lm_* (o bridge já entregou ao learning_model): repinta os grupos e agenda a revelação."""

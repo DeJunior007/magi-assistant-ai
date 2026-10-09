@@ -16,11 +16,19 @@ Provedor: ``submit(action, text) -> dict | None``. ``action`` tem os campos do `
 JSON) quando já há resposta, ou ``None`` quando ela vem depois — aí a tela chama
 ``Overlay.on_result`` ao receber o ``lm_result`` (LM3.4 troca o ``FakeProvider`` por um que manda
 ``lm_action`` pelo ``hud_bridge``).
+
+LM3.4: ``BridgeProvider`` manda o ``lm_action`` por um ``send(tipo, campos)`` (o
+``HudBridge.send_lm``) e devolve ``None``; o ``lm_result`` chega depois por ``Overlay.on_result``
+ou por ``Overlay.poll(results)`` (o dicionário ``LearningModel.results``, por ``id``). Só vale o
+resultado da ação corrente: o de uma ação antiga (inclusive o que chega depois do timeout ou de
+um retry) é ignorado. Sem resposta em ``UI_TIMEOUT_S`` (12 s) o balão vira erro ``timeout`` com
+retry; ``deadline()`` diz quando acordar para isso.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -30,6 +38,7 @@ from .learning_text import ActionKind, MenuItem, Rect, Selection, menu_items, me
 # ====================================================================== estado
 
 CLOSED, MENU, LOADING, OK, ERROR = "closed", "menu", "loading", "ok", "error"
+UI_TIMEOUT_S = 12.0   # sem lm_result nesse prazo, o balão vira erro "timeout" (com retry)
 
 BUBBLE_W = 440.0      # largura lógica do balão
 BUBBLE_PAD = 16.0     # margem interna
@@ -61,6 +70,7 @@ ERRORS = {
     "budget": "budget limit reached",
     "model": "model error",
     "invalid": "invalid answer",
+    "offline": "not connected",
 }
 NO_RETRY = {"budget"}  # repetir não adianta: o teto só volta no outro dia
 
@@ -268,6 +278,28 @@ class FakeProvider:
         return None
 
 
+@dataclass
+class BridgeProvider:
+    """Provedor real (LM3.4): manda o ``lm_action`` por ``send("lm_action", campos)`` (o
+    ``HudBridge.send_lm``) e devolve ``None`` — o ``lm_result`` vem depois. Se o envio falhar
+    (desconectado), devolve na hora um ``lm_result`` de erro ``offline`` (com retry)."""
+
+    send: Callable[[str, dict[str, Any]], bool]
+    calls: list[dict[str, Any]] = field(default_factory=list)
+
+    def submit(self, action: dict[str, Any], text: str) -> dict[str, Any] | None:
+        fields = {k: action[k] for k in ("id", "kind", "message_id", "start", "end")}
+        self.calls.append(fields)
+        try:
+            sent = bool(self.send("lm_action", fields))
+        except Exception:  # noqa: BLE001 - socket caído não derruba o HUD
+            sent = False
+        if sent:
+            return None
+        return {"id": fields["id"], "kind": fields["kind"], "ok": False, "data": None,
+                "error": "offline", "cached": False, "ms": 0, "cost_usd": 0.0}
+
+
 # ====================================================================== Overlay
 
 
@@ -292,6 +324,9 @@ class Overlay:
     version: int = 0
     seq: int = 0
     message_text: str = ""
+    timeout_s: float = UI_TIMEOUT_S
+    clock: Callable[[], float] = field(default=time.monotonic, repr=False)
+    sent_at: float | None = None          # quando o lm_action corrente saiu (para o timeout)
 
     @property
     def is_open(self) -> bool:
@@ -364,6 +399,7 @@ class Overlay:
         self.result = None
         self.more = False
         self.phase = LOADING
+        self.sent_at = self.clock()
         self._bump()
         act = self.action()
         assert act is not None
@@ -380,6 +416,32 @@ class Overlay:
         self.phase = OK if result.get("ok") and result.get("data") is not None else ERROR
         self._bump()
         return True
+
+    def deadline(self) -> float | None:
+        """Instante (no ``clock``) em que a ação corrente estoura o timeout de UI, ou ``None``."""
+        if self.phase != LOADING or self.sent_at is None:
+            return None
+        return self.sent_at + self.timeout_s
+
+    def poll(self, results: Mapping[str, dict[str, Any]] | None = None,
+             now: float | None = None) -> bool:
+        """Carregando: pega o ``lm_result`` da ação corrente em ``results`` (por ``id``; sem
+        argumento, o ``results`` do provedor, se houver) ou estoura o timeout de UI. ``True`` se o
+        balão mudou."""
+        if self.phase != LOADING or self.action_id is None:
+            return False
+        if results is None:
+            results = getattr(self.provider, "results", None)
+        res = results.get(self.action_id) if results else None
+        if res is not None:
+            return self.on_result({**res, "id": self.action_id})
+        end = self.deadline()
+        if end is not None and (self.clock() if now is None else now) >= end:
+            assert self.kind is not None
+            return self.on_result({"id": self.action_id, "kind": self.kind.value, "ok": False,
+                                   "data": None, "error": "timeout", "cached": False, "ms": 0,
+                                   "cost_usd": 0.0})
+        return False
 
     def toggle_more(self) -> bool:
         if self.phase != OK or self.kind is not ActionKind.VOCABULARY:
@@ -613,7 +675,8 @@ def paint_bubble(p, rows: Sequence[Row], bubble: Rect) -> None:
 
 
 __all__ = [
-    "BUBBLE_W", "CLOSED", "ERROR", "LOADING", "MENU", "OK", "BubbleLine", "FakeProvider",
+    "BUBBLE_W", "CLOSED", "ERROR", "LOADING", "MENU", "OK", "UI_TIMEOUT_S", "BridgeProvider",
+    "BubbleLine", "FakeProvider",
     "Overlay", "Row", "bubble_lines", "error_text", "format_result", "item_at", "item_rect",
     "label_width", "layout_bubble", "measure", "paint_bubble", "paint_menu", "title_line",
     "wrap_text",
