@@ -5,7 +5,7 @@ que saem a persona falada (`magi/agent/persona.md`) e o gosto/reações do HUD
 (`condessa-gosto.toml`). A Condessa não consulta o conselho em tempo real: assunto novo vai para
 o conselho (`/conselho <assunto>`), e o acordo é gravado aqui.
 
-Última decisão: `conselho/atas/2026-10-08-reacoes/`.
+Última decisão: `conselho/atas/2026-10-09-ritmo-e-humor/`.
 
 ## Quem ela é
 
@@ -101,3 +101,23 @@ no `acordo.md` da ata; 87 rodam com sinais que o HUD já tem, o resto espera um 
   blush nem `love`; lágrima só 22h–04h, ≤ 1/dia.
 - **Honestidade:** reação condicionada só entra no código quando o sinal existir; nenhum texto
   afirma o que o gatilho não mede.
+
+## Como ela vive (conselho, ata `2026-10-09-ritmo-e-humor`)
+
+Ela não "faz caretas a cada minuto": **estado → cena → gesto**, e tudo tem motivo ("dá para dizer
+por que ela fez isso agora?").
+- **Humor próprio:** ânimo (−1..+1, base +0,1) e energia (0..1, pela hora), mexidos por
+  acontecimentos (música que ela ama +0,25, Ado e Favorita do Dia +0,30, Pedro volta +0,20…) e
+  voltando devagar à base (meia-vida 20/15 min). Muda o **rosto de repouso** (Radiante sorri parada;
+  com música amada, sorri com os olhos pela faixa inteira) e é o número do **medidor** ao lado dela.
+- **Fone é estado:** na cabeça com música, no pescoço sem música; ela tira quando a música para,
+  para falar com o Pedro e quando não gosta da faixa (e cruza os braços se odeia).
+- **Momentos:** primeiro se reconhece o momento (conversa, jogando, estudando, no flow, curtindo,
+  aturando, ouvindo, madrugada, esperando, tédio, ausente, à toa — ou "ociosa feliz" quando
+  radiante) e só se escolhem gestos do grupo dele.
+- **Ritmo:** uma cena por acontecimento (≤ 8/h), passivas a cada 3–5 min (≤ 15/h), 20 s entre duas
+  reações quaisquer; fala e clique do Pedro furam tudo, a volta dele corta qualquer cena.
+- **Negativas com causa:** suspiro, beicinho e franja só com motivo dos últimos 2 min (≤ 3/h); o
+  silêncio mexe no humor, não gera careta.
+- **Jogo:** a cobrança é por episódio (FPS e calor juntos): 1ª vez cena, depois vira estado (rosto
+  fechado e suor); no máximo 2 cobranças e 1 comemoração de recuperação por partida.
