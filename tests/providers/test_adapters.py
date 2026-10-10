@@ -479,3 +479,16 @@ async def test_live_chat_pela_config(budget):
     reg = Registry(load_config(), budget)
     reply = await reg.chat().chat([ChatMessage(role="user", content="Responda só: ok")], personal=False)
     assert reply.text
+
+
+def test_provedor_local_sem_chave_ainda_cria_o_cliente_openai() -> None:
+    """Qwen local (``local = true``): a chave simbólica é vazia e o cliente da OpenAI recusava
+    ("Missing credentials"); toda observação do Learning falhava."""
+    from magi.common.config import ProviderConfig
+    from magi.common.contracts import ApiKey
+    from magi.providers.openai_provider import OpenAIBackend
+
+    opts = {"base_url": "http://127.0.0.1:11435/v1", "local": True}
+    cfg = ProviderConfig(name="qwen", keys=(), options=opts)
+    client = OpenAIBackend(cfg)._default_client(ApiKey(provider="qwen", name="local", secret=""))
+    assert client.api_key == "local" and str(client.base_url).startswith("http://127.0.0.1:11435")

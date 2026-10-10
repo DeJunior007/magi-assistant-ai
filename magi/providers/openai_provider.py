@@ -286,7 +286,9 @@ class OpenAIBackend:
         import openai
 
         return openai.AsyncOpenAI(
-            api_key=key.secret,
+            # provedor local (Ollama/Qwen, ``local = true``): a "chave" é vazia e o cliente recusa
+            # chave vazia ("Missing credentials"); o servidor local não confere o valor
+            api_key=key.secret or "local",
             base_url=self.cfg.options.get("base_url"),
             timeout=float(self.cfg.options.get("timeout_s", 30.0)),
             max_retries=0,

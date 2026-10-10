@@ -69,6 +69,7 @@ from magi.common.contracts import (
     TurnContext,
     WakeSource,
 )
+from magi.core.i18n import tr_result
 from magi.learning.analyzers.observe import distinct_count
 from magi.learning.config import LearningConfig, learning_config
 from magi.learning.contracts import (
@@ -467,7 +468,7 @@ class LearningWiring:
         if agent is None or not self.session.active:
             return
         ctx = TurnContext(satellite=TEXT_SATELLITE, source=WakeSource.PTT, started_at=self.clock())
-        result = await agent.answer(OPENING_PROMPT, ctx)
+        result = tr_result(await agent.answer(OPENING_PROMPT, ctx))
         if not result.speech or not self.session.active:
             return
         async with self._lock:
@@ -506,7 +507,8 @@ class LearningWiring:
             if you is None:
                 return
         ctx = TurnContext(satellite=TEXT_SATELLITE, source=WakeSource.PTT, started_at=self.clock())
-        result = await self.pipeline.respond(Transcript.raw(text, language=TEXT_LANGUAGE), ctx)
+        # frases fixas ("Modo aula ligado…") no idioma da fala, como no turno de voz (``_deliver``)
+        result = tr_result(await self.pipeline.respond(Transcript.raw(text, language=TEXT_LANGUAGE), ctx))
         speech = result.speech
         if speech:
             # Grava antes da fala: entre o começo da fala e a ``lm_msg`` não pode haver escrita no
@@ -533,6 +535,7 @@ class LearningWiring:
             self._keep_opening = False  # este é o turno que pediu o tema por voz
         else:
             self._cancel_opening()  # o Pedro falou antes da abertura (P11)
+        result = tr_result(result)  # o chat mostra o que ela falou (a voz já sai traduzida)
         speaking = bool(result.speech) and self.pipeline.deps.speaker is not None
         self._spawn(self._voice(transcript, ctx, result, speaking), "voz")
 
