@@ -42,7 +42,18 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient, QTransform
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QImage,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QRadialGradient,
+    QTransform,
+)
 
 from .mascot import BLINK_EVERY, BLINK_LEN, EXPRESSIONS, FPS_AWAKE, Mascot
 
@@ -673,6 +684,7 @@ class PartsPortrait(Mascot):
         self._rest_next = None  # repouso novo esperando a piscada
         self._agua_at = self._now + self._rng.uniform(*AGUA_ABRE_EVERY)
         self._xf: dict[str, tuple[str, str, float]] = {}  # camada → (anterior, atual, desde)
+        self._fx_seen: dict[str, tuple[float, float]] = {}  # efeito → (entrou, último quadro)
 
     def set_rest(self, repouso) -> None:
         """Rosto de repouso (spec §4). Olhos/boca/fundo novos entram dentro de uma piscada; o fone
@@ -1305,11 +1317,20 @@ class PartsPortrait(Mascot):
             p.drawEllipse(QPointF(780 + i * 38 + hx, 250 - lift + hy), 13, 13)
         p.restore()
 
+    def _fx_pop(self, kind: str, now: float) -> float:
+        """0→1 com leve exagero na entrada do efeito (reinicia se ele sumiu por mais de 0,5 s)."""
+        t0, last = self._fx_seen.get(kind, (now, -math.inf))
+        if now - last > 0.5:
+            t0 = now
+        self._fx_seen[kind] = (t0, now)
+        x = min(1.0, (now - t0) / 0.35)
+        c = 1.70158
+        return 1 + (c + 1) * (x - 1) ** 3 + c * (x - 1) ** 2  # easeOutBack
+
     def _reaction_effect(self, p: QPainter, now: float, kind: str, hx: float, hy: float,
                          alpha: float | None = None) -> None:
         """Efeitos da reação (quadro de 1024): suor, notas, ?, !, rubor. Somem no fim. Com a arte
         ``extra/D*.png`` (R3.1, ``condessa_build``) o PNG entra no lugar do desenho em código."""
-        from . import fonts
         from .reacoes.contratos import EFEITO
 
         if alpha is None:
@@ -1320,74 +1341,11 @@ class PartsPortrait(Mascot):
         pm = self.assets.pix(f"extra/{ident}.png") if ident else None
         if pm is not None:  # quadro inteiro de 1024, acompanha a cabeça
             p.drawPixmap(QRectF(hx, hy, 1024, 1024), pm, QRectF(pm.rect()))
-        elif kind == "sweat":  # gota escorrendo ao lado da testa
-            x, y = 330 + hx, 300 + hy + 18 * ((now * 0.5) % 1.0)
-            path = QPainterPath(QPointF(x, y - 30))
-            path.cubicTo(QPointF(x + 19, y - 4), QPointF(x + 26, y + 16), QPointF(x, y + 16))
-            path.cubicTo(QPointF(x - 26, y + 16), QPointF(x - 19, y - 4), QPointF(x, y - 30))
-            p.setPen(QPen(QColor("#2a3550"), 3))
-            p.setBrush(QColor(150, 200, 255, 210))
-            p.drawPath(path)
-        elif kind == "notes":  # notas subindo e sumindo
-            for i in range(3):
-                ph = (now / 2.4 + i / 3) % 1.0
-                c = QColor("#ffd6e6")
-                c.setAlphaF(max(0.0, 1.0 - ph))
-                p.setPen(c)
-                p.setFont(fonts.font("cond", 80 + i * 12, 700))
-                x = 760 + i * 40 + 18 * math.sin(now * 2 + i)
-                p.drawText(QPointF(x + hx, 330 - 160 * ph + hy), "♪" if i % 2 else "♫")
-        elif kind in ("question", "bang"):
-            sc = 1.0 + 0.08 * math.sin(now * 6)
-            p.setPen(QColor("#e8b04a") if kind == "bang" else self.tint())
-            p.setFont(fonts.font("cond", 100 * sc, 700))
-            p.drawText(QPointF(770 + hx, 250 + hy), "!" if kind == "bang" else "?")
-        elif kind == "blush":
-            c = QColor(BLUSH)
-            c.setAlphaF(0.6)
-            p.setPen(QPen(c, 5))
-            for cx in (420.0, 610.0):
-                for i in range(4):
-                    x = cx + hx + i * 14
-                    p.drawLine(QPointF(x, 515 + hy), QPointF(x + 12, 495 + hy))
-        elif kind == "zz":  # zz subindo (cochilo da reação)
-            for i in range(3):
-                ph = (now / 3.0 + i / 3) % 1.0
-                c = self.tint()
-                c.setAlphaF(max(0.0, 1.0 - ph))
-                p.setPen(c)
-                p.setFont(fonts.font("cond", 40 + i * 12, 600))
-                p.drawText(QPointF(720 + i * 34 + 20 * ph + hx, 230 - i * 40 - 70 * ph + hy), "z")
-        elif kind == "tear":  # lágrima descendo do canto do olho
-            x, y = 445 + hx, 470 + hy + 60 * ((now * 0.4) % 1.0)
-            path = QPainterPath(QPointF(x, y - 18))
-            path.cubicTo(QPointF(x + 12, y - 2), QPointF(x + 14, y + 10), QPointF(x, y + 10))
-            path.cubicTo(QPointF(x - 14, y + 10), QPointF(x - 12, y - 2), QPointF(x, y - 18))
-            p.setPen(QPen(QColor("#2a3550"), 2))
-            p.setBrush(QColor(170, 215, 255, 220))
-            p.drawPath(path)
-        elif kind == "vein":  # veia de raiva (cruz de quatro arcos) na testa
-            sc = 1.0 + 0.1 * abs(math.sin(now * 5))
-            cx, cy, r0 = 640 + hx, 250 + hy, 22 * sc
-            p.setPen(QPen(QColor("#d23a3a"), 7))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            for ang in (45, 135, 225, 315):
-                ox, oy = r0 * math.cos(math.radians(ang)), r0 * math.sin(math.radians(ang))
-                p.drawArc(QRectF(cx + ox - r0, cy + oy - r0, 2 * r0, 2 * r0), (ang + 180 - 45) * 16, 90 * 16)
-        elif kind == "sparkle":  # brilhos de quatro pontas piscando em volta
-            for i, (sx, sy) in enumerate(((300, 260), (760, 220), (800, 420))):
-                k = 0.5 + 0.5 * math.sin(now * 4 + i * 2.1)
-                s = 14 + 18 * k
-                c = QColor("#fff3c4")
-                c.setAlphaF(0.4 + 0.6 * k)
-                p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(c)
-                x, y = sx + hx, sy + hy
-                star = QPainterPath(QPointF(x, y - s))
-                for px, py in ((x + s / 4, y - s / 4), (x + s, y), (x + s / 4, y + s / 4), (x, y + s),
-                               (x - s / 4, y + s / 4), (x - s, y), (x - s / 4, y - s / 4), (x, y - s)):
-                    star.lineTo(QPointF(px, py))
-                p.drawPath(star)
+        else:
+            pop = self._fx_pop(kind, now) if hasattr(self, "_fx_seen") else 1.0
+            draw = _FX.get(kind)
+            if draw is not None:
+                draw(self, p, now, pop, hx, hy)
         p.restore()
 
     def _effects(self, p: QPainter, now: float, accent: QColor, hx: float, hy: float) -> None:
@@ -1396,14 +1354,8 @@ class PartsPortrait(Mascot):
 
         st = self.state
         p.save()
-        if st == "happy":  # rubor: hachuras rosadas nas bochechas
-            c = QColor(BLUSH)
-            c.setAlphaF(0.6)
-            p.setPen(QPen(c, 5))
-            for cx in (420.0, 610.0):
-                for i in range(4):
-                    x = cx + hx + i * 14
-                    p.drawLine(QPointF(x, 515 + hy), QPointF(x + 12, 495 + hy))
+        if st == "happy":  # rubor nas bochechas
+            _fx_blush(self, p, now, 1.0, hx, hy)
         if st == "sleeping" and self._night():  # zz subindo
             for i in range(3):
                 ph = (now / 3.0 + i / 3) % 1.0
@@ -1412,10 +1364,232 @@ class PartsPortrait(Mascot):
                 p.setPen(c)
                 p.setFont(fonts.font("cond", 40 + i * 12, 600))
                 p.drawText(QPointF(720 + i * 34 + 20 * ph, 230 - i * 40 - 70 * ph), "z")
-        if st in ("confused", "alert"):  # ? ou ! pulsando ao lado da cabeça
-            s = 1.0 + 0.08 * math.sin(now * 6)
-            c = QColor("#e8b04a") if st == "alert" else QColor(accent)
-            p.setPen(c)
-            p.setFont(fonts.font("cond", 110 * s, 700))
-            p.drawText(QPointF(760 + hx, 250 + hy), "!" if st == "alert" else "?")
+        if st in ("confused", "alert"):  # ? ou ! ao lado da cabeça
+            kind = "bang" if st == "alert" else "question"
+            _FX[kind](self, p, now, self._fx_pop(kind, now), hx, hy)
         p.restore()
+
+
+# ── Efeitos desenhados (quadro de 1024) ────────────────────────────────────────────────────────
+# No traço da arte dela: gradiente, brilho e glow suave em vez de contorno chapado; entram com
+# ``pop`` (0→1 com exagero) e respiram em loop. O zz é o de sempre.
+
+def _rgba(hexa: str, a: float) -> QColor:
+    c = QColor(hexa)
+    c.setAlphaF(max(0.0, min(1.0, a)))
+    return c
+
+
+def _halo(p: QPainter, path: QPainterPath, hexa: str, alpha: float, width: float = 18.0) -> None:
+    """Halo macio em volta do desenho (3 passadas de traço largo e transparente)."""
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    for k in (1.0, 0.6, 0.3):
+        pen = QPen(_rgba(hexa, alpha * 0.12), width * k)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.drawPath(path)
+
+
+def _drop_path(x: float, y: float, h: float) -> QPainterPath:
+    """Gota com a ponta para cima; (x, y) = centro do bojo."""
+    r = h * 0.36
+    path = QPainterPath(QPointF(x, y - h * 0.64))
+    path.cubicTo(QPointF(x + r * 0.35, y - h * 0.3), QPointF(x + r, y - r * 0.4), QPointF(x + r, y))
+    path.arcTo(QRectF(x - r, y - r, 2 * r, 2 * r), 0, -180)
+    path.cubicTo(QPointF(x - r, y - r * 0.4), QPointF(x - r * 0.35, y - h * 0.3), QPointF(x, y - h * 0.64))
+    return path
+
+
+def _drop(p: QPainter, x: float, y: float, h: float, alpha: float, light: str = "#eaf6ff",
+          base: str = "#7fb6f0", edge: str = "#4d7fc4") -> None:
+    """Gota de vidro: gradiente claro→azul, borda fina translúcida e dois brilhos."""
+    path = _drop_path(x, y, h)
+    _halo(p, path, "#bfe0ff", alpha, 14)
+    g = QLinearGradient(QPointF(x - h * 0.3, y - h * 0.6), QPointF(x + h * 0.25, y + h * 0.4))
+    g.setColorAt(0.0, _rgba(light, 0.95 * alpha))
+    g.setColorAt(0.55, _rgba(base, 0.85 * alpha))
+    g.setColorAt(1.0, _rgba(edge, 0.9 * alpha))
+    p.setBrush(g)
+    p.setPen(QPen(_rgba(edge, 0.55 * alpha), max(1.5, h * 0.03)))
+    p.drawPath(path)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(_rgba("#ffffff", 0.9 * alpha))
+    r = h * 0.36
+    p.drawEllipse(QRectF(x - r * 0.62, y - r * 0.55, r * 0.42, r * 0.62))
+    p.setBrush(_rgba("#ffffff", 0.6 * alpha))
+    p.drawEllipse(QPointF(x + r * 0.45, y + r * 0.45), r * 0.12, r * 0.12)
+
+
+def _glyph(p: QPainter, text: str, x: float, y: float, size: float, fill_top: str, fill_bot: str,
+           edge: str, alpha: float, tilt: float = 0.0) -> None:
+    """Símbolo (?, !, ♪) como forma: glow, contorno escuro macio e preenchimento em degradê."""
+    from . import fonts
+
+    f = QFont(fonts.font("cond", 100, 800))
+    f.setPixelSize(max(1, int(size)))
+    path = QPainterPath()
+    path.addText(0, 0, f, text)
+    br = path.boundingRect()
+    p.save()
+    p.translate(x, y)
+    p.rotate(tilt)
+    p.translate(-br.center().x(), -br.center().y())
+    _halo(p, path, fill_top, alpha, size * 0.22)
+    pen = QPen(_rgba(edge, 0.85 * alpha), size * 0.06)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    g = QLinearGradient(QPointF(0, br.top()), QPointF(0, br.bottom()))
+    g.setColorAt(0.0, _rgba(fill_top, alpha))
+    g.setColorAt(1.0, _rgba(fill_bot, alpha))
+    p.setPen(pen)
+    p.setBrush(g)
+    p.drawPath(path)
+    p.restore()
+
+
+def _star(p: QPainter, x: float, y: float, s: float, hexa: str, alpha: float) -> None:
+    """Brilho de 4 pontas finas com miolo luminoso."""
+    rg = QRadialGradient(QPointF(x, y), s * 0.9)
+    rg.setColorAt(0.0, _rgba("#ffffff", 0.55 * alpha))
+    rg.setColorAt(1.0, _rgba(hexa, 0.0))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(rg)
+    p.drawEllipse(QPointF(x, y), s * 0.9, s * 0.9)
+    w = s * 0.16
+    star = QPainterPath(QPointF(x, y - s))
+    star.quadTo(QPointF(x + w, y - w), QPointF(x + s, y))
+    star.quadTo(QPointF(x + w, y + w), QPointF(x, y + s))
+    star.quadTo(QPointF(x - w, y + w), QPointF(x - s, y))
+    star.quadTo(QPointF(x - w, y - w), QPointF(x, y - s))
+    p.setBrush(_rgba(hexa, alpha))
+    p.drawPath(star)
+    p.setBrush(_rgba("#ffffff", alpha))
+    p.drawEllipse(QPointF(x, y), s * 0.1, s * 0.1)
+
+
+def _fx_sweat(m, p: QPainter, now: float, pop: float, hx: float, hy: float) -> None:
+    """Gota grande na têmpora (a de anime), escorrendo devagar e voltando."""
+    ph = (now * 0.45) % 1.0
+    slide = 26 * (ph * ph)  # acelera ao escorrer
+    a = min(1.0, (1 - ph) * 4)  # some no fim e reaparece no alto
+    h = 92 * pop
+    _drop(p, 682 + hx, 300 + hy + slide, h, a)
+    if ph > 0.55:  # gotinha que se solta
+        k = (ph - 0.55) / 0.45
+        _drop(p, 690 + hx, 360 + hy + 70 * k * k, 24, (1 - k) * 0.8)
+
+
+def _fx_tear(m, p: QPainter, now: float, pop: float, hx: float, hy: float) -> None:
+    """Lágrima que se forma no canto do olho e desce pela bochecha, deixando um rastro úmido."""
+    ph = (now * 0.35) % 1.0
+    x0, y0 = 448 + hx, 436 + hy
+    grow = min(1.0, ph / 0.3)
+    fall = max(0.0, (ph - 0.3) / 0.7)
+    y = y0 + 150 * fall * fall
+    a = pop * min(1.0, (1 - ph) * 5)
+    if fall > 0:
+        g = QLinearGradient(QPointF(x0, y0), QPointF(x0, y))
+        g.setColorAt(0.0, _rgba("#d8eeff", 0.0))
+        g.setColorAt(1.0, _rgba("#d8eeff", 0.5 * a))
+        pen = QPen(g, 6)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.drawLine(QPointF(x0, y0), QPointF(x0 - 4 * fall, y - 10))
+    _drop(p, x0 - 4 * fall, y, 22 + 22 * grow, a)
+
+
+def _fx_blush(m, p: QPainter, now: float, pop: float, hx: float, hy: float) -> None:
+    """Rubor: mancha rosada macia nas bochechas + três risquinhos finos por cima."""
+    breathe = 0.85 + 0.15 * math.sin(now * 1.6)
+    for cx in (418.0, 632.0):
+        x, y = cx + hx, 472 + hy
+        rg = QRadialGradient(QPointF(x, y), 52)
+        rg.setColorAt(0.0, _rgba(BLUSH, 0.55 * pop * breathe))
+        rg.setColorAt(0.6, _rgba(BLUSH, 0.22 * pop * breathe))
+        rg.setColorAt(1.0, _rgba(BLUSH, 0.0))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(rg)
+        p.drawEllipse(QRectF(x - 54, y - 24, 108, 48))
+        pen = QPen(_rgba("#ff4f7a", 0.5 * pop), 2.6)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        for i in range(3):
+            sx = x - 17 + i * 13
+            p.drawLine(QPointF(sx, y + 7), QPointF(sx + 7, y - 7))
+
+
+def _fx_question(m, p: QPainter, now: float, pop: float, hx: float, hy: float) -> None:
+    """? que entra com pulo e balança a cabeça de lado."""
+    tilt = 10 * math.sin(now * 2.2)
+    bob = 6 * math.sin(now * 3.1)
+    _glyph(p, "?", 805 + hx, 210 + hy + bob, 150 * pop, "#d8c8ff", "#9b7fe0", "#3b2a66", 1.0, tilt)
+
+
+def _fx_bang(m, p: QPainter, now: float, pop: float, hx: float, hy: float) -> None:
+    """! de susto: entra grande, treme de leve e solta três traços de impacto."""
+    shake = 3 * math.sin(now * 40) * max(0.0, 1.5 - pop)
+    _glyph(p, "!", 805 + hx + shake, 205 + hy, 160 * pop, "#ffe28a", "#f2a12e", "#5a3208", 1.0, 6)
+    k = 0.6 + 0.4 * abs(math.sin(now * 5))
+    pen = QPen(_rgba("#ffd36b", 0.8 * k * min(1.0, pop)), 7)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    for ang in (-60, -20, 20):
+        r = math.radians(ang)
+        cx, cy = 805 + hx, 205 + hy
+        p.drawLine(QPointF(cx + 95 * math.sin(r), cy - 95 * math.cos(r)),
+                   QPointF(cx + 125 * math.sin(r), cy - 125 * math.cos(r)))
+
+
+def _fx_vein(m, p: QPainter, now: float, pop: float, hx: float, hy: float) -> None:
+    """Marca de raiva 💢: quatro cantos curvos que pulsam, com contorno claro por baixo."""
+    beat = 1.0 + 0.12 * max(0.0, math.sin(now * 7)) ** 3
+    cx, cy = 700 + hx, 195 + hy
+    r, g = 46 * beat * pop, 12 * beat * pop
+    path = QPainterPath()
+    for sx, sy in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+        path.moveTo(QPointF(cx + sx * g, cy + sy * r))
+        path.quadTo(QPointF(cx + sx * g * 1.2, cy + sy * g * 1.2), QPointF(cx + sx * r, cy + sy * g))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    for w, c in ((22, _rgba("#fff0f0", 0.9)), (12, _rgba("#e23b48", 1.0))):
+        pen = QPen(c, w * pop)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.drawPath(path)
+
+
+def _fx_notes(m, p: QPainter, now: float, pop: float, hx: float, hy: float) -> None:
+    """Notas que sobem balançando e somem."""
+    for i in range(3):
+        ph = (now / 2.6 + i / 3) % 1.0
+        a = min(1.0, ph * 5) * (1 - ph) * pop
+        x = 770 + i * 46 + 22 * math.sin(now * 2 + i * 1.7) + hx
+        y = 360 - 200 * ph + hy
+        _glyph(p, "♪" if i % 2 else "♫", x, y, 86 + i * 10, "#ffe1ee", "#ff8fb8", "#6b2440", a,
+               12 * math.sin(now * 2.4 + i))
+
+
+def _fx_sparkle(m, p: QPainter, now: float, pop: float, hx: float, hy: float) -> None:
+    """Brilhos que acendem e apagam um de cada vez em volta da cabeça."""
+    spots = ((300, 250, 1.0), (770, 190, 1.2), (820, 410, 0.8), (250, 470, 0.7), (720, 90, 0.6))
+    for i, (sx, sy, sc) in enumerate(spots):
+        ph = (now * 0.9 + i * 0.37) % 1.0
+        k = math.sin(math.pi * ph) ** 2
+        _star(p, sx + hx, sy + hy, 34 * sc * k * pop, "#fff3c4", k)
+
+
+def _fx_zz(m, p: QPainter, now: float, pop: float, hx: float, hy: float) -> None:
+    """zz subindo (cochilo da reação)."""
+    from . import fonts
+
+    for i in range(3):
+        ph = (now / 3.0 + i / 3) % 1.0
+        c = m.tint()
+        c.setAlphaF(max(0.0, 1.0 - ph))
+        p.setPen(c)
+        p.setFont(fonts.font("cond", 40 + i * 12, 600))
+        p.drawText(QPointF(720 + i * 34 + 20 * ph + hx, 230 - i * 40 - 70 * ph + hy), "z")
+
+
+_FX: dict[str, Callable[..., None]] = {
+    "sweat": _fx_sweat, "tear": _fx_tear, "blush": _fx_blush, "question": _fx_question,
+    "bang": _fx_bang, "vein": _fx_vein, "notes": _fx_notes, "sparkle": _fx_sparkle, "zz": _fx_zz,
+}

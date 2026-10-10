@@ -231,7 +231,7 @@ def test_efeito_usa_o_png_quando_existe():
         p = MagicMock()
         PartsPortrait._reaction_effect(me, p, 1.0, "vein", 0.0, 0.0)
         assert p.drawPixmap.called is desenha
-        assert p.drawArc.called is not desenha  # sem o PNG, a veia em código
+        assert p.drawPath.called is not desenha  # sem o PNG, a veia em código
 
 
 def test_recorte_de_braco_ignora_fio_de_cabelo_e_tapa_buraco():
