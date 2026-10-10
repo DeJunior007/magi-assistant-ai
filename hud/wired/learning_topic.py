@@ -22,11 +22,11 @@ from typing import Any
 from .learning_text import Point, Rect
 
 PICKER_S = 10.0          # [learning] topic_picker_s (o núcleo pode mandar no lm_session)
-LIST_W = 320.0           # largura na base 1920 (design §4.5)
+LIST_W = 360.0           # largura na base 1920 (design §4.5)
 LIST_W_HINT = 480.0      # com dica à direita das linhas Game/News
 LIST_GAP = 4.0           # entre o chip e a lista
-HEAD_H = 28.0            # linha "TOPIC ▾"
-ROW_H = 28.0
+HEAD_H = 36.0            # cabeçalho "TOPIC // 話題"
+ROW_H = 48.0             # título + linha de descrição
 PAD = 12.0
 
 
@@ -39,9 +39,16 @@ class TopicItem:
 ITEMS: tuple[TopicItem, ...] = (
     TopicItem("free", "Free talk"),
     TopicItem("interview", "Tech interview"),
-    TopicItem("game", "Talk about the game I'm playing"),
+    TopicItem("game", "The game I'm playing"),
     TopicItem("news", "Today's news"),
 )
+
+DESC = {  # linha curta sob cada tema (a dica do núcleo, se houver, entra no lugar em Game/News)
+    "free": "open conversation, any subject",
+    "interview": "mock interview: questions and follow-ups",
+    "game": "whatever is running right now",
+    "news": "headlines of the day, in English",
+}
 
 LABELS = {  # = contracts.TOPIC_LABELS do núcleo (o HUD não importa magi.learning)
     "free": "FREE TALK",
@@ -219,20 +226,86 @@ def last_you(messages: Sequence[Any]) -> int | None:
 
 # ====================================================================== pintura (Qt)
 
+CHIP_H = 26.0            # caixa do chip no cabeçalho da sessão
+CHIP_PAD = 10.0
+
+
+def description(topic: str, hint: Mapping[str, str] | None = None) -> str:
+    """Linha de descrição do tema: a dica do núcleo (ex. nome do jogo) quando houver."""
+    tip = (hint or {}).get(topic)
+    if tip and topic == "game":
+        return f"playing: {tip}"
+    return tip or DESC.get(topic, "")
+
+
+def paint_glyph(p, topic: str, cx: float, cy: float, col, s: float = 8.0) -> None:
+    """Glifo em traço de cada tema (mesmo traço dos ícones do menu da seleção): balão de fala
+    (Free talk), ``</>`` (Tech interview), controle (Game) e folha com linhas (News)."""
+    from PySide6.QtCore import QPointF as P
+    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QPainter, QPen
+
+    p.save()
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    pen = QPen(col, 1.4)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    if topic == "free":
+        p.drawRoundedRect(QRectF(cx - s, cy - s * 0.8, 2 * s, s * 1.3), 2.5, 2.5)
+        p.drawLine(P(cx - s * 0.45, cy + s * 0.5), P(cx - s * 0.7, cy + s))
+        p.drawLine(P(cx - s * 0.7, cy + s), P(cx - s * 0.05, cy + s * 0.5))
+    elif topic == "interview":
+        p.drawLine(P(cx - s * 0.45, cy - s * 0.55), P(cx - s, cy))
+        p.drawLine(P(cx - s, cy), P(cx - s * 0.45, cy + s * 0.55))
+        p.drawLine(P(cx + s * 0.45, cy - s * 0.55), P(cx + s, cy))
+        p.drawLine(P(cx + s, cy), P(cx + s * 0.45, cy + s * 0.55))
+        p.drawLine(P(cx + s * 0.2, cy - s * 0.75), P(cx - s * 0.2, cy + s * 0.75))
+    elif topic == "game":
+        p.drawRoundedRect(QRectF(cx - s, cy - s * 0.6, 2 * s, s * 1.2), s * 0.5, s * 0.5)
+        p.drawLine(P(cx - s * 0.65, cy), P(cx - s * 0.15, cy))
+        p.drawLine(P(cx - s * 0.4, cy - s * 0.25), P(cx - s * 0.4, cy + s * 0.25))
+        p.drawPoint(P(cx + s * 0.35, cy - s * 0.12))
+        p.drawPoint(P(cx + s * 0.6, cy + s * 0.15))
+    else:
+        p.drawRect(QRectF(cx - s * 0.75, cy - s, s * 1.5, 2 * s))
+        for k in (-0.45, 0.0, 0.45):
+            p.drawLine(P(cx - s * 0.4, cy + s * k), P(cx + s * (0.15 if k > 0 else 0.4), cy + s * k))
+    p.restore()
+
+
 def paint_chip(p, chip: Rect, topic_msg: Mapping[str, Any] | None,
                session: Mapping[str, Any] | None, is_open: bool) -> None:
-    """``TOPIC // FREE TALK · no game detected ▾`` alinhado à direita do chip, na linha de base
-    do cabeçalho da sessão; o ``detail`` em ``TEXT_DIM``."""
-    from .main_screen import R, label
-    from .theme import CPU, TEXT, TEXT_DIM
+    """Chip ``TOPIC // FREE TALK · no game detected ▾`` alinhado à direita, numa caixa de traço
+    fino (lilás e com fundo fraco quando a lista está aberta); o ``detail`` em ``TEXT_DIM``."""
+    from PySide6.QtCore import QRectF
+
+    from .main_screen import R, label, width
+    from .theme import CPU, LINE_STRONG, TEXT, TEXT_DIM, alpha, color
 
     head, lbl, detail = chip_parts(topic_msg, session)
     y = chip.top + 30
-    x = chip.right
     parts = [("▴" if is_open else "▾", CPU)]
     if detail:
         parts.append((f" · {detail}", TEXT_DIM))
     parts += [(lbl, TEXT), (head, TEXT_DIM)]
+    total = sum(width((s if i else " " + s), "mono", 13, None, 0.08) + 2  # + espaçamento final
+                for i, (s, _) in enumerate(parts))
+    right = chip.right - 1
+    left = max(chip.left, right - total - 2 * CHIP_PAD)
+    box = QRectF(left, y - CHIP_H / 2 - 5, right - left, CHIP_H)
+    p.save()
+    if is_open:
+        p.fillRect(box, alpha(CPU, 22))
+    border = color(CPU) if is_open else color(LINE_STRONG)
+    p.fillRect(QRectF(box.left(), box.top(), box.width(), 1), border)
+    p.fillRect(QRectF(box.left(), box.bottom() - 1, box.width(), 1), border)
+    p.fillRect(QRectF(box.left(), box.top(), 1, box.height()), border)
+    p.fillRect(QRectF(box.right() - 1, box.top(), 1, box.height()), border)
+    p.fillRect(QRectF(box.left(), box.top(), 2, box.height()), color(CPU))  # traço lilás à esquerda
+    p.restore()
+    x = right - CHIP_PAD
     for i, (s, col) in enumerate(parts):
         r = label(p, x, y, s if i else " " + s, px=13, color_=col, align=R, upper=False,
                   max_w=max(0.0, x - chip.left))
@@ -243,35 +316,50 @@ def paint_chip(p, chip: Rect, topic_msg: Mapping[str, Any] | None,
 
 def paint_list(p, lst: Rect, picker: TopicPicker, current: str,
                hint: Mapping[str, str] | None = None) -> None:
-    """Lista ``TOPIC ▾`` com ● no tema confirmado, ○ nos outros, fundo lilás translúcido no
-    item sob o mouse e a dica (opcional) à direita das linhas Game/News."""
+    """Lista no estilo dos cards do HUD: painel chanfrado com traço lilás, cabeçalho
+    ``TOPIC // 話題`` + ``ESC``, e cada tema com glifo, título e uma linha de descrição (a dica do
+    núcleo em Game/News). Tema atual: traço lilás à esquerda, título lilás e etiqueta ``CURRENT``;
+    item sob o mouse: fundo lilás fraco."""
     from PySide6.QtCore import QRectF
     from PySide6.QtGui import QPen
 
-    from .main_screen import R, label, text
-    from .theme import CPU, LINE_STRONG, PANEL, TEXT, TEXT_DIM, color
+    from . import kit
+    from .main_screen import R, label, text, width
+    from .theme import CPU, LINE, LINE_STRONG, PANEL, TEXT, TEXT_DIM, alpha, color
 
-    box = QRectF(lst.x, lst.y, lst.w, lst.h)
-    p.save()
-    p.fillRect(box, color(PANEL))
-    p.setPen(QPen(color(LINE_STRONG), 1))
-    p.drawRect(box.adjusted(0.5, 0.5, -0.5, -0.5))
-    p.restore()
-    label(p, lst.left + PAD, lst.top + HEAD_H - 9, "TOPIC ▾", px=11)
-    hint = hint or {}
+    kit.panel(p, QRectF(lst.x, lst.y, lst.w, lst.h), fill=PANEL, border=LINE_STRONG, accent=CPU)
+    hb = lst.top + HEAD_H - 12
+    w = text(p, lst.left + PAD, hb, "TOPIC", key="cond", px=15, weight=600, spacing=0.12,
+             color_=TEXT).width()
+    w += text(p, lst.left + PAD + w + 8, hb, "//", px=12, color_=TEXT_DIM).width()
+    text(p, lst.left + PAD + w + 16, hb, "話題", key="jp", px=10, color_=TEXT_DIM)
+    label(p, lst.right - PAD, hb, "ESC", px=10, color_=TEXT_DIM, align=R)
+    p.fillRect(QRectF(lst.left + PAD, lst.top + HEAD_H - 3, lst.w - 2 * PAD, 1), color(LINE))
     for i, item in enumerate(ITEMS):
         r = row_rect(lst, i)
-        if picker.hover == i:
-            hl = color(CPU)
-            hl.setAlpha(46)
-            p.fillRect(QRectF(r.x + 1, r.y, r.w - 2, r.h), hl)
-        base = r.top + ROW_H - 9
         on = item.topic == current
-        text(p, r.left + PAD, base, "●" if on else "○", px=12, color_=CPU if on else TEXT_DIM)
-        tip = hint.get(item.topic)
-        tip_w = 0.0
-        if tip:
-            tip_w = label(p, r.right - PAD, base, tip, px=11, upper=False, align=R,
-                          max_w=r.w / 2 - PAD).width() + 12
-        text(p, r.left + PAD + 20, base, item.text, px=13, color_=TEXT,
-             max_w=max(0.0, r.w - 2 * PAD - 20 - tip_w))
+        hov = picker.hover == i
+        if hov:
+            p.fillRect(QRectF(r.x + 1, r.y + 1, r.w - 2, r.h - 2), alpha(CPU, 30))
+        if on or hov:
+            p.fillRect(QRectF(r.x + 1, r.y + 8, 2, r.h - 16), color(CPU) if on else alpha(CPU, 150))
+        lit = on or hov
+        paint_glyph(p, item.topic, r.left + PAD + 10, r.top + r.h / 2, color(CPU) if lit
+                    else alpha(TEXT_DIM, 200))
+        tag_w = 0.0
+        if on:
+            tw = width("CURRENT", "mono", 9, None, 0.08)
+            box = QRectF(r.right - PAD - tw - 10, r.top + 9, tw + 10, 15)
+            p.save()
+            p.setPen(QPen(color(CPU), 1))
+            p.drawRect(box.adjusted(0.5, 0.5, -0.5, -0.5))
+            p.restore()
+            label(p, box.left() + 5, box.bottom() - 4, "CURRENT", px=9, color_=CPU)
+            tag_w = tw + 18
+        x = r.left + PAD + 30
+        text(p, x, r.top + 21, item.text, px=14, color_=CPU if on else TEXT,
+             max_w=max(0.0, r.right - PAD - tag_w - x))
+        text(p, x, r.top + 39, description(item.topic, hint), px=11, color_=TEXT_DIM,
+             max_w=max(0.0, r.right - PAD - x))
+        if i < len(ITEMS) - 1 and not (hov or picker.hover == i + 1):
+            p.fillRect(QRectF(x, r.bottom, r.right - PAD - x, 1), alpha(LINE, 160))

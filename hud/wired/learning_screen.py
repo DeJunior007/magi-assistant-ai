@@ -55,6 +55,7 @@ from .main_screen import (
     Screen,
     Snapshot,
     accent,
+    dev_rect,
     heading,
     label,
     rate,
@@ -128,6 +129,7 @@ class LearningScreen(Screen):
         self.overlay = Overlay(provider=ModelProvider(self))
         self._ov_shown: list[QRectF] = []          # retângulos do overlay já pintados (a apagar)
         self._ov_geom: tuple[tuple, tuple] | None = None
+        self._ov_frame: tuple | None = None        # (action_id, quadro) da barra já pintada
         # LM4.3: observações
         self.obs_view = obsv.ObsView()
         # LM1.9: seletor de tema
@@ -388,7 +390,10 @@ class LearningScreen(Screen):
         wr, dy = self.wrapped(), self.history_dy()
         texts = {m.id: m for m in i.messages}
         p.save()
-        p.setClipRect(hr)
+        # IntersectClip: sem ele o clip da região repintada (``Screen.paint``) é trocado pela
+        # coluna inteira e o histórico (texto e destaque translúcido) sai por cima do menu/balão
+        # fora da região, que o grupo overlay não repinta ali (balão "translúcido", itens somem)
+        p.setClipRect(hr, Qt.ClipOperation.IntersectClip)
         sel_fill = color(ov.SEL_FILL)
         for r in self._highlight_rects():  # destaque da seleção, por baixo do texto
             p.fillRect(qr(r), sel_fill)
@@ -761,7 +766,23 @@ class LearningScreen(Screen):
         if menu is not None:
             ov.paint_menu(p, self.overlay, menu)
         if bubble is not None:
-            ov.paint_bubble(p, rows, bubble)
+            o = self.overlay
+            frame = o.frame()
+            ov.paint_bubble(p, rows, bubble, frame)
+            self._ov_frame = (o.action_id, frame) if o.phase == ov.LOADING else None
+
+    def overlay_anim_rects(self, size: QSize | None = None) -> list:
+        """Retângulos (dispositivo) da barra de carregamento do balão quando o quadro avançou
+        desde a última pintura; vazio fora de ``LOADING``. Só a linha animada, nunca a tela."""
+        o = self.overlay
+        if o.phase != ov.LOADING:
+            return []
+        _, bubble, rows = self._overlay_geometry()
+        r = ov.loading_rect(rows, bubble) if bubble is not None else None
+        if r is None or self._ov_frame == (o.action_id, o.frame()):
+            return []
+        s = self.scale(size or QSize(round(W), round(H)))
+        return [dev_rect(qr(r), s)]
 
     def paint(self, p: QPainter, size: QSize, snap: Snapshot, now: datetime | None = None,
               mono: float | None = None, region=None) -> None:

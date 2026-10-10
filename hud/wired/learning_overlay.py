@@ -53,12 +53,16 @@ NOT_SAVED = "not saved"
 
 BUBBLE_W = 440.0      # largura lógica do balão
 BUBBLE_PAD = 16.0     # margem interna
+ANIM_FPS = 5.0          # quadros/s da barra de carregamento (discreta; não rouba CPU do jogo)
+LOAD_SEGS = 12          # segmentos da barra de carregamento
+
 ROW_H = {             # altura de cada estilo de linha (lógico)
     "title": 30.0,    # IMPROVE // 改善 + etiquetas
     "label": 24.0,    # YOUR SENTENCE: / WHY? …
     "text": 22.0,     # corpo
     "strong": 24.0,   # frase melhorada, tradução, termo (lilás)
-    "dim": 22.0,      # notas, "noun · B2", carregando
+    "dim": 22.0,      # notas, "noun · B2"
+    "loading": 24.0,  # ANALYZING + barra de segmentos animada (só em LOADING)
     "error": 22.0,
     "action": 28.0,   # "more ▸" / "[ retry ]" (clicáveis)
     "gap": 8.0,
@@ -185,7 +189,8 @@ def bubble_lines(phase: str, kind: ActionKind | str, result: dict[str, Any] | No
         return []
     lines = [title_line(kind, result if phase == OK else None)]
     if phase == LOADING:
-        lines.append(BubbleLine("dim", "analyzing…"))  # estático: nada pisca
+        # pintado como ``ANALYZING`` + barra de segmentos que avança (``Overlay.frame``)
+        lines.append(BubbleLine("loading", "analyzing…"))
     elif phase == ERROR:
         err = (result or {}).get("error")
         lines.append(BubbleLine("error", error_text(err)))
@@ -226,7 +231,7 @@ def layout_bubble(lines: Sequence[BubbleLine], measure: Callable[[str, str], flo
         if ln.style == "gap":
             y += h
             continue
-        if ln.style in ("title", "action"):
+        if ln.style in ("title", "action", "loading"):
             parts = [ln.text]
         else:
             parts = wrap_text(ln.text, inner, lambda s, st=ln.style: measure(st, s))
@@ -467,6 +472,21 @@ class Overlay:
             ends.append(self.save_pending["at"] + self.save_timeout_s)
         return min(ends) if ends else None
 
+    def frame(self, now: float | None = None) -> int:
+        """Quadro da animação de carregamento (``ANIM_FPS`` por segundo desde o envio); 0 fora
+        de ``LOADING``."""
+        if self.phase != LOADING or self.sent_at is None:
+            return 0
+        t = self.clock() if now is None else now
+        return max(0, int((t - self.sent_at) * ANIM_FPS))
+
+    def frame_deadline(self, now: float | None = None) -> float | None:
+        """Instante do próximo quadro da animação (só em ``LOADING``), para o ``caption_tick``
+        agendar: ~5 quadros/s, nada fora do carregamento."""
+        if self.phase != LOADING or self.sent_at is None:
+            return None
+        return self.sent_at + (self.frame(now) + 1) / ANIM_FPS
+
     def poll(self, results: Mapping[str, dict[str, Any]] | None = None,
              now: float | None = None) -> bool:
         """Carregando: pega o ``lm_result`` da ação corrente em ``results`` (por ``id``; sem
@@ -642,6 +662,7 @@ SEL_FILL = "#b392f040"   # destaque da seleção: lilás translúcido
 HOVER_FILL = "#b392f01c"
 BUBBLE_FILL = "#100e17"
 MENU_FILL = "#0f0e15"
+SEG_OFF = "#1d1b25"      # segmento apagado (o mesmo das barras do HUD)
 _Q: Any = None
 
 
@@ -758,15 +779,49 @@ def paint_menu(p, ov: Overlay, menu: Rect) -> None:
                color_=q.color(q.TEXT) if it.enabled else q.alpha(q.TEXT_DIM, 110))
 
 
-def paint_bubble(p, rows: Sequence[Row], bubble: Rect) -> None:
-    """Balão: linhas já quebradas (``layout_bubble``), deslocadas para ``bubble``."""
+def loading_rect(rows: Sequence[Row], bubble: Rect) -> Rect | None:
+    """Retângulo (lógico) da linha animada do carregamento: o único trecho repintado a cada
+    quadro (``None`` se o balão não está carregando)."""
+    for row in rows:
+        if row.style == "loading":
+            return row.rect.moved(bubble.x + row.rect.x, bubble.y + row.rect.y)
+    return None
+
+
+def paint_loading(p, r: Rect, frame: int) -> None:
+    """``ANALYZING`` em rótulo + barra de ``LOAD_SEGS`` segmentos: um pulso lilás com rastro
+    que avança um segmento por quadro e volta ao início (estilo das barras do HUD)."""
+    q = _qt()
+    lw = q.label(p, r.x, r.y + r.h / 2 + 4, "ANALYZING", px=11, color_=q.TEXT_DIM).width()
+    x0 = r.x + lw + 14
+    gap, n = 3.0, LOAD_SEGS
+    seg_w = max(4.0, (r.right - x0 - (n - 1) * gap) / n)
+    h = 6.0
+    y = r.y + (r.h - h) / 2
+    head = frame % (n + 3)  # 3 quadros "fora" da barra: o pulso entra e sai
+    for i in range(n):
+        d = head - i
+        if d == 0:
+            col = q.color(q.CPU)
+        elif 0 < d <= 3:
+            col = q.alpha(q.CPU, (150, 90, 45)[d - 1])
+        else:
+            col = q.color(SEG_OFF)
+        p.fillRect(q.QRectF(x0 + i * (seg_w + gap), y, seg_w, h), col)
+
+
+def paint_bubble(p, rows: Sequence[Row], bubble: Rect, frame: int = 0) -> None:
+    """Balão: linhas já quebradas (``layout_bubble``), deslocadas para ``bubble``. ``frame``:
+    quadro da barra de carregamento (``Overlay.frame``)."""
     q = _qt()
     _frame(p, bubble, BUBBLE_FILL)
     for row in rows:
         r = row.rect.moved(bubble.x + row.rect.x, bubble.y + row.rect.y)
         key, px, weight, spacing, col = _style(row.style)
         base = r.y + r.h - 7
-        if row.style == "title":
+        if row.style == "loading":
+            paint_loading(p, r, frame)
+        elif row.style == "title":
             w = q.text(p, r.x, base, row.text, key=key, px=px, weight=weight, spacing=spacing,
                        color_=col).width()
             x = r.right
@@ -791,10 +846,11 @@ def paint_bubble(p, rows: Sequence[Row], bubble: Rect) -> None:
 
 
 __all__ = [
-    "BUBBLE_W", "CLOSED", "ERROR", "LOADING", "MENU", "NOT_SAVED", "OK", "SAVE_TIMEOUT_S",
+    "ANIM_FPS", "BUBBLE_W", "CLOSED", "ERROR", "LOADING", "MENU", "NOT_SAVED", "OK", "SAVE_TIMEOUT_S",
     "STAR_OFF", "STAR_ON", "UI_TIMEOUT_S", "BridgeProvider",
     "BubbleLine", "FakeProvider",
     "Overlay", "Row", "bubble_lines", "error_text", "format_result", "item_at", "item_rect",
-    "label_width", "layout_bubble", "measure", "paint_bubble", "paint_menu", "title_line",
+    "label_width", "layout_bubble", "loading_rect", "measure", "paint_bubble",
+    "paint_loading", "paint_menu", "title_line",
     "wrap_text",
 ]

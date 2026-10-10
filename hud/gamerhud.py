@@ -1291,8 +1291,11 @@ class HUD(QWidget):
             if self.view == "learning":   # mensagem da Condessa revelada em sincronia (LM-003)
                 deadlines.append(self.learning_model.deadline(now))
                 deadlines.append(self.wired.learning.overlay.deadline())   # timeout do balão (LM3.4)
+                deadlines.append(self.wired.learning.overlay.frame_deadline(now))  # barra ~5 q/s
                 deadlines.append(self.wired.learning.topic_picker.deadline())  # lista de temas fecha em 10 s (LM1.9)
                 rects = list(rects or []) + self.learning_dirty()
+                if not self.trans and self.isVisible() and self.width() > 1:   # só a linha da barra
+                    rects += self.wired.learning.overlay_anim_rects(self.size())
             if rects and not self.trans and self.isVisible() and self.width() > 1:
                 for r in rects:
                     self.update(r)
