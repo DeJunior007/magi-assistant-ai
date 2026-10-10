@@ -142,6 +142,11 @@ class Snapshot:
     caption: str | None = None  # legenda da fala da Magui
     chip: str | None = None  # fase do turno (turn_phase) p/ o chip; None = pela expressão
     mood: int | None = None  # termômetro de humor 0 (pega leve) .. 4 (pode zoar), R13.7; None = sem dado
+    # medidor dela (acordo §6, spec §10): ânimo −1..+1 na cor do fundo, o momento e as 3 últimas causas
+    mood_dela: float | None = None  # None = sem dado (cai no termômetro antigo)
+    mood_dela_cor: str | None = None  # estado.COR_FAIXA; None = acento
+    momento: str | None = None  # vida.Momento (valor)
+    causas: tuple = ()  # até 3, a mais nova por último: (texto, Δ ânimo, há quantos s)
     news: list[tuple[str, str]] = field(default_factory=list)  # Rádio Ayanami: (HH:MM, manchete), novas 1º
     claude: Any = None  # data.ClaudeView: consumo e sessões do Claude Code; None = sem dado
     self_usage: Any = None  # data.SelfView: cpu/ram/gpu/vram dos processos da Condessa; None = sem dado
@@ -466,6 +471,88 @@ def draw_mood(p: QPainter, r: QRectF, snap: Snapshot, *, legend: bool = True, ba
         p.fillRect(QRectF(cx - bar_w / 2, y, bar_w, h), col if i < lit else off)
 
 
+# ====================================================================== medidor dela (acordo §6)
+
+MOMENTO_NOME = {"conversa": "conversa", "alerta": "alerta", "jogando": "pilotando", "esperando": "esperando",
+                "no_flow": "no flow", "trabalhando_junto": "trabalhando junto", "estudando": "estudando",
+                "curtindo": "curtindo", "aturando": "aturando", "ouvindo": "ouvindo",
+                "pedro_sumiu": "Pedro sumiu", "tedio": "tédio", "a_toa": "à toa"}
+TIP_W, TIP_LINE, TIP_PAD = 250.0, 17.0, 8.0  # caixa das causas no hover
+
+
+def momento_nome(m: str | None) -> str:
+    return "" if not m else MOMENTO_NOME.get(str(m), str(m).replace("_", " "))
+
+
+def mood_dela_color(snap: Snapshot) -> QColor:
+    return color(snap.mood_dela_cor) if snap.mood_dela_cor else accent(snap)
+
+
+def mood_dela_key(snap: Snapshot) -> tuple:
+    v = None if snap.mood_dela is None else round(max(-1.0, min(1.0, snap.mood_dela)), 2)
+    return (v, mood_dela_color(snap).rgb(), snap.momento)
+
+
+def draw_mood_dela(p: QPainter, r: QRectF, snap: Snapshot, *, px: float = 9, bar_w: float = 3.0) -> None:
+    """Barra vertical do ânimo dela (−1 embaixo, 0 no meio, +1 no topo) na cor do fundo e, embaixo, o
+    nome do momento escrito de lado. O comprimento da barra carrega o valor, não só a cor."""
+    nome = momento_nome(snap.momento)
+    name_h = tw(nome, "mono", px) + 8 if nome else 0.0
+    top, bottom = r.top() + 2, r.bottom() - name_h - 2
+    cx = r.center().x()
+    p.fillRect(QRectF(cx - bar_w / 2, top, bar_w, bottom - top), color("#1d1b28"))
+    mid = (top + bottom) / 2
+    p.fillRect(QRectF(cx - bar_w, mid, 2 * bar_w, 1), color(TEXT_DIM))  # o zero
+    if snap.mood_dela is not None:
+        v = max(-1.0, min(1.0, snap.mood_dela))
+        y = mid - v * (bottom - top) / 2
+        col = mood_dela_color(snap)
+        p.fillRect(QRectF(cx - bar_w / 2, min(y, mid), bar_w, abs(mid - y)), alpha(col, 170))
+        p.fillRect(QRectF(cx - bar_w - 1, y - 0.5, 2 * bar_w + 2, 1.5), col)
+    if nome:
+        p.save()
+        p.translate(cx, r.bottom() - 2)
+        p.rotate(-90)
+        text(p, 0, px * 0.35, nome, px=px, color_=TEXT_DIM, align=L)
+        p.restore()
+
+
+def _ha(seg: float) -> str:
+    seg = max(0.0, float(seg))
+    if seg < 60:
+        return "agora"
+    if seg < 3600:
+        return f"há {int(seg // 60)} min"
+    return f"há {int(seg // 3600)} h"
+
+
+def causas_linhas(causas) -> list[str]:
+    """As 3 últimas causas, a mais nova em cima: ``+0,30 Ado · há 2 min``."""
+    out = []
+    for texto, delta, ha in list(causas)[-3:][::-1]:
+        out.append(f"{delta:+.2f}".replace(".", ",") + f" {texto} · {_ha(ha)}")
+    return out
+
+
+def tip_rect(anchor: QRectF, n: int = 3) -> QRectF:
+    """Caixa das causas à esquerda do medidor (à direita, se não couber), rente ao pé dele."""
+    h = 2 * TIP_PAD + max(1, n) * TIP_LINE
+    x = anchor.left() - 8 - TIP_W
+    if x < 0:
+        x = anchor.right() + 8
+    return QRectF(x, anchor.bottom() - h, TIP_W, h)
+
+
+def draw_causas(p: QPainter, box: QRectF, causas) -> None:
+    linhas = causas_linhas(causas) or ["sem causa ainda"]
+    p.fillRect(box, alpha(color(M_PANEL), 235))
+    p.setPen(color(LINE_STRONG))
+    p.drawRect(box.adjusted(0.5, 0.5, -0.5, -0.5))
+    for i, ln in enumerate(linhas):
+        text(p, box.left() + TIP_PAD, box.top() + TIP_PAD + (i + 0.75) * TIP_LINE, ln, px=11, color_=TEXT,
+             max_w=box.width() - 2 * TIP_PAD)
+
+
 # ====================================================================== base
 
 
@@ -484,6 +571,27 @@ class Screen:
         self._static: tuple[tuple, dict[tuple, QPixmap]] | None = None
         self._keys: dict[str, tuple] = {}
         self._snap: Snapshot | None = None
+        self.hover: str | None = None  # área sob o ponteiro (``hover_rects``), ex.: "mood"
+
+    def hover_rects(self) -> dict[str, QRectF]:
+        """Áreas com hover: o medidor mostra as 3 últimas causas (acordo §6)."""
+        mood = self.groups().get("mood")
+        return {"mood": mood[0]} if mood else {}
+
+    def hover_test(self, pos: QPoint | QPointF, size: QSize) -> str | None:
+        s = self.scale(size)
+        pt = QPointF(pos.x() / s, pos.y() / s)
+        return next((n for n, r in self.hover_rects().items() if r.contains(pt)), None)
+
+    def set_hover(self, name: str | None) -> bool:
+        """Muda a área em hover; True se mudou (quem chama pede repintura pelo ``dirty_regions``)."""
+        changed = name != self.hover
+        self.hover = name
+        return changed
+
+    def tip_key(self, snap: Snapshot) -> tuple:
+        on = self.hover == "mood" and snap.mood_dela is not None
+        return (on, tuple(causas_linhas(snap.causas)) if on else ())
 
     # -- a implementar
     def groups(self) -> dict[str, list[QRectF]]:
@@ -734,6 +842,8 @@ B_PORTRAIT = (_CX + 19, _CY + 30, 272, 272)
 MASCOT_MAIN = mq(*B_PORTRAIT)
 B_GAUGE = (1303.0, _CY + 34, 11.0, 262.0)  # régua "在 … 01" à direita do retrato (humor, R13.7)
 MOOD_MAIN = mq(*B_GAUGE)
+_TIP = tip_rect(QRectF(*B_GAUGE))
+TIP_MAIN = mq(_TIP.x(), _TIP.y(), _TIP.width(), _TIP.height())
 B_CHIP = (_CX + 14, _CY + 310, 210.0, 28.25)
 CHIP_RECT = mq(*B_CHIP)
 CHIP_TOP = CHIP_RECT.top()
@@ -1477,6 +1587,7 @@ class MainScreen(Screen):
             "konsole_status": [KONSOLE_STATUS],
             "footer": [FOOTER],
             "lm_summary": [SUMMARY_RECT],  # por último: sobrepõe o SPEC (LM4.6)
+            "mood_tip": [TIP_MAIN],  # hover do medidor: por cima de tudo
         }
         if self.kon_swap:  # câmera no slot do card; o Konsole (gamerhud) pinta a caixa do cam 01
             g["clock"] = [HEADER_CLOCK, cam_swap_transform().mapRect(REC), LIVE]
@@ -1501,7 +1612,9 @@ class MainScreen(Screen):
         if name == "mascot":
             return (accent(sn).rgb(), sn.magui_state)
         if name == "mood":
-            return mood_key(sn)
+            return mood_dela_key(sn) if sn.mood_dela is not None else mood_key(sn)
+        if name == "mood_tip":
+            return self.tip_key(sn)
         if name == "talk":
             mono = self.clock()
             self.caption_feed(sn.caption, mono)
@@ -1687,7 +1800,11 @@ class MainScreen(Screen):
 
     def _g_mood(self, p, snap, now, s):
         """Régua "在 … 01" à direita do retrato: o traço marca o humor (0 em baixo, 4 no topo, R13.7)
-        e o número embaixo diz o nível (a informação nunca vai só na cor)."""
+        e o número embaixo diz o nível (a informação nunca vai só na cor). Com o medidor dela (acordo
+        §6), a barra do ânimo dela e o nome do momento."""
+        if snap.mood_dela is not None:
+            draw_mood_dela(p, QRectF(*B_GAUGE), snap)
+            return
         x, y, w, h = B_GAUGE
         cx = x + w / 2
         tx(p, cx, y + asc("jp", 9), "在", key="jp", px=9, c=M_DIM, align=C)
@@ -1703,6 +1820,10 @@ class MainScreen(Screen):
         p.fillRect(QRectF(cx - 5.5, ty, 11, 1), col if col is not None else color(M_DIM))
         tx(p, cx, y + h - 9 * LH["mono"] + asc("mono", 9), "–" if snap.mood is None else f"{snap.mood:02d}",
            px=9, c=M_DIM, align=C)
+
+    def _g_mood_tip(self, p, snap, now, s):
+        if self.tip_key(snap)[0]:
+            draw_causas(p, tip_rect(QRectF(*B_GAUGE)), snap.causas)
 
     def _g_talk(self, p, snap, now, s):
         # chip de estado
@@ -1937,4 +2058,5 @@ class MainScreen(Screen):
 __all__ = ["CAM", "CAM_SLOT", "CAM_SWAPPED", "CARDS", "F",
            "KONSOLE", "KONSOLE_CWD", "KONSOLE_VIEW", "LEARN_BTN", "LEARN_W", "MainScreen", "NA",
            "Pilot", "Screen", "Snapshot", "Track", "accent", "draw_learning_box", "draw_learning_btn",
-           "draw_mood", "led_lit", "mood_color", "mq"]
+           "draw_causas", "draw_mood", "draw_mood_dela", "led_lit", "mood_color", "mood_dela_key", "mq",
+           "tip_rect"]

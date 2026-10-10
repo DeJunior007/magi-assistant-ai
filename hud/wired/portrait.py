@@ -44,7 +44,7 @@ import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPixmap, QRadialGradient, QTransform
 
-from .mascot import BLINK_LEN, EXPRESSIONS, FPS_AWAKE, Mascot
+from .mascot import BLINK_EVERY, BLINK_LEN, EXPRESSIONS, FPS_AWAKE, Mascot
 
 log = logging.getLogger(__name__)
 
@@ -456,6 +456,9 @@ TINT_EASE = 0.6  # s para o fundo chegar à cor nova
 VOICE_ATTACK, VOICE_RELEASE = 0.05, 0.35  # s: o fundo cresce rápido com a voz e volta devagar
 VOICE_GROW = 0.10  # até +10% de tamanho na voz mais alta
 BOB_HZ = 1.6  # balanço de cabeça na música favorita (~96 bpm)
+XFADE = 0.12  # s: crossfade de olho/boca em toda troca (spec §4)
+AGUA_ABRE_EVERY, AGUA_ABRE_LEN = (20.0, 30.0), 1.5  # faixa de água: abre B2 por 1,5 s (acordo §2)
+REST_BLINK_SOON = 0.3  # s: troca de repouso espera a próxima piscada, puxada para logo
 # pensando (e a pausa no meio da fala, esperando ferramenta): o olhar vaga e a cabeça inclina
 THINK_CYCLE = (("B13", 4.0, -3.0), ("F4", 5.0, -3.0), ("B13", 4.0, -3.0), ("F6", 6.0, 0.0),
                ("F1", -6.0, 0.0), ("F7", 0.0, 3.0))
@@ -666,6 +669,71 @@ class PartsPortrait(Mascot):
         self._syll = 0
         self._listen_since: float | None = None  # quando ativou (ouvindo); None = não está ouvindo
         self._listen_k = 0.0  # 0..1, suaviza a entrada e a saída da pose de escuta
+        self.rest = None  # reacoes.vida.Repouso: o rosto parado (set_rest); None = o de sempre
+        self._rest_next = None  # repouso novo esperando a piscada
+        self._agua_at = self._now + self._rng.uniform(*AGUA_ABRE_EVERY)
+        self._xf: dict[str, tuple[str, str, float]] = {}  # camada → (anterior, atual, desde)
+
+    def set_rest(self, repouso) -> None:
+        """Rosto de repouso (spec §4). Olhos/boca/fundo novos entram dentro de uma piscada; o fone
+        vale já (a troca dele é um passo de cena)."""
+        if repouso == self.rest:
+            self._rest_next = None
+            return
+        cur = self.rest
+        if cur is None or (cur.eyes, cur.mouth, cur.mood) == (repouso.eyes, repouso.mouth, repouso.mood) \
+                or not self._resting():
+            self.rest, self._rest_next = repouso, None
+            return
+        self._rest_next = repouso
+        self._blink_at = min(self._blink_at, self._now + REST_BLINK_SOON)
+
+    def _rest_on(self, now: float):
+        """O repouso valendo agora: só parada, sem reação, sem pensar."""
+        if self.rest is None or not self._resting() or self._reacting(now) is not None:
+            return None
+        return self.rest
+
+    def _rest_has(self, tag: str) -> bool:
+        return self.rest is not None and tag in self.rest.efeitos
+
+    def _rest_extra(self, name: str) -> str | None:
+        for c in self.rest.efeitos if self.rest is not None else ():
+            key, _, val = str(c).partition(":")
+            if key == name and val:
+                return val
+        return None
+
+    def _advance(self, now: float) -> None:
+        super()._advance(now)
+        if self.rest is None or not self._resting():
+            return
+        # parada de dia com repouso: o corpo vivo pisca (3–6 s), coisa que o "sleeping" não fazia
+        while now >= self._blink_at + BLINK_LEN:
+            self._blink_at += self._rng.uniform(*BLINK_EVERY)
+            if self._blink_at + BLINK_LEN <= now:
+                self._blink_at = now + self._rng.uniform(*BLINK_EVERY)
+        if self._rest_next is not None and self._blink_at <= now:
+            self.rest, self._rest_next = self._rest_next, None
+        while now >= self._agua_at + AGUA_ABRE_LEN:
+            self._agua_at = now + self._rng.uniform(*AGUA_ABRE_EVERY)
+
+    def blinking(self, now: float | None = None) -> bool:
+        now = self._now if now is None else now
+        if self.rest is not None and self._resting():
+            return self._blink_at <= now < self._blink_at + BLINK_LEN
+        return super().blinking(now)
+
+    def _fade(self, layer: str, want: str, now: float) -> tuple[str | None, float]:
+        """Crossfade de ``XFADE``: (camada anterior ou None, opacidade da nova)."""
+        prev, cur, since = self._xf.setdefault(layer, (want, want, -math.inf))
+        if want != cur:
+            prev, cur, since = cur, want, now
+            self._xf[layer] = (prev, cur, since)
+        k = (now - since) / XFADE
+        if k >= 1.0 or prev == cur:
+            return None, 1.0
+        return prev, max(0.0, k)
 
     def set_expression(self, expr: str) -> None:
         was = self.state
@@ -747,6 +815,9 @@ class PartsPortrait(Mascot):
             return "focus"
         if self.state == "sleeping" and self._night():
             return "sleepy"
+        rest = self._rest_on(now)
+        if rest is not None:
+            return rest.mood
         from .reactions import MOOD_OF_STATE
 
         return MOOD_OF_STATE.get(self.state, "calm")
@@ -772,7 +843,8 @@ class PartsPortrait(Mascot):
         return self.assets.states.get(st) or self.assets.states.get("listening") or {}
 
     def _advance_gaze(self, now: float) -> None:
-        if not self.assets.gazes or not self._resting() or self._reacting(now) is not None:
+        if not self.assets.gazes or not self._resting() or self._reacting(now) is not None \
+                or self._rest_has("olhando_pedro"):
             self._gaze = None
             return
         if self._gaze is not None and now >= self._gaze_end:
@@ -809,6 +881,13 @@ class PartsPortrait(Mascot):
             look = self._look_gaze(r)
             if look is not None:
                 return str(look.get("eyes", cfg.get("eyes", "B1")))
+        rest = self._rest_on(now)
+        if rest is not None and self.assets.has(f"eyes/{rest.eyes}.png"):
+            if rest.sway and rest.eyes == "B3" and self._agua_at <= now < self._agua_at + AGUA_ABRE_LEN \
+                    and self.assets.has("eyes/B2.png"):
+                return "B2"  # faixa de água: abre de vez em quando para não parecer cochilo
+            if self._gaze is None or rest.eyes != str(cfg.get("eyes", "B1")):
+                return rest.eyes
         if self._gaze is not None:
             return str(self._gaze.get("eyes", cfg.get("eyes", "B1")))
         return str(cfg.get("eyes", "B1"))
@@ -819,6 +898,9 @@ class PartsPortrait(Mascot):
             r = self._reacting(now)
             if r is not None and r.mouth and self.assets.has(f"mouth/{r.mouth}.png"):
                 return r.mouth
+            rest = self._rest_on(now)
+            if rest is not None and self.assets.has(f"mouth/{rest.mouth}.png"):
+                return rest.mouth
             return str(self._state_cfg().get("mouth", "C1"))
         if self.thinking(now):
             return "C1"  # pausa esperando a ferramenta: boca fechada, não um "o" no meio da fala
@@ -932,6 +1014,9 @@ class PartsPortrait(Mascot):
         if self._extra(r, "sway") is not None:  # o corpo vai de um lado para o outro
             sway += 7.0 * fade * math.sin(now * 2.2)
         tails_k = 1.0 + 1.4 * fade if self._extra(r, "tails") is not None else 1.0
+        rest = self._rest_on(now)
+        if rest is not None and rest.sway:  # faixa de água: o corpo vai e vem devagar
+            sway += 5.0 * math.sin(now * 0.8)
         p.save()
         p.setClipRect(rect, Qt.ClipOperation.IntersectClip)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
@@ -1021,7 +1106,7 @@ class PartsPortrait(Mascot):
             tip = 2.4 * math.sin(now * 1.05 + phase - 1.0) + 0.6 * math.sin(now * 2.3 + phase * 2 - 1.4)
             draw(f"parts/{name}_tip.png", *args, child=(tip - 0.6 * swing) if gl is None else 0.0,
                  deform=tail_def)
-        arm = self._extra(r, "braco")
+        arm = self._extra(r, "braco") if r is not None else (self._rest_extra("braco") if rest else None)
         arm = arm if arm and self.assets.has(f"extra/{arm}.png") else None  # sem a arte, braço da base
         skip = arms_replaced(arm)
         if gl is not None:  # braços acompanham a respiração; o peito deforma
@@ -1042,14 +1127,17 @@ class PartsPortrait(Mascot):
             draw("eyes/O1.png", *hpos, head=True)
             draw("parts/iris.png", *hpos, head=True, deform=(3, (self._iris[0], self._iris[1])))
         else:
-            eyes_part = (_live_eyes(self.assets, eyes, side) if eyes.startswith("live:")
-                         else _scaled_part(self.assets, f"eyes/{eyes}.png", side))
-            if eyes_part is not None:
-                draw(f"eyes/{eyes}.png", *hpos, head=True, part=eyes_part)
-        mouth = f"mouth/{self.mouth_id(now)}.png"
-        mouth_part = _scaled_part(self.assets, mouth, side)
-        if mouth_part is not None:
-            draw(mouth, *hpos, head=True, part=mouth_part)
+            def eyes_of(e: str):
+                return (_live_eyes(self.assets, e, side) if e.startswith("live:")
+                        else _scaled_part(self.assets, f"eyes/{e}.png", side))
+
+            key = "live" if eyes.startswith("live:") else eyes
+            self._faded(p, "eyes", key, now, gl, lambda e: draw(f"eyes/{e}.png", *hpos, head=True,
+                                                             part=eyes_of(eyes if e == "live" else e)))
+        mouth = self.mouth_id(now)
+        self._faded(p, "mouth", mouth, now, gl,
+                    lambda m: draw(f"mouth/{m}.png", *hpos, head=True,
+                                   part=_scaled_part(self.assets, f"mouth/{m}.png", side)))
         if self.assets.split_hair:  # mechas laterais e franja com pêndulo próprio, presilha junto
             for name, phase in (("lock_l", 0.4), ("lock_r", 2.0)):
                 swing = 1.3 * math.sin(now * 0.9 + phase) + 0.4 * math.sin(now * 2.1 + phase)
@@ -1063,6 +1151,8 @@ class PartsPortrait(Mascot):
                  (512.0, 100.0), head=True, deform=hair("parts/bangs.png", 3.0, 0.0, 1.3))
         fone = "E2" if self._extra(r, "fone_on") is not None else (
             "E3" if self._extra(r, "fone_off") is not None else None)
+        if fone is None and self.rest is not None:  # fone persistente: fora do passo vale o repouso
+            fone = "E2" if str(self.rest.fone) == "cabeca" else "E3"
         if fone is not None:  # fone na cabeça (E2) ou tirando (E3); sem o asset, nada
             rel = f"extra/{fone}.png"
             if fone == "E2" and not self.assets.has(rel):
@@ -1073,11 +1163,30 @@ class PartsPortrait(Mascot):
         self._effects(p, now, QColor(accent), hx, hy + head_dy)
         for kind in _effects_of(r):
             self._reaction_effect(p, now, kind, hx, hy + head_dy)
+        if rest is not None:
+            from .reacoes.contratos import EFEITO
+
+            for kind in [EFEITO.get(k, k) for k in rest.efeitos if ":" not in k and k != "olhando_pedro"][:3]:
+                self._reaction_effect(p, now, kind, hx, hy + head_dy, alpha=1.0)
         if self._think_since is not None and now - self._think_since >= DOTS_AFTER:
             self._dots(p, now, hx, hy + head_dy)
         if lk > 0.02:
             self._listen_meter(p, now, lk, hx, hy + head_dy)
         p.restore()
+
+    def _faded(self, p: QPainter, layer: str, want: str, now: float, gl,
+               paint_one: Callable[[str], None]) -> None:
+        """Desenha ``want`` com crossfade de ``XFADE`` sobre a anterior (na GPU, troca seca)."""
+        prev, k = self._fade(layer, want, now)
+        if prev is None or gl is not None:
+            paint_one(want)
+            return
+        base = p.opacity()
+        p.setOpacity(base * (1.0 - k))
+        paint_one(prev)
+        p.setOpacity(base * k)
+        paint_one(want)
+        p.setOpacity(base)
 
     def _paint_gl(self, p: QPainter, gl, ops: list, now: float, side: int, breath: float, r) -> bool:
         """Desenha as camadas na GPU e cola a imagem no lugar do retrato (quadro de 1024 atual)."""
@@ -1196,13 +1305,15 @@ class PartsPortrait(Mascot):
             p.drawEllipse(QPointF(780 + i * 38 + hx, 250 - lift + hy), 13, 13)
         p.restore()
 
-    def _reaction_effect(self, p: QPainter, now: float, kind: str, hx: float, hy: float) -> None:
+    def _reaction_effect(self, p: QPainter, now: float, kind: str, hx: float, hy: float,
+                         alpha: float | None = None) -> None:
         """Efeitos da reação (quadro de 1024): suor, notas, ?, !, rubor. Somem no fim. Com a arte
         ``extra/D*.png`` (R3.1, ``condessa_build``) o PNG entra no lugar do desenho em código."""
         from . import fonts
         from .reacoes.contratos import EFEITO
 
-        alpha = max(0.0, min(1.0, (self.reaction_until - now) / 0.6))
+        if alpha is None:
+            alpha = max(0.0, min(1.0, (self.reaction_until - now) / 0.6))
         p.save()
         p.setOpacity(alpha)
         ident = next((k for k, v in EFEITO.items() if v == kind), None)

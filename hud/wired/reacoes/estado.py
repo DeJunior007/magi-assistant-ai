@@ -52,12 +52,13 @@ EVENTOS: dict[str, tuple[float, float, str]] = {
 SEM_HABITUACAO = frozenset({"ado", "favorita"})  # acordo §1
 CLIQUE_HORA = 3  # acordo §1: clique carinhoso conta ≤ 3/h
 
-# Cor do medidor por faixa (acordo §6 fica com o V0.4; aqui só um padrão legível).
+# Cor do medidor por faixa = a cor do fundo do repouso (acordo §6 e §2): Radiante `happy`; as outras
+# `calm`, que é a cor do acento (a da Melchior, `theme.CPU`). `stress` de episódio/Alerta não muda a faixa.
 COR_FAIXA = {
-    Faixa.RADIANTE: "#ffd23f",
-    Faixa.CONTENTE: "#7bd389",
-    Faixa.NEUTRA: "#9aa5b1",
-    Faixa.EMBURRADA: "#6c5ce7",
+    Faixa.RADIANTE: "#f2a7c3",
+    Faixa.CONTENTE: "#b392f0",
+    Faixa.NEUTRA: "#b392f0",
+    Faixa.EMBURRADA: "#b392f0",
 }
 
 _MAX_CAUSAS = 10

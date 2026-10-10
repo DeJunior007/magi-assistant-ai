@@ -67,7 +67,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   - Pronto: CA-V3 verde (um teste por linha da tabela + desempates + histerese + Ociosa feliz).
   - Paralelo: V0.2, V0.5, V0.6
 
-- [ ] **V0.4 Repouso, fone persistente e medidor** — `repouso.py` (`rosto`, `Postura`); retrato com
+- [x] **V0.4 Repouso, fone persistente e medidor** — `repouso.py` (`rosto`, `Postura`); retrato com
   `set_rest` e fone persistente (design §3); medidor do humor dela no painel e na espera
   (`Snapshot.mood_dela`, design §4).
   - Lê: spec §4, acordo §2 (repouso), §3 (momentos) e §6 (medidor), design §3–§4, `hud/wired/portrait.py` por trecho (`_reacting`, `eyes_id`, `mouth_id`, fone), `hud/wired/main_screen.py` por trecho (termômetro), `hud/wired/standby_screen.py` (`_g_mood`)
@@ -150,6 +150,16 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   Tédio (`encarando_feito`, `ei_to_aqui_ha_s`, `ei_ignorado`) também ficam para a ligação (V0.8).
   Nomes de passivas novos em `GRUPOS` (`sacada_player`, `mao_no_queixo`, `flagra_no_forum`, `bocejo`,
   `cochilo`, ...) precisam bater com o catálogo na V0.7.
+- **V0.4:** `repouso.rosto` + `repouso.fone_alvo(momento, ctx)` (CA-V5: sem música nunca E2; −1 só
+  nos primeiros 8 s por `ctx["faixa_ha_s"]`; −2 nem põe). Quem chama `Postura`/troca de fone por passo
+  de cena (P11) é a V0.8; `rosto` lê do `ctx`: `animo`, `energia`, `musica_nota`, `faixa_agua`,
+  `episodio`, `momento_ha_s`. Repouso só vale parada de dia (`_resting`); sem `set_rest` o retrato é o
+  de antes. Crossfade de 120 ms só na CPU (a GPU troca seco: `GLOp` não tem alfa). Fone no pescoço
+  usa `extra/E3.png`. Efeitos de repouso: `braco:P10`, `sweat`, `olhando_pedro` (sem olhar solto).
+  `COR_FAIXA` = cor do fundo (acordo §6): Radiante `#f2a7c3` (happy), as outras o acento `#b392f0`
+  (calm). `Snapshot.mood_dela/mood_dela_cor/momento/causas` (causas = `(texto, Δ, há_s)`, montadas
+  pela V0.8 a partir de `Humor.medidor()`). Hover: `Screen.hover_test/set_hover` + grupo `mood_tip`;
+  falta o `gamerhud.py` chamar `hover_test`/`set_hover` no mouse move (V0.8).
 - **V0.2:** a tabela de eventos está no acordo **§1** (a tarefa dizia §3); transcrita em
   `estado.EVENTOS` (tipos `faixa_nota2/1/_menos1/_menos2`, `ado`, `favorita`, `birra`, `pedro_volta`,
   `tag_elogio/zoeira/correcao`, `clique_carinho` ≤ 3/h, `claude_fim`, `commit`, `faxina`,

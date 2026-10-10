@@ -27,15 +27,19 @@ from .main_screen import (
     accent,
     baseline,
     chip_label,
+    draw_causas,
     draw_cover,
     draw_learning_btn,
     draw_mood,
+    draw_mood_dela,
     label,
     led_dot,
     led_lit,
+    mood_dela_key,
     mood_key,
     state_chip,
     text,
+    tip_rect,
     width,
     wrapped,
 )
@@ -164,6 +168,7 @@ class StandbyScreen(Screen):
             "talk": [self.talk],
             "player": [QRectF(COL.left() - 2, self.y_rule2 + 2, COL.width() + 4, BOTTOM - self.y_rule2 + 2)],
             "lm_summary": [self.SUMMARY_RECT],  # por último: sobrepõe a fala (LM4.6)
+            "mood_tip": [tip_rect(self.mood)],  # hover do medidor: por cima de tudo
         }
 
     def group_key(self, name: str, snap: Snapshot, now: datetime) -> tuple:
@@ -176,7 +181,9 @@ class StandbyScreen(Screen):
         if name == "mascot":
             return (accent(snap).rgb(), snap.magui_state)
         if name == "mood":
-            return mood_key(snap)
+            return mood_dela_key(snap) if snap.mood_dela is not None else mood_key(snap)
+        if name == "mood_tip":
+            return self.tip_key(snap)
         if name == "talk":
             return (snap.caption, snap.magui_state == "sleeping", chip_label(snap))
         if name == "player":
@@ -212,7 +219,14 @@ class StandbyScreen(Screen):
         led_dot(p, QPointF(COL.right() - tw - 8 - 4, self.y_status - 4.5), 4, snap)
 
     def _g_mood(self, p, snap, now, s):
+        if snap.mood_dela is not None:  # o medidor dela (acordo §6)
+            draw_mood_dela(p, self.mood, snap, px=9, bar_w=3.0)
+            return
         draw_mood(p, self.mood, snap, legend=False, bar_w=4.0)
+
+    def _g_mood_tip(self, p, snap, now, s):
+        if self.tip_key(snap)[0]:
+            draw_causas(p, tip_rect(self.mood), snap.causas)
 
     def _g_lm_summary(self, p, snap, now, s):
         cur = self.summary() if self.summary else None
