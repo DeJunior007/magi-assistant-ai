@@ -1467,15 +1467,23 @@ def _star(p: QPainter, x: float, y: float, s: float, hexa: str, alpha: float) ->
 
 
 def _fx_sweat(m, p: QPainter, now: float, pop: float, hx: float, hy: float) -> None:
-    """Gota grande na têmpora (a de anime), escorrendo devagar e voltando."""
-    ph = (now * 0.45) % 1.0
-    slide = 26 * (ph * ph)  # acelera ao escorrer
-    a = min(1.0, (1 - ph) * 4)  # some no fim e reaparece no alto
-    h = 92 * pop
-    _drop(p, 682 + hx, 300 + hy + slide, h, a)
-    if ph > 0.55:  # gotinha que se solta
-        k = (ph - 0.55) / 0.45
-        _drop(p, 690 + hx, 360 + hy + 70 * k * k, 24, (1 - k) * 0.8)
+    """Suor no traço da arte: só a pele brilhando (testa entre as franjas, maçãs do rosto e
+    ponta do nariz), com um cintilar lento que passa de um ponto ao outro."""
+    k = max(0.0, min(1.0, pop))
+    p.setPen(Qt.PenStyle.NoPen)
+    spots = ((553, 394, 12, 6), (440, 452, 30, 9), (612, 452, 30, 9), (524, 478, 7, 10),
+             (640, 488, 14, 18))
+    for i, (cx, cy, rx, ry) in enumerate(spots):
+        shimmer = 0.75 + 0.25 * math.sin(now * 1.3 - i * 0.9)
+        x, y = cx + hx, cy + hy
+        g = QRadialGradient(QPointF(x, y), max(rx, ry))
+        g.setColorAt(0.0, _rgba("#ffffff", 0.42 * k * shimmer))
+        g.setColorAt(0.45, _rgba("#fff6f0", 0.18 * k * shimmer))
+        g.setColorAt(1.0, _rgba("#ffffff", 0.0))
+        p.setBrush(g)
+        p.drawEllipse(QPointF(x, y), rx, ry)
+        p.setBrush(_rgba("#ffffff", 0.5 * k * shimmer))  # ponto de luz no miolo
+        p.drawEllipse(QPointF(x - rx * 0.2, y - ry * 0.15), max(1.5, rx * 0.12), max(1.2, ry * 0.18))
 
 
 def _fx_tear(m, p: QPainter, now: float, pop: float, hx: float, hy: float) -> None:
