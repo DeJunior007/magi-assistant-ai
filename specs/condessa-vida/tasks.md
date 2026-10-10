@@ -57,7 +57,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   - Pronto: CA-V1 e CA-V2 (parte do humor) verdes.
   - Paralelo: V0.3, V0.5, V0.6
 
-- [ ] **V0.3 Momentos** — `momento.py`: `decidir`, `GRUPOS`, `filtros`, e os sinais novos do `ctx`
+- [x] **V0.3 Momentos** — `momento.py`: `decidir`, `GRUPOS`, `filtros`, e os sinais novos do `ctx`
   calculados a partir do que o `Reactor` já tem (spec §3; onde faltar no `Reactor`, a função recebe
   por parâmetro e anota em *Sobras*).
   - Lê: spec §3, acordo §3, `vida.py`, `hud/wired/reacoes/atividade.py` (assinaturas)
@@ -138,3 +138,15 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
 
 ## Sobras
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
+- **V0.3:** os limiares da tabela do acordo §3 (2 min de conversa, 10 min sumiu, 15 min de Tédio,
+  22h–04h, P10 2 min, escada 15/30 min, energia de bocejo/cochilo, ânimo +0,3/+0,5) não estão no
+  `[vida]`: ficaram em `momento.LIMIARES_PADRAO`, lidos de `[vida.momentos]` quando existir — falta
+  pôr a tabela `[vida.momentos]` no `persona/condessa-gosto.toml` e no `VIDA_PADRAO` (V0.8).
+  A histerese guarda o candidato em `ctx["memo"]` (dicionário do chamador, mantido entre ticks) e o
+  `[vida]` vem em `ctx["vida"]`, porque a assinatura `decidir(ctx, anterior, agora)` é fixa.
+  `momento.sinais(...)` recebe por parâmetro o que o `Reactor` ainda não expõe (último turno do
+  Pedro, última música, `claude_esperando/rodando`, `lm_on`, `alerta`, `faixa_agua`); `hora`,
+  `humor_pedro`, `animo`, `energia`, `momento_ha_s`, contadores de franja/cantando e a escada do
+  Tédio (`encarando_feito`, `ei_to_aqui_ha_s`, `ei_ignorado`) também ficam para a ligação (V0.8).
+  Nomes de passivas novos em `GRUPOS` (`sacada_player`, `mao_no_queixo`, `flagra_no_forum`, `bocejo`,
+  `cochilo`, ...) precisam bater com o catálogo na V0.7.
