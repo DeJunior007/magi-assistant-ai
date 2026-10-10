@@ -48,7 +48,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   - Pronto: contratos e leitor testados; `tests/hud` verde.
   - Paralelo: —
 
-- [ ] **V0.2 Humor dela** — `estado.py`: `Humor` (aplicar/tick/faixa/medidor) e `Estado` (salvar/
+- [x] **V0.2 Humor dela** — `estado.py`: `Humor` (aplicar/tick/faixa/medidor) e `Estado` (salvar/
   carregar com decaimento do tempo fechado), tabela de eventos do acordo §3 transcrita como dados.
   - Lê: spec §1–§2, acordo §1, `vida.py`
   - Escreve: `hud/wired/reacoes/estado.py`, `tests/hud/test_vida_humor.py`
@@ -150,3 +150,12 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   Tédio (`encarando_feito`, `ei_to_aqui_ha_s`, `ei_ignorado`) também ficam para a ligação (V0.8).
   Nomes de passivas novos em `GRUPOS` (`sacada_player`, `mao_no_queixo`, `flagra_no_forum`, `bocejo`,
   `cochilo`, ...) precisam bater com o catálogo na V0.7.
+- **V0.2:** a tabela de eventos está no acordo **§1** (a tarefa dizia §3); transcrita em
+  `estado.EVENTOS` (tipos `faixa_nota2/1/_menos1/_menos2`, `ado`, `favorita`, `birra`, `pedro_volta`,
+  `tag_elogio/zoeira/correcao`, `clique_carinho` ≤ 3/h, `claude_fim`, `commit`, `faxina`,
+  `claude_erro`, `jogo_abriu`, `fps_episodio`, `fps_recuperou`, `truque_aplauso/ignorado`); o "1 por
+  episódio" do FPS e o "> 5 min" do Claude ficam com quem emite (V0.6/V0.8). Trava ±0,6/h conta cada
+  sentido separado. `tick` lê do `ctx`: `pedro_ausente_min`, `silencio_min`, `musica_nota`, `jogo`,
+  `pedro_mal`, `momento`. A cor do medidor é um padrão por faixa (`estado.COR_FAIXA`), acordo §6 com
+  a V0.4. Ao rodar, `test_vida_contratos::test_esqueleto_assinaturas` (episódio, V0.6) e
+  `test_reacoes_governador::test_passiva_intervalo_40s` (V0.5) falhavam por arquivos em edição.
