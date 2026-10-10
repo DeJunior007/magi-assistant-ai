@@ -96,7 +96,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   - Pronto: CA-V7 verde; testes antigos do `det_sistema` atualizados onde o acordo mudou a regra.
   - Paralelo: V0.2, V0.3, V0.5
 
-- [ ] **V0.7 Passivas por momento e faixa** — `passivas.sortear` passa a escolher só no grupo do
+- [x] **V0.7 Passivas por momento e faixa** — `passivas.sortear` passa a escolher só no grupo do
   momento ∩ faixa, com o intervalo do `[vida]`, as negativas com causa e gestos de fone/ritmo só com
   música e E2; o `humor.py` antigo (fatores) vira só leitura do momento/faixa ou é aposentado.
   - Lê: spec §3, §6, §9, acordo §3–§4, `hud/wired/reacoes/passivas.py`, `hud/wired/reacoes/humor.py`, `momento.py` e `estado.py` (assinaturas)
@@ -182,3 +182,15 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   `P12 B4 C5 1500` do acordo ainda não está no catálogo). `game_off` aceita `pedro_mal=` (parâmetro
   novo). Atualizados `test_reacoes_sistema` (1 recuperação/partida) e a linha do episódio em
   `test_vida_contratos::test_esqueleto_assinaturas`.
+- **V0.7:** em `momento.GRUPOS` (exceção autorizada), `presilha` → `brilho_presilha`; saíram por não
+  ter equivalente no catálogo `mao_no_queixo` (P10; só a `indecisa` usa P10), `sacada_player` e
+  `flagra_no_forum` (a `flagrada` é "flagrada olhando", outra coisa): falta criá-las no catálogo e
+  voltar com elas aos grupos (a regra do P10 continua em `momento._cabe`). Ajustei 2 asserts do
+  `test_vida_momentos` por isso. O `humor.py` virou só leitura (`momento`, `faixa`, `fone`, `filtros`,
+  `sinais`); a faixa vem de `ctx["faixa_humor"]` ou `ctx["humor_estado"]` (porque `ctx["faixa"]` é a
+  música) e o fone de `ctx["fone"]` (sem ele, E2 só com nota ≥ 0): a **V0.8** passa `momento`
+  (com histerese), `faixa_humor`, `fone`, `energia`, `causas` e `ultima_expressao_em`. O piso de vida
+  com grupo vazio ou cota cheia devolve `Disparo("atencao", "piso")`, que o diretor/Reactor ainda não
+  resolvem (V0.8/V0.10). O que cada faixa tira (`passivas.FAIXA_BLOQUEIA`) e as causas de cada
+  negativa (`passivas.NEGATIVAS`) são leitura minha do acordo §2 e spec §6. Não precisei de
+  `[vida.momentos]` no gosto.

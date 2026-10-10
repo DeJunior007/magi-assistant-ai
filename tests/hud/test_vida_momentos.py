@@ -134,8 +134,9 @@ def test_franja_uma_por_espera_e_por_faixa():
 
 
 def test_p10_depois_de_2_min():
-    assert "mao_no_queixo" not in m.passivas(M.ESTUDANDO, {"momento_ha_s": 60})
-    assert "mao_no_queixo" in m.passivas(M.ESTUDANDO, {"momento_ha_s": 120})
+    # V0.7: mao_no_queixo saiu do GRUPOS (sem arte no catálogo); a regra continua no _cabe
+    assert not m._cabe("mao_no_queixo", M.ESTUDANDO, {"momento_ha_s": 60})
+    assert m._cabe("mao_no_queixo", M.ESTUDANDO, {"momento_ha_s": 120})
 
 
 def test_ociosa_feliz():
@@ -176,8 +177,7 @@ def test_escada_do_tedio(ctx, degrau):
 def test_filtros_tiram_zoeira_e_negativa():
     ctx = {"momento_ha_s": 2400, "encarando_feito": True, "ei_ignorado": True}
     assert "beicinho" not in m.passivas(M.TEDIO, {**ctx, "hora": 23})
-    assert "flagra_no_forum" not in m.passivas(M.TEDIO, {**ctx, "hora": 23})
-    assert "flagra_no_forum" in m.passivas(M.TEDIO, {**ctx, "hora": 15})
+    assert "beicinho" in m.passivas(M.TEDIO, {**ctx, "hora": 15})  # V0.7: flagra_no_forum saiu
     espera = m.passivas(M.ESPERANDO, {"humor_pedro": 0})
     assert "impaciente" not in espera and "soprando_franja" not in espera
 

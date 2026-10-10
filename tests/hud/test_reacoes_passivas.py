@@ -1,169 +1,202 @@
-"""R1.1: passivas sorteadas pelo humor (spec §4–§5, acordo §4)."""
+"""V0.7: passivas por momento e faixa (spec §3, §6, §9; acordo §3–§4)."""
 
 from __future__ import annotations
 
 import random
 from collections import Counter
-from types import SimpleNamespace
 
 import pytest
 
-from hud.wired.reacoes import catalogo, humor, passivas
+from hud.wired.reacoes import catalogo, humor, momento, passivas
 from hud.wired.reacoes.contratos import Disparo
-from hud.wired.reacoes.governador import Estado
+from hud.wired.reacoes.vida import Faixa, Fone, Momento
+
+TODAS_CAUSAS = {c: 1000.0 for c in passivas.CAUSAS_NEGATIVAS}
 
 
 def _ctx(**kw) -> dict:
     base = {
-        "defs": {k: catalogo.DEFS[k] for k in catalogo.ATIVAS},
-        "estado": Estado(), "agora": 1000.0, "relogio": 1.7e9, "hora": 15, "madrugada": False,
-        "humor": 3, "jogo": False, "claude": True, "musica_nota": 0, "faixa": None,
-        "veredito": None, "desligadas": frozenset(), "_passivas_inicio": 0.0,
+        "agora": 1000.0, "hora": 15, "humor_pedro": 3, "musica_nota": None,
+        "_passivas_inicio": 0.0, "ultima_expressao_em": 1000.0,
     }
     base.update(kw)
     return base
 
 
-def _contagem(ctx: dict, n: int, seed: int = 1) -> Counter:
+def _forcar(ctx: dict, n: int, seed: int = 1, agora: float = 1000.0) -> Counter:
+    """``n`` sorteios com a hora marcada vencida (sem cota da hora, sem piso)."""
     rng = random.Random(seed)
     out: Counter = Counter()
     for _ in range(n):
-        d = passivas.sortear(ctx, ctx["agora"], rng)
+        ctx["_passivas_proxima"] = agora
+        ctx["_passivas_usos"] = []
+        d = passivas.sortear(ctx, agora, rng)
         if d is not None:
             out[d.chave] += 1
     return out
 
 
+# sinais que deixam caber o máximo de passivas em cada momento
+_RICO = {
+    "animo": 0.6, "energia": 0.2, "momento_ha_s": 2000.0, "pedro_inativo_s": 2000.0,
+    "dancante": True, "claude_demorando": True, "causas": TODAS_CAUSAS,
+}
+
+
+@pytest.mark.parametrize("m", [m for m in Momento if momento.GRUPOS[m]])
+@pytest.mark.parametrize("f", list(Faixa))
+@pytest.mark.parametrize("nota", [None, 1])
+def test_10000_sorteios_nunca_saem_do_grupo(m, f, nota):
+    ctx = _ctx(momento=m, faixa_humor=f, musica_nota=nota, **_RICO)
+    c = _forcar(ctx, 10_000)
+    assert set(c) <= set(momento.GRUPOS[m]) - passivas.FAIXA_BLOQUEIA[f]
+
+
+@pytest.mark.parametrize("m", [Momento.CONVERSA, Momento.ALERTA])
+def test_momentos_sem_passiva(m):
+    ctx = _ctx(momento=m, **_RICO)
+    assert not _forcar(ctx, 500)
+    assert passivas.media_s(ctx) is None
+
+
+def test_nomes_dos_grupos_estao_no_catalogo():
+    for m, grupo in momento.GRUPOS.items():
+        for chave in grupo:
+            assert chave in catalogo.DEFS, (m, chave)
+
+
+def test_nenhuma_negativa_sem_causa():
+    for m in (Momento.ESPERANDO, Momento.ATURANDO, Momento.TEDIO):
+        ctx = _ctx(momento=m, musica_nota=-2 if m == Momento.ATURANDO else None,
+                   momento_ha_s=4000.0)
+        assert not set(_forcar(ctx, 3000)) & set(passivas.NEGATIVAS), m
+    com = _forcar(_ctx(momento=Momento.ESPERANDO, claude_esperando=True), 3000)
+    assert com["impaciente"] > 0 and com["soprando_franja"] > 0
+    antiga = _forcar(_ctx(momento=Momento.ESPERANDO, causas={"claude_esperando": 1000.0 - 121}), 3000)
+    assert antiga["impaciente"] == 0
+    beicinho = _forcar(_ctx(momento=Momento.TEDIO, ei_ignorado=True), 3000)
+    assert beicinho["beicinho"] > 0
+
+
+@pytest.mark.parametrize("filtro", [{"hora": 23}, {"humor_pedro": 1}, {"madrugada": True}])
+def test_negativa_nunca_sob_filtro(filtro):
+    ctx = _ctx(momento=Momento.ESPERANDO, claude_esperando=True, causas=TODAS_CAUSAS, **filtro)
+    assert not set(_forcar(ctx, 3000)) & set(passivas.NEGATIVAS)
+
+
+@pytest.mark.parametrize("m", [Momento.CURTINDO, Momento.OUVINDO, Momento.JOGANDO, Momento.NO_FLOW])
+def test_fone_e_ritmo_so_com_musica_e_e2(m):
+    sem = _forcar(_ctx(momento=m, dancante=True), 3000)
+    assert not set(sem) & passivas.FONE_RITMO
+    pescoco = _forcar(_ctx(momento=m, musica_nota=2, dancante=True, fone=Fone.PESCOCO), 3000)
+    assert not set(pescoco) & passivas.FONE_RITMO
+    cabeca = _forcar(_ctx(momento=m, musica_nota=2, dancante=True, fone=Fone.CABECA), 3000)
+    assert set(cabeca) & passivas.FONE_RITMO
+
+
+def test_formato_antigo_do_reactor_faixa_none_e_sem_musica():
+    ctx = _ctx(momento=Momento.CURTINDO, musica_nota=1, faixa=None)
+    assert not humor.tem_musica(ctx) and humor.fone(ctx) == Fone.PESCOCO
+    assert not set(_forcar(ctx, 2000)) & passivas.FONE_RITMO
+
+
+def test_emburrada_nao_sorri():
+    ctx = _ctx(momento=Momento.A_TOA, faixa_humor=Faixa.EMBURRADA, animo=0.6)
+    assert _forcar(ctx, 3000)["sorriso_canto"] == 0
+    ctx["faixa_humor"] = Faixa.RADIANTE
+    assert _forcar(ctx, 3000)["sorriso_canto"] > 0
+
+
+def test_piso_de_vida_6_min():
+    vida = {"passiva_media_min": {"a_toa": 600}}  # média enorme: só o piso faz sair
+    ctx = _ctx(momento=Momento.A_TOA, vida=vida, ultima_expressao_em=None)
+    del ctx["_passivas_inicio"]
+    rng = random.Random(5)
+    saidas = [t for t in range(0, 3 * 3600, 10) if passivas.sortear(ctx, float(t), rng)]
+    assert saidas and saidas[0] <= 6 * 60 + 10
+    assert max(b - a for a, b in zip(saidas, saidas[1:], strict=False)) <= 6 * 60 + 10
+
+
+def test_piso_com_grupo_vazio_vira_atencao():
+    vida = {"passiva_media_min": {"a_toa": 600}}
+    ctx = _ctx(momento=Momento.A_TOA, vida=vida, desligadas=frozenset(momento.GRUPOS[Momento.A_TOA]),
+               ultima_expressao_em=0.0)
+    d = passivas.sortear(ctx, 400.0, random.Random(1))
+    assert d == Disparo(passivas.ATENCAO, "piso")
+
+
+@pytest.mark.parametrize("m", [Momento.CONVERSA, Momento.JOGANDO])
+def test_sem_piso_em_conversa_e_jogo(m):
+    ctx = _ctx(momento=m, vida={"passiva_media_min": {"jogando": 600}}, ultima_expressao_em=0.0)
+    rng = random.Random(2)
+    assert not any(passivas.sortear(ctx, float(t), rng) for t in range(60, 1800, 10))
+
+
+def test_piso_nao_vale_com_pedro_sumido():
+    ctx = _ctx(momento=Momento.PEDRO_SUMIU, vida={"passiva_media_min": {"pedro_sumiu": 600}},
+               ultima_expressao_em=0.0)
+    assert not passivas.piso_vencido(ctx, 1000.0, Momento.PEDRO_SUMIU)
+
+
+def test_intervalo_pela_media_do_momento_e_energia():
+    def media(**kw):
+        ctx = _ctx(momento=Momento.OUVINDO, **kw)
+        rng = random.Random(9)
+        tot = 0.0
+        for _ in range(4000):
+            passivas._agendar(ctx, 0.0, Momento.OUVINDO, rng)
+            tot += ctx["_passivas_proxima"]
+        return tot / 4000
+
+    normal = media(energia=0.5)
+    assert normal == pytest.approx(90 + 300 * 2.718281828 ** -0.3, rel=0.08)
+    assert media(energia=0.8) < normal < media(energia=0.1)
+    assert media(energia=0.5, hora=23) > normal
+    assert passivas.media_s(_ctx(momento=Momento.CURTINDO)) == pytest.approx(3.5 * 60)
+
+
+def test_minimo_90s_e_no_maximo_12_por_hora():
+    ctx = _ctx(momento=Momento.CURTINDO, musica_nota=1, fone=Fone.CABECA,
+               vida={"passiva_media_min": {"curtindo": 0.01}})
+    rng = random.Random(4)
+    saidas = []
+    for t in range(60, 60 + 2 * 3600, 10):
+        d = passivas.sortear(ctx, float(t), rng)
+        if d is not None and d.chave != passivas.ATENCAO:
+            saidas.append(t)
+    assert min(b - a for a, b in zip(saidas, saidas[1:], strict=False)) >= 90
+    assert all(sum(1 for s in saidas if t <= s < t + 3600) <= 12 for t in saidas)
+
+
+def test_peso_cai_com_o_uso():
+    ctx = _ctx(momento=Momento.A_TOA)
+    ctx["_passivas_usos"] = [(900.0, "sacada_olhar"), (950.0, "sacada_olhar")]
+    ps = passivas.pesos(ctx, 1000.0)
+    assert ps["sacada_olhar"] == pytest.approx(0.09) and ps["piscada_dupla"] == 1.0
+
+
 def test_primeiro_minuto_sem_passiva():
-    ctx = _ctx()
+    ctx = _ctx(momento=Momento.A_TOA)
     del ctx["_passivas_inicio"]
     rng = random.Random(1)
     assert all(passivas.sortear(ctx, 1000.0 + t, rng) is None for t in range(0, 60, 10))
-    assert any(passivas.sortear(ctx, 1060.0, rng) for _ in range(50))
 
 
-def test_passivas_estao_no_catalogo_ativo():
-    for n, chave in passivas.PASSIVAS.items():
-        assert chave in catalogo.ATIVAS
-        assert catalogo.DEFS[chave].n == n
-    assert sorted(passivas.PASSIVAS) == [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 21, 22, 23]
+def test_catalogo_ativo_desligadas_e_cooldown():
+    from hud.wired.reacoes.governador import Estado
 
-
-@pytest.mark.parametrize("chave", sorted(passivas.PASSIVAS.values()))
-def test_ca04_cada_passiva_sai_no_sorteio(chave):
-    c = _contagem(_ctx(), 3000)
-    assert c[chave] > 0
-
-
-def test_sorteio_devolve_disparo_ou_nada():
-    rng = random.Random(3)
-    saidas = [passivas.sortear(_ctx(), 1000.0, rng) for _ in range(200)]
-    assert any(s is None for s in saidas)
-    assert all(isinstance(s, Disparo) and s.motivo == "passiva" for s in saidas if s is not None)
-
-
-def test_pedro_mal_nunca_escolhe_zoeira():
-    ctx = _ctx(humor=1)
-    assert humor.PEDRO_MAL in humor.fatores(ctx)
-    rng = random.Random(7)
-    vistos = Counter()
-    for _ in range(10_000):
-        d = passivas.sortear(ctx, ctx["agora"], rng)
-        if d is not None:
-            vistos[d.chave] += 1
-    assert vistos["beicinho"] == 0 and vistos["soprando_franja"] == 0
-    assert vistos["piscada_gato"] > vistos["piscada_dupla"]
-
-
-def test_madrugada_bloqueia_zoeira():
-    ps = passivas.pesos(_ctx(madrugada=True))
-    assert "beicinho" not in ps and "soprando_franja" not in ps
-
-
-def test_favorita_do_dia_nunca_favorece_corando():
-    verd = SimpleNamespace(artist="ado", note=1)
-    ctx = _ctx(faixa=("Usseewa", "Ado"), veredito=verd, favorita_dia="ado", musica_nota=1)
-    ativos = humor.fatores(ctx)
-    assert humor.FAVORITA_DIA in ativos
-    assert humor.peso("corando", ativos) == 1.0
-    assert humor.peso("cabeca_ritmo", ativos) > humor.peso("corando", ativos)
-    for f in humor.PESOS:
-        assert "corando" not in humor.FAVORECE[f]
-
-
-def test_os_12_fatores_tem_peso_do_acordo():
-    assert len(humor.PESOS) == 12 and set(humor.FAVORECE) == set(humor.PESOS)
-    assert humor.PESOS[humor.PEDRO_MAL] == 9 and humor.PESOS[humor.FAVORITA_DIA] == 8
-    assert humor.PESOS[humor.MANHA] == 3 and humor.PESOS[humor.MADRUGADA] == 7
-
-
-def test_pc_com_problema_tira_sorriso_e_cantarolando():
-    ps = passivas.pesos(_ctx(pc_problema=True))
-    assert "sorriso_canto" not in ps and "cantarolando" not in ps
-    assert ps["suspiro"] == 1 + humor.PESOS[humor.PC_PROBLEMA]
-
-
-def test_musica_que_gosta_e_que_odeia():
-    gosta = humor.fatores(_ctx(faixa=("a", "b"), musica_nota=2))
-    assert {humor.MUSICA, humor.MUSICA_GOSTA} <= set(gosta)
-    odeia = humor.fatores(_ctx(faixa=("a", "b"), musica_nota=-1))
-    assert humor.MUSICA_ODEIA in odeia and humor.MUSICA_GOSTA not in odeia
-    assert humor.peso("beicinho", odeia) == 1 + humor.PESOS[humor.MUSICA_ODEIA]
-
-
-def test_manha_so_na_primeira_hora_do_bom_dia():
     est = Estado()
-    est.toques["bom_dia"].append(1000.0)
-    assert humor.MANHA in humor.fatores(_ctx(estado=est, agora=1500.0))
-    assert humor.MANHA not in humor.fatores(_ctx(estado=est, agora=1000.0 + 3700))
+    est.toques["sacada_olhar"].append(990.0)
+    ctx = _ctx(momento=Momento.A_TOA, estado=est, desligadas=frozenset({"piscada_gato"}),
+               defs={k: catalogo.DEFS[k] for k in catalogo.ATIVAS})
+    ps = passivas.permitidas(ctx, 1000.0)
+    assert "sacada_olhar" not in ps and "piscada_gato" not in ps and "piscada_dupla" in ps
 
 
-def test_vitoria_recente_por_variante_e_por_chave():
-    est = Estado()
-    est.ultimo = Disparo("claude", "fim", variante="terminou")
-    ctx = _ctx(estado=est, agora=100.0)
-    assert humor.VITORIA in humor.fatores(ctx)
-    ctx["agora"] = 100.0 + 601
-    assert humor.VITORIA not in humor.fatores(ctx)
-    est2 = Estado()
-    est2.ultimo = Disparo("hot", "quente")  # o alerta, não o alívio
-    assert humor.VITORIA not in humor.fatores(_ctx(estado=est2))
-    est2.toques["rede_voltou"].append(950.0)
-    assert humor.VITORIA in humor.fatores(_ctx(estado=est2, agora=1000.0))
-
-
-def test_silencio_longo_precisa_de_30_min():
-    ctx = _ctx(claude=False, faixa=None, agora=0.0)
-    assert humor.SILENCIO not in humor.fatores(ctx)
-    ctx["agora"] = 30 * 60.0
-    assert humor.SILENCIO in humor.fatores(ctx)
-    ctx["claude"] = True
-    assert humor.SILENCIO not in humor.fatores(ctx)
-
-
-def test_desempenho_em_jogo_reduz_a_chance_pela_metade():
-    ctx = _ctx(jogo=True, agora=0.0)
-    humor.fatores(ctx)
-    ctx["agora"] = 301.0
-    assert humor.DESEMPENHO_JOGO in humor.fatores(ctx)
-    normal = sum(_contagem(_ctx(), 4000).values())
-    jogo = sum(_contagem(ctx, 4000).values())
-    assert 0.35 < jogo / normal < 0.65
-
-
-def test_sessao_longa_pela_atividade():
-    class Ativ:
-        def parado_s(self, agora):
-            return 10.0
-
-    ctx = _ctx(atividade=Ativ(), relogio=0.0)
-    assert humor.SESSAO_LONGA not in humor.fatores(ctx)
-    ctx["relogio"] = 3 * 3600.0
-    assert humor.SESSAO_LONGA in humor.fatores(ctx)
-
-
-def test_desligadas_e_cooldown_ficam_fora():
-    est = Estado()
-    est.toques["suspiro"].append(990.0)
-    ps = passivas.pesos(_ctx(estado=est, desligadas=frozenset({"beicinho"})))
-    assert "beicinho" not in ps and "suspiro" not in ps and "piscada_dupla" in ps
+def test_humor_so_le_momento_e_faixa():
+    assert humor.fatores({}) == {}
+    assert humor.fatores({"momento": "tedio", "faixa_humor": "neutra"}) == {
+        "momento": "tedio", "faixa": "neutra",
+    }
+    assert humor.momento({"musica_nota": 2}) == Momento.CURTINDO
+    assert humor.faixa({}) == Faixa.CONTENTE
