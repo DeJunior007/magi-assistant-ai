@@ -1,7 +1,7 @@
 # Requisitos — A vida da Condessa (ritmo, cenas, humor e momentos)
 
 Fonte: uso real das reações (log de 809 reações em 12 h, 2026-10-09), decisões do Pedro e o acordo
-do Conselho `persona/conselho/atas/2026-10-09-ritmo-e-humor/acordo.md` (citado como **acordo §n**).
+do Conselho `persona/conselho/atas/2026-10-10-ritmo-e-humor/acordo.md` (citado como **acordo §n**).
 Os números ficam em `persona/condessa-gosto.toml` `[vida]`. Arquitetura em [design.md](design.md),
 contratos em [spec.md](spec.md), tarefas em [tasks.md](tasks.md). Critérios em EARS.
 
@@ -18,8 +18,9 @@ momentos que decidem o que cabe fazer, uma cena por acontecimento e gestos raros
 (Pedro): **"dá para dizer por que ela fez isso agora?"**
 
 ## Critérios de sucesso
-1. Em 12 h de log real: ≤ 29 reações/h em média; ≤ 3 negativas/h; nenhuma passiva fora do grupo do
-   momento; nenhum gesto de fone/ritmo sem música.
+1. O replay do log real de 2026-10-09 passa nas **7 metas do acordo §8** (12–20 expressões/h, zero
+   rajadas, piso de vida de 6 min, zero negativas sem causa, ≥ 3 faixas no dia, ≥ 1 positiva/h,
+   toda volta do Pedro vira cena) antes de ligar no HUD.
 2. Todo registro do log tem `motivo`, `momento` e `faixa`.
 3. Um acontecimento gera no máximo uma cena (sem rajada).
 4. Com música que ela ama, o rosto de repouso fica sorrindo pela faixa inteira.

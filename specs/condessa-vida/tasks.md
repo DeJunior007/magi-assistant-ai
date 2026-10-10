@@ -6,7 +6,7 @@ uma tarefa quando todas as de *Depende de* estão no `main`.
 
 ## Regras para o agente
 1. **Leia só o pacote da tarefa** (campo *Lê*). Design por `§`, spec por `spec §`, acordo do Conselho
-   por `acordo §` (`persona/conselho/atas/2026-10-09-ritmo-e-humor/acordo.md`).
+   por `acordo §` (`persona/conselho/atas/2026-10-10-ritmo-e-humor/acordo.md`).
 2. **Orçamento planejado ≤ 50k**; ao passar de ~90k, pare, faça commit do que está verde e anote em
    *Sobras*. O uso conta tudo o que se lê, inclusive saídas de comandos.
 3. **Só os arquivos do campo *Escreve*.** Precisou de outro? Anote em *Sobras* (ou faça o mínimo, se
@@ -50,7 +50,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
 
 - [ ] **V0.2 Humor dela** — `estado.py`: `Humor` (aplicar/tick/faixa/medidor) e `Estado` (salvar/
   carregar com decaimento do tempo fechado), tabela de eventos do acordo §3 transcrita como dados.
-  - Lê: spec §1–§2, acordo §3, `vida.py`
+  - Lê: spec §1–§2, acordo §1, `vida.py`
   - Escreve: `hud/wired/reacoes/estado.py`, `tests/hud/test_vida_humor.py`
   - Depende de: V0.1
   - Orçamento: ~45k
@@ -60,7 +60,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
 - [ ] **V0.3 Momentos** — `momento.py`: `decidir`, `GRUPOS`, `filtros`, e os sinais novos do `ctx`
   calculados a partir do que o `Reactor` já tem (spec §3; onde faltar no `Reactor`, a função recebe
   por parâmetro e anota em *Sobras*).
-  - Lê: spec §3, acordo §6, `vida.py`, `hud/wired/reacoes/atividade.py` (assinaturas)
+  - Lê: spec §3, acordo §3, `vida.py`, `hud/wired/reacoes/atividade.py` (assinaturas)
   - Escreve: `hud/wired/reacoes/momento.py`, `tests/hud/test_vida_momentos.py`
   - Depende de: V0.1
   - Orçamento: ~45k
@@ -70,17 +70,17 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
 - [ ] **V0.4 Repouso, fone persistente e medidor** — `repouso.py` (`rosto`, `Postura`); retrato com
   `set_rest` e fone persistente (design §3); medidor do humor dela no painel e na espera
   (`Snapshot.mood_dela`, design §4).
-  - Lê: spec §4, acordo §3 (tabela de faixas) e §6 (rosto por momento), design §3–§4, `hud/wired/portrait.py` por trecho (`_reacting`, `eyes_id`, `mouth_id`, fone), `hud/wired/main_screen.py` por trecho (termômetro), `hud/wired/standby_screen.py` (`_g_mood`)
+  - Lê: spec §4, acordo §2 (repouso), §3 (momentos) e §6 (medidor), design §3–§4, `hud/wired/portrait.py` por trecho (`_reacting`, `eyes_id`, `mouth_id`, fone), `hud/wired/main_screen.py` por trecho (termômetro), `hud/wired/standby_screen.py` (`_g_mood`)
   - Escreve: `hud/wired/reacoes/repouso.py`, `hud/wired/portrait.py`, `hud/wired/main_screen.py`, `hud/wired/standby_screen.py`, `tests/hud/test_vida_repouso.py`
   - Depende de: V0.2, V0.3
   - Orçamento: ~55k
-  - Pronto: CA-V5 (parte do retrato) e CA-V8 verdes; testes do retrato antigos sem mudar asserção.
+  - Pronto: CA-V5 (parte do retrato) e CA-V8 verdes (medidor com nome do momento e 3 causas no hover); crossfade de 120 ms; testes do retrato antigos sem mudar asserção.
   - Paralelo: V0.6, V0.7
 
 - [ ] **V0.5 Governador v2** — números do `[vida]`, classes CENA/GESTO/ATIVA_SOLTA, mínimo de 20 s
   (exceções), assentamento de 45 s, cotas, mesma passiva, mesmo tipo de cena, negativas com causa
   (spec §6), contadores persistidos no `Estado` e janelas por tempo de parede.
-  - Lê: spec §5–§6, acordo §1 e §4, `hud/wired/reacoes/governador.py`, `vida.py`, `estado.py` (assinaturas)
+  - Lê: spec §5–§6, acordo §4, `hud/wired/reacoes/governador.py`, `vida.py`, `estado.py` (assinaturas)
   - Escreve: `hud/wired/reacoes/governador.py`, `tests/hud/test_reacoes_governador.py` (casos novos; os antigos que contradizem o acordo novo são atualizados e listados no commit)
   - Depende de: V0.1
   - Orçamento: ~55k
@@ -89,7 +89,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
 
 - [ ] **V0.6 Episódio de jogo** — `episodio.py` (spec §7) e o `det_sistema` passa a usá-lo (sem
   `hot`/`fps_drop` repetidos).
-  - Lê: spec §7, acordo §5, `hud/wired/reacoes/det_sistema.py`, `vida.py`
+  - Lê: spec §7, acordo §5 (episódio e relatório), `hud/wired/reacoes/det_sistema.py`, `vida.py`
   - Escreve: `hud/wired/reacoes/episodio.py`, `hud/wired/reacoes/det_sistema.py`, `tests/hud/test_vida_episodio.py`
   - Depende de: V0.1
   - Orçamento: ~45k
@@ -99,20 +99,20 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
 - [ ] **V0.7 Passivas por momento e faixa** — `passivas.sortear` passa a escolher só no grupo do
   momento ∩ faixa, com o intervalo do `[vida]`, as negativas com causa e gestos de fone/ritmo só com
   música e E2; o `humor.py` antigo (fatores) vira só leitura do momento/faixa ou é aposentado.
-  - Lê: spec §3, §6, acordo §3–§4 e §6, `hud/wired/reacoes/passivas.py`, `hud/wired/reacoes/humor.py`, `momento.py` e `estado.py` (assinaturas)
+  - Lê: spec §3, §6, §9, acordo §3–§4, `hud/wired/reacoes/passivas.py`, `hud/wired/reacoes/humor.py`, `momento.py` e `estado.py` (assinaturas)
   - Escreve: `hud/wired/reacoes/passivas.py`, `hud/wired/reacoes/humor.py`, `tests/hud/test_reacoes_passivas.py`
   - Depende de: V0.2, V0.3, V0.5
   - Orçamento: ~45k
-  - Pronto: 10 000 sorteios por momento × faixa nunca saem do grupo; nenhuma negativa sem causa; nenhum gesto de fone/ritmo sem música.
+  - Pronto: 10 000 sorteios por momento × faixa nunca saem do grupo; nenhuma negativa sem causa; nenhum gesto de fone/ritmo sem música; piso de vida de 6 min.
   - Paralelo: V0.4, V0.6
 
-- [ ] **V0.10 Diretor de cenas** — `diretor.py` (spec §8) e os roteiros de cena do acordo §2 no
+- [ ] **V0.10 Diretor de cenas** — `diretor.py` (spec §8) e os roteiros de cena do acordo §5 no
   `catalogo.py` (classe CENA, ramos); fila, interrupção, absorção, troca de fone atômica.
-  - Lê: spec §1, §8, acordo §2, `hud/wired/reacoes/catalogo.py` por trecho, `vida.py`, `governador.py` e `estado.py` (assinaturas)
+  - Lê: spec §1, §8, acordo §4–§5, `hud/wired/reacoes/catalogo.py` por trecho, `vida.py`, `governador.py` e `estado.py` (assinaturas)
   - Escreve: `hud/wired/reacoes/diretor.py`, `hud/wired/reacoes/catalogo.py`, `tests/hud/test_vida_diretor.py`
   - Depende de: V0.2, V0.5
   - Orçamento: ~60k
-  - Pronto: CA-V4 verde (rajada real das 21:05 → 1 cena); um teste por cena do acordo §2; fila/interrupção/absorção.
+  - Pronto: CA-V4 verde (rajada real das 21:05 → 1 cena); um teste por cena do acordo §5; coalescência, família, "de novo?", atenção dirigida, truque de salão, fila/interrupção/absorção.
   - Paralelo: V0.4, V0.7
 
 - [ ] **V0.8 Ligação no Reactor** — o tick passa a ser estado → momento → diretor → passivas →
@@ -133,7 +133,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   - Escreve: `tests/hud/test_vida_simulacao.py`, `docs/perf/reacoes.md`, `~/.config/magi/condessa-gosto.toml` (só tirar `fone_repouso`, `ajeitando_fone`, `cabeca_ritmo` de `desligadas`)
   - Depende de: V0.8
   - Orçamento: ~40k
-  - Pronto: CA-V6 verde com os números do relatório; o Pedro avisado do que conferir.
+  - Pronto: CA-V6 = as **7 metas do acordo §8** verdes no replay do dia real (se a Emburrada passar de 15 %, anotar: a Kurisu pediu para a "birra fresca" voltar à mesa); o Pedro avisado do que conferir.
   - Paralelo: —
 
 ## Sobras
