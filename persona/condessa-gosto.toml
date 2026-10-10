@@ -175,50 +175,66 @@ noticia_absurda = ["bizarro", "inusitado", "inusitada", "estranho", "curioso"]
 
 [datas]                  # 63: datas cadastradas pelo Pedro ("MM-DD" = "nome"); vazio = sem festa
 
-# Ritmo, humor e momentos (ata 2026-10-09-ritmo-e-humor). Lido pelo código de specs/condessa-vida.
+# Ritmo, humor e momentos (ata 2026-10-10-ritmo-e-humor). Lido pelo código de specs/condessa-vida.
 [vida]
-min_entre_reacoes_s = 20
-min_volta_pedro_s = 5
-assentamento_cena_s = 45
-passiva_intervalo_s = [180, 300]
-passivas_hora = 15
-passivas_hora_jogo = 6
-mesma_passiva_hora = 2
-mesma_passiva_gap_s = 1200
+min_entre_expressoes_s = 25
+pausa_apos_cena_s = 60
+passiva_min_s = 90
+passivas_hora = 12
+passiva_peso_por_uso = 0.3        # peso ×0,3 por uso na última hora
+piso_vida_min = 6                 # Pedro presente, fora de conversa/jogo: nunca mais que isso parada
+atencao_ms = [400, 600]           # olhada para o card do que não vira cena (fora da cota)
 cenas_hora = 8
-cena_mesmo_tipo_s = 600
-cena_musica_s = 180
-cena_max_s = 8
-cena_festa_max_s = 10
-ativas_soltas_hora = 6
-fila_validade_s = 30
-mesma_causa_s = 30
+coalescencia_s = 3
+familia_absorve_s = 30
+familia_musica_s = 90
+de_novo_min = 10                  # mesma causa em < 10 min vira o "de novo?"
 negativas_hora = 3
-negativa_cada_hora = 2
 negativa_causa_s = 120
-momento_histerese_s = 30
+momento_estavel_s = 30
+crossfade_ms = 120
+truque_dia = 1
+truque_aplauso_s = 10
+musica_nota_menos1_chance_s = 8
+pedro_fala_recoloca_fone_s = 10
+
+[vida.passiva_media_min]          # média do intervalo (exponencial) por momento
+jogando = 8
+esperando = 5
+no_flow = 7
+trabalhando_junto = 7
+estudando = 8
+curtindo = 3.5
+aturando = 5
+ouvindo = 5
+pedro_sumiu = 10
+tedio = 5
+a_toa = 5
 
 [vida.humor]
-base_animo = 0.1
-energia_base = { dia = 0.6, noite = 0.35, madrugada = 0.2, jogo = 0.65 }   # 08–22, 22–03, 03–08
-meia_vida_animo_min = 20
-meia_vida_energia_min = 15
-teto_evento = 0.3
-repeticao_janela_min = 30
-limiar = [0.15, 0.5]
-histerese = 0.1
-troca_faixa_min = 2
-piso_silencio = -0.3
+base_animo = 0.15
+meia_vida_acima_min = 25
+meia_vida_abaixo_min = 8
+habituacao = 0.6
+habituacao_janela_min = 30
+trava_fonte_hora = 0.6
+piso_sistema = -0.3
+teto_pedro_mal = 0.3
+pedro_sumido = { depois_min = 30, cada_min = 15, delta = -0.05 }
+limiar = { radiante = 0.5, contente = 0.05, emburrada = -0.35 }
+histerese = 0.05
+troca_faixa_s = 60
+energia_alvo = { "08" = 0.7, "12" = 0.55, "14" = 0.7, "19" = 0.6, "22" = 0.4, "02" = 0.2 }
+energia_meia_vida_min = 15
+energia_musica = 0.15
+energia_jogo = 0.15
+silencio_energia = { depois_min = 20, por_min = -0.01, ate = -0.2 }
 
 [vida.jogo]
-fps_queda = 0.75          # FPS < 75% da média da partida
-fps_queda_s = 5
-calor_histerese_c = 3
 episodio_fim_min = 3
-piorou_c = 5              # +5 °C acima do limiar
+episodio_novo_min = 10
 cobrancas_partida = 2
 recuperacoes_partida = 1
-eu_avisei_min = 10
 
 # Falas em texto (≤70 caracteres; sem voz). {temp}, {fps}, {artist} vêm do HUD.
 # Variantes: madrugada, rival, batalha, quinta, curto, favorita, slowed.

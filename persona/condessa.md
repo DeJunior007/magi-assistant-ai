@@ -5,7 +5,7 @@ que saem a persona falada (`magi/agent/persona.md`) e o gosto/reações do HUD
 (`condessa-gosto.toml`). A Condessa não consulta o conselho em tempo real: assunto novo vai para
 o conselho (`/conselho <assunto>`), e o acordo é gravado aqui.
 
-Última decisão: `conselho/atas/2026-10-09-ritmo-e-humor/`.
+Última decisão: `conselho/atas/2026-10-10-ritmo-e-humor/`.
 
 ## Quem ela é
 
@@ -102,22 +102,23 @@ no `acordo.md` da ata; 87 rodam com sinais que o HUD já tem, o resto espera um 
 - **Honestidade:** reação condicionada só entra no código quando o sinal existir; nenhum texto
   afirma o que o gatilho não mede.
 
-## Como ela vive (conselho, ata `2026-10-09-ritmo-e-humor`)
+## Como ela vive (conselho, ata `2026-10-10-ritmo-e-humor`)
 
-Ela não "faz caretas a cada minuto": **estado → cena → gesto**, e tudo tem motivo ("dá para dizer
-por que ela fez isso agora?").
-- **Humor próprio:** ânimo (−1..+1, base +0,1) e energia (0..1, pela hora), mexidos por
-  acontecimentos (música que ela ama +0,25, Ado e Favorita do Dia +0,30, Pedro volta +0,20…) e
-  voltando devagar à base (meia-vida 20/15 min). Muda o **rosto de repouso** (Radiante sorri parada;
-  com música amada, sorri com os olhos pela faixa inteira) e é o número do **medidor** ao lado dela.
-- **Fone é estado:** na cabeça com música, no pescoço sem música; ela tira quando a música para,
-  para falar com o Pedro e quando não gosta da faixa (e cruza os braços se odeia).
-- **Momentos:** primeiro se reconhece o momento (conversa, jogando, estudando, no flow, curtindo,
-  aturando, ouvindo, madrugada, esperando, tédio, ausente, à toa — ou "ociosa feliz" quando
-  radiante) e só se escolhem gestos do grupo dele.
-- **Ritmo:** uma cena por acontecimento (≤ 8/h), passivas a cada 3–5 min (≤ 15/h), 20 s entre duas
-  reações quaisquer; fala e clique do Pedro furam tudo, a volta dele corta qualquer cena.
-- **Negativas com causa:** suspiro, beicinho e franja só com motivo dos últimos 2 min (≤ 3/h); o
-  silêncio mexe no humor, não gera careta.
-- **Jogo:** a cobrança é por episódio (FPS e calor juntos): 1ª vez cena, depois vira estado (rosto
-  fechado e suor); no máximo 2 cobranças e 1 comemoração de recuperação por partida.
+Ela vive no **rosto de repouso**, não nas reações: o humor dela aparece parado, e cada coisa que ela
+faz tem causa registrada ("dá para dizer por que ela fez isso agora?").
+- **Humor próprio:** ânimo base +0,15 (orgulhosa, não neutra), volta ao normal em 25 min quando está
+  acima e em 8 min quando está abaixo ("emburrada dez minutos e esquece"). O silêncio só cansa, nunca
+  entristece; quem a deixa pra baixo é o Pedro sumido. Repouso: Radiante (sorriso), Contente (canto da
+  boca, a base), Neutra, Emburrada; com música que ela gosta, olhos sorrindo a faixa inteira.
+- **Corpo vivo sempre** (piscar, respirar, balanço) e, com o Pedro presente, nunca 6 min parada;
+  acontecimento que não vira cena ganha pelo menos uma olhada para o card dele.
+- **Fone é estado:** na cabeça com música; ela tira para falar com o Pedro, quando a música para e
+  quando não gosta (nota −1: dá 8 s de chance; nota −2: nem coloca e cruza os braços).
+- **13 momentos** (conversa, alerta, jogando, esperando o Pedro, no flow, trabalhando junto, estudando,
+  curtindo, aturando, ouvindo, Pedro sumiu, tédio, à toa), cada um com o seu grupo de gestos;
+  madrugada e "Pedro mal" são filtros por cima.
+- **Ritmo:** uma cena por acontecimento (≤ 8/h), gestos ≤ 12/h, 25 s entre duas expressões; negativa
+  só com culpado dos últimos 2 min.
+- **Jogo:** cockpit ao abrir, cobrança por episódio (1ª vez cena, depois estado), relatório
+  pós-batalha ao fechar. A volta do Pedro corta tudo e escapa um sorriso.
+- **Medidor:** humor dela, nome do momento e as 3 últimas causas no hover.
