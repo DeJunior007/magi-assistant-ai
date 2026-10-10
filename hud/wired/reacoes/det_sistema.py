@@ -17,6 +17,12 @@ Estado entre ticks, só em chaves ``_sistema_*`` do ``ctx``:
 ``_sistema_rede_caiu``, ``_sistema_pesado_desde``, ``_sistema_pesado`` (≥ 60 s acima de 5 MB/s),
 ``_sistema_disco``, ``_sistema_cpu_desde``, ``_sistema_cpu`` (80 já saiu no episódio),
 ``_sistema_swap`` (amostras ``(agora, GB)`` dos últimos 60 s), ``_sistema_sufoco``.
+
+V0.6 · episódio de jogo (spec §7, acordo §5): ``_sistema_ep`` (o ``Episodio``, números do
+``ctx["vida"]``), ``_sistema_em_jogo``; a cada tick ``_sistema_cala`` = chaves antigas que o
+``Reactor`` deve calar (``hot``/``fps_drop`` repetidos no episódio ou depois do 1º; ``game_off`` quando
+o relatório pós-batalha é ``eu_avisei``/``desconfiada``) e ``_sistema_ep_estado`` (suor + ``stress``).
+Cobranças e recuperação passam pelo ``Episodio.pode_emitir`` (tetos por partida).
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ from __future__ import annotations
 from typing import Any
 
 from .contratos import Disparo
+from .episodio import Episodio
 
 HOT_C, COOL_C = 85.0, 78.0  # = reactions.HOT_C/COOL_C
 FPS_DROP = 0.6  # = reactions.FPS_DROP (2 leituras seguidas)
@@ -57,8 +64,10 @@ def detectar(anterior: Any, snap: Any, ctx: dict) -> list[Disparo]:
         if not snap.gaming:
             out.append(Disparo("hud_acordou", "primeiro snapshot"))
 
-    _temperatura(snap, ctx, agora, out)
-    _fps(anterior, snap, ctx, agora, out)
+    ep = _episodio(snap, ctx, agora, out)
+    _temperatura(snap, ctx, agora, out, ep)
+    _fps(anterior, snap, ctx, agora, out, ep)
+    ctx["_sistema_ep_estado"] = ep.estado
     _rede(snap, ctx, agora, out)
     _disco(snap, ctx, out)
     _cpu(snap, ctx, agora, out)
@@ -66,26 +75,63 @@ def detectar(anterior: Any, snap: Any, ctx: dict) -> list[Disparo]:
     return out
 
 
-def _avisei(ctx: dict, agora: float, out: list[Disparo], motivo: str) -> None:
+def _fps_baixo(snap: Any) -> bool:
+    return snap.fps is not None and bool(snap.fps_avg) and snap.fps < FPS_DROP * snap.fps_avg
+
+
+def _episodio(snap: Any, ctx: dict, agora: float, out: list[Disparo]) -> Episodio:
+    """Abre/fecha a partida e o episódio FPS+calor; ``game_off`` vira relatório pós-batalha."""
+    ep = ctx.get("_sistema_ep")
+    if ep is None:
+        ep = ctx["_sistema_ep"] = Episodio(ctx.get("vida"))
+    ctx["_sistema_cala"] = cala = set()
+    jogo, era = bool(snap.gaming), bool(ctx.get("_sistema_em_jogo"))
+    ctx["_sistema_em_jogo"] = jogo
+    if jogo and not era:
+        ep.game_on(agora)
+    elif era and not jogo:
+        relatorio = ep.game_off(agora, pedro_mal=bool(ctx.get("pedro_mal")))
+        if relatorio != "vitoria":  # sem episódio, o game_off antigo já é a vitória do cockpit
+            cala.add("game_off")
+            out.append(Disparo(relatorio, "relatório pós-batalha"))
+    quente = _quente(snap, bool(ctx.get("_sistema_quente")))
+    ep.atualizar({"quente": quente, "fps_baixo": _fps_baixo(snap)}, agora)
+    return ep
+
+
+def _emitir(ep: Episodio, agora: float, out: list[Disparo], d: Disparo) -> None:
+    chave = d.chave if d.variante is None else f"{d.chave}:{d.variante}"
+    if ep.pode_emitir(chave, agora):
+        out.append(d)
+
+
+def _legado(ep: Episodio, ctx: dict, agora: float, chave: str) -> None:
+    """34/36 saem pelo fire antigo: só a 1ª do 1º episódio da partida; o resto o Reactor cala."""
+    if not ep.pode_emitir(chave, agora):
+        ctx["_sistema_cala"].add(chave)
+
+
+def _avisei(ctx: dict, agora: float, out: list[Disparo], motivo: str, ep: Episodio) -> None:
     """84 · Eu avisei: hot/fps_drop ≤ 10 min depois de ela ter reagido ao 34 (1× por 34)."""
     em = ctx.get("_sistema_hot_em")
     if em is not None and not ctx.get("_sistema_avisei") and agora - em <= AVISEI_S:
         ctx["_sistema_avisei"] = True
-        out.append(Disparo("eu_avisei", motivo))
+        _emitir(ep, agora, out, Disparo("eu_avisei", motivo))
 
 
-def _temperatura(snap: Any, ctx: dict, agora: float, out: list[Disparo]) -> None:
+def _temperatura(snap: Any, ctx: dict, agora: float, out: list[Disparo], ep: Episodio) -> None:
     era = bool(ctx.get("_sistema_quente"))
     quente = _quente(snap, era)
     ctx["_sistema_quente"] = quente
     if quente and not era:  # 34 saiu pelo fire antigo
-        _avisei(ctx, agora, out, "esquentou de novo")
+        _avisei(ctx, agora, out, "esquentou de novo", ep)
+        _legado(ep, ctx, agora, "hot")
         ctx["_sistema_hot_em"], ctx["_sistema_avisei"] = agora, False
     elif era and not quente and agora - ctx.get("_sistema_hot_em", agora) >= ALIVIO_S:  # 35
-        out.append(Disparo("hot", "abaixo de 78 °C", variante="alivio"))
+        _emitir(ep, agora, out, Disparo("hot", "abaixo de 78 °C", variante="alivio"))
 
 
-def _fps(anterior: Any, snap: Any, ctx: dict, agora: float, out: list[Disparo]) -> None:
+def _fps(anterior: Any, snap: Any, ctx: dict, agora: float, out: list[Disparo], ep: Episodio) -> None:
     jogo = bool(snap.gaming)
     if jogo and ctx.get("_sistema_jogo_desde") is None:  # sessão de jogo nova
         ctx["_sistema_jogo_desde"] = agora
@@ -94,23 +140,24 @@ def _fps(anterior: Any, snap: Any, ctx: dict, agora: float, out: list[Disparo]) 
         ctx["_sistema_jogo_desde"] = None
 
     fps, media = snap.fps, snap.fps_avg
-    if fps is not None and media and fps < FPS_DROP * media:
+    if _fps_baixo(snap):
         ctx["_sistema_fps_baixo"] = ctx.get("_sistema_fps_baixo", 0) + 1
         ctx["_sistema_fps_bom"] = 0
         if ctx["_sistema_fps_baixo"] == 2:  # 36 saiu pelo fire antigo
             ctx["_sistema_caiu_fps"] = True
             ctx["_sistema_tropeco"] = True
             ctx["_sistema_quedas"] = ctx.get("_sistema_quedas", 0) + 1
-            _avisei(ctx, agora, out, "fps caiu depois do calor")
+            _avisei(ctx, agora, out, "fps caiu depois do calor", ep)
+            _legado(ep, ctx, agora, "fps_drop")
             if jogo and ctx["_sistema_quedas"] == VERGONHA_N:  # I4
-                out.append(Disparo("fps_drop", "3ª queda na sessão", variante="vergonha"))
+                _emitir(ep, agora, out, Disparo("fps_drop", "3ª queda na sessão", variante="vergonha"))
     else:
         ctx["_sistema_fps_baixo"] = 0
         if ctx.get("_sistema_caiu_fps") and fps is not None and media and fps >= FPS_OK * media:
             ctx["_sistema_fps_bom"] = ctx.get("_sistema_fps_bom", 0) + 1
             if ctx["_sistema_fps_bom"] >= 2:  # 37 · FPS recuperou
                 ctx["_sistema_caiu_fps"], ctx["_sistema_fps_bom"] = False, 0
-                out.append(Disparo("fps_drop", "fps voltou", variante="recuperou"))
+                _emitir(ep, agora, out, Disparo("fps_drop", "fps voltou", variante="recuperou"))
         else:
             ctx["_sistema_fps_bom"] = 0
 

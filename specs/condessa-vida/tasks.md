@@ -87,7 +87,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   - Pronto: CA-V2 (contadores) e um teste por linha da tabela do acordo §1; 24 h simuladas sem violação.
   - Paralelo: V0.2, V0.3, V0.6
 
-- [ ] **V0.6 Episódio de jogo** — `episodio.py` (spec §7) e o `det_sistema` passa a usá-lo (sem
+- [x] **V0.6 Episódio de jogo** — `episodio.py` (spec §7) e o `det_sistema` passa a usá-lo (sem
   `hot`/`fps_drop` repetidos).
   - Lê: spec §7, acordo §5 (episódio e relatório), `hud/wired/reacoes/det_sistema.py`, `vida.py`
   - Escreve: `hud/wired/reacoes/episodio.py`, `hud/wired/reacoes/det_sistema.py`, `tests/hud/test_vida_episodio.py`
@@ -172,3 +172,13 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   `passiva_min_s` (90 s) e `cenas_hora` do `ctx["vida"]`.
 - **V0.5:** `test_vida_contratos::test_esqueleto_assinaturas` falhava porque a V0.2 estava no
   `estado.py`; não é da V0.5.
+- **V0.6:** `hot`/`fps_drop` (34/36) e `game_off` (45) ainda saem pelo `Reactor._legado` em
+  `reactions.py` (fora do *Escreve*): o `det_sistema` só decide e publica em `ctx["_sistema_cala"]`
+  as chaves antigas a calar neste tick e em `ctx["_sistema_ep_estado"]` o estado (suor + `stress`);
+  falta o `Reactor` consultar isso (V0.8/V0.11). Cobranças = cena do 1º episódio + `eu_avisei` +
+  `fps_drop:vergonha`; recuperação = `hot:alivio`/`fps_drop:recuperou`; a "partida" fora de jogo é o
+  tempo desde o último `game_off`. Relatório: com episódio sai `eu_avisei` (ou `desconfiada` se
+  `ctx["pedro_mal"]`) e cala o `game_off`; sem episódio o `game_off` antigo é a vitória (o
+  `P12 B4 C5 1500` do acordo ainda não está no catálogo). `game_off` aceita `pedro_mal=` (parâmetro
+  novo). Atualizados `test_reacoes_sistema` (1 recuperação/partida) e a linha do episódio em
+  `test_vida_contratos::test_esqueleto_assinaturas`.

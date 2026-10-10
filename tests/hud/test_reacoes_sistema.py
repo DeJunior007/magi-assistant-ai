@@ -85,7 +85,7 @@ def test_I4_vergonha_na_terceira_queda_da_sessao():
     for k in range(3):
         out += _fps_queda(s, 10 * k + 1) + _fps_bom(s, 10 * k + 3)
     assert out.count(("fps_drop", "vergonha")) == 1
-    assert out.count(("fps_drop", "recuperou")) == 3
+    assert out.count(("fps_drop", "recuperou")) == 1  # acordo §5: 1 recuperação por partida
     s.tick(100, gaming=False)  # sessão nova zera a contagem
     out = []
     for k in range(2):

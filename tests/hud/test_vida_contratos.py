@@ -78,5 +78,4 @@ def test_esqueleto_assinaturas():
     assert d.cfg == {}
     with pytest.raises(NotImplementedError):
         d.proxima(0.0)
-    with pytest.raises(NotImplementedError):
-        episodio.Episodio().game_on(0.0)
+    episodio.Episodio().game_on(0.0)  # V0.6 implementou
