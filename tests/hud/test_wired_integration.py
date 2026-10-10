@@ -244,7 +244,8 @@ def test_cliques_wired(make_hud, monkeypatch):
     assert w.clickable(dev(ms.LED_BTN)) == "led"
     for target in ("led", "prev", "playpause", "next", "face"):
         w.wired_click(target)
-    assert calls == ["led", "push_to_talk"] and w.np.calls == ["Previous", "PlayPause", "Next"]
+    # rosto não liga a escuta (Pedro, 2026-10-10)
+    assert calls == ["led"] and w.np.calls == ["Previous", "PlayPause", "Next"]
     assert w.clickable(dev(ms.BTNS["next"])) == "next"
     monkeypatch.setattr(w.procs, "poll", lambda kind: [("game", 42.0, "x")])
     assert w.clickable(dev(ms.UNITS[2])) == "card:ram"

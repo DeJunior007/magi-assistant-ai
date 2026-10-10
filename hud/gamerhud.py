@@ -1944,7 +1944,7 @@ class HUD(QWidget):
             self.wired_click(target)
             return
         if target == "face":
-            self.bridge.send_cmd("push_to_talk")   # falso se o núcleo não estiver no ar
+            pass   # clique no rosto não liga a escuta (Pedro, 2026-10-10): fala é por wake word/atalho
         elif target == "sync":
             self.toggle_rgb_sync()
         elif target == "close":
@@ -1970,7 +1970,7 @@ class HUD(QWidget):
         super().leaveEvent(e)
 
     # ---------- retrato (R2.A, spec §6 A; D1 = a) ----------
-    FACE_DBL_MS = 250     # PTT espera o 2º clique; 2º clique antes disso = duplo (69)
+    FACE_DBL_MS = 250     # espera o 2º clique; 2º clique antes disso = duplo (69), senão simples
     FACE_LONG_S = 0.8     # segurou ≥ isso = 70
     FACE_DRAG = 40        # px (base 1920) de arrasto na metade de cima = 67
 
@@ -2021,7 +2021,7 @@ class HUD(QWidget):
         self.face_ptt_timer.start(self.FACE_DBL_MS)
 
     def face_ptt(self):
-        """Ninguém clicou de novo em ``FACE_DBL_MS``: clique simples = push-to-talk."""
+        """Ninguém clicou de novo em ``FACE_DBL_MS``: clique simples = cutucada (só reação)."""
         if self.wired:
             self.wired_click("face")
 
@@ -2034,8 +2034,6 @@ class HUD(QWidget):
         self.face_tick()
         if target == "learning":
             self.bridge.send_lm("lm_mode", {"on": self.view != "learning"})
-        elif target == "face":
-            self.bridge.send_cmd("push_to_talk")
         elif target == "lm_summary":   # clique no cartão LAST SESSION fecha (LM4.6)
             self.wired.summary_close()
             self.wired_refresh()

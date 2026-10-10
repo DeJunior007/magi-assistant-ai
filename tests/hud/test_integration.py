@@ -91,7 +91,7 @@ def test_redesenho_so_na_regiao_do_rosto(hud, view, monkeypatch):
         assert QRegion(args[0]).subtracted(face).isEmpty()
 
 
-def test_clique_no_rosto_pede_push_to_talk(hud, monkeypatch):
+def test_clique_no_rosto_nao_liga_a_escuta(hud, monkeypatch):
     sent = []
     monkeypatch.setattr(hud.bridge, "send_cmd", lambda name, args=None: sent.append(name))
     for view in ("idle", "full"):
@@ -106,4 +106,4 @@ def test_clique_no_rosto_pede_push_to_talk(hud, monkeypatch):
             return hud.r_face().center()
 
     hud.mousePressEvent(Click())
-    assert sent == ["push_to_talk"]
+    assert sent == []  # Pedro (2026-10-10): rosto só reage; escuta por wake word ou atalho

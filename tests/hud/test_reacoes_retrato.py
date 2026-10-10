@@ -85,12 +85,13 @@ def test_tracking_e_alvo(hud):
     assert hud.clickable(_rosto(hud)) == "face"
 
 
-def test_clique_simples_ainda_e_push_to_talk(hud):
+def test_clique_simples_so_reage_sem_escuta(hud):
+    """Pedro (2026-10-10): clicar no rosto só faz reação; a escuta é por wake word ou atalho."""
     QTest.mouseClick(hud, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, _rosto(hud))
     assert hud.sent == [] and hud.face_ptt_timer.isActive()  # espera o 2º clique (D1 = a)
     assert hud.face_ptt_timer.interval() == 250
     hud.face_ptt_timer.timeout.emit()  # passaram 250 ms sem 2º clique
-    assert hud.sent == ["push_to_talk"]
+    assert "push_to_talk" not in hud.sent
     assert [a for _, a in hud.wired.reactor.ctx["cliques"]] == ["face"]
     assert _gestos(hud) == []
 
