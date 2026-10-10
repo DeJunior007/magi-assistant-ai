@@ -342,6 +342,7 @@ class WiredUI:
         self.snap.konsole_rev = self.konsole_rev
         self.snap.news = list(self.news)
         self.snap.claude = self.claude.view if self.claude is not None else None
+        self.snap.lm_on = bool(getattr(self.learning.info, "mode_on", False))
         self._react(time.monotonic())
         return self.snap
 

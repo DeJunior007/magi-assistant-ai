@@ -18,23 +18,9 @@ from __future__ import annotations
 
 from .vida import VIDA_PADRAO, Filtro, Momento
 
-# Limiares da tabela do acordo §3. Lidos de ``[vida.momentos]`` quando existir; estes são os padrões.
-LIMIARES_PADRAO: dict = {
-    "conversa_turno_s": 120,
-    "pedro_sumiu_s": 600,
-    "tedio_sem_musica_s": 900,
-    "madrugada": [22, 4],  # [início, fim) em horas locais
-    "pedro_mal_max": 1,
-    "p10_apos_s": 120,
-    "cochilo_apos_s": 1800,
-    "cochilo_energia": 0.3,
-    "bocejo_energia": 0.4,
-    "sorriso_animo": 0.3,
-    "rindo_animo": 0.5,
-    "escada_encarando_s": 900,
-    "escada_ei_s": 1800,
-    "escada_ei_intervalo_s": 1800,
-}
+# Limiares da tabela do acordo §3: ``[vida.momentos]`` (o ``ctx["vida"]`` é o ``Taste.vida()``, gosto
+# + Pedro por cima de ``VIDA_PADRAO``); estes são os padrões.
+LIMIARES_PADRAO: dict = VIDA_PADRAO["momentos"]
 
 IMEDIATOS = frozenset({Momento.CONVERSA, Momento.ALERTA, Momento.JOGANDO})
 

@@ -149,6 +149,7 @@ class Snapshot:
     causas: tuple = ()  # até 3, a mais nova por último: (texto, Δ ânimo, há quantos s)
     news: list[tuple[str, str]] = field(default_factory=list)  # Rádio Ayanami: (HH:MM, manchete), novas 1º
     claude: Any = None  # data.ClaudeView: consumo e sessões do Claude Code; None = sem dado
+    lm_on: bool = False  # Learning Mode ligado (``LearningModel.mode_on``; momento Estudando/No flow)
     self_usage: Any = None  # data.SelfView: cpu/ram/gpu/vram dos processos da Condessa; None = sem dado
     # extras da nova UI (data.SysExtra, data.net_info, data.GitStatus); None = sem dado
     cpu_mhz: float | None = None

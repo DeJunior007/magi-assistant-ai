@@ -90,6 +90,19 @@ def _lista(ctx: dict, nome: str) -> list[str]:
     return list(_secao(ctx, "listas").get(nome) or _LISTAS[nome])
 
 
+def dancante(ctx: dict) -> bool:
+    """A faixa do veredito (``ctx["veredito"]``) tem gênero da lista ``danca`` (qualquer nota)."""
+    generos = {_compacto(g) for g in getattr(ctx.get("veredito"), "genres", ()) or ()}
+    return bool(generos & {_compacto(g) for g in _lista(ctx, "danca")})
+
+
+def faixa_agua(ctx: dict) -> str | None:
+    """Título da faixa atual (``ctx["faixa"]`` = ``(título, artista)``) se é tema de água; senão None."""
+    faixa = ctx.get("faixa")
+    title = faixa[0] if faixa else ""
+    return title if title and _palavras(title, _secao(ctx, "titulo").get("agua") or _AGUA) else None
+
+
 def _dia(ctx: dict) -> str:
     return time.strftime("%Y%m%d", time.localtime(float(ctx.get("relogio") or time.time())))
 
@@ -236,8 +249,6 @@ def _comecou(ctx: dict, chave: tuple[str, str]) -> list[Disparo]:
     nota = int(ctx.get("musica_nota", 0))
     art = _artista(ctx, artist)
     nomes = {art, *_artistas(artist)}
-    v = ctx.get("veredito")
-    generos = {_compacto(g) for g in getattr(v, "genres", ()) or ()}
     hora = int(ctx.get("hora", 12))
     fmt = {"artist": artist}
     out: list[Disparo] = []
@@ -267,7 +278,7 @@ def _comecou(ctx: dict, chave: tuple[str, str]) -> list[Disparo]:
         out.append(Disparo("musica_triste", "chopin_madrugada", "chopin", fmt))
     elif triste:
         out.append(Disparo("musica_triste", "melancolica", fmt=fmt))
-    if nota >= 1 and generos & {_compacto(g) for g in _lista(ctx, "danca")}:
+    if nota >= 1 and dancante(ctx):
         out.append(Disparo("musica_dancante", "danca", fmt=fmt))
     if _palavras(title, TITULO_DESCONFIADA):
         out.append(Disparo("desconfiada", "titulo_alterado", fmt=fmt))
@@ -281,7 +292,7 @@ def _comecou(ctx: dict, chave: tuple[str, str]) -> list[Disparo]:
         out.append(Disparo("duelo_ado", "ado", fmt=fmt))
     if DIVA in nomes:
         out.append(Disparo("diva_diva", "lady_gaga", fmt=fmt))
-    if _palavras(title, _secao(ctx, "titulo").get("agua") or _AGUA):
+    if _palavras(title, _secao(ctx, "titulo").get("agua") or _AGUA):  # = faixa_agua(ctx)
         out.append(Disparo("tema_agua", "titulo_agua", fmt=fmt))
     return out
 

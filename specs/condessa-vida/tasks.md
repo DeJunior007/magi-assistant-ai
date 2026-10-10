@@ -126,6 +126,17 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   - Pronto: CA-V9; `tests/hud` inteiro verde; teste de ponta a ponta com `Reactor` real e `Snapshot` sintético (música amada → 1 cena + sorriso de repouso pela faixa + medidor subindo).
   - Paralelo: —
 
+- [x] **V0.8b Sobras da ligação** — `det_claude` emite `claude_terminou` (`dur_s`) e
+  `claude_esperando` (sai a regex do `motivo`); `ctx` ganha `lm_on`, `faixa_agua`, `dancante`,
+  contadores de franja/cantando e a escada do Tédio (com a causa `ignorada`); tabela `[vida.momentos]`
+  no gosto e no `VIDA_PADRAO`, lida pelo `momento`; sai `registro.gravar_antiga`.
+  - Lê: *Sobras* (V0.3, V0.8), `hud/wired/reactions.py` (por trecho), assinaturas de `momento`, `det_claude`, `det_musica`, `passivas`, `registro`
+  - Escreve: `hud/wired/reactions.py`, `hud/wired/integration.py`, `hud/wired/main_screen.py` (campo `lm_on`), `hud/wired/reacoes/det_claude.py`, `hud/wired/reacoes/det_musica.py`, `hud/wired/reacoes/momento.py`, `hud/wired/reacoes/vida.py`, `hud/wired/reacoes/registro.py`, `persona/condessa-gosto.toml`, `tests/hud/test_reacoes_claude.py`, `tests/hud/test_vida_sobras.py`
+  - Depende de: V0.8
+  - Orçamento: ~50k
+  - Pronto: `tests/hud` verde; um teste por sinal ligado; escada do Tédio de ponta a ponta no `Reactor`; `ruff` limpo.
+  - Paralelo: —
+
 - [ ] **V0.9 Validação** — CA-V6 (simulação de 12 h a partir do `reacoes.jsonl` real reconvertido em
   acontecimentos), religar no gosto do Pedro o que foi desligado à mão (`[reacoes] desligadas`),
   roteiro da semana em `docs/perf/reacoes.md` atualizado. **A semana de uso é do Pedro.**
@@ -238,3 +249,15 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   ainda não ligados: `claude_esperando`, `lm_on`, `faixa_agua`, `dancante`, contadores de
   franja/cantando e a escada do Tédio (V0.3), e a tabela `[vida.momentos]` no gosto.
   `registro.gravar_antiga` ficou sem uso. CA-V9: tick médio ≈ 0,2 ms (1000 ticks, tudo ligado).
+- **V0.8b:** `det_claude` emite `claude_terminou` (`fmt["dur_s"]`; a regex saiu do `_adaptar`) e põe
+  `ctx["claude_esperando"]` a cada tick: vale do `notify` do hook até o próximo evento (`stop`/`fail`)
+  ou `ESPERA_MAX_S` (30 min, leitura minha; o hook não avisa quando o Pedro responde, então a espera de
+  permissão só fecha no `stop`). `lm_on` = `LearningModel.mode_on`, posto pela `integration` num
+  campo novo `Snapshot.lm_on`. `dancante`/`faixa_agua` = `det_musica.dancante/faixa_agua` (gênero da
+  lista `danca` em qualquer nota; título de água). Contadores e escada no `Reactor._contadores/_marcar`
+  (só passivas que saíram contam; franja na espera zera com o momento, franja/cantando na faixa com a
+  faixa). "Ignorada" = sem clique nela nem turno do Pedro em `escada_ei_resposta_s` (10 s, chave nova
+  no `[vida.momentos]`, leitura minha); a causa `ignorada` (e `claude_esperando`) entra em
+  `diretor.causas` enquanto vale; o beicinho limpa o ignorado. `momento.LIMIARES_PADRAO` agora é
+  `VIDA_PADRAO["momentos"]`. Os limiares da escada contam `momento_ha_s` (tempo **no** Tédio, que só
+  começa com 15 min sem música): encarando sai ~30 min sem música, não aos 15 — conferir na V0.9.

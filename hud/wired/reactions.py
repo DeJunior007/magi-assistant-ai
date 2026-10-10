@@ -26,7 +26,7 @@ import unicodedata
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .reacoes import DETECTORES, governador, humor, passivas, registro, repouso
+from .reacoes import DETECTORES, det_musica, governador, humor, passivas, registro, repouso
 from .reacoes import diretor as _diretor
 from .reacoes import estado as _estado
 from .reacoes import momento as _momento
@@ -410,6 +410,8 @@ class Reactor:
         self.repouso = None  # vida.Repouso do tick (o retrato recebe por set_rest)
         self._eventos: list[tuple[str, str]] = []  # (tipo, fonte) de humor da música deste tick
         self._boot_visto = str(self.vida_estado.governador.get("boot") or "")
+        # contadores por momento/faixa e a escada do Tédio (V0.8b): o que já saiu e o "ei" pendente
+        self._marcas: dict = {"momento_desde": None, "faixa": None, "ei_em": None}
 
     # ------------------------------------------------------------ saída
 
@@ -645,6 +647,7 @@ class Reactor:
             now, parado_s=parado, ultimo_turno_pedro=turno[1] if turno else None,
             ultima_musica=self._ultima_musica, magui_ativa=getattr(snap, "magui_state", PARADA) != PARADA,
             musica_nota=v.note if v is not None else None,
+            lm_on=bool(getattr(snap, "lm_on", False)),  # Learning Mode (a integration põe no snap)
             claude_rodando=bool(getattr(snap.claude, "running", 0)),
             alerta="quente" if self._hot and not snap.gaming else None)
         sin.pop("musica_nota")  # o ctx segue com 0 sem música (os detectores); humor.sinais converte
@@ -673,6 +676,8 @@ class Reactor:
             ultima_expressao_em=ctx.get("ultima_expressao_em"),
         )
         ctx["parada"] = ctx["magui"] == PARADA and self.active(now) is None
+        ctx["dancante"] = v is not None and det_musica.dancante(ctx)
+        ctx["faixa_agua"] = det_musica.faixa_agua(ctx) if self._track is not None else None
         return ctx
 
     # ------------------------------------------------------------ vida
@@ -711,6 +716,7 @@ class Reactor:
             self.momento, self._momento_desde = m, rel
         ctx.update(momento=m, momento_ha_s=rel - self._momento_desde, faixa_humor=faixa,
                    animo=self.humor.animo, energia=self.humor.energia)
+        self._contadores(ctx, rel, now)
         fs = humor.filtros(ctx)
         ctx["filtros"] = fs
         # 3 · diretor: uma cena (ou uma atenção)
@@ -764,11 +770,7 @@ class Reactor:
 
     @staticmethod
     def _adaptar(d: Disparo) -> Disparo:
-        """Disparos de antes que já têm roteiro de cena (V0.10): Claude terminou e a volta do Pedro."""
-        if d.chave == "claude" and d.variante == "terminou":
-            m = re.search(r"(\d+(?:\.\d+)?) s", d.motivo)
-            return Disparo("claude_terminou", d.motivo, None,
-                           {**d.fmt, "dur_s": float(m.group(1)) if m else 0.0, "causa": "claude_terminou"})
+        """Disparos de antes que já têm roteiro de cena (V0.10): a volta do Pedro."""
         if d.chave in ("sobressalto", "sentiu_falta"):
             return Disparo("pedro_voltou", d.motivo, None,
                            {"cochilou": d.chave == "sobressalto", "causa": "pedro_voltou"})
@@ -843,7 +845,49 @@ class Reactor:
         self.tocar(d, extra, now, governador.aplicar_bloqueios(d, {**ctx, "agora": rel}))
         governador._aprovar(d, extra, rel, hour, self.estado)  # noqa: SLF001
         ctx["ultima_expressao_em"] = rel
+        self._marcar(d.chave, ctx, rel, now)
         self._log("gesto", d.chave, extra.motivo, now, d, extra)
+
+    def _contadores(self, ctx: dict, rel: float, now: float) -> None:
+        """Franja/cantando (≤ 1 por espera/faixa) e a escada do Tédio no ``ctx`` (acordo §3); as
+        causas vivas de negativa (``claude_esperando``, ``ignorada``) vão para o diretor."""
+        mk = self._marcas
+        if mk["momento_desde"] != self._momento_desde:  # momento novo: zera o que é por momento
+            mk.update(momento_desde=self._momento_desde, franja_espera=False, encarando=False,
+                      ei_pendente=None, ei_ignorado=False)
+        if mk["faixa"] != self._track or "cantando" not in mk:
+            mk.update(faixa=self._track, franja_faixa=False, cantando=False)
+        pend = mk["ei_pendente"]
+        if pend is not None:  # "ei, tô aqui" esperando resposta: clique nela ou turno do Pedro
+            turno = ctx.get("turno_pedro_ha_s")
+            if any(c[0] >= pend for c in self._cliques) or (turno is not None and now - turno >= pend):
+                mk["ei_pendente"] = None
+            elif now - pend >= float(_momento.limiar(ctx, "escada_ei_resposta_s")):
+                mk.update(ei_pendente=None, ei_ignorado=True)
+        ei = mk["ei_em"]
+        ctx.update(franja_na_espera=mk["franja_espera"], franja_na_faixa=mk["franja_faixa"],
+                   cantando_na_faixa=mk["cantando"], encarando_feito=mk["encarando"],
+                   ei_to_aqui_ha_s=None if ei is None else max(0.0, rel - ei),
+                   ei_ignorado=mk["ei_ignorado"])
+        if ctx["ei_ignorado"]:
+            self.diretor.causas["ignorada"] = rel
+        if ctx.get("claude_esperando"):
+            self.diretor.causas["claude_esperando"] = rel
+
+    def _marcar(self, chave: str, ctx: dict, rel: float, now: float) -> None:
+        """Passiva que saiu: conta para os limites por espera/faixa e anda a escada do Tédio."""
+        mk = self._marcas
+        if chave == "soprando_franja":
+            mk["franja_espera"] = mk["franja_espera"] or ctx.get("momento") == Momento.ESPERANDO
+            mk["franja_faixa"] = mk["franja_faixa"] or self._track is not None
+        elif chave == "cantando_junto":
+            mk["cantando"] = True
+        elif chave == "encarando":
+            mk["encarando"] = True
+        elif chave == "ei_to_aqui":
+            mk.update(ei_em=rel, ei_pendente=now)
+        elif chave == "beicinho":
+            mk["ei_ignorado"] = False
 
     def _card_piso(self, ctx: dict) -> str:
         """Para onde ela olha no piso de vida: o que combina com o momento."""

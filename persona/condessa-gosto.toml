@@ -211,6 +211,23 @@ pedro_sumiu = 10
 tedio = 5
 a_toa = 5
 
+[vida.momentos]                   # acordo §3: limiares da tabela dos momentos, filtros e escada do Tédio
+conversa_turno_s = 120            # turno do Pedro há menos que isso = Conversa
+pedro_sumiu_s = 600               # 10 min sem mexer = Pedro sumiu
+tedio_sem_musica_s = 900          # 15 min sem música (nada rodando) = Tédio
+madrugada = [22, 4]               # filtro madrugada [início, fim) em horas locais
+pedro_mal_max = 1                 # humor do Pedro 0–1 do núcleo = Pedro mal
+p10_apos_s = 120                  # mão no queixo (P10) só depois de 2 min no momento
+cochilo_apos_s = 1800             # cochilo: Pedro sumido há 30 min…
+cochilo_energia = 0.3             # …e energia abaixo disso
+bocejo_energia = 0.4
+sorriso_animo = 0.3               # sorriso de canto à toa só com ânimo acima disso
+rindo_animo = 0.5
+escada_encarando_s = 900          # escada do Tédio: encarando aos 15 min (1×)…
+escada_ei_s = 1800                # …"ei, tô aqui" aos 30 min…
+escada_ei_intervalo_s = 1800      # …no máximo 1 a cada meia hora…
+escada_ei_resposta_s = 10         # …e beicinho só se o Pedro não clicar/falar nesse tempo (ignorada)
+
 [vida.humor]
 base_animo = 0.15
 meia_vida_acima_min = 25

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from hud.wired import data
 from hud.wired.main_screen import Snapshot, Track
-from hud.wired.reacoes import catalogo, det_claude
+from hud.wired.reacoes import catalogo, det_claude, diretor
 
 
 def claude(n: int) -> SimpleNamespace:
@@ -27,7 +27,7 @@ class Sim:
         self.ant = snap
         for d in out:
             k = (d.chave, d.variante) if d.variante else d.chave
-            assert k in catalogo.ATIVAS, k
+            assert k in catalogo.ATIVAS or d.chave in diretor.ROTEIROS, k
         return [(d.chave, d.variante) for d in out]
 
     def rodar(self, t0: float, t1: float, passo: float = 10.0, **campos) -> list:
@@ -47,7 +47,9 @@ def test_52_claude_base_nao_sai_daqui():
 def test_53_terminou_depois_de_2_min():
     s = Sim()
     s.rodar(0.0, 130.0, claude=claude(1))
-    assert s.tick(131.0) == [("claude", "terminou")]
+    out = det_claude.detectar(s.ant, Snapshot(**s.base), s.ctx | {"agora": 131.0})
+    assert [(d.chave, d.variante) for d in out] == [("claude_terminou", None)]
+    assert out[0].fmt["dur_s"] == 131.0  # V0.8b: a duração vai no fmt (sem regex no motivo)
 
 
 def test_53_rodada_curta_nao_conta():
