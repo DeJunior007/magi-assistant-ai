@@ -95,7 +95,9 @@ def _episodio(snap: Any, ctx: dict, agora: float, out: list[Disparo]) -> Episodi
             cala.add("game_off")
             out.append(Disparo(relatorio, "relatório pós-batalha"))
     quente = _quente(snap, bool(ctx.get("_sistema_quente")))
-    ep.atualizar({"quente": quente, "fps_baixo": _fps_baixo(snap)}, agora)
+    # FPS só conta com 2 leituras seguidas (como o 36): um loading/menu não abre nem segura o episódio
+    fps_baixo = _fps_baixo(snap) and ctx.get("_sistema_fps_baixo", 0) >= 1
+    ep.atualizar({"quente": quente, "fps_baixo": fps_baixo}, agora)
     return ep
 
 

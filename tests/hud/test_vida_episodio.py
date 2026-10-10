@@ -121,3 +121,20 @@ def test_partida_limpa_deixa_o_game_off_antigo_como_vitoria():
     ctx["agora"] = 700.0
     out = det_sistema.detectar(None, Snapshot(**base), ctx)
     assert out == [] and "game_off" not in ctx["_sistema_cala"]
+
+
+
+def test_uma_leitura_baixa_de_fps_nao_abre_episodio():
+    """Um loading/menu (1 leitura abaixo de 60% da média) não deixa o suor no rosto."""
+    from hud.wired.main_screen import Snapshot
+    from hud.wired.reacoes import det_sistema
+
+    ctx = {"agora": 0.0, "_sistema_acordou": True}
+    for t, fps in ((0.0, 100.0), (1.0, 30.0), (2.0, 100.0)):
+        ctx["agora"] = t
+        det_sistema.detectar(None, Snapshot(gaming=True, fps=fps, fps_avg=100.0), ctx)
+    assert not ctx["_sistema_ep"].aberto
+    for t in (3.0, 4.0):
+        ctx["agora"] = t
+        det_sistema.detectar(None, Snapshot(gaming=True, fps=30.0, fps_avg=100.0), ctx)
+    assert ctx["_sistema_ep"].aberto
