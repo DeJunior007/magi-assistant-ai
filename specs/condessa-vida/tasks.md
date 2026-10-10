@@ -32,6 +32,10 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
       ├─ V0.5 (governador v2) ─┬─ V0.7 (passivas) ──────────────┤
       ├─ V0.6 (episódio de jogo)                                │
       └──────────────── V0.5 + V0.2 ── V0.10 (diretor) ─────────┘
+V0.9 ── V1.1 ─┬─ V1.2 (cenas + torcida) ─┬─ V1.3 (truque + volta) ─┐
+              │                          └─ V1.6 (piso torcida) ───┤
+              ├─ V1.4 (placar) ────────────────────────────────────┼─ V1.7 (Reactor) ─┬─ V1.8 (medidor) ─┬─ V1.10 (validação)
+              └─ V1.5 (sem sentido) ───────────────────────────────┘                  └─ V1.9 (voz) ─────┘
 ```
 
 ---
@@ -155,6 +159,129 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   - Depende de: V0.9
   - Orçamento: ~40k
   - Pronto: as 3 no catálogo e nos grupos; sorteio nunca sai do grupo; asset ausente → extra pulado; `tests/hud` verde; `ruff` limpo.
+  - Paralelo: —
+
+### Placar e jogo (acordo `persona/conselho/atas/2026-10-10-placar-e-jogo/acordo.md`, aqui `acordo-pj §`)
+Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`, `[vida.placar]` e
+`[vida.sem_sentido]` (e no `VIDA_PADRAO`); `truque_aplauso_s` já é 15. Ler sempre do `[vida]`.
+
+- [ ] **V1.2 Cenas novas e a passiva `torcida` no catálogo** — `torcida` (2 variantes "tela do jogo"
+  e "punho", `D2` em todos os passos com episódio aberto, positiva, Δ +0,03) e no grupo Jogando com o
+  peso do `cabeca_ritmo`; roteiros: episódio (3 passos, `O1` de frente no fim, sai `B7 C8`),
+  recuperou (`C5` no fim), truque "fone" (com o caminho inverso sem fone) e "piscadinha", aplaudido
+  (`B4 C6 rubor`), ignorado (`F1 C12`, sem `C9`), volta orgulhosa (com o passo ≥ 2 h e as 2 versões de
+  habituação). Conferir **num teste** que `O1` funciona num passo de cena (nota da Kurisu no voto); se
+  não funcionar, o mínimo no `contratos.py`.
+  - Lê: acordo-pj §1–§2 e "O que muda no sistema" 1 e 3, `hud/wired/reacoes/catalogo.py` por trecho (`_passos`, `CENAS`, linhas 220–248), `momento.py` (`GRUPOS`), `contratos.py`, `tests/hud/test_reacoes_catalogo.py`
+  - Escreve: `hud/wired/reacoes/catalogo.py`, `hud/wired/reacoes/momento.py` (só `GRUPOS`), `hud/wired/reacoes/contratos.py` (só se o `O1` falhar), `tests/hud/test_reacoes_catalogo.py`, `tests/hud/test_vida_cenas.py` (novo)
+  - Depende de: V1.1
+  - Orçamento: ~50k
+  - Pronto: roteiros e durações do acordo (2,1 s / 2,0 s / 3,0 s / 3,5 s / 3,0 s); `torcida` só sai em Jogando; `O1` num passo de cena testado; `tests/hud` verde; `ruff` limpo.
+  - Paralelo: V1.4, V1.5
+
+- [ ] **V1.3 Truque e volta orgulhosa no diretor** — truque: alternância diária fone ↔ piscadinha
+  (o de ontem no `Estado`), `mexe_no_fone = false` → só piscadinha, nunca com jogo aberto, janela de
+  15 s, ignorado −0,05 sem gastar cota de negativa, aplaudido +0,20; volta orgulhosa: Pedro volta de
+  ≥ `fora_min` fora com ela acordada, contador de voltas na última hora (2ª curta, 3ª só atenção
+  dirigida, sem cena), passo extra se fora ≥ `passo_extra_fora_min`. Expor no `Diretor` os ganchos
+  `truque_fim(lado)` (aplaudido/ignorado) para o placar ligar depois (V1.7).
+  - Lê: acordo-pj §2, spec §6 (cenas), `hud/wired/reacoes/diretor.py` (`truque`, `clique`, `_pendentes`), `estado.py` (só `Estado` salvar/carregar), `det_tempo.py` (volta do Pedro, por trecho), `tests/hud/test_vida_diretor.py`
+  - Escreve: `hud/wired/reacoes/diretor.py`, `hud/wired/reacoes/estado.py`, `hud/wired/reacoes/det_tempo.py`, `tests/hud/test_vida_diretor.py`
+  - Depende de: V1.2
+  - Orçamento: ~50k
+  - Pronto: testes de alternância (sem repetir o de ontem), bloqueio com jogo, janela 15 s, escada de habituação e passo ≥ 2 h; `tests/hud` verde; `ruff` limpo.
+  - Paralelo: V1.4, V1.5, V1.6
+
+- [ ] **V1.4 Placar (módulo)** — `hud/wired/reacoes/placar.py` puro (relógio injetado): fontes e
+  tetos de `[vida.placar]`, dia que fecha às `fecha_dia_h`, total do dia e da semana com
+  `exportar()/importar()` (o `Estado` guarda na V1.7), cada ponto devolvido como linha para o
+  `reacoes.jsonl` com `causa: placar:<fonte>` e `placar: {lado, fonte, ref}` (campo novo no
+  `registro.py`), detecção de virada (≤ `viradas_dia` → `piscadinha` / `soprando_franja` com causa
+  `placar:virada`), "ativo depois da 1h" (teto 1), `resumo()` para o hover (`Condessa X × Y Pedro ·
+  semana X × Y` + 3 últimos) e as linhas de texto (pós-batalha só se a partida mexeu no placar; "bom
+  dia" com o de ontem; ≤ 70 caracteres). Trabalho, voltas, cliques e "sem sentido" nunca contam.
+  - Lê: acordo-pj §3, `hud/wired/reacoes/registro.py`, `vida.py` (`[vida.placar]`)
+  - Escreve: `hud/wired/reacoes/placar.py` (novo), `hud/wired/reacoes/registro.py`, `tests/hud/test_vida_placar.py` (novo)
+  - Depende de: V1.1
+  - Orçamento: ~45k
+  - Pronto: testes de cada fonte e teto, fechamento às 4h, semana, virada ≤ 2/dia, `ref` em todo ponto, teto 0 desliga a fonte; `tests/hud` verde; `ruff` limpo.
+  - Paralelo: V1.2, V1.3, V1.5, V1.6
+
+- [ ] **V1.5 "Isso foi sem sentido" (módulo)** — `hud/wired/reacoes/sem_sentido.py`: `marcar(alvo,
+  gesto, agora)` grava em `~/.local/state/magi/sem-sentido.jsonl` a linha de origem inteira + hora +
+  gesto (`alvo: nenhum` quando não há expressão), desfazer em ≤ `desfazer_s` (linha `desfeito`),
+  `fatores(momento, agora)` (×`fator` por marca em `janela_dias`, piso `piso`, por variante e momento;
+  cenas e negativas não mudam de peso), `pauta()` (≥ `pauta_marcas` ou ≥ `pauta_fracao`), `ajustes()`
+  (N para o hover); a reação `B7 C12 ?` 700 sem ânimo, sem placar, fora do ritmo e das metas. No
+  `passivas.py`, o sorteio do grupo aceita os fatores (parâmetro opcional; sem ele, igual a hoje).
+  Nunca escreve no gosto.
+  - Lê: acordo-pj §4, `hud/wired/reacoes/passivas.py` (sorteio), `registro.py`, `tests/hud/conftest.py`
+  - Escreve: `hud/wired/reacoes/sem_sentido.py` (novo), `hud/wired/reacoes/passivas.py`, `tests/hud/conftest.py` (isolar o caminho novo), `tests/hud/test_vida_sem_sentido.py` (novo)
+  - Depende de: V1.1
+  - Orçamento: ~45k
+  - Pronto: testes de gravação, desfazer, fator/piso/janela, pauta, e de que nada mexe no ânimo nem no gosto; `tests/hud` verde; `ruff` limpo.
+  - Paralelo: V1.2, V1.3, V1.4, V1.6
+
+- [ ] **V1.6 Piso da `torcida`** — `hud/wired/reacoes/torcida.py` (novo): relógio "desde a última
+  positiva" (lista de positivas do teste da meta 6) com jogo aberto e Pedro presente; ≥
+  `forca_slot_min` o próximo slot de passiva em Jogando é `torcida`; ≥ `fura_slot_min` sai fora de
+  slot respeitando 25 s / 60 s pós-cena; máx. 1 a cada `intervalo_min`; ocupa a vaga no teto de 12/h
+  e nas ≤ 4/h de Jogando (no `governador.py`); causa `jogando_sem_positiva:<min>`; nunca a mesma
+  variante duas vezes seguidas.
+  - Lê: acordo-pj §1, `hud/wired/reacoes/governador.py` (passivas, teto, por trecho), `tests/hud/test_vida_simulacao.py` (lista de positivas, só o trecho), `tests/hud/test_reacoes_governador.py` (por trecho)
+  - Escreve: `hud/wired/reacoes/torcida.py` (novo), `hud/wired/reacoes/governador.py`, `tests/hud/test_vida_torcida.py` (novo)
+  - Depende de: V1.2
+  - Orçamento: ~45k
+  - Pronto: testes de 30/45 min, intervalo de 30 min, vaga ocupada (não soma), causa no log, variantes alternando; `tests/hud` verde; `ruff` limpo.
+  - Paralelo: V1.3, V1.4, V1.5
+
+- [ ] **V1.7 Ligação no Reactor** — o `Reactor` passa a: chamar o piso da `torcida` e os fatores do
+  sem sentido no sorteio de passivas; alimentar o placar pelos ganchos (fim de partida no
+  `episodio.py`, faixa até o fim / pulo e Ado/Favorita no `det_musica.py`, fim do truque no diretor,
+  "ativo depois da 1h"); guardar placar e ajustes no `Estado` (`condessa-estado.json`); soltar a
+  virada e as linhas de texto (pós-batalha na expressão que já sai; "bom dia" no `det_tempo.py`).
+  Expor `Reactor.placar_resumo()`, `Reactor.marcar_sem_sentido(alvo, gesto)` e `Reactor.ajustes()`
+  para a UI e a voz.
+  - Lê: acordo-pj "O que muda no sistema" 2, 6, 7, 9; APIs de `placar.py`, `sem_sentido.py`, `torcida.py`; `hud/wired/reactions.py` por trecho (`Reactor`), `episodio.py`, `det_musica.py` e `det_tempo.py` por trecho, `tests/hud/test_vida_integracao.py`
+  - Escreve: `hud/wired/reactions.py`, `hud/wired/reacoes/estado.py`, `hud/wired/reacoes/episodio.py`, `hud/wired/reacoes/det_musica.py`, `hud/wired/reacoes/det_tempo.py`, `hud/wired/reacoes/diretor.py` (só ligar `truque_fim` ao placar), `tests/hud/test_vida_integracao.py`
+  - Depende de: V1.3, V1.4, V1.5, V1.6
+  - Orçamento: ~60k
+  - Pronto: teste de ponta a ponta no `Reactor` (partida limpa → ponto com `ref`; truque ignorado → ponto dele; marca → fator no sorteio; piso dispara em Jogando); `tests/hud` verde; `ruff` limpo.
+  - Paralelo: —
+
+- [ ] **V1.8 Medidor: placar no hover, ✗ e atalho** — hover do medidor com `Condessa X × Y Pedro ·
+  semana X × Y` + 3 últimos pontos com a fonte, "ajustes: N", e um ✗ clicável ao lado de cada uma das
+  3 causas (chama `Reactor.marcar_sem_sentido`); atalho de teclado `[vida.sem_sentido] atalho` (ou o
+  padrão) para "a última expressão, agora". O clique no rosto continua só reagindo.
+  - Lê: acordo-pj §3 ("Onde aparece") e §4 (gestos), *Sobras* V0.4 (hover), `hud/wired/main_screen.py` por trecho (`mood_tip`, `hover_test`, `set_hover`), `hud/gamerhud.py` por trecho (mouse/teclado), `hud/wired/integration.py` (`Snapshot`), `tests/hud/test_vida_integracao.py` (só ler)
+  - Escreve: `hud/wired/main_screen.py`, `hud/gamerhud.py`, `hud/wired/integration.py`, `tests/hud/test_wired_integration.py`
+  - Depende de: V1.7
+  - Orçamento: ~55k
+  - Pronto: teste do texto do hover, do ✗ acertando a causa certa e do atalho; `tests/hud` verde; `ruff` limpo. Conferir na tela fica para o Pedro (*Sobras*).
+  - Paralelo: V1.9
+
+- [ ] **V1.9 Voz: "qual o placar?" e "isso foi sem sentido"** — do lado da conversa: a frase "isso foi
+  sem sentido" (com o Pedro já falando com ela) marca a última expressão de ≤ `voz_janela_s` (sem
+  alvo → ela diz que não sabe do que ele fala); "qual o placar?" responde com o número do
+  `condessa-estado.json` no contexto, nunca inventado. Achar por `grep` o caminho que as tags da
+  conversa já usam até o HUD (`det_conversa.py`) e o ponto do contexto do agente; o mínimo em cada lado.
+  - Lê: acordo-pj §3 (voz) e §4 (voz), `hud/wired/reacoes/det_conversa.py`, `magi/agent/self_model.py` e `magi/agent/prompt.py` por trecho, `tests/hud/test_reacoes_entrada_conversa.py`
+  - Escreve: `hud/wired/reacoes/det_conversa.py`, `magi/agent/self_model.py` (ou o arquivo de contexto achado), `tests/hud/test_reacoes_entrada_conversa.py`, `tests/agent/test_placar_contexto.py` (novo)
+  - Depende de: V1.7
+  - Orçamento: ~45k
+  - Pronto: testes da frase com e sem alvo e do placar no contexto (sem número inventado); `uv run pytest -q tests/hud tests/agent` verde; `ruff` limpo; sem chamada a LLM.
+  - Paralelo: V1.8
+
+- [ ] **V1.10 Validação placar-e-jogo** — `test_vida_simulacao.py`: replay de 2026-10-09 com **50
+  sementes**; meta 6 em 50/50 e as outras sem regressão em 50/50; **meta 6b** (0 positivas sem causa);
+  meta 7 com o texto novo ("toda volta aparece no rosto"); `torcida` na lista de positivas; placar no
+  replay com nenhum lado acima de 3:1 e 4–12 pontos (anotar se fora). Roteiro de conferência da
+  semana em `docs/perf/reacoes.md` (calibração 40–60 %).
+  - Lê: acordo-pj §1 (teste) e §3 (calibração), `tests/hud/test_vida_simulacao.py`, `docs/perf/reacoes.md`
+  - Escreve: `tests/hud/test_vida_simulacao.py`, `docs/perf/reacoes.md`
+  - Depende de: V1.8, V1.9
+  - Orçamento: ~45k
+  - Pronto: 50/50 nas metas; placar ≤ 3:1 no replay; `tests/hud` verde; o Pedro avisado do que conferir.
   - Paralelo: —
 
 ## Sobras
@@ -305,3 +432,10 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   negativa em `passivas.NEGATIVAS` (sai em Aturando sem precisar de causa); se o Conselho quiser,
   entra lá com `faixa_nota_menos1`. As sequências foram escritas pelo agente, sem roteiro no
   acordo: revisar junto com as 3 cenas da V0.10.
+- **Placar e jogo (Conselho 2026-10-10) — do Pedro, não de agente:** (1) calibração depois de 7 dias
+  de log: o Pedro ganha 40–60 % dos dias, senão mexer nos **tetos** de `[vida.placar]`; (2) conferir
+  na tela o hover/✗ (V1.8), o `O1` de frente nas cenas e os roteiros novos; (3) decidir o atalho de
+  teclado e se o truque pode mexer no fone (`mexe_no_fone`); (4) **recomendadas pelas três** (não
+  implementar sem ele): "pose de vitória" como 3º número do truque, "bebe água", linha do ânimo do
+  dia no hover; (5) clique do meio no rosto para "a última, agora" (só a Asuka assinou) e "dia com
+  ≥ 1 commit" +1 Pedro (só a Kurisu); (6) bis do truque: reavaliar com 1 semana de dados (Aqua).

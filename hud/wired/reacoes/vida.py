@@ -107,7 +107,7 @@ VIDA_PADRAO: dict = {
     "momento_estavel_s": 30,
     "crossfade_ms": 120,
     "truque_dia": 1,
-    "truque_aplauso_s": 10,
+    "truque_aplauso_s": 15,  # placar-e-jogo §2 (era 10)
     "musica_nota_menos1_chance_s": 8,
     "pedro_fala_recoloca_fone_s": 10,
     "passiva_media_min": {
@@ -139,6 +139,21 @@ VIDA_PADRAO: dict = {
         "cobrancas_partida": 2,
         "recuperacoes_partida": 1,
     },
+    # acordo 2026-10-10-placar-e-jogo: transcrição do gosto; quem lê vem nas tarefas V1.2+
+    "torcida": {"liga": True, "no_sorteio": True, "forca_slot_min": 30, "fura_slot_min": 45,
+                "intervalo_min": 30, "delta_animo": 0.03},
+    "truque": {"numeros": ["fone", "piscadinha"], "mexe_no_fone": True, "aplaudido_delta": 0.20,
+               "ignorado_delta": -0.05},
+    "volta": {"fora_min": 15, "passo_extra_fora_min": 120, "habituacao_janela_min": 60,
+              "delta_animo": 0.25},
+    "placar": {
+        "liga": True, "fecha_dia_h": 4, "partida_min_min": 15, "ativo_depois_h": 1, "viradas_dia": 2,
+        "tetos": {"ele_partida_limpa": 2, "ele_faixa_nota2": 3, "ele_truque_ignorado": 1,
+                  "ela_partida_episodio": 2, "ela_pulo_nota2": 2, "ela_truque_aplaudido": 1,
+                  "ela_favorita_ado": 1, "ela_ativo_madrugada": 1},
+    },
+    "sem_sentido": {"fator": 0.7, "piso": 0.3, "janela_dias": 7, "desfazer_s": 5, "voz_janela_s": 60,
+                    "pauta_marcas": 3, "pauta_fracao": 0.2, "atalho": ""},
     "momentos": {  # acordo §3 (tabela dos momentos, filtros e escada do Tédio)
         "conversa_turno_s": 120,
         "pedro_sumiu_s": 600,

@@ -291,7 +291,8 @@ def test_truque_de_salao_aplauso_e_ignorado():
     d2 = _dir()
     d2.truque(T0, ctx)
     assert d2.proxima(T0 + 5) is None
-    c = d2.proxima(T0 + 11)
+    assert d2.proxima(T0 + 11) is None  # janela de 15 s (placar-e-jogo §2)
+    c = d2.proxima(T0 + 16)
     assert (c.tipo, c.ramo) == ("truque", "ignorado") and "truque_ignorado" in d2.causas
 
 

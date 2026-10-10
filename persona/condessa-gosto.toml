@@ -194,7 +194,7 @@ negativa_causa_s = 120
 momento_estavel_s = 30
 crossfade_ms = 120
 truque_dia = 1
-truque_aplauso_s = 10
+truque_aplauso_s = 15             # placar-e-jogo §2: janela do aplauso (era 10)
 musica_nota_menos1_chance_s = 8
 pedro_fala_recoloca_fone_s = 10
 
@@ -252,6 +252,47 @@ episodio_fim_min = 3
 episodio_novo_min = 10
 cobrancas_partida = 2
 recuperacoes_partida = 1
+
+# --- acordo 2026-10-10-placar-e-jogo (o sistema só lê; o Pedro sobrepõe em ~/.config/magi/) ---
+[vida.torcida]                    # §1: passiva positiva de Jogando; piso para a meta 6 em jogo longo
+liga = true
+no_sorteio = true                 # também entra no sorteio do grupo Jogando, com o peso do cabeca_ritmo
+forca_slot_min = 30               # sem positiva há 30 min (jogo aberto, Pedro presente): o próximo slot é ela
+fura_slot_min = 45                # há 45 min: sai fora de slot (respeita 25 s / 60 s pós-cena)
+intervalo_min = 30                # no máximo 1 torcida a cada 30 min; ocupa vaga no teto de passivas
+delta_animo = 0.03
+
+[vida.truque]                     # §2: truque de salão (≤ truque_dia; janela = truque_aplauso_s)
+numeros = ["fone", "piscadinha"]  # alternam, sem repetir o de ontem
+mexe_no_fone = true               # false: só a piscadinha
+aplaudido_delta = 0.20
+ignorado_delta = -0.05            # vira a cara, sem beicinho
+
+[vida.volta]                      # §2: volta orgulhosa
+fora_min = 15                     # Pedro voltou de ≥ 15 min fora, ela acordada
+passo_extra_fora_min = 120        # fora ≥ 2 h: passo extra (B5 C6 tails); 0 desliga
+habituacao_janela_min = 60        # 2ª volta na janela: versão curta; 3ª: só olhar, sem cena
+delta_animo = 0.25
+
+[vida.placar]                     # §3: Condessa × Pedro, só lazer; um ponto = uma linha do log
+liga = true
+fecha_dia_h = 4                   # a madrugada conta no dia anterior
+partida_min_min = 15              # partida limpa só conta com ≥ 15 min
+ativo_depois_h = 1                # "vai dormir": Pedro ativo depois da 1h
+viradas_dia = 2                   # viradas com expressão por dia (as outras só mudam o número)
+# Teto de pontos por dia por fonte; 0 desliga a fonte. Calibração: o Pedro ganha 40–60 % dos dias
+# (se não, mexe-se nos tetos, não nas fontes).
+tetos = { ele_partida_limpa = 2, ele_faixa_nota2 = 3, ele_truque_ignorado = 1, ela_partida_episodio = 2, ela_pulo_nota2 = 2, ela_truque_aplaudido = 1, ela_favorita_ado = 1, ela_ativo_madrugada = 1 }
+
+[vida.sem_sentido]                # §4: "isso foi sem sentido" (nunca mexe no ânimo nem no placar)
+fator = 0.7                       # cada marca em 7 dias: peso da variante no grupo daquele momento ×0,7…
+piso = 0.3                        # …nunca abaixo disso (não some)
+janela_dias = 7
+desfazer_s = 5                    # marcar de novo em ≤ 5 s desfaz
+voz_janela_s = 60                 # a voz só alcança a última expressão de ≤ 60 s
+pauta_marcas = 3                  # ≥ 3 marcas em 7 dias…
+pauta_fracao = 0.2                # …ou ≥ 20 % das ocorrências → pauta do Conselho
+atalho = ""                       # atalho de teclado; vazio = o padrão da implementação
 
 # Falas em texto (≤70 caracteres; sem voz). {temp}, {fps}, {artist} vêm do HUD.
 # Variantes: madrugada, rival, batalha, quinta, curto, favorita, slowed.

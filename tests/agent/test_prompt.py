@@ -67,8 +67,9 @@ def test_persona_tem_cerca_de_500_tokens():
     # Teto 660: linha de jeito e gosto decidida pelo Conselho da Condessa (~75 tokens).
     # Teto 700: regra da frase de espera antes de ferramenta demorada e resposta em lotes (~45).
     # Teto 750: regra de referências do conselho no lugar da "vibe Evangelion/NERV" (~55 a mais).
+    # Teto 780: linha do placar e do "isso foi sem sentido" (Conselho placar-e-jogo, ~30).
     tokens = estimate_tokens(load_persona())
-    assert 400 <= tokens <= 750
+    assert 400 <= tokens <= 780
 
 
 def test_persona_cobre_os_tracos():
