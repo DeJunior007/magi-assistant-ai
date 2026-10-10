@@ -36,7 +36,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
 
 ---
 
-- [ ] **V0.1 Contratos, `[vida]` e esqueleto** — `hud/wired/reacoes/vida.py` com os contratos de
+- [x] **V0.1 Contratos, `[vida]` e esqueleto** — `hud/wired/reacoes/vida.py` com os contratos de
   spec §1; leitor de `[vida]` no `Taste` (`taste.vida()` com o do Pedro por cima, padrões do acordo
   se faltar); stubs registrados de `estado.py`, `momento.py`, `repouso.py`, `diretor.py`,
   `episodio.py` (assinaturas finais, corpo vazio); caminho do estado

@@ -30,6 +30,7 @@ from .reacoes import DETECTORES, governador, passivas, registro
 from .reacoes.atividade import Atividade
 from .reacoes.catalogo import ATIVAS, DEFS
 from .reacoes.contratos import Classe, Def, Disparo, Passo
+from .reacoes.vida import VIDA_PADRAO, mesclar
 
 COUNCIL_FILE = Path(__file__).resolve().parents[2] / "persona" / "condessa-gosto.toml"
 GENRES_FILE = Path.home() / ".local/share/magi/artist-genres.json"
@@ -198,6 +199,18 @@ class Taste:
 
     def ctx(self, key: str, default):
         return self.section("contexto").get(key, default)
+
+    def vida(self) -> dict:
+        """``[vida]`` (specs/condessa-vida): padrões do acordo < conselho < Pedro, mescla profunda."""
+        self._reload()
+        cache = getattr(self, "_vida_cache", None)
+        if cache is not None and cache[0] == self._mtimes:
+            return cache[1]
+        conselho = _load_toml(self.council_file).get("vida", {})
+        mine = _load_toml(self.taste_file).get("vida", {})
+        cfg = mesclar(VIDA_PADRAO, *(t for t in (conselho, mine) if isinstance(t, dict)))
+        self._vida_cache = (self._mtimes, cfg)
+        return cfg
 
     def lines_for(self, key: str) -> dict[str, list[str]]:
         self._reload()
