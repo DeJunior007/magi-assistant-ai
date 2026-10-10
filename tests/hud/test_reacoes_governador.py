@@ -397,10 +397,11 @@ def test_v2_truque_1_por_dia():
 def test_v2_piso_de_vida_6min():
     gv = g.Governador()
     gv.aprovar(gesto(), T0)
-    assert not gv.piso_vencido(T0 + 360)
-    assert gv.piso_vencido(T0 + 361)
-    assert not gv.piso_vencido(T0 + 361, {"momento": "conversa"})
-    assert not gv.piso_vencido(T0 + 361, {"pedro_presente": False})
+    piso = gv.cfg["piso_vida_min"] * 60  # V0.9: 5,5 min (com o sorteio a cada 10 s, < 6 min)
+    assert not gv.piso_vencido(T0 + piso)
+    assert gv.piso_vencido(T0 + piso + 1)
+    assert not gv.piso_vencido(T0 + piso + 1, {"momento": "conversa"})
+    assert not gv.piso_vencido(T0 + piso + 1, {"pedro_presente": False})
     gv.aprovar(P(T.ATENCAO, "iris"), T0 + 300)
     assert not gv.piso_vencido(T0 + 600)
 

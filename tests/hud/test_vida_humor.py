@@ -160,6 +160,7 @@ def test_silencio_nao_mexe_no_animo_so_na_energia():
 def test_pedro_sumido():
     h = humor(BASE)
     h.cfg["meia_vida_abaixo_min"] = 1e12  # isola o decaimento
+    h.cfg["pedro_sumido"] = {"depois_min": 30, "cada_min": 15, "delta": -0.05}  # mecanismo (V0.9)
     h.tick(T0, 10, {"pedro_ausente_min": 44})
     assert h.animo == pytest.approx(BASE)
     h.tick(T0, 10, {"pedro_ausente_min": 45})

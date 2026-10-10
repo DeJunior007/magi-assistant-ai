@@ -837,6 +837,9 @@ class Reactor:
         if d is None:
             return
         if dr.sortear_passiva([extra.chave], rel, ctx) is None:
+            if extra.motivo == "piso":  # V0.9: o piso não fica sem nada (governador recusou)
+                dr.gov.registrar(Pedido(Tipo.ATENCAO, "atencao"), rel)
+                self._olhar(self._card_piso(ctx), now, "piso", dr.vida["atencao_ms"][1])
             neg = Pedido(Tipo.GESTO, extra.chave, negativa=True)
             if extra.chave in _diretor.NEGATIVAS and \
                     dr.gov.motivo(neg, rel, dr._ctx_gov()) == "negativa_sem_causa":  # noqa: SLF001
@@ -906,7 +909,9 @@ class Reactor:
         if alvo != post.fone and livre:
             if self._fone_errado is None:
                 self._fone_errado = rel
-            elif rel - self._fone_errado >= FONE_ESPERA_S:  # a troca é um passo de cena (P11)
+            elif rel - self._fone_errado >= FONE_ESPERA_S and rel - (ctx.get("ultima_expressao_em")
+                                                                     or -1e18) >= float(
+                    self.vida["min_entre_expressoes_s"]):  # passo de cena (P11), sem rajada (V0.9)
                 self._fone_errado = None
                 tipo = "recoloca_fone" if alvo == Fone.CABECA else "musica_parou"
                 self.diretor._tocar(_diretor.Acontecimento(tipo, None, tipo, "fone", 3, tipo), rel)  # noqa: SLF001

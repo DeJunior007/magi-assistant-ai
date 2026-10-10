@@ -95,7 +95,7 @@ VIDA_PADRAO: dict = {
     "passiva_min_s": 90,
     "passivas_hora": 12,
     "passiva_peso_por_uso": 0.3,
-    "piso_vida_min": 6,
+    "piso_vida_min": 5.5,  # V0.9: o piso (+ o sorteio a cada 10 s) fica dentro dos 6 min do acordo §8
     "atencao_ms": [400, 600],
     "cenas_hora": 8,
     "coalescencia_s": 3,
@@ -123,7 +123,7 @@ VIDA_PADRAO: dict = {
         "trava_fonte_hora": 0.6,
         "piso_sistema": -0.3,
         "teto_pedro_mal": 0.3,
-        "pedro_sumido": {"depois_min": 30, "cada_min": 15, "delta": -0.05},
+        "pedro_sumido": {"depois_min": 30, "cada_min": 10, "delta": -0.10},  # V0.9 (replay)
         "limiar": {"radiante": 0.5, "contente": 0.05, "emburrada": -0.35},
         "histerese": 0.05,
         "troca_faixa_s": 60,

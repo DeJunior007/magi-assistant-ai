@@ -4,6 +4,53 @@ Roteiro para o Pedro. Critérios de sucesso 3 e 4 do `specs/condessa-reacoes/req
 CPU do HUD ≤ 10% de um núcleo e uma semana de uso real sem o rosto "poluído" (≤ 8 ativas por
 hora no registro). O que estiver poluindo volta ao Conselho (`/conselho`).
 
+## 0. Semana da vida (V0.9, specs/condessa-vida)
+
+O replay do dia 2026-10-09 (`tests/hud/test_vida_simulacao.py`) passou nas 7 metas do acordo §8
+(Conselho 2026-10-10). Agora vale a semana real. O HUD só pega o código novo quando for reaberto.
+
+**Religado no seu gosto** (`~/.config/magi/condessa-gosto.toml`): `[reacoes] desligadas = []`.
+`fone_repouso`, `ajeitando_fone` e `cabeca_ritmo` voltaram, porque o fone agora segue a música
+e essas passivas só saem com música. Se voltar o "põe e tira o fone no silêncio", desligue de
+novo e anote aqui.
+
+**Mudou no `[vida]`** (persona + `VIDA_PADRAO`): `piso_vida_min` 6 → 5,5 (o piso, com o sorteio a
+cada 10 s, fica abaixo dos 6 min) e `pedro_sumido` −0,05/15 min → −0,10/10 min (com a meia-vida de
+8 min, o −0,05 sumia e ela nunca saía de Contente). A escada do Tédio agora conta o tempo sem
+música: o encarando sai aos 15 min sem música, e o "ei, tô aqui" só depois dele, aos 30 min.
+
+**O que conferir na semana:**
+- Quando você volta (almoço, jogo longo, cochilo dela), ela faz uma cena de volta, e não só uma olhada.
+- Com você no PC, fora de jogo e de conversa, ela nunca fica parada mais de ~6 min.
+- Nenhum suspiro, franja ou beicinho sem motivo (Claude te esperando, erro, PC quente, "ei"
+  ignorado). Se aparecer, anote a hora para achar no registro.
+- Depois de 1 h ou mais fora, ela volta **Neutra** (rosto B1 C1) e sobe de novo quando você
+  aparece. Emburrada deve ser rara e curta.
+- Jogo longo sem música: no replay, a hora das 14h às vezes ficou **sem nenhuma expressão
+  positiva**, porque o grupo Jogando só tem positiva com música (`cabeca_ritmo`). Veja se isso
+  incomoda; se incomodar, o assunto volta ao Conselho.
+- Silêncio sem nada rodando: encarando por volta dos 15 min, "ei, tô aqui" depois dos 30 min, e
+  beicinho só se você ignorar o "ei" por 10 s.
+- Nenhuma rajada (3 expressões em 30 s), principalmente na volta com música e jogo juntos.
+
+**Como ler o relatório novo** (`uv run python -m hud.tools.reacoes_relatorio --dias 7`): o bloco
+`Vida (por hora)` traz uma linha por tipo, com média por hora e pico.
+- `cena + gesto + ativa` ≈ expressões/h. A meta é 12–20/h; o replay deu ~14.
+- `atencao` são olhadas dirigidas e não contam como expressão. `repouso` é a troca do rosto
+  parado, não uma reação.
+- `descartada_sem_causa` é uma negativa que o governador barrou por falta de culpado. Alguns
+  casos são normais; muitos indicam um grupo de passivas pedindo negativa demais.
+- `Momentos:` mostra a fração das linhas em cada momento. Jogando e Curtindo devem dominar nos
+  seus dias, e Tédio alto quer dizer muito silêncio.
+- `Faixas:` deve mostrar pelo menos 3 faixas na semana, Emburrada abaixo de 15 % e Radiante acima
+  de 0. Se Emburrada passar de 15 %, avise: a Kurisu pediu para a "birra fresca" voltar à mesa.
+
+### Resultado da semana da vida (preencher)
+
+```
+(colar a saída do relatório e as horas estranhas aqui)
+```
+
 ## 1. Antes de começar
 
 - Reabrir o HUD depois de qualquer build da arte (`catalogo.ATIVAS` olha a pasta do retrato só

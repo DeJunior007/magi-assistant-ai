@@ -182,7 +182,7 @@ pausa_apos_cena_s = 60
 passiva_min_s = 90
 passivas_hora = 12
 passiva_peso_por_uso = 0.3        # peso ×0,3 por uso na última hora
-piso_vida_min = 6                 # Pedro presente, fora de conversa/jogo: nunca mais que isso parada
+piso_vida_min = 5.5               # Pedro presente, fora de conversa/jogo: com o sorteio a cada 10 s, fica < 6 min (V0.9)
 atencao_ms = [400, 600]           # olhada para o card do que não vira cena (fora da cota)
 cenas_hora = 8
 coalescencia_s = 3
@@ -237,7 +237,7 @@ habituacao_janela_min = 30
 trava_fonte_hora = 0.6
 piso_sistema = -0.3
 teto_pedro_mal = 0.3
-pedro_sumido = { depois_min = 30, cada_min = 15, delta = -0.05 }
+pedro_sumido = { depois_min = 30, cada_min = 10, delta = -0.10 }  # V0.9: com −0,05/15 min a meia-vida de 8 min anulava (nunca saía de Contente)
 limiar = { radiante = 0.5, contente = 0.05, emburrada = -0.35 }
 histerese = 0.05
 troca_faixa_s = 60

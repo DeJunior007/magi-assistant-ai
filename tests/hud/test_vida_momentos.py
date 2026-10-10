@@ -159,10 +159,12 @@ def test_pedro_sumiu_bocejo_e_cochilo():
 @pytest.mark.parametrize(
     ("ctx", "degrau"),
     [
-        ({"momento_ha_s": 600}, None),
-        ({"momento_ha_s": 900}, "encarando"),
-        ({"momento_ha_s": 1000, "encarando_feito": True}, None),
-        ({"momento_ha_s": 1800, "encarando_feito": True}, "ei_to_aqui"),
+        # V0.9: degraus pelo tempo sem música — encarando aos 15 min (= entrada no Tédio), ei aos 30
+        ({"momento_ha_s": 0, "sem_musica_ha_s": 900}, "encarando"),
+        ({"momento_ha_s": 0, "sem_musica_ha_s": 7200}, "encarando"),  # Claude parou: conta da entrada
+        ({"momento_ha_s": 100, "encarando_feito": True}, None),
+        ({"momento_ha_s": 600, "sem_musica_ha_s": 1500, "encarando_feito": True}, None),
+        ({"momento_ha_s": 900, "sem_musica_ha_s": 1800, "encarando_feito": True}, "ei_to_aqui"),
         ({"momento_ha_s": 2400, "encarando_feito": True, "ei_to_aqui_ha_s": 600}, None),
         ({"momento_ha_s": 4000, "encarando_feito": True, "ei_to_aqui_ha_s": 1800}, "ei_to_aqui"),
         ({"momento_ha_s": 2400, "encarando_feito": True, "ei_ignorado": True}, "beicinho"),

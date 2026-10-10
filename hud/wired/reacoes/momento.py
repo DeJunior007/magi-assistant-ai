@@ -154,9 +154,13 @@ def escada_tedio(ctx: dict) -> str | None:
     """O degrau da escada do Tédio que cabe agora (acordo §3, A)."""
     if bool(ctx.get("ei_ignorado")):
         return "beicinho"
-    ha = ctx.get("momento_ha_s") or 0.0
+    # os degraus contam o tempo sem música (acordo §3: o Tédio começa aos 15 min sem música, e o
+    # encarando é desse mesmo minuto 15), não o tempo no Tédio; com Claude/jogo antes, conta da entrada
+    ha = (ctx.get("momento_ha_s") or 0.0) + limiar(ctx, "tedio_sem_musica_s")
+    if ctx.get("sem_musica_ha_s") is not None:
+        ha = min(ha, float(ctx["sem_musica_ha_s"]))
     ei_ha = ctx.get("ei_to_aqui_ha_s")
-    if ha >= limiar(ctx, "escada_ei_s") and (
+    if ha >= limiar(ctx, "escada_ei_s") and ctx.get("encarando_feito") and (
         ei_ha is None or ei_ha >= limiar(ctx, "escada_ei_intervalo_s")
     ):
         return "ei_to_aqui"

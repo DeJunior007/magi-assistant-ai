@@ -137,7 +137,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   - Pronto: `tests/hud` verde; um teste por sinal ligado; escada do Tédio de ponta a ponta no `Reactor`; `ruff` limpo.
   - Paralelo: —
 
-- [ ] **V0.9 Validação** — CA-V6 (simulação de 12 h a partir do `reacoes.jsonl` real reconvertido em
+- [x] **V0.9 Validação** — CA-V6 (simulação de 12 h a partir do `reacoes.jsonl` real reconvertido em
   acontecimentos), religar no gosto do Pedro o que foi desligado à mão (`[reacoes] desligadas`),
   roteiro da semana em `docs/perf/reacoes.md` atualizado. **A semana de uso é do Pedro.**
   - Lê: requirements (Critérios), spec §9–§10, `docs/perf/reacoes.md`
@@ -261,3 +261,29 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   `diretor.causas` enquanto vale; o beicinho limpa o ignorado. `momento.LIMIARES_PADRAO` agora é
   `VIDA_PADRAO["momentos"]`. Os limiares da escada contam `momento_ha_s` (tempo **no** Tédio, que só
   começa com 15 min sem música): encarando sai ~30 min sem música, não aos 15 — conferir na V0.9.
+- **V0.9:** replay em `tests/hud/fixtures/dia-2026-10-09.json` (1,3 kB, só horários: música, faixa
+  amada, jogo, quente→alívio, quedas de FPS, rodadas do Claude, hooks, commits, ausências e voltas;
+  passivas antigas fora). O `Reactor` real roda com `det_tempo/musica/sistema/claude`, passo de 2 s,
+  `rng` semente 1. Medido: 13,8 expr./h; 0 rajadas; maior buraco 5,6 min; 0 negativas sem causa;
+  Contente 89 %, Radiante 8,5 %, Neutra 2,8 %, Emburrada 0; toda hora presente com positiva; 3/3
+  voltas viram cena. Leituras minhas: "corpo" = troca de fone (`recoloca_fone`/`musica_parou`,
+  `Tipo.CORPO`); a meta 3 não conta Jogando nem Conversa (spec §9: o piso não vale lá, e a média de
+  Jogando é 8 min); negativas = acordo §4 + caretas com culpado (`impaciente`, `indiferente`,
+  `desconfiada`, `eu_avisei`); o `encarando` da escada é degrau do Tédio, não careta; positivas são
+  uma lista no teste (inclui `cabeca_ritmo` e o alívio do FPS/calor). **`[vida]` mudado** (gosto +
+  `VIDA_PADRAO`): `piso_vida_min` 6 → 5,5 (o piso é "> N min" e o sorteio roda a cada 10 s, dava
+  6,1 min); `pedro_sumido` −0,05/15 min → −0,10/10 min (com a meia-vida de 8 min abaixo da base, o
+  −0,05/15 min estabiliza em +0,08 e ela nunca saía de Contente, então eram só 2 faixas no dia).
+  **Bugs corrigidos** em `reactions.py` (fora do *Escreve*): (1) piso de vida recusado pelo
+  governador não fazia nada e o `passivas.sortear` já contava o uso, o que dava buracos de 11–14
+  min; agora vira atenção dirigida (spec §9); (2) a troca de fone (P11) passava por fora da cota e
+  fazia rajada na volta (volta → fone → `game_on` em 26 s); agora espera `min_entre_expressoes_s`
+  desde a última expressão. **Escada do Tédio** (acordo §3: Tédio = 15 min sem música, encarando aos
+  15 min, ei aos 30): os degraus contam o tempo sem música (`min(sem_musica_ha_s, momento_ha_s +
+  tedio_sem_musica_s)`), e o "ei" exige o encarando antes ("→" da escada). Ajustados
+  `test_vida_momentos` (linhas da escada), `test_reacoes_governador::test_v2_piso_de_vida_6min` (lê
+  o piso do cfg) e `test_vida_humor::test_pedro_sumido` (fixa os números antigos para testar o
+  mecanismo). **Frágil:** a meta 6 depende do sorteio na hora das 14h (partida longa quase sem
+  música; o grupo Jogando só tem positiva com música): falhou em 4 de 9 sementes. Fica para o
+  Conselho decidir uma positiva em Jogando sem música (ex.: sorriso com FPS estável). Emburrada
+  ficou em 0 %, então não precisei anotar a "birra fresca". Gosto do Pedro: `desligadas = []`.
