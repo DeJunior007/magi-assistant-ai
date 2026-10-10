@@ -48,9 +48,10 @@ def make(tmp_path, gosto: str = "") -> tuple[Reactor, Gravador]:
 
 
 def aquece(r: Reactor, base: Snapshot | None = None) -> None:
-    """1º tick só registra; o 2º dá o 1º tick dos detectores (``hud_acordou`` toca e acaba)."""
-    r.observe(base or Snapshot(), 0.0, hour=12)
-    r.observe(base or Snapshot(), 1.0, hour=12)
+    """1º tick só registra; o 2º dá o 1º tick dos detectores (``hud_acordou``, que o diretor toca
+    depois dos 3 s de coalescência e acaba)."""
+    for t in range(6):
+        r.observe(base or Snapshot(), float(t), hour=12)
 
 
 def snap(**kw) -> Snapshot:
@@ -117,7 +118,8 @@ def test_64_terceiro_clique_no_led_e_66_com_musica(tmp_path):
     for t in (30.0, 31.0, 32.0):
         r.on_click("led", t)
     assert [c for c, _ in r.ctx["cliques"]] == [30.0, 31.0, 32.0]
-    r.observe(snap(), 32.5, hour=12)
+    for t in (32.5, 33.5, 34.5, 35.5):  # o diretor junta os disparos por 3 s
+        r.observe(snap(), t, hour=12)
     assert ("led", None) in grav.chaves()
     assert "led" in tocadas(tmp_path)  # o governador aprovou e a sequência tocou
 
@@ -152,7 +154,8 @@ def test_75_head_novo_pelo_snapshot(tmp_path):
     aquece(r, snap(git_head="abc1234"))
     r.observe(snap(git_head="abc1234"), 30.0, hour=12)
     assert ("ideia", None) not in grav.chaves()
-    r.observe(snap(git_head="def5678"), 31.0, hour=12)
+    for t in (31.0, 32.0, 33.0, 34.0):  # o diretor junta os disparos por 3 s
+        r.observe(snap(git_head="def5678"), t, hour=12)
     assert ("ideia", None) in grav.chaves()
     assert "ideia" in tocadas(tmp_path)
 

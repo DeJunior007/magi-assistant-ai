@@ -15,13 +15,18 @@ GENRES = {"ado": {"genres": ["j-rock", "anime"]}, "gojira": {"genres": ["metal"]
           "ana castela": {"genres": ["sertanejo"]}}
 
 
+# o ritmo da vida (coalescência, cotas, família) tem testes próprios; aqui vale o gosto dela
+SEM_RITMO = ("\n[vida]\ncoalescencia_s = 0\nmin_entre_expressoes_s = 0\npausa_apos_cena_s = 0\n"
+             "familia_musica_s = 0\nfamilia_absorve_s = 0\ncenas_hora = 1000\nde_novo_min = 0\n")
+
+
 def make(tmp_path, taste="", genres=None):
     g = tmp_path / "genres.json"
     g.write_text(json.dumps(GENRES if genres is None else genres), encoding="utf-8")
     t = tmp_path / "gosto.toml"
-    t.write_text(taste, encoding="utf-8")
+    t.write_text(taste + SEM_RITMO, encoding="utf-8")
     r = Reactor(Taste(g, t), cleanup_file=tmp_path / "cleanup.json", seen_file=tmp_path / "seen.json",
-                clock=lambda: 1_800_000_000.0, rng=random.Random(1))
+                clock=lambda: 1_800_000_000.0, rng=random.Random(1), detectores=(), sortear=lambda *a: None)
     r.favorite_of_day = lambda: ""  # a Favorita do Dia tem teste próprio
     return r
 
@@ -32,6 +37,7 @@ def snap(**kw) -> Snapshot:
 
 def play(r, title, artist, now, hour=15, **kw):
     r.until = 0.0
+    r.diretor.atual = None  # a cena anterior terminou (o teste anda o relógio aos saltos)
     r.observe(snap(track=Track(title, artist), **kw), now, hour)
     return r.active(now)
 
@@ -111,8 +117,7 @@ def test_favorita_do_pedro_e_jogando(tmp_path):
     r2.observe(snap(gaming=True, fps=140.0), 0.0, 15)
     assert play(r2, "x", "Dua Lipa", 1.0, gaming=True, fps=140.0) is None  # jogando: só extremos
     cur = play(r2, "Battle", "Evan Call", 2.0, gaming=True, fps=140.0)
-    assert cur.name == "music_love" and cur.mood == "focus"
-    assert r2.caption(2.0) == "Música de chefe. Então vence, piloto."
+    assert cur.name == "atencao" and cur.look == "player"  # jogando, música não vira cena: só olha
 
 
 def test_quinta_vez_vira_hino_ou_acostuma(tmp_path):
@@ -156,18 +161,18 @@ def test_hud_quente_noticia_e_faxina(tmp_path):
     r = make(tmp_path)
     r.observe(snap(cpu_temp=60.0), 0.0, 15)
     r.observe(snap(cpu_temp=88.0), 1.0, 15)
-    assert r.active(1.0).name == "hot" and r.active(1.0).look == "magi"
+    assert r.active(1.0).name == "hot" and r.active(1.0).look == "fps"  # roteiro do episódio
     assert "88" in r.caption(1.0)
     r.observe(snap(cpu_temp=80.0), 2.0, 15)  # histerese: ainda quente, não repete
-    r.until = 0.0
+    r.until, r.diretor.atual = 0.0, None
     r.observe(snap(cpu_temp=80.0, news=[("10:00", "manchete")]), 3.0, 15)
     assert r.active(3.0).name == "news"
     (tmp_path / "cleanup.json").write_text('{"at": "2026-10-07T02:00:00", "freed_bytes": 1000}')
-    r.until = 0.0
+    r.until, r.diretor.atual = 0.0, None
     r.observe(snap(cpu_temp=70.0, news=[("10:00", "manchete")]), 3.5, 15)
     assert r.active(3.5) is None  # faxina vazia: nada a comemorar
     (tmp_path / "cleanup.json").write_text('{"at": "2026-10-07T03:00:00", "freed_bytes": 3000000000}')
-    r.until = 0.0
+    r.until, r.diretor.atual = 0.0, None
     r.observe(snap(cpu_temp=70.0, news=[("10:00", "manchete")]), 4.0 + LINE_GAP, 15)
     assert r.active(4.0 + LINE_GAP).name == "cleanup"
 
@@ -192,8 +197,11 @@ def test_fps_caindo_com_dado_e_cliques(tmp_path):
     assert r.active(1.0) is None
     r.observe(snap(gaming=True, fps=60.0, fps_avg=140.0), 2.0, 15)
     assert r.active(2.0).name == "fps_drop" and r.active(2.0).mood == "focus"
-    r.on_click("led", 10.0)
-    assert r.active(10.0).name == "led" and r.active(10.0).effect == "bang"
+    r2 = make(tmp_path)
+    r2.observe(snap(), 9.0, 15)
+    r2.on_click("led", 10.0)  # o LED passa pelo diretor no tick seguinte
+    r2.observe(snap(), 10.5, 15)
+    assert r2.active(10.5).name == "led" and r2.active(10.5).effect == "bang"
 
 
 def test_pular_tres_faixas_ela_oferece(tmp_path):
@@ -205,8 +213,10 @@ def test_pular_tres_faixas_ela_oferece(tmp_path):
         r.until = 0.0
         r.on_click("next", t + 5)
         t += 10
-    assert r.active(t - 5).name == "skips"
-    assert r.caption(t - 5) is not None
+    r.until, r.diretor.atual = 0.0, None
+    r.observe(snap(track=Track("f2", "")), t - 4, 15)  # o 3º pulo chega ao diretor: impaciente
+    assert r.active(t - 4).name == "skips"
+    assert r.caption(t - 4) is not None
 
 
 def test_falando_cancela_e_sem_falas_de_musica(tmp_path):
@@ -246,18 +256,16 @@ def test_falas_em_ingles_pela_config_de_voz(tmp_path, monkeypatch):
     assert make(tmp_path).pick("led") is not None  # config quebrada: segue em português
 
 
-def test_musica_sai_como_disparo_e_toca_pelo_fire(tmp_path):
+def test_musica_sai_como_disparo_e_passa_pelo_diretor(tmp_path):
     r = make(tmp_path)
     r.observe(snap(), 0.0, 15)
-    chamadas = []
-    fire = r.fire
-    r.fire = lambda key, now, *a, **kw: chamadas.append((key, kw.get("mood"))) or fire(key, now, *a, **kw)
     r._music(snap(track=Track("Usseewa", "Ado")), 1.0, 15)
-    assert chamadas == [] and [d.chave for d, _ in r._musica] == ["music_love"]
-    assert r._musica[0][0].variante == "rival" and r._musica[0][0].fmt == {"artist": "Ado"}
+    assert [d.chave for d, _ in r._musica] == ["music_love"]
+    d = r._musica[0][0]
+    assert d.variante == "rival" and d.fmt["artist"] == "Ado" and d.fmt["nota"] == 2 and d.fmt["ado"]
     r._musica.clear()
     r.observe(snap(track=Track("Battle", "Evan Call")), 2.0, 15)
-    assert chamadas[0][0] == "music_love" and not r._musica
+    assert not r._musica and r.diretor.log[-1][2].startswith("musica_comecou:2")
 
 
 def test_reacao_antiga_e_cancel_encerram_a_sequencia(tmp_path):
@@ -268,8 +276,9 @@ def test_reacao_antiga_e_cancel_encerram_a_sequencia(tmp_path):
     d = DEFS["led"]
     r.tocar(d, Disparo("led", "teste"), 0.0)
     assert r.active(0.1).name == "led" and r.active(0.1).eyes == d.passos[0].eyes
-    r.say("hot", 0.2, temp="90")  # prioridade 3 > 1: a antiga assume
-    assert r.active(0.3).name == "hot" and r.active(0.3).eyes is None
+    r.observe(snap(), 0.15, 15)
+    r.observe(snap(cpu_temp=90.0), 0.2, 15)  # a antiga (pelo diretor) assume
+    assert r.active(0.3).name == "hot" and r.active(0.3).look == "fps"
     r.tocar(d, Disparo("led", "teste"), 10.0)
     r.cancel()
     assert r.active(10.1) is None

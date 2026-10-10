@@ -351,6 +351,11 @@ class WiredUI:
         if self.magui_state not in IDLE_STATES:
             r.cancel()
         self.mascot.react(r.active(mono), r.until)
+        set_rest = getattr(self.mascot, "set_rest", None)  # o rosto parado pela faixa/momento
+        if set_rest is not None and r.repouso is not None:
+            set_rest(r.repouso)
+        s = self.snap  # o medidor dela (acordo §6): ânimo, cor da faixa, momento e 3 causas
+        s.mood_dela, s.mood_dela_cor, s.momento, s.causas = r.medidor(mono)
         if self.caption is None and self.magui_state in IDLE_STATES:
             self.snap.caption = r.caption(mono)  # a fala dela (texto, sem voz)
 

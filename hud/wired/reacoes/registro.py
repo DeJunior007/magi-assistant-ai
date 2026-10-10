@@ -22,7 +22,17 @@ def gravar_antiga(chave: str, agora: float, caminho: Path = REGISTRO_FILE) -> No
               caminho)
 
 
-def gravar(d: Def, disparo: Disparo, agora: float, caminho: Path = REGISTRO_FILE) -> None:
+def gravar_vida(chave: str, motivo: str, agora: float, caminho: Path = REGISTRO_FILE,
+                extra: dict | None = None) -> None:
+    """Linha da vida sem ``Def`` (spec §11): atenção, repouso e ``descartada_sem_causa``; ``extra``
+    traz ``tipo``, ``momento``, ``filtros``, ``faixa``, ``animo``, ``energia`` e ``causa``."""
+    _escrever({"t": agora, "hora": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(agora)),
+               "chave": chave, "n": None, "variante": None, "motivo": motivo, "furou_cota": False,
+               **(extra or {})}, caminho)
+
+
+def gravar(d: Def, disparo: Disparo, agora: float, caminho: Path = REGISTRO_FILE,
+           extra: dict | None = None) -> None:
     """Acrescenta uma linha JSON com a reação tocada (gira o arquivo acima de ``GIRO_BYTES``).
 
     O giro move o arquivo cheio para ``<nome>.1`` (substitui o anterior). Falha de disco é
@@ -35,6 +45,7 @@ def gravar(d: Def, disparo: Disparo, agora: float, caminho: Path = REGISTRO_FILE
         "variante": disparo.variante,
         "motivo": disparo.motivo,
         "furou_cota": furou_cota(d),
+        **(extra or {}),
     }
     _escrever(linha, caminho)
 

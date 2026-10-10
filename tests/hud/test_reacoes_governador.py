@@ -269,11 +269,17 @@ def test_reacao_antiga_entra_no_registro(tmp_path):
     from wired.reactions import Reactor
 
     log = tmp_path / "r.jsonl"
-    r = Reactor(clock=lambda: 1000.0, registro_file=log)
-    r.fire("hot", 1.0)
-    r.fire("player", 10.0)  # olhada de clique: fora do registro
+    from wired.main_screen import Snapshot
+
+    r = Reactor(clock=lambda: 1000.0, registro_file=log, detectores=(), sortear=lambda *a: None)
+    for t, temp in ((0.0, 60.0), (1.0, 90.0), (2.0, 90.0), (3.0, 90.0), (4.0, 90.0)):
+        r.observe(Snapshot(cpu_temp=temp), t, 15)  # V0.8: a antiga passa pelo diretor (3 s)
+    r.until = 0.0
+    r.on_click("playpause", 10.0)  # olhada de clique: atenção dirigida
     linhas = [json.loads(x) for x in log.read_text().splitlines()]
-    assert [(x["chave"], x["motivo"]) for x in linhas] == [("hot", "antiga")]
+    vida = [(x["chave"], x["motivo"], x["tipo"]) for x in linhas if x["tipo"] != "repouso"]
+    assert vida == [("hot", "antiga", "cena"), ("atencao:player", "clique", "atencao")]
+    assert all({"momento", "faixa", "animo", "energia", "causa", "filtros"} <= set(x) for x in linhas)
 
 
 # --- Governador v2 (V0.5; spec §5–§6, acordo §4) ----------------------------------------------------

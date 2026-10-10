@@ -39,6 +39,12 @@ def snap(**kw) -> Snapshot:
     return replace(Snapshot(), **kw)
 
 
+def ate(r, t0, t1, hour=15, **kw):
+    """Ticks de 1 s de ``t0`` a ``t1`` (o diretor junta os disparos por 3 s antes de decidir)."""
+    for t in range(int(t0), int(t1) + 1):
+        r.observe(snap(**kw), float(t), hour)
+
+
 def test_sequencia_de_4_passos_passo_certo_no_inicio_meio_e_fim(tmp_path):
     r = make(tmp_path)
     r.tocar(QUATRO, Disparo("teste4", "teste"), 100.0)
@@ -73,9 +79,8 @@ def test_ctx_unico_entre_ticks_e_detector_quebrado(tmp_path):
 
     r = make(tmp_path, detectores=[lambda a, s, c: 1 / 0, det])  # detector quebrado é ignorado
     r.observe(snap(), 0.0, 15)
-    r.observe(snap(gaming=True), 1.0, 15)
-    assert r.active(1.0).name == "game_on"  # a antiga chega antes e ocupa o rosto
-    r.observe(snap(gaming=True), 2.0, 15)
+    ate(r, 1, 4, gaming=True)
+    assert r.active(4.0).name == "game_on"  # a antiga (roteiro do cockpit) vence a ativa solta
     assert len({id(c) for c in vistos}) == 1  # o mesmo ctx entre ticks
     ctx = vistos[-1]
     assert ctx["estado"] is r.estado and ctx["hora"] == 15 and ctx["jogo"] is True
@@ -86,24 +91,21 @@ def test_ctx_unico_entre_ticks_e_detector_quebrado(tmp_path):
 
 def test_governador_aprovado_toca_quando_parada(tmp_path):
     r = make(tmp_path, detectores=[lambda a, s, c: [Disparo("teste4", "teste")]])
-    r.observe(snap(), 0.0, 15)
-    r.observe(snap(), 1.0, 15)
-    assert r.active(1.0).name == "teste4" and r.active(1.0).eyes == "B9"
+    ate(r, 0, 4)
+    assert r.active(4.0).name == "teste4" and r.active(4.0).eyes == "B9"
     linha = json.loads((tmp_path / "reacoes.jsonl").read_text().splitlines()[-1])
     assert "teste4" in json.dumps(linha)
-    r.observe(snap(), 2.0, 15)  # ocupada: não recomeça a sequência
-    assert r.active(2.0).eyes == "B5"
+    r.observe(snap(), 5.0, 15)  # ocupada: não recomeça a sequência
+    assert r.active(5.0).eyes == "B5"
     r2 = make(tmp_path, detectores=[lambda a, s, c: [Disparo("teste4", "teste")]])
-    r2.observe(snap(magui_state="speaking"), 0.0, 15)
-    r2.observe(snap(magui_state="speaking"), 1.0, 15)
-    assert r2.active(1.0) is None  # falando: nada novo
+    ate(r2, 0, 4, magui_state="speaking")
+    assert r2.active(4.0) is None  # falando: nada novo
 
 
 def test_bloqueio_de_cobranca_aplicado_no_passo(tmp_path):
     r = make(tmp_path, detectores=[lambda a, s, c: [Disparo("cobra", "teste")]])
-    r.observe(snap(), 0.0, 23)
-    r.observe(snap(), 1.0, 23)  # 22h–04h: C8 -> C9
-    assert r.active(1.0).mouth == "C9"
+    ate(r, 0, 4, hour=23)  # 22h–04h: C8 -> C9
+    assert r.active(4.0).mouth == "C9"
 
 
 def test_passivas_a_cada_10_s(tmp_path):
@@ -117,15 +119,16 @@ def test_passivas_a_cada_10_s(tmp_path):
     r.observe(snap(), 0.0, 15)
     for i in range(1, 31):
         r.observe(snap(), float(i), 15)
-    assert chamadas == [1.0, 1.0 + PASSIVA_A_CADA, 1.0 + 2 * PASSIVA_A_CADA]
+    base = r._rel(0.0)  # as passivas andam no relógio da vida
+    assert [c - base for c in chamadas] == [1.0, 1.0 + PASSIVA_A_CADA, 1.0 + 2 * PASSIVA_A_CADA]
 
 
 def test_musica_antiga_vence_e_sequencia_cede_a_prioridade(tmp_path):
     r = make(tmp_path)
     r.observe(snap(), 0.0, 15)
     r.tocar(QUATRO, Disparo("teste4", "teste"), 0.5)
-    r.observe(snap(track=Track("Usseewa", "Ado")), 1.0, 15)  # prio 2 > 1: a música manda
-    assert r.active(1.0).name == "music_love"
+    ate(r, 1, 4, track=Track("Usseewa", "Ado"))  # a cena da música corta a sequência solta
+    assert r.active(4.0).name == "music_love"
     assert r.ctx["ado"] is True and r.ctx["musica_nota"] == 2
 
 

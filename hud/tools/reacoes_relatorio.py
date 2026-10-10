@@ -5,6 +5,8 @@ Uso: ``uv run python -m hud.tools.reacoes_relatorio [caminho] [--dias N]``
 Lê o ``reacoes.jsonl`` (padrão ``~/.local/state/magi/reacoes.jsonl``, mais o ``.1`` do giro se
 existir) e imprime, em texto curto: ativas e passivas por hora (média e pico), horas que passaram
 do teto de ativas, furos de cota por classe, top 10 e as reações de ``ATIVAS`` nunca tocadas.
+Com as linhas da vida (``tipo``, V0.8, specs/condessa-vida §11): cena/gesto/ativa/atenção por hora
+e a distribuição por momento e por faixa; atenção, repouso e descartadas ficam fora das contas antigas.
 
 "Ativa" = qualquer reação sem a classe ``PASSIVA``. O teto (``governador.ATIVAS_POR_HORA``) conta só
 as ativas que não furam cota (``SISTEMA``/``VITORIA``/``VOLTA`` ficam de fora, spec §3). A média por
@@ -27,6 +29,7 @@ from hud.wired.reacoes.governador import ATIVAS_POR_HORA, FURAM_COTA
 from hud.wired.reacoes.registro import REGISTRO_FILE
 
 HORA_S = 3600
+FORA_DA_CONTA = frozenset({"atencao", "repouso", "descartada_sem_causa"})  # não são reações tocadas
 
 
 def ler(caminho: Path) -> list[dict]:
@@ -80,6 +83,10 @@ def relatorio(linhas: Iterable[dict], dias: float | None = None, agora: float | 
     if not linhas:
         return "Nenhuma reação no registro" + (f" nos últimos {dias:g} dias." if dias else ".")
     ativas = catalogo.ATIVAS if ativas is None else frozenset(ativas)
+    vida = [linha for linha in linhas if linha.get("tipo")]
+    linhas_todas, linhas = linhas, [linha for linha in linhas if linha.get("tipo") not in FORA_DA_CONTA]
+    if not linhas:
+        linhas = linhas_todas[:1]
 
     por_hora_at: Counter[int] = Counter()
     por_hora_cota: Counter[int] = Counter()
@@ -88,6 +95,8 @@ def relatorio(linhas: Iterable[dict], dias: float | None = None, agora: float | 
     top: Counter[str] = Counter()
     tocadas: set = set()
     for linha in linhas:
+        if linha.get("tipo") in FORA_DA_CONTA:
+            continue
         h = int(linha["t"] // HORA_S)
         d = _def(linha)
         classes = d.classes if d else frozenset()
@@ -105,7 +114,7 @@ def relatorio(linhas: Iterable[dict], dias: float | None = None, agora: float | 
         else:
             por_hora_cota[h] += 1
 
-    h0, h1 = int(linhas[0]["t"] // HORA_S), int(linhas[-1]["t"] // HORA_S)
+    h0, h1 = int(linhas_todas[0]["t"] // HORA_S), int(linhas_todas[-1]["t"] // HORA_S)
     n_horas = h1 - h0 + 1
 
     def fmt_h(h: int) -> str:
@@ -135,7 +144,38 @@ def relatorio(linhas: Iterable[dict], dias: float | None = None, agora: float | 
     out.append(f"Nunca tocadas ({len(nunca)} de {len(ativas)} ativas):")
     if nunca:
         out.append("  " + ", ".join(_nome(k) for k in nunca))
+    if vida:
+        out += _vida(vida, n_horas, fmt_h)
     return "\n".join(out)
+
+
+def _vida(linhas: list[dict], n_horas: int, fmt_h) -> list[str]:
+    """Spec §11: por hora as classes (cena/gesto/ativa/atenção) e a distribuição por momento e
+    faixa (fração das linhas), mais as negativas descartadas sem causa."""
+    por_tipo: dict[str, Counter[int]] = {}
+    momentos: Counter[str] = Counter()
+    faixas: Counter[str] = Counter()
+    for linha in linhas:
+        por_tipo.setdefault(linha["tipo"], Counter())[int(linha["t"] // HORA_S)] += 1
+        if linha.get("momento"):
+            momentos[linha["momento"]] += 1
+        if linha.get("faixa"):
+            faixas[linha["faixa"]] += 1
+
+    def pct(c: Counter[str]) -> str:
+        total = sum(c.values()) or 1
+        return ", ".join(f"{k} {100 * n / total:.0f}%" for k, n in c.most_common()) or "sem dado"
+
+    out = ["Vida (por hora):"]
+    for tipo in ("cena", "gesto", "ativa", "atencao", "repouso", "descartada_sem_causa"):
+        c = por_tipo.get(tipo)
+        if c:
+            h, pico = max(c.items(), key=lambda kv: (kv[1], -kv[0]))
+            media = f"{sum(c.values()) / n_horas:.2f}".replace(".", ",")
+            out.append(f"  {tipo}: média {media} · pico {pico} ({fmt_h(h)})")
+    out.append(f"Momentos: {pct(momentos)}")
+    out.append(f"Faixas: {pct(faixas)}")
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:

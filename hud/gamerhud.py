@@ -1997,6 +1997,10 @@ class HUD(QWidget):
         if self.view == "learning" or self.konsole_shown():
             pos = None
         inside = pos is not None and self.clickable(pos) == "face"
+        scr = self.wired.screen(self.view)  # hover do medidor (causas, acordo §6)
+        if hasattr(scr, "hover_test") and scr.set_hover(
+                None if pos is None else scr.hover_test(pos, self.size())):
+            self.update()
         if inside != self.face_hover:
             self.face_hover = inside
             self.wired.on_hover("in" if inside else "out", self.mono())

@@ -115,7 +115,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   - Pronto: CA-V4 verde (rajada real das 21:05 → 1 cena); um teste por cena do acordo §5; coalescência, família, "de novo?", atenção dirigida, truque de salão, fila/interrupção/absorção.
   - Paralelo: V0.4, V0.7
 
-- [ ] **V0.8 Ligação no Reactor** — o tick passa a ser estado → momento → diretor → passivas →
+- [x] **V0.8 Ligação no Reactor** — o tick passa a ser estado → momento → diretor → passivas →
   repouso; as 19 antigas entram pelo diretor (fim do `fire` direto); eventos de humor emitidos pelos
   detectores; log com `momento`/`faixa`/`animo`/`energia`/`tipo`; relatório atualizado (spec §9);
   "HUD acordou" uma vez por boot.
@@ -219,3 +219,22 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   `game_off` (`episodios`, `pedro_mal`), `pedro_voltou` (`cochilou`) e `causa` no `fmt`; as 19
   antigas já mapeiam em `diretor.ANTIGAS`. `test_vida_contratos::test_esqueleto_assinaturas` espera
   `NotImplementedError` em `Diretor.proxima` — falha agora; a linha deve sair (arquivo não é meu).
+- **V0.8:** o tick é `_vida`: eventos de humor → `Humor.tick` → `momento.decidir` (memo no `ctx`) →
+  `Diretor.receber/proxima` (1 cena por tick; o resto das `prontas` é descartado) → passivas (truque
+  depois do aquecimento, `Disparo("atencao","piso")` = olhada dirigida para o card do momento) →
+  `repouso.rosto` + fone (fora do lugar por 10 s sem cena = `recoloca_fone`/`musica_parou`, P11). O
+  relógio da vida é o de parede no 1º tick andando com o `now` monotônico (`Reactor._rel`); o
+  `Estado` grava a cada 60 s com `governador = {hist, boot}` (boot de `/proc/.../boot_id`). Sem
+  `fire`/`say`: as 19 antigas viram `Disparo` (o rosto de antes só quando não há roteiro, via
+  `_Diretor._cena`; com roteiro valem os passos da cena, com nome/humor/fala da antiga). Cliques em
+  player/card = atenção; LED e "próxima" (`pulo`, `tocou_s`) vão pela fila ao próximo tick. Fora do
+  *Escreve* (mínimo, para o verde): `gamerhud.face_move` chama `hover_test/set_hover` (repinta tudo
+  com `update()`); testes antigos ajustados ao diretor (`test_wired_reactions`: helper sem ritmo e
+  sem detectores, música em Jogando vira só olhada, `hot` olha o FPS; `test_reacoes_tick`,
+  `test_reacoes_integracao` e `test_reacoes_governador`: 3 s de coalescência). Ficou para depois:
+  `det_claude` emitir `claude_terminou` com `dur_s` (o Reactor extrai do `motivo` por regex) e o
+  início do Claude (antiga `claude`) só vira atenção; `sobressalto`/`sentiu_falta` viram
+  `pedro_voltou`; tags pelo `motivo` "turno: x"; clique carinhoso = duplo clique no retrato. Sinais
+  ainda não ligados: `claude_esperando`, `lm_on`, `faixa_agua`, `dancante`, contadores de
+  franja/cantando e a escada do Tédio (V0.3), e a tabela `[vida.momentos]` no gosto.
+  `registro.gravar_antiga` ficou sem uso. CA-V9: tick médio ≈ 0,2 ms (1000 ticks, tudo ligado).
