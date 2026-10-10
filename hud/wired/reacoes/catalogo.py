@@ -34,7 +34,7 @@ _ZOE, _COB, _VIT, _VOL = Classe.ZOEIRA, Classe.COBRANCA, Classe.VITORIA, Classe.
 def _passos(seq: str) -> tuple[Passo, ...]:
     out = []
     for parte in seq.split("|"):
-        ms, eyes, mouth, efeitos, corpo = 0, None, None, [], []
+        ms, eyes, mouth, look, efeitos, corpo = 0, None, None, None, [], []
         for t in parte.split():
             if t.isdigit():
                 ms = int(t)
@@ -50,9 +50,11 @@ def _passos(seq: str) -> tuple[Passo, ...]:
                 corpo.append("fone_off")
             elif t[0] == "P":
                 corpo.append(f"braco:{t}")
+            elif t.startswith("look:"):  # olhar para um painel (LOOK_DIRS): roteiros de cena
+                look = t[5:]
             else:  # bob / sway / tails / iris:<olhar>
                 corpo.append(t)
-        out.append(Passo(ms, eyes, mouth, efeitos=tuple(efeitos), corpo=tuple(corpo)))
+        out.append(Passo(ms, eyes, mouth, look, efeitos=tuple(efeitos), corpo=tuple(corpo)))
     return tuple(out)
 
 
@@ -197,3 +199,46 @@ def ativas(tem: Callable[[str], bool] = tem_arte) -> frozenset[str | tuple[str, 
 
 
 ATIVAS: frozenset[str | tuple[str, str]] = ativas()
+
+
+# -- Roteiros de cena (acordo §5, spec §8): classe CENA (``governador.Tipo.CENA``), por ramo --------
+# Fora de ``DEFS``/``TODAS``: só o diretor (V0.10) os toca. ``look:<painel>`` = olhar para o card.
+# (tipo, ramo, nome, sequência, classes, família, nível)  nível: 1 interrompe · 2 fila · 3 absorve
+_CLIMAX = {
+    "2": "B5 C13 D6 bob 2500", "2_ado": "B16 C13 D6 bob 2500", "1": "B2 C10 1500", "0": "B1 C1 600",
+    "-1": "B7 C9 1200", "-2": "B7 C9 P13 2000",
+}
+_CHEGA = "look:player 600 | B1 C1 P11 E2 700"
+_LINHAS_CENA: tuple = (
+    *(("musica_comecou", r, "Música começou", f"{_CHEGA} | {c}", {_M}, "musica", 2)
+      for r, c in _CLIMAX.items() if r not in ("-1", "-2")),
+    # −1: põe o fone, dá a chance (``musica_nota_menos1_chance_s``, o diretor ajusta o passo 1) e tira
+    ("musica_comecou", "-1", "Música começou (−1)", "look:player 600 | B1 C1 P11 E2 8000 | B7 C9 1200 | B1 C1 E3 500", {_M}, "musica", 2),
+    ("musica_comecou", "-2", "Música começou (−2)", "look:player 600 | B7 C9 P13 2000", {_M}, "musica", 2),
+    *(("faixa_trocou", r, "Faixa trocou", c, {_M}, "musica", 3) for r, c in _CLIMAX.items()),
+    ("impaciente", None, "Três pulos", "B7 C9 1500 | F7 C9 1500 | B7 C4 1000", {_M}, "musica", 2),
+    ("musica_parou", None, "Música parou", "B1 C1 P11 E3 1000 | B1 C1 iris:B1 800", {_M}, "musica_fim", 2),
+    ("pedro_fala", "com_fone", "Pedro fala (tira o fone)", "B1 C1 E3 400 | B1 C1 iris:B1 600", {_E}, "pedro", 1),
+    ("pedro_fala", "sem_fone", "Pedro fala", "B1 C1 iris:B1 600", {_E}, "pedro", 1),
+    ("recoloca_fone", None, "Recoloca o fone", "B1 C1 P11 E2 700", {_M}, "fone", 3),
+    ("jogo_abriu", None, "Cockpit", "B1 C10 P12 800", {_S}, "jogo", 2),
+    ("episodio", "cobranca", "Episódio de jogo", "look:fps 600 | B9 C7 D2 600 | B7 C8 D2 1200", {_S, _COB}, "jogo", 2),
+    ("episodio", "recuperou", "Recuperou", "look:fps 600 | B4 C10 1200", {_S}, "jogo", 2),
+    ("jogo_fechou", "limpo", "Relatório: limpo", "B4 C5 P12 1500", {_S, _VIT}, "jogo_fim", 2),
+    ("jogo_fechou", "episodios", "Relatório: eu avisei", "B6 C1 800 | B4 C10 1800", {_S, _ZOE}, "jogo_fim", 2),
+    ("jogo_fechou", "pedro_mal", "Relatório: desconfiada suave", "B7 C12 1200 | B1 C1 600", {_S}, "jogo_fim", 2),
+    ("pedro_voltou", "cochilou", "Voltou: sobressalto e tsundere", "B9 C7 D5 500 | B2 C9 iris:B1 500 | B6 C9 D1 1500 | F1 C12 600", {_E, _VOL}, "pedro", 1),
+    ("pedro_voltou", "orgulhosa", "Voltou: sorriso que escapa", "F1 C12 1000 | B1 C10 800 | B4 C5 1000", {_E, _VOL}, "pedro", 1),
+    ("claude_terminou", None, "Claude terminou", "look:claude 400 | B1 C10 D9 1000", {_E}, "claude", 3),
+    ("truque", None, "Truque de salão", "B4 C10 tails 1200 | B5 C6 D9 sway 1500", {_RARA}, "truque", 2),
+    ("truque", "ignorado", "Truque ignorado", "B1 C9 800", {_ZOE}, "truque", 3),
+    ("de_novo", None, "De novo?", "B7 C12 1000", {_ZOE}, "de_novo", 3),
+)
+CENAS: dict[tuple[str, str | None], Def] = {
+    (tipo, ramo): Def(tipo, "cena", nome, _passos(seq), frozenset(cls), cooldown_s=1.0, variante=ramo,
+        mood="focus" if tipo == "jogo_abriu" else "calm")
+    for tipo, ramo, nome, seq, cls, _fam, _niv in _LINHAS_CENA
+}
+FAMILIA_CENA: dict[str, str] = {t: f for t, _r, _n, _s, _c, f, _v in _LINHAS_CENA}
+NIVEL_CENA: dict[str, int] = {t: v for t, _r, _n, _s, _c, _f, v in _LINHAS_CENA if _r != "ignorado"}
+SAIDA: tuple[Passo, ...] = _passos("B1 C1 200")  # saída de uma cena interrompida (spec §8)

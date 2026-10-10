@@ -106,7 +106,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   - Pronto: 10 000 sorteios por momento × faixa nunca saem do grupo; nenhuma negativa sem causa; nenhum gesto de fone/ritmo sem música; piso de vida de 6 min.
   - Paralelo: V0.4, V0.6
 
-- [ ] **V0.10 Diretor de cenas** — `diretor.py` (spec §8) e os roteiros de cena do acordo §5 no
+- [x] **V0.10 Diretor de cenas** — `diretor.py` (spec §8) e os roteiros de cena do acordo §5 no
   `catalogo.py` (classe CENA, ramos); fila, interrupção, absorção, troca de fone atômica.
   - Lê: spec §1, §8, acordo §4–§5, `hud/wired/reacoes/catalogo.py` por trecho, `vida.py`, `governador.py` e `estado.py` (assinaturas)
   - Escreve: `hud/wired/reacoes/diretor.py`, `hud/wired/reacoes/catalogo.py`, `tests/hud/test_vida_diretor.py`
@@ -204,3 +204,18 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   resolvem (V0.8/V0.10). O que cada faixa tira (`passivas.FAIXA_BLOQUEIA`) e as causas de cada
   negativa (`passivas.NEGATIVAS`) são leitura minha do acordo §2 e spec §6. Não precisei de
   `[vida.momentos]` no gosto.
+- **V0.10:** CA-V4 usa a rajada real (`reacoes.jsonl`, 21:05:08–21:06:23, 9 disparos, sem as
+  passivas, que vêm do sorteio): dá **1 CENA** (`musica_comecou` ramo 2) e o resto vira atenção; o
+  commit (`ideia`, outra causa) ainda pode sair como ativa solta depois dos 25 s (nesta rajada saiu).
+  As roteiros ficam em `catalogo.CENAS` (fora de `DEFS`/`TODAS`, chave `(tipo, ramo)`), com
+  `FAMILIA_CENA`, `NIVEL_CENA` e `SAIDA`; `_passos` ganhou `look:<painel>`. Não há `Classe.CENA` no
+  `contratos` (não é meu): vale `governador.Tipo.CENA`. As sequências do episódio, do truque e da
+  volta orgulhosa não têm notação no acordo (escolhi). A família cala também as ativas soltas
+  (90 s música); o "de novo?" vem depois da absorção. `Diretor` ganhou `ctx` opcional em
+  `receber`/`proxima`, `truque`, `clique`, `sortear_passiva` (peso do governador, negativas com
+  `ctx["causas"]` + causas do diretor, `ctx["filtros"]`) e `tocando`. O beicinho do truque ignorado é
+  continuação da cena (não passa pela cota). Para a V0.8: detectores emitem `musica_comecou`,
+  `pulo` (`tocou_s`), `resposta_fim`, `claude_terminou` (`dur_s`), `episodio` (`primeiro`),
+  `game_off` (`episodios`, `pedro_mal`), `pedro_voltou` (`cochilou`) e `causa` no `fmt`; as 19
+  antigas já mapeiam em `diretor.ANTIGAS`. `test_vida_contratos::test_esqueleto_assinaturas` espera
+  `NotImplementedError` em `Diretor.proxima` — falha agora; a linha deve sair (arquivo não é meu).
