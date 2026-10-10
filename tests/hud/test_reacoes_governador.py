@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import random
 
+import pytest
+
 from hud.wired.reacoes import governador as g
 from hud.wired.reacoes import registro
 from hud.wired.reacoes.contratos import Classe, Def, Disparo, Passo
@@ -28,12 +30,15 @@ def esc(ctx, agora, *chaves):
     return d.chave if d else None
 
 
-def test_passiva_intervalo_40s():
+def test_passiva_intervalo_90s_do_vida():  # acordo 2026-10-10 §4: era 40 s
     a, b = mk("a", C.PASSIVA), mk("b", C.PASSIVA)
     ctx = ctx_de(a, b)
     assert esc(ctx, T0, "a") == "a"
-    assert esc(ctx, T0 + 39, "b") is None
-    assert esc(ctx, T0 + 40, "b") == "b"
+    assert esc(ctx, T0 + 89, "b") is None
+    assert esc(ctx, T0 + 90, "b") == "b"
+    ctx = ctx_de(a, b, vida={"passiva_min_s": 120})  # o [vida] do Pedro por cima
+    assert esc(ctx, T0, "a") == "a"
+    assert esc(ctx, T0 + 90, "b") is None
 
 
 def test_rara_1_por_hora():
@@ -207,7 +212,7 @@ def test_ca03_24h_simuladas_sem_violar_regras():
         hora_ = [(t2, d2) for t2, d2, _ in antes if t - t2 < 3600]
         assert d.chave != "k1"
         if C.PASSIVA in d.classes:
-            assert all(t - t2 >= 40 for t2, d2, _ in antes if C.PASSIVA in d2.classes)
+            assert all(t - t2 >= 90 for t2, d2, _ in antes if C.PASSIVA in d2.classes)
         else:
             assert all(t - t2 >= d.cooldown_s for t2, d2, _ in antes if d2.chave == d.chave)
             if not g.furou_cota(d):
@@ -269,3 +274,185 @@ def test_reacao_antiga_entra_no_registro(tmp_path):
     r.fire("player", 10.0)  # olhada de clique: fora do registro
     linhas = [json.loads(x) for x in log.read_text().splitlines()]
     assert [(x["chave"], x["motivo"]) for x in linhas] == [("hot", "antiga")]
+
+
+# --- Governador v2 (V0.5; spec §5–§6, acordo §4) ----------------------------------------------------
+
+T = g.Tipo
+P = g.Pedido
+
+
+def cena(chave="c", familia=None, **kw):
+    return P(T.CENA, chave, familia=familia, **kw)
+
+
+def gesto(chave="p"):
+    return P(T.GESTO, chave)
+
+
+def test_v2_25s_entre_expressoes():
+    gv = g.Governador()
+    assert gv.aprovar(P(T.ATIVA_SOLTA, "a"), T0)
+    assert gv.motivo(cena(), T0 + 24) == "min_entre_expressoes"
+    assert gv.aprovar(cena(), T0 + 25)
+
+
+def test_v2_60s_sem_passiva_depois_de_cena():
+    gv = g.Governador()
+    assert gv.aprovar(cena(), T0)
+    assert gv.motivo(gesto(), T0 + 59) == "pausa_apos_cena"
+    assert gv.motivo(P(T.ATIVA_SOLTA, "a"), T0 + 30) is None  # a pausa é só de passiva
+    assert gv.aprovar(gesto(), T0 + 60)
+
+
+def test_v2_cenas_8_por_hora_janela_de_parede():
+    gv = g.Governador()
+    for i in range(8):
+        assert gv.aprovar(cena(f"c{i}"), T0 + i * 30)
+    assert gv.motivo(cena("c9"), T0 + 600) == "cenas_hora"
+    assert gv.aprovar(cena("c9"), T0 + 3600)  # a primeira saiu da janela
+
+
+def test_v2_passivas_90s_e_12_por_hora():
+    gv = g.Governador()
+    assert gv.aprovar(gesto("a"), T0)
+    assert gv.motivo(gesto("b"), T0 + 89) == "passiva_min"
+    for i in range(1, 12):
+        assert gv.aprovar(gesto(f"g{i}"), T0 + i * 90)
+    assert gv.motivo(gesto("z"), T0 + 12 * 90) == "passivas_hora"
+
+
+def test_v2_mesma_passiva_peso_03_por_uso():
+    gv = g.Governador()
+    assert gv.peso("a", T0) == 1
+    gv.aprovar(gesto("a"), T0)
+    gv.aprovar(gesto("a"), T0 + 100)
+    assert gv.peso("a", T0 + 200) == pytest.approx(0.09)
+    assert gv.peso("b", T0 + 200) == 1
+    assert gv.peso("a", T0 + 100 + 3600) == 1
+
+
+def test_v2_mesmo_tipo_de_cena_absorvido_30s_musica_90s():
+    gv = g.Governador()
+    assert gv.aprovar(cena("x", "claude"), T0)
+    assert gv.motivo(cena("y", "claude"), T0 + 29) == "mesma_familia"
+    assert gv.pode(cena("y", "claude"), T0 + 30)
+    assert gv.aprovar(cena("m", "musica"), T0 + 30)
+    assert gv.motivo(cena("n", "musica"), T0 + 119) == "mesma_familia"
+    assert gv.pode(cena("n", "musica"), T0 + 120)
+
+
+@pytest.mark.parametrize("motivo", sorted(g.FURA_TUDO))
+def test_v2_furam_tudo(motivo):
+    gv = g.Governador()
+    for i in range(8):
+        gv.aprovar(cena(f"c{i}"), T0 + i * 30)
+    assert gv.aprovar(cena("f", fura=motivo), T0 + 211)  # 1 s depois e com a cota cheia
+    assert gv.motivo(cena("f", fura="qualquer"), T0 + 212) == "fura_desconhecido"
+
+
+def test_v2_atencao_e_corpo_fora_de_cota():
+    gv = g.Governador()
+    assert gv.aprovar(cena(), T0)
+    assert gv.aprovar(P(T.ATENCAO, "iris"), T0 + 1)
+    assert gv.aprovar(P(T.CORPO, "respira"), T0 + 2)
+    assert gv.aprovar(cena("d"), T0 + 25)  # a atenção não empurra o mínimo de 25 s
+
+
+def test_v2_negativas_com_causa_120s_e_3_por_hora():
+    gv = g.Governador()
+    neg = P(T.ATIVA_SOLTA, "suspiro", negativa=True, causas=frozenset({"claude_demorando"}))
+    assert gv.motivo(neg, T0, {}) == "negativa_sem_causa"
+    ctx = {"causas": {"claude_demorando": T0 - 121}}
+    assert gv.motivo(neg, T0, ctx) == "negativa_sem_causa"  # causa velha
+    ctx = {"causas": {"pulo_faixa_amada": T0 - 10}}
+    assert gv.motivo(neg, T0, ctx) == "negativa_sem_causa"  # causa de outra lista
+    assert gv.motivo(neg, T0, {"causas": {"claude_demorando": T0 - 10},
+                               "filtros": ["madrugada"]}) == "negativa_sob_filtro"
+    for i in range(3):
+        agora = T0 + i * 100
+        assert gv.aprovar(neg, agora, {"causas": {"claude_demorando": agora - 5}})
+    agora = T0 + 400
+    assert gv.motivo(neg, agora, {"causas": {"claude_demorando": agora}}) == "negativas_hora"
+
+
+def test_v2_causas_recentes():
+    ctx = {"causas": {"ignorada": T0 - 120, "episodio_jogo": T0 - 121, "outra": T0}}
+    assert g.causas_recentes(ctx, T0) == {"ignorada"}
+
+
+def test_v2_truque_1_por_dia():
+    gv = g.Governador()
+    assert gv.aprovar(cena("t", truque=True), T0)
+    assert gv.motivo(cena("t2", truque=True), T0 + 3600) == "truque_dia"
+    assert gv.pode(cena("t2", truque=True), T0 + 86400)
+
+
+def test_v2_piso_de_vida_6min():
+    gv = g.Governador()
+    gv.aprovar(gesto(), T0)
+    assert not gv.piso_vencido(T0 + 360)
+    assert gv.piso_vencido(T0 + 361)
+    assert not gv.piso_vencido(T0 + 361, {"momento": "conversa"})
+    assert not gv.piso_vencido(T0 + 361, {"pedro_presente": False})
+    gv.aprovar(P(T.ATENCAO, "iris"), T0 + 300)
+    assert not gv.piso_vencido(T0 + 600)
+
+
+def test_v2_numeros_do_vida_com_o_pedro_por_cima():
+    gv = g.Governador({"min_entre_expressoes_s": 40})
+    gv.aprovar(cena(), T0)
+    assert gv.motivo(cena("d"), T0 + 30) == "min_entre_expressoes"
+    assert gv.cfg["cenas_hora"] == 8  # o resto vem do VIDA_PADRAO
+
+
+def test_ca_v2_contadores_sobrevivem_ao_reinicio():
+    gv = g.Governador()
+    for i in range(8):
+        gv.aprovar(cena(f"c{i}", "claude", truque=i == 0), T0 + i * 30)
+    dados = json.loads(json.dumps(gv.exportar()))
+    novo = g.Governador()
+    novo.importar(dados, agora=T0 + 600)  # reiniciou 6 min depois: a janela é de parede
+    assert novo.motivo(cena("x"), T0 + 600) == "cenas_hora"
+    assert novo.motivo(cena("t", truque=True, fura=None), T0 + 7200) == "truque_dia"
+    velho = g.Governador()
+    velho.importar(dados, agora=T0 + 2 * 86400)
+    assert velho.hist == []
+
+
+def test_v2_24h_simuladas_sem_violacao():
+    rng = random.Random(7)
+    gv = g.Governador()
+    ok = []
+    causas = {}
+    for s in range(0, 86400, 3):
+        agora = T0 + s
+        if rng.random() < 0.01:
+            causas[rng.choice(sorted(g.CAUSAS_NEGATIVAS))] = agora
+        ctx = {"causas": causas, "filtros": ["madrugada"] if rng.random() < 0.1 else []}
+        tipo = rng.choice(list(T))
+        p = P(tipo, rng.choice("abcd"), familia=rng.choice([None, "musica", "claude"]),
+              negativa=rng.random() < 0.2, truque=rng.random() < 0.01,
+              fura=rng.choice(sorted(g.FURA_TUDO)) if rng.random() < 0.005 else None)
+        if gv.aprovar(p, agora, ctx):
+            ok.append((agora, p, causas.copy(), ctx["filtros"]))
+    assert len(ok) > 500
+    v = g.VIDA_PADRAO
+    for i, (t, p, cs, filtros) in enumerate(ok):
+        if p.fura or p.tipo not in g.EXPRESSOES:
+            continue
+        antes = [(t2, p2) for t2, p2, _, _ in ok[:i] if p2.tipo != T.CORPO]
+        hora = [(t2, p2) for t2, p2 in antes if t - t2 < 3600]
+        expr = [t2 for t2, p2 in antes if p2.tipo in g.EXPRESSOES]
+        assert not expr or t - expr[-1] >= v["min_entre_expressoes_s"]
+        if p.tipo == T.CENA:
+            assert sum(1 for _, p2 in hora if p2.tipo == T.CENA) < v["cenas_hora"]
+        if p.tipo == T.GESTO:
+            assert all(t - t2 >= v["pausa_apos_cena_s"] for t2, p2 in antes if p2.tipo == T.CENA)
+            assert all(t - t2 >= v["passiva_min_s"] for t2, p2 in antes if p2.tipo == T.GESTO)
+            assert sum(1 for _, p2 in hora if p2.tipo == T.GESTO) < v["passivas_hora"]
+        if p.negativa:
+            assert not filtros and any(0 <= t - em <= 120 for em in cs.values())
+            assert sum(1 for _, p2 in hora if p2.negativa) < v["negativas_hora"]
+        if p.truque:
+            assert not any(p2.truque for t2, p2 in antes if t - t2 < 86400)

@@ -77,7 +77,7 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   - Pronto: CA-V5 (parte do retrato) e CA-V8 verdes (medidor com nome do momento e 3 causas no hover); crossfade de 120 ms; testes do retrato antigos sem mudar asserção.
   - Paralelo: V0.6, V0.7
 
-- [ ] **V0.5 Governador v2** — números do `[vida]`, classes CENA/GESTO/ATIVA_SOLTA, mínimo de 20 s
+- [x] **V0.5 Governador v2** — números do `[vida]`, classes CENA/GESTO/ATIVA_SOLTA, mínimo de 20 s
   (exceções), assentamento de 45 s, cotas, mesma passiva, mesmo tipo de cena, negativas com causa
   (spec §6), contadores persistidos no `Estado` e janelas por tempo de parede.
   - Lê: spec §5–§6, acordo §4, `hud/wired/reacoes/governador.py`, `vida.py`, `estado.py` (assinaturas)
@@ -159,3 +159,16 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   `pedro_mal`, `momento`. A cor do medidor é um padrão por faixa (`estado.COR_FAIXA`), acordo §6 com
   a V0.4. Ao rodar, `test_vida_contratos::test_esqueleto_assinaturas` (episódio, V0.6) e
   `test_reacoes_governador::test_passiva_intervalo_40s` (V0.5) falhavam por arquivos em edição.
+- **V0.5:** o `Governador` v2 (em `governador.py`) guarda os contadores em `hist` e os expõe por
+  `exportar()`/`importar(dados, agora)` (dicionário JSON); a **V0.8** guarda isso no `Estado`. O
+  `estado.py` era stub durante a V0.5 (a V0.2 estava nele), então ficou sem ligação.
+- **V0.5:** o título da tarefa fala em "20 s" e "45 s"; valeram os números do `[vida]`/spec §5 (25 s e
+  60 s). "Uma linha por tabela do acordo §1" foi lido como uma linha por regra do acordo §4 (o §1 é o
+  humor, da V0.2).
+- **V0.5:** as classes `CENA/GESTO/ATIVA_SOLTA/ATENCAO/CORPO` ficaram em `governador.Tipo` (o
+  `contratos.Classe` não é da V0.5). Ficam para o diretor (V0.10): coalescência de 3 s, "de novo?"
+  (mesma causa < 10 min), sorteio das passivas por `Governador.peso`, ligação de `ctx["causas"]` e
+  `ctx["filtros"]`, e passar as 19 antigas pelo v2. Até lá, o `escolher` antigo só lê
+  `passiva_min_s` (90 s) e `cenas_hora` do `ctx["vida"]`.
+- **V0.5:** `test_vida_contratos::test_esqueleto_assinaturas` falhava porque a V0.2 estava no
+  `estado.py`; não é da V0.5.
