@@ -1,12 +1,12 @@
 # ruff: noqa: E501  (tabela de dados: uma reação por linha)
-"""Catálogo das 110 reações (90 da planilha + I1–I20): só dados. Dono: R0.4.
+"""Catálogo das 113 reações (90 da planilha + I1–I23): só dados. Dono: R0.4.
 
 Fontes: sequências de ``reacoes.md`` e acordo §1–§2 (ajustes aplicados), classes do spec §3 mais a
 classe do detector (spec §5), sinais condicionados do spec §5. Reações de variante (spec §1) usam a
 chave atual + ``variante``: em ``DEFS`` a chave é ``chave`` (sem variante) ou ``(chave, variante)``,
 como o governador procura (``_achar``).
 
-``TODAS``: as 110 ``Def`` em ordem. ``DEFS``: por chave. ``ATIVAS``: chaves de ``DEFS`` sem sinal
+``TODAS``: as 113 ``Def`` em ordem. ``DEFS``: por chave. ``ATIVAS``: chaves de ``DEFS`` sem sinal
 pendente e não substituídas (R8, CA-05). Sinal de arte (``ARTE``, hoje só ``P13`` da I20): conta como
 pronto se o PNG existe na pasta do retrato montada (``$MAGI_PORTRAIT_DIR`` ou
 ``~/.local/share/magi/condessa``), checado uma vez na importação — depois de rodar o
@@ -171,6 +171,10 @@ _LINHAS: tuple = (
     ("I18", "esperando_resposta", None, "Esperando resposta", "B1 C1 3000", {_E}, None, 600.0, {}),
     ("I19", "aniversario_dela", None, "Aniversário dela", "B9 C7 D5 500 | B5 C6 D1 D6 D9 3000", {_T}, None, 600.0, {}),
     ("I20", "bracos_cruzados", None, "Braços cruzados", "B7 C9 P13 2000 | B1 C1 600", {_P, _DIA}, "P13", 86400.0, {}),
+    # V1.1 (acordo §3): só arte existente; sem sinal — sem o PNG do braço, o retrato usa o da base
+    ("I21", "mao_no_queixo", None, "Mão no queixo", "B1 C1 P10 2500 | F1 C1 P10 1500 | B1 C1 400", {_P}, None, 600.0, {}),
+    ("I22", "sacada_player", None, "Sacada ao player", "B1 C1 look:player 1400 | B3 80 | B1 C1 400", {_P, _M}, None, 300.0, {}),
+    ("I23", "flagra_no_forum", None, "Flagra no fórum", "B1 C1 look:history 2000 | B1 C1 D2 iris:B1 900 | B1 C10 800", {_P, _ZOE}, None, 600.0, {}),
 )
 
 TODAS: tuple[Def, ...] = tuple(

@@ -200,3 +200,39 @@ def test_humor_so_le_momento_e_faixa():
     }
     assert humor.momento({"musica_nota": 2}) == Momento.CURTINDO
     assert humor.faixa({}) == Faixa.CONTENTE
+
+
+_NOVAS = {
+    "mao_no_queixo": (Momento.TRABALHANDO_JUNTO, Momento.ESTUDANDO),
+    "sacada_player": (Momento.ATURANDO,),
+    "flagra_no_forum": (Momento.TEDIO,),
+}
+
+
+def test_v11_tres_passivas_no_catalogo_e_nos_grupos():
+    for chave, momentos in _NOVAS.items():
+        d = catalogo.DEFS[chave]
+        assert catalogo.Classe.PASSIVA in d.classes and d.sinal is None
+        assert {m for m, g in momento.GRUPOS.items() if chave in g} == set(momentos)
+    assert "flagra_no_forum" in momento.ZOEIRA
+
+
+def test_v11_asset_ausente_pula_o_extra():
+    # sem nenhum PNG extra, as 3 seguem ativas: o braço P10 é só extra de corpo (o retrato usa o
+    # braço da base quando falta ``extra/P10.png``) e os olhares são para painéis que já existem
+    sem_arte = catalogo.ativas(lambda _rel: False)
+    assert set(_NOVAS) <= sem_arte
+    passos = catalogo.DEFS["mao_no_queixo"].passos
+    assert any("braco:P10" in p.corpo for p in passos)
+    assert all(p.eyes and p.mouth for p in passos)  # o rosto anda sozinho, sem o braço
+    assert {p.look for p in catalogo.DEFS["sacada_player"].passos} >= {"player"}
+
+
+@pytest.mark.parametrize("chave", list(_NOVAS))
+def test_v11_sorteio_das_novas_fica_no_grupo(chave):
+    for m in _NOVAS[chave]:
+        ctx = _ctx(momento=m, faixa_humor=Faixa.CONTENTE, musica_nota=-1 if m == Momento.ATURANDO else None,
+                   **_RICO)
+        c = _forcar(ctx, 2000)
+        assert c[chave] > 0, (chave, m)
+        assert set(c) <= set(momento.GRUPOS[m])

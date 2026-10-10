@@ -147,6 +147,16 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   - Pronto: CA-V6 = as **7 metas do acordo §8** verdes no replay do dia real (se a Emburrada passar de 15 %, anotar: a Kurisu pediu para a "birra fresca" voltar à mesa); o Pedro avisado do que conferir.
   - Paralelo: —
 
+- [x] **V1.1 Três passivas que faltam** — `mao_no_queixo` (P10), `sacada_player` e `flagra_no_forum`
+  no `catalogo.py`, só com a arte existente (passo cujo asset falta pula o extra); voltam aos grupos
+  de `momento.GRUPOS` conforme o acordo §3 (Sobras da V0.7).
+  - Lê: acordo §2–§3, *Sobras* (V0.3, V0.7), `hud/wired/reacoes/catalogo.py` por trecho, `momento.py` (`GRUPOS`, `_cabe`, `ZOEIRA`), `passivas.py` (assinaturas), `tests/hud/test_reacoes_passivas.py`
+  - Escreve: `hud/wired/reacoes/catalogo.py`, `hud/wired/reacoes/momento.py` (só `GRUPOS`), `tests/hud/test_reacoes_passivas.py`, `tests/hud/test_vida_momentos.py` (só os 2 asserts que a V0.7 ajustou)
+  - Depende de: V0.9
+  - Orçamento: ~40k
+  - Pronto: as 3 no catálogo e nos grupos; sorteio nunca sai do grupo; asset ausente → extra pulado; `tests/hud` verde; `ruff` limpo.
+  - Paralelo: —
+
 ## Sobras
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
 - **V0.3:** os limiares da tabela do acordo §3 (2 min de conversa, 10 min sumiu, 15 min de Tédio,
@@ -287,3 +297,11 @@ V0.1 ─┬─ V0.2 (humor) ─┬─ V0.4 (repouso + retrato + medidor) ─┐
   música; o grupo Jogando só tem positiva com música): falhou em 4 de 9 sementes. Fica para o
   Conselho decidir uma positiva em Jogando sem música (ex.: sorriso com FPS estável). Emburrada
   ficou em 0 %, então não precisei anotar a "birra fresca". Gosto do Pedro: `desligadas = []`.
+- **V1.1:** as 3 entraram como `I21`–`I23` (sem sinal: ativas sem PNG novo). `mao_no_queixo` usa
+  `braco:P10` (sem `extra/P10.png` o retrato já põe o braço da base — `test_wired_portrait`);
+  `sacada_player` olha `look:player`; `flagra_no_forum` olha `look:history` (não há painel de
+  fórum: o Conselho pode trocar o alvo) com D2 e é ZOEIRA. Fora do *Escreve*, o mínimo para ficar
+  verde: `test_reacoes_catalogo` passou de 110 para 113 itens (`_N` até I23). `sacada_player` não é
+  negativa em `passivas.NEGATIVAS` (sai em Aturando sem precisar de causa); se o Conselho quiser,
+  entra lá com `faixa_nota_menos1`. As sequências foram escritas pelo agente, sem roteiro no
+  acordo: revisar junto com as 3 cenas da V0.10.

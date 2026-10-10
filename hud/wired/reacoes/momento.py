@@ -31,19 +31,19 @@ GRUPOS: dict[Momento, tuple[str, ...]] = {
     Momento.ESPERANDO: ("impaciente", "encarando", "soprando_franja"),
     Momento.NO_FLOW: ("cabeca_ritmo", "piscada_gato", "observando_hud"),
     Momento.TRABALHANDO_JUNTO: (
-        "observando_hud", "sacada_olhar", "piscada_dupla", "soprando_franja",
+        "observando_hud", "sacada_olhar", "piscada_dupla", "soprando_franja", "mao_no_queixo",
     ),
-    Momento.ESTUDANDO: ("piscada_gato", "sacada_olhar", "ideia"),
+    Momento.ESTUDANDO: ("piscada_gato", "sacada_olhar", "ideia", "mao_no_queixo"),
     Momento.CURTINDO: (
         "cabeca_ritmo", "sorriso_canto", "piscada_gato", "ajeitando_fone", "cantando_junto",
     ),
-    Momento.ATURANDO: ("indiferente", "soprando_franja"),
+    Momento.ATURANDO: ("sacada_player", "indiferente", "soprando_franja"),
     Momento.OUVINDO: ("ajeitando_fone", "sacada_olhar", "cabeca_ritmo"),
     Momento.PEDRO_SUMIU: (
         "brilho_presilha", "observando_hud", "falando_sozinha", "cantarolando", "bocejo", "cochilo",
     ),
     Momento.TEDIO: (
-        "brilho_presilha", "observando_hud", "cantarolando",
+        "brilho_presilha", "observando_hud", "flagra_no_forum", "cantarolando",
         "encarando", "ei_to_aqui", "beicinho",
     ),
     Momento.A_TOA: (

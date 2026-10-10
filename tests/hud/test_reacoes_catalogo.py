@@ -1,4 +1,4 @@
-"""R0.4: catálogo das 110 reações (CA-05, R1, R5, R8)."""
+"""R0.4: catálogo das 113 reações (CA-05, R1, R5, R8)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from wired.reacoes import catalogo
 from wired.reacoes.contratos import CORPO, EFEITO, Classe
 
 _FAIXAS = {"B": 17, "C": 14, "F": 7, "V": 6, "D": 9, "P": 13}
-_N = set(range(1, 91)) | {f"I{i}" for i in range(1, 21)}
+_N = set(range(1, 91)) | {f"I{i}" for i in range(1, 24)}  # V1.1: I21–I23
 _SINAIS = {"A", "B", "C", "D", "E", "F", "fan", "restart", "capturas", "datas", "P13"}
 
 
@@ -20,9 +20,9 @@ def _asset_ok(ident: str, letras: str) -> bool:
     return (2 if m[1] == "P" else 1) <= k <= _FAIXAS[m[1]]
 
 
-def test_110_itens_chaves_unicas():
-    assert len(catalogo.TODAS) == 110
-    assert len(catalogo.DEFS) == 110
+def test_113_itens_chaves_unicas():
+    assert len(catalogo.TODAS) == 113
+    assert len(catalogo.DEFS) == 113
     assert {d.n for d in catalogo.TODAS} == _N
     for k, d in catalogo.DEFS.items():
         assert k == (d.chave if d.variante is None else (d.chave, d.variante))
