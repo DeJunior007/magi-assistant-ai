@@ -61,6 +61,9 @@ Mapper = Callable[[Mapping[str, Any]], Mapped]
 class ActionTool:
     """Ferramenta que executa uma ação local via ``ActionRegistry``."""
 
+    #: Mexe no PC/mídia: roda em série, na ordem, mesmo com ferramentas em paralelo (R5.5).
+    serial = True
+
     def __init__(
         self,
         spec: ToolSpec,

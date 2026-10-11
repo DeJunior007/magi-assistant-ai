@@ -270,6 +270,7 @@ def default_agent(
     from magi.agent.tools.search import search_tools
     from magi.agent.tools.system import system_tools
     from magi.agent.tools.vision import vision_tools
+    from magi.core.espera import EsperaCfg
 
     user = getattr(getattr(providers, "config", None), "raw", None) or {}
     name = str((user.get("user") or {}).get("name") or "") if isinstance(user, dict) else ""
@@ -279,11 +280,14 @@ def default_agent(
         *search_tools(providers, private_terms=(name,) if name else ()),
         *vision_tools(providers),
     ]
+    paralelo = EsperaCfg.from_raw(user.get("espera") if isinstance(user, dict) else None).ferramentas_paralelo
     if self_model is None:
-        return GraphAgent(providers, tools, game=game)
+        return GraphAgent(providers, tools, game=game, ferramentas_paralelo=paralelo)
     tools.append(SelfInfoTool(self_model))
     self_model.tools = tuple(t.spec for t in tools)
-    return GraphAgent(providers, tools, game=game, about=self_model.about_section)
+    return GraphAgent(
+        providers, tools, game=game, about=self_model.about_section, ferramentas_paralelo=paralelo
+    )
 
 
 # ---------------------------------------------------------------------------------------------

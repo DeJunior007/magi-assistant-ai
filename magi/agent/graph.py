@@ -47,7 +47,7 @@ from magi.common.contracts import (
     TurnRecord,
 )
 from magi.core.compose import SpeechDraft, compose, short_speech
-from magi.core.early import EARLY_SPEECH, EarlySpeech
+from magi.core.early import EARLY_SPEECH, EarlySpeech, notify_tool
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +62,7 @@ SAY_BUDGET = "Bati o teto do mês, só comandos locais agora."
 SAY_PROVIDER_FAILED = "Não consegui falar com a nuvem agora, tenta de novo daqui a pouco."
 SAY_GAVE_UP = "Me enrolei aqui, tenta pedir de outro jeito."
 SAY_UNKNOWN_TOOL = "Ferramenta desconhecida."
+SAY_TOOL_ERROR = "Deu ruim aqui, não consegui."  # mesma de actions.SAY_FAILED (cache)
 
 __all__ = ["GraphAgent", "history_from_turns", "short_speech"]
 
@@ -129,8 +130,11 @@ class GraphAgent:
         about: Callable[[], str | None] | None = None,
         memory: Any = None,
         max_steps: int = MAX_STEPS,
+        ferramentas_paralelo: bool = False,
     ) -> None:
         self._providers = providers
+        #: ``[espera] ferramentas_paralelo`` (R5.5): as não-``serial`` da volta rodam juntas.
+        self.ferramentas_paralelo = ferramentas_paralelo
         self._tools = {t.name: t for t in tools}
         self._specs = tuple(t.spec for t in tools)
         self._game = game
@@ -224,20 +228,54 @@ class GraphAgent:
         messages = list(state["messages"])
         results = list(state.get("results", []))
         final = True
-        for call in reply.tool_calls:
-            tool = self._tools.get(call.name)
-            if tool is None:
-                final = False
-                content = result_payload(ActionResult(ok=False, speech=SAY_UNKNOWN_TOOL))
-            else:
-                result = await tool.run(call.arguments, state["ctx"], state.get("text", ""))
-                if result.needs_confirmation:
-                    return {"pending": result}
-                results.append(result)
-                final = final and result.ok and getattr(tool, "final", False)
-                content = result_payload(result)
-            messages.append(ChatMessage(role="tool", content=content, tool_call_id=call.id))
+        ctx, text = state["ctx"], state.get("text", "")
+        paralelo = self._start_parallel(reply.tool_calls, ctx, text) if self.ferramentas_paralelo else {}
+        try:
+            for call in reply.tool_calls:
+                tool = self._tools.get(call.name)
+                if tool is None:
+                    final = False
+                    content = result_payload(ActionResult(ok=False, speech=SAY_UNKNOWN_TOOL))
+                else:
+                    task = paralelo.get(call.id)
+                    if task is not None:
+                        result = await task
+                    else:
+                        notify_tool(tool.name)
+                        if self.ferramentas_paralelo:
+                            result = await _run_safe(tool, call.arguments, ctx, text)
+                        else:
+                            result = await tool.run(call.arguments, ctx, text)
+                    if result.needs_confirmation:
+                        return {"pending": result}
+                    results.append(result)
+                    final = final and result.ok and getattr(tool, "final", False)
+                    content = result_payload(result)
+                messages.append(ChatMessage(role="tool", content=content, tool_call_id=call.id))
+        finally:
+            # Confirmação (ou cancelamento da volta): as que ainda correm são canceladas e descartadas.
+            for task in paralelo.values():
+                if not task.done():
+                    task.cancel()
         return {"messages": messages, "results": results, "final": final}
+
+    def _start_parallel(
+        self, calls: Sequence[Any], ctx: TurnContext, text: str
+    ) -> dict[str, asyncio.Task[ActionResult]]:
+        """Dispara já as ferramentas não-``serial`` da volta (R5.5); as ``serial`` ficam na ordem."""
+        livres = [
+            (call, tool)
+            for call in calls
+            if (tool := self._tools.get(call.name)) is not None and not getattr(tool, "serial", False)
+        ]
+        if len(livres) < 2:
+            return {}
+        log.info("espera: ferramentas %s em paralelo", ",".join(tool.name for _, tool in livres))
+        tasks: dict[str, asyncio.Task[ActionResult]] = {}
+        for call, tool in livres:
+            notify_tool(tool.name)
+            tasks[call.id] = asyncio.create_task(_run_safe(tool, call.arguments, ctx, text))
+        return tasks
 
     def _after_tools(self, state: _State) -> Literal["model", "__end__"]:
         # Ferramenta "final" (ex.: screenshot, 3.7) já traz a resposta pronta: poupa uma volta.
@@ -357,6 +395,15 @@ class GraphAgent:
                 )
             )
         return ActionResult(ok=False, speech=SAY_GAVE_UP, expression=Expression.CONFUSED)
+
+
+async def _run_safe(tool: Tool, args: Any, ctx: TurnContext, text: str) -> ActionResult:
+    """Roda ``tool``; exceção vira resultado de erro dela e não derruba a volta (spec §7)."""
+    try:
+        return await tool.run(args, ctx, text)
+    except Exception:  # noqa: BLE001 - uma ferramenta quebrada não leva as outras junto
+        log.exception("ferramenta %s falhou", tool.name)
+        return ActionResult(ok=False, speech=SAY_TOOL_ERROR)
 
 
 class _Voice:

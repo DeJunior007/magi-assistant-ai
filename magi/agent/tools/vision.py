@@ -169,6 +169,7 @@ class ScreenshotTool:
 
     spec = SCREENSHOT_SPEC
     danger = False
+    serial = True  # R5.5
     #: A resposta do ``vision`` já é a fala final: o grafo não volta ao modelo (tempo ≤ 5 s).
     final = True
 

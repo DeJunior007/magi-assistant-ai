@@ -84,6 +84,7 @@ FORGET_SPEC = ToolSpec(
 class RememberTool:
     spec = REMEMBER_SPEC
     danger = False
+    serial = True  # R5.5
 
     def __init__(self, store: MemoryStore) -> None:
         self.store = store
@@ -105,6 +106,7 @@ class RememberTool:
 class ForgetTool:
     spec = FORGET_SPEC
     danger = False
+    serial = True  # R5.5
 
     def __init__(self, store: MemoryStore) -> None:
         self.store = store
