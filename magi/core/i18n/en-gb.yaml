@@ -4,6 +4,14 @@
 # estiver em `values`, é traduzido também. Frase sem entrada aqui sai em português e vai para o log.
 
 fixed:
+  # audiolivro (A2.3)
+  "Tô numa call; leio quando ela acabar.": "I'm in a call; I'll read once it's over."
+  "Não achei esse livro na pasta.": "I couldn't find that book in the folder."
+  "Esse PDF é escaneado, não tem texto pra eu ler.": "That PDF is a scan; there's no text for me to read."
+  "Não tem livro aberto.": "No book is open."
+  "Não tem livro nenhum na pasta.": "There are no books in the folder."
+  "Leitura pausada.": "Reading paused."
+  "Fechei o livro.": "Book closed."
   "Beleza.": "Alright."
   "Feito.": "Done."
   "Pronto.": "There you go."
@@ -154,6 +162,13 @@ fixed:
   "Não consegui trocar o tema.": "I couldn't change the topic."
 
 templates:
+  # audiolivro (A2.3)
+  "Achei mais de um: {a} ou {b}. Qual?": "I found more than one: {a} or {b}. Which?"
+  "Lendo {titulo}.": "Reading {titulo}."
+  "Tenho {n} livros: {lista}.": "I have {n} books: {lista}."
+  "Velocidade {v}.": "Speed {v}."
+  "Capítulo {cap} de {titulo}.": "Chapter {cap} of {titulo}."
+  "Esse capítulo leva uns {min} minutos; o livro todo, umas {horas} horas.": "This chapter takes about {min} minutes; the whole book, about {horas} hours."
   "Já usei as {n} sessões do Claude Code de hoje. Amanhã eu vejo.": "I've used today's {n} Claude Code sessions. I'll look tomorrow."
   "{svc} caiu. Quer que eu investigue?": "{svc} is down. Shall I investigate?"
   "Abrindo {game}.": "Opening {game}."

@@ -528,6 +528,7 @@ async def assemble(
     found = _wire_memory_store(core, found)
     found = _wire_mood(core, config, hud_sink, found)
     found = _wire_news_query(core, found)
+    found = _wire_book(core, config, found)  # audiolivro (A2.3)
     if core.autofix is not None:
         from magi.maintenance.autofix import AutofixHandler
 
@@ -735,6 +736,21 @@ def _wire_news_query(core: Core, found: list[ActionHandler]) -> list[ActionHandl
     if any(IntentId.NEWS_WHATS_NEW.value in h.intents for h in found):
         return found
     return [*found, WhatsNewHandler(core.news_query)]
+
+
+def _wire_book(core: Core, config: Config, found: list[ActionHandler]) -> list[ActionHandler]:
+    """Audiolivro (A2.3): ``BookHandler`` com o TTS Kokoro do livro, o refino Qwen local e o
+    MPRIS do Spotify (música pausa e volta, D4). Falha = sem audiolivro (log)."""
+    if any(IntentId.BOOK_READ.value in h.intents for h in found):
+        return found
+    try:
+        from magi.audiolivro.handler import montar
+
+        mpris = next((m for h in found if (m := getattr(h, "mpris", None)) is not None), None)
+        return [*found, montar(config, core.providers, mpris=mpris)]
+    except Exception as e:  # noqa: BLE001 - audiolivro opcional
+        core.warn(f"audiolivro indisponível: {e}")
+        return found
 
 
 def _news_narrator(core: Core) -> None:

@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -46,6 +46,8 @@ __all__ = [
 ]
 
 INTENTS_PATH = Path(__file__).with_name("intents.yaml")
+#: ``context`` do ``intents.yaml``: a frase só concorre com leitura do audiolivro (A6.1).
+CONTEXT_READING = "reading"
 
 # ---------------------------------------------------------------------------
 # Vocabulário
@@ -321,6 +323,7 @@ class _Template:
     free: str | None  # slot livre no fim da frase
     consts: tuple[tuple[str, str], ...]
     label: str | None
+    context: str | None = None  # "reading": só concorre com ``ctx.reading`` (A6.1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,7 +338,9 @@ class IntentSpec:
     required: frozenset[str] = frozenset()
 
 
-def _parse_template(say: str, consts: Mapping[str, Any], label: str | None, where: str) -> _Template:
+def _parse_template(
+    say: str, consts: Mapping[str, Any], label: str | None, where: str, context: str | None = None
+) -> _Template:
     slots: list[tuple[str, str]] = []
 
     def mark(m: re.Match[str]) -> str:
@@ -366,6 +371,7 @@ def _parse_template(say: str, consts: Mapping[str, Any], label: str | None, wher
         free=free,
         consts=tuple((str(k), str(v)) for k, v in consts.items()),
         label=label,
+        context=context,
     )
 
 
@@ -380,12 +386,18 @@ def load_intents(path: Path | str = INTENTS_PATH, *, strict: bool = True) -> lis
         if strict and iid not in valid_ids:
             raise ValueError(f"intents.yaml: id fora de IntentId: {iid!r}")
         templates = []
+        context = item.get("context")  # chave ``context: reading`` (intent ou frase, A6.1)
         for k, phrase in enumerate(item.get("phrases", [])):
             where = f"{iid}[{k}]"
             if isinstance(phrase, str):
-                tpl = _parse_template(phrase, {}, None, where)
+                tpl = _parse_template(phrase, {}, None, where, context)
             else:
-                tpl = _parse_template(phrase["say"], phrase.get("slots", {}), phrase.get("label"), where)
+                tpl = _parse_template(
+                    phrase["say"], phrase.get("slots", {}), phrase.get("label"), where,
+                    phrase.get("context", context),
+                )
+            if tpl.context not in (None, CONTEXT_READING):
+                raise ValueError(f"intents.yaml: context desconhecido em {where}: {tpl.context!r}")
             names = [n for n, _ in tpl.fixed] + [n for n, _ in tpl.consts] + ([tpl.free] if tpl.free else [])
             if strict and (bad := set(names) - valid_slots):
                 raise ValueError(f"intents.yaml: slot fora de SlotName em {where}: {bad}")
@@ -414,6 +426,7 @@ class _Candidate:
     spec: IntentSpec
     slots: tuple[Slot, ...]
     label: str
+    context: bool = False  # frase com contexto ganha empate (com leitura, "pausa" é do livro)
 
 
 class _Fmt(dict[str, str]):
@@ -442,11 +455,17 @@ class LocalRouter:
         self.catalog = catalog
         self.execute_score = execute_score
         self.ask_score = ask_score
+        self._reading = False  # ``ctx.reading`` do ``route`` em curso (A6.1)
 
     # -- Router -----------------------------------------------------------
 
     def route(self, text: str, ctx: TurnContext | None = None) -> RouteResult:
-        best = self.best(text)
+        # ``best(text)`` sem ctx: o Learning embrulha ``best`` com 1 argumento (``intent_action``)
+        self._reading = ctx is not None and getattr(ctx, "reading", None) is not None
+        try:
+            best = self.best(text)
+        finally:
+            self._reading = False
         if best is None or best.score < self.ask_score:
             return RouteResult(RouteKind.AGENT, text, best.score if best else 0.0)
         intent = Intent(id=best.spec.id, slots=best.slots, danger=best.spec.danger, reply=best.spec.reply)
@@ -458,8 +477,9 @@ class LocalRouter:
 
     # -- nota -------------------------------------------------------------
 
-    def best(self, text: str) -> _Candidate | None:
-        """Melhor candidato (intenção + slots + nota), ou ``None`` se o texto é vazio."""
+    def best(self, text: str, ctx: TurnContext | None = None) -> _Candidate | None:
+        """Melhor candidato (intenção + slots + nota), ou ``None`` se o texto é vazio. Frase com
+        ``context: reading`` só concorre quando ``ctx.reading`` (audiolivro, A6.1)."""
         raw = normalize_text(text)
         if not raw:
             return None
@@ -467,13 +487,22 @@ class LocalRouter:
         marked, found = _extract_fixed(lem)
         core = _core(marked)
         best: _Candidate | None = None
+        reading = self._reading if ctx is None else getattr(ctx, "reading", None) is not None
         for spec in self.intents:
             for tpl in spec.templates:
+                if tpl.context is not None and not reading:
+                    continue
                 if tpl.free is None:
                     cand = self._fixed(spec, tpl, core, found)
                 else:
                     cand = self._free(spec, tpl, raw, lem)
-                if cand is not None and (best is None or (cand.score, cand.fixed) > (best.score, best.fixed)):
+                if cand is None:
+                    continue
+                if tpl.context is not None:
+                    cand = replace(cand, context=True)
+                if best is None or (cand.score, cand.fixed, cand.context) > (
+                    best.score, best.fixed, best.context
+                ):
                     best = cand
         return best
 

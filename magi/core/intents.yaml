@@ -716,3 +716,114 @@ intents:
       - "conversar sobre as notícias de hoje"
       - "let's talk about the news"
       - "talk about today's news"
+
+  # -- audiolivro (A2.3, spec §5) ---------------------------------------------
+  # ``context: reading`` (na intent ou na frase): só concorre com leitura ativa ou pausada há
+  # ≤ 30 min (``TurnContext.reading``, A6.1); sem leitura, "pausa"/"para" seguem para a música.
+  # Quem fala é o ``BookHandler`` (``magi.audiolivro.handler``); ``reply`` fica vazio.
+  - id: book.read
+    label: "ler o livro {query}"
+    required: [query]
+    phrases:
+      - "lê o livro {query}"
+      - "lê {query}"
+      - "bota o audiolivro {query}"
+      - "abre o livro {query}"
+      - "lê pra mim o livro {query}"
+
+  - id: book.resume
+    label: "continuar o livro"
+    phrases:
+      - "continua o livro"
+      - "continua a leitura"
+      - "volta a ler"
+      - say: "continua"
+        context: reading
+      - say: "pode continuar"
+        context: reading
+
+  - id: book.pause
+    label: "pausar a leitura"
+    phrases:
+      - "pausa a leitura"
+      - "pausa o livro"
+      - say: "pausa"
+        context: reading
+      - say: "espera"
+        context: reading
+
+  - id: book.stop
+    label: "parar de ler"
+    phrases:
+      - "para de ler"
+      - "fecha o livro"
+      - "chega de livro"
+      - say: "para"
+        context: reading
+      - say: "chega"
+        context: reading
+
+  - id: book.back
+    label: "voltar um parágrafo"
+    context: reading
+    phrases:
+      - "volta um parágrafo"
+      - "volta {amount} parágrafos"
+      - "repete"
+      - "lê de novo"
+
+  - id: book.forward
+    label: "pular um parágrafo"
+    context: reading
+    phrases:
+      - "pula um parágrafo"
+      - "pula {amount} parágrafos"
+
+  - id: book.chapter
+    label: "trocar de capítulo"
+    context: reading
+    phrases:
+      - say: "próximo capítulo"
+        slots: {text: next}
+        label: "ir para o próximo capítulo"
+      - say: "capítulo anterior"
+        slots: {text: previous}
+        label: "voltar ao capítulo anterior"
+      - "vai pro capítulo {amount}"
+
+  - id: book.speed
+    label: "mudar a velocidade da leitura"
+    context: reading
+    phrases:
+      - say: "lê mais devagar"
+        slots: {text: slower}
+      - say: "mais devagar"
+        slots: {text: slower}
+      - say: "lê mais rápido"
+        slots: {text: faster}
+      - say: "mais rápido"
+        slots: {text: faster}
+      - say: "velocidade normal"
+        slots: {text: normal}
+
+  - id: book.where
+    label: "onde a gente parou no livro"
+    phrases:
+      - "onde a gente parou"
+      - "em que capítulo tá"
+      - "em que capítulo a gente tá"
+
+  - id: book.list
+    label: "listar os livros"
+    phrases:
+      - "que livros eu tenho"
+      - "lista os livros"
+      - "quais livros eu tenho"
+
+  - id: book.time
+    label: "quanto falta do livro"
+    phrases:
+      - "quanto falta desse livro"
+      - "quanto falta do livro"
+      - "quanto falta do capítulo"
+      - "quanto tempo leva {query}"

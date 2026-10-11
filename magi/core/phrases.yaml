@@ -43,6 +43,14 @@ fixed:
   - "Bati o teto do mês, só comandos locais agora."
 
 lazy:
+  # audiolivro (A2.3)
+  - "Tô numa call; leio quando ela acabar."
+  - "Não achei esse livro na pasta."
+  - "Esse PDF é escaneado, não tem texto pra eu ler."
+  - "Não tem livro aberto."
+  - "Não tem livro nenhum na pasta."
+  - "Leitura pausada."
+  - "Fechei o livro."
   # agente
   - "Me enrolei aqui, tenta pedir de outro jeito."
   - "Ferramenta desconhecida."
@@ -178,6 +186,13 @@ lazy:
   - "Deixa eu organizar a cabeça aqui."
 
 templates:
+  # audiolivro (A2.3)
+  - "Achei mais de um: {a} ou {b}. Qual?"
+  - "Lendo {titulo}."
+  - "Tenho {n} livros: {lista}."
+  - "Velocidade {v}."
+  - "Capítulo {cap} de {titulo}."
+  - "Esse capítulo leva uns {min} minutos; o livro todo, umas {horas} horas."
   - "Já usei as {n} sessões do Claude Code de hoje. Amanhã eu vejo."
   - "{svc} caiu. Quer que eu investigue?"
   - "Abrindo {game}."

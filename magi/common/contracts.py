@@ -477,6 +477,18 @@ class IntentId(StrEnum):
     LEARNING_TOPIC_INTERVIEW = "learning.topic.interview"  # "entrevista técnica", "tech interview"
     LEARNING_TOPIC_GAME = "learning.topic.game"  # "vamos falar do jogo" (só com sessão ativa)
     LEARNING_TOPIC_NEWS = "learning.topic.news"  # "vamos falar das notícias"
+    # audiolivro (spec §5; frases com ``context: reading`` só valem com ``TurnContext.reading``)
+    BOOK_READ = "book.read"  # "lê o livro X", slot query
+    BOOK_RESUME = "book.resume"  # "continua o livro"
+    BOOK_PAUSE = "book.pause"  # "pausa a leitura"
+    BOOK_STOP = "book.stop"  # "para de ler"
+    BOOK_BACK = "book.back"  # "volta um parágrafo", slot amount
+    BOOK_FORWARD = "book.forward"  # "pula um parágrafo", slot amount
+    BOOK_CHAPTER = "book.chapter"  # "próximo capítulo", slot text (next/previous) ou amount
+    BOOK_SPEED = "book.speed"  # "mais devagar", slot text (slower/faster/normal)
+    BOOK_WHERE = "book.where"  # "onde a gente parou"
+    BOOK_LIST = "book.list"  # "que livros eu tenho"
+    BOOK_TIME = "book.time"  # "quanto falta desse livro" (A7.1), slot query opcional
 
 
 @dataclass(frozen=True, slots=True)

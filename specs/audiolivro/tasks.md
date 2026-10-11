@@ -157,7 +157,7 @@ onda 1) · **3)** A2.2 · **4)** A2.3. A3.1 é do Pedro (não implementar).
   - Pronto: CA-A7; Qwen falso lento → leitura começa nas regras e troca no capítulo com cache; `tests/core/test_turn*.py` antigos verdes.
   - Paralelo: —
 
-- [ ] **A2.3 Intents, roteador e handler** — 11 intents `book.*` (spec §5) no `IntentId` e no
+- [x] **A2.3 Intents, roteador e handler** — 11 intents `book.*` (spec §5) no `IntentId` e no
   `intents.yaml`; chave `context: reading` no formato do YAML e no `LocalRouter` (frase com
   contexto só concorre com `ctx.reading`); `handler.py` (`BookHandler`: tempo restante em
   `book.time` (A7.1), ambiguidade (A1.1), não começa em call e avisa (A8.4), música pausada/retomada
@@ -202,3 +202,13 @@ onda 1) · **3)** A2.2 · **4)** A2.3. A3.1 é do Pedro (não implementar).
   (D4) e o `refino.parar()` no fim ficam para a A2.3 (ex.: embrulhar `Leitura.partes`). A legenda
   de call (`READING_CALL_CAPTION` em `turn.py`) não tem tradução en-gb (só legenda, sem fala).
   Os índices de parágrafo da `Posicao` são a posição na lista do capítulo (= `Paragrafo.n` no EPUB/PDF).
+- (A2.3) Pronto: `BookHandler` + `montar` (Leitura com `registry.tts_livro()` e `RefinoQwen` sobre
+  `ModeloQwen` — Ollama local `/v1/chat/completions` — e `ContainerRuntime` do `[audiolivro]`);
+  `Narrada` embrulha a `Leitura` (fim de `partes()` → música volta + `refino.parar()`; `book.stop`
+  marca `estado = "parada"`). Ficou: (1) a música volta quando o gerador acaba, que é um pouco
+  antes do áudio das últimas frases (o `say_parts` pré-sintetiza); (2) o registro A10
+  (`registrar_sessao`) não é chamado por ninguém ainda; (3) o "continua o livro" depois de reiniciar
+  usa `estado_dir/audiolivro-ultimo` (id do último livro); (4) o Learning embrulha
+  `LocalRouter.best(text)` com 1 argumento (`intent_action._gate`), então o `route` passa o
+  `ctx.reading` por `self._reading`; (5) sem leitura, "chega" vira ASK de `book.stop` (85) e
+  "lê de novo"/"lê mais rápido" viram `book.read` (responde "não achei esse livro").
