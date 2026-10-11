@@ -67,6 +67,7 @@ from magi.common.contracts import (
     StateMsg,
     StopPlayback,
     SttProvider,
+    ThinkMsg,
     ToneMetadata,
     Transcript,
     TurnContext,
@@ -80,7 +81,7 @@ from magi.common.contracts import (
     check_transition,
 )
 from magi.core.compose import compose, subtitle
-from magi.core.early import EARLY_SPEECH, EarlySpeech
+from magi.core.early import EARLY_SPEECH, THINK_HUD, EarlySpeech
 from magi.core.i18n import tr_result
 from magi.core.utterance import UtteranceSaver, normalize_pcm16
 
@@ -833,10 +834,12 @@ class TurnMachine:
             return
         early = self._early_speech()
         token = EARLY_SPEECH.set(early)
+        think_token = THINK_HUD.set(self._think_hud)
         try:
             try:
                 result = await self.pipeline.respond(transcript, ctx)
             finally:
+                THINK_HUD.reset(think_token)
                 EARLY_SPEECH.reset(token)
             text = result.redo_text or transcript.final
             if text.strip():
@@ -847,6 +850,12 @@ class TurnMachine:
         finally:
             if early is not None:
                 early.cancel()  # interrupção/erro no meio: para o envio (fim normal: já terminou)
+
+    def _think_hud(self, msg: ThinkMsg) -> None:
+        """Gancho ``THINK_HUD`` (espera viva): manda o aviso ao HUD numa tarefa, como ``_captions``."""
+        task = asyncio.get_running_loop().create_task(self.hud.send(msg))
+        self._hud_tasks.add(task)
+        task.add_done_callback(self._hud_tasks.discard)
 
     def _early_speech(self) -> EarlySpeech | None:
         """Fala por frase em streaming (1.24): o agente fala a 1ª frase enquanto ainda gera."""

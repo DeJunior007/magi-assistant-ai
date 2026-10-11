@@ -45,14 +45,18 @@ Módulo novo **`magi/core/espera.py`** (puro, sem I/O):
 - `Catalogo.load(path)` lê **`magi/core/espera.yaml`** (tópicos → frases e moldes, spec §3).
 - `topico(texto, ctx) -> str` por palavras-chave (sem acento, prefixo de palavra) + jogo em foco.
 - `Cota` guarda as últimas frases e quantos turnos seguidos tiveram frase (R3.6), por satélite.
-- `escolher(texto, ctx, cota, rng) -> str | None` devolve a frase já preenchida ou `None`.
+- `demorado(texto, ctx, cat) -> bool` (D2): o pedido parece demorado? (tópico marcado
+  `demorado` no catálogo ou sinal de ferramenta no texto, spec §3.3).
+- `escolher(texto, ctx, cota, rng) -> str | None` devolve a frase já preenchida ou `None`
+  (`None` também quando o pedido não é demorado e `[espera] so_demorado`).
 - `mesma_espera(frase) -> bool` (R3.4): a frase do modelo é só "espera vazia"?
 - `honesta(frase) -> list[str]` (R4): violações do linter (spec §4); usada no teste do catálogo.
 
 Ligação no turno (`TurnMachine._think`), sem mexer no `TurnPipeline.respond`:
 1. Depois do `transcribe`, se `transcript` não é vazio/dispensa/resposta a confirmação velha:
    `rota = self.pipeline.peek_route(text, ctx)` (novo, sem efeito: `route` + `_settle`).
-2. Se `rota.kind is AGENT`, `cfg.frase` e `early` existe: cria a tarefa `espera` que dorme
+2. Se `rota.kind is AGENT`, `cfg.frase`, `early` existe **e o pedido é demorado** (D2:
+   `demorado(...)`, ou `so_demorado = false`): cria a tarefa `espera` que dorme
    `frase_apos_ms` e, se `not early.started`, chama `early.say_wait(frase)`.
 3. A tarefa é cancelada no `finally` do `_think` e no `_cancel_work` (R6).
 4. `say_wait` abre o envio como `say` (mesmo `play`), entra em `early.waits` (fora de todas as
@@ -109,7 +113,7 @@ mensagens `tool` fica a do pedido.
 | --- | --- |
 | Frase de espera vira tique ou soa falsa | cota R3.6, catálogo do Conselho, linter R4, veto do Pedro (D4), validação de 1 semana (E4.1) |
 | Duas esperas seguidas ("Hm, deixa eu pensar. Deixa eu ver…") | `drop_wait_echo` (R3.4); o modelo segue livre para espera **com conteúdo** |
-| Frase toca e a resposta é instantânea ("Oito.") | limiar de 700 ms só conta depois da transcrição; se o 1º token chegar antes, `early.started` barra |
+| Frase toca e a resposta é instantânea ("Oito.") | só em pedido demorado (D2); limiar de 700 ms só conta depois da transcrição; se o 1º token chegar antes, `early.started` barra |
 | `peek_route` diverge do `respond` | mesma função (`route` + `_settle`) e teste que compara os dois |
 | Lotes estouram a fala | tetos da spec §5 + D3; `lotes = false` volta ao de hoje |
 | Ferramentas em paralelo brigam (ex.: duas no Spotify) | `paralelo = false` por ferramenta (`Tool.serial`) para as de mídia/PC; padrão paralelo só em leitura (search, news, steam, game_help, self_info) |

@@ -112,6 +112,18 @@ followup_s = 3.0
 # Ajuste também tasks.tts.instructions (sotaque/idioma da voz). Exige reiniciar o núcleo.
 language = "pt-br"
 
+# [espera]
+# Espera viva (specs/espera-viva): o que ela faz enquanto pensa numa resposta demorada.
+# frase = true                 # frase de espera local, do catálogo magi/core/espera.yaml (R3)
+# so_demorado = true           # só em pedido demorado: tópico/palavra indica ferramenta (D2);
+#                              # false = em todo turno de agente que passar de frase_apos_ms
+# frase_apos_ms = 700          # espera depois da transcrição antes da frase (0..10000)
+# lotes = true                 # pedido de várias partes: fala cada parte pronta na hora (R5)
+# lotes_max = 3                # lotes por turno (D3)
+# lotes_frases_max = 6         # frases faladas no turno: lotes + resposta final (D3)
+# ferramentas_paralelo = true  # ferramentas de leitura da mesma volta em paralelo (R5.5)
+# Frases vetadas pelo Pedro: ~/.config/magi/condessa-gosto.toml, [espera] vetadas = ["..."]
+
 [learning]
 # Condessa Learning Mode (specs/learning-mode, spec §2). Toda chave tem padrão; apague a seção
 # para usar os valores abaixo.

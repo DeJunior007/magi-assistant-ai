@@ -12,18 +12,29 @@ Frases de espera: o texto que o modelo escreve antes de chamar uma ferramenta ("
 conquistas…", ou a parte do pedido que ele já sabe responder) também é falado na hora, e o agente
 o marca com ``mark_interim``. Essas frases têm cota própria (``INTERIM_MAX``) e não contam no
 limite da resposta final, que continua com até ``max_sentences`` frases.
+
+Espera viva (E0.1): ``THINK_HUD`` é o gancho do turno para avisar o HUD do que ela está fazendo
+(``ThinkMsg``). ``notify_wait``/``notify_tool``/``notify_lote`` mandam pelo gancho aberto e não
+fazem nada sem ele (testes antigos, avisos).
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextvars import ContextVar
 
+from magi.common.contracts import ThinkMsg
 from magi.core.compose import SPEECH_MAX_SENTENCES, sentences, speech_key
 
 #: Fala antecipada do turno em curso (``None`` = falar só no fim).
 EARLY_SPEECH: ContextVar[EarlySpeech | None] = ContextVar("magi_early_speech", default=None)
+
+#: Aviso de espera ao HUD do turno em curso (``None`` = ninguém ouvindo; espera viva, design §4).
+THINK_HUD: ContextVar[Callable[[ThinkMsg], None] | None] = ContextVar("magi_think_hud", default=None)
+
+log = logging.getLogger(__name__)
 
 Play = Callable[[AsyncIterator[str]], Awaitable[None]]
 INTERIM_MAX = 2  # frases de espera por turno (antes das ferramentas)
@@ -87,3 +98,28 @@ class EarlySpeech:
     async def _sentences(self) -> AsyncIterator[str]:
         while (sentence := await self._queue.get()) is not None:
             yield sentence
+
+
+def _notify(msg: ThinkMsg) -> None:
+    hook = THINK_HUD.get()
+    if hook is None:
+        return
+    try:
+        hook(msg)
+    except Exception:  # noqa: BLE001 - aviso ao HUD nunca derruba o turno
+        log.exception("espera: aviso ao HUD falhou")
+
+
+def notify_wait() -> None:
+    """A frase de espera local começou a tocar (R3): ``{"t":"think","v":"wait"}``."""
+    _notify(ThinkMsg("wait"))
+
+
+def notify_tool(nome: str) -> None:
+    """O agente vai rodar a ferramenta ``nome`` (R2); nome fora de ``THINK_TOOLS`` vira ``other``."""
+    _notify(ThinkMsg("tool", tool=nome))
+
+
+def notify_lote(n: int) -> None:
+    """O lote ``n`` (1..) acabou de ser falado e o modelo segue (R5.3)."""
+    _notify(ThinkMsg("lote", n=n))

@@ -5,6 +5,10 @@ tarefa é feita por **um agente** com janela de **até 128k tokens** (teto duro)
 paralelo (campo *Paralelo*); o orquestrador (Pedro ou a sessão principal do Claude Code) só lança
 uma tarefa quando todas as de *Depende de* estão no `main`.
 
+**Decisões de 2026-10-10** (`specs/DECISOES-2026-10-10.md`, valem acima do requirements): D1, D3,
+D4, D5 no padrão; **D2 mudou: frase de espera só em pedido demorado** (tópico/sinal indica
+ferramenta, spec §3.3, `[espera] so_demorado`). O rosto/chip de pensar (E1.x) vale em todo turno.
+
 ## Regras para o agente
 
 1. **Leia só o pacote da tarefa** (campo *Lê*). Design por `§`, spec por `spec §`, requisitos por
@@ -47,11 +51,11 @@ E0.1 ─┬─ E1.1 ─────────┐
 
 ## Fase E0 — Contratos
 
-- [ ] **E0.1 Contratos e esqueleto** — `ThinkMsg`, `THINK_KINDS`, `THINK_TOOLS` em
+- [x] **E0.1 Contratos e esqueleto** — `ThinkMsg`, `THINK_KINDS`, `THINK_TOOLS` em
   `contracts.py` (spec §1) e no `HudMessage`; decodificador `think` em `events.decode_hud` e em
   `hud_bridge._MIN_DECODERS` (+ sinal Qt `think`, ainda sem ninguém ligado); `magi/core/espera.py`
   com `EsperaCfg.from_raw` **pronto** (spec §5) e stubs de `Catalogo.load`, `topico`, `Cota`,
-  `escolher`, `mesma_espera`, `honesta` (assinaturas finais, docstring com a tarefa dona);
+  `demorado`, `escolher`, `mesma_espera`, `honesta` (assinaturas finais, docstring com a tarefa dona);
   `hud/wired/pensando.py` com `Pose` e stub de `pose`; em `early.py` o `THINK_HUD` (ContextVar) e
   `notify_wait()`, `notify_tool(nome)`, `notify_lote(n)` (no-op sem gancho); em `turn.py` só o
   `_think` abrindo/fechando o `THINK_HUD` junto do `EARLY_SPEECH` (manda pelo `self.hud.send` numa
@@ -114,22 +118,24 @@ E0.1 ─┬─ E1.1 ─────────┐
 
 ## Fase E2 — Frase de espera
 
-- [ ] **E2.1 Catálogo pelo Conselho** — **precisa do Pedro para revisar.** Rodar `/conselho` com o
+- [ ] **E2.1 Catálogo pelo Conselho** — o agente roda o `/conselho` e grava; o Pedro veta depois
+  pelo gosto (`[espera] vetadas`, D4), sem bloquear o merge. Rodar `/conselho` com o
   assunto "frases de espera e respostas em lotes" (restrições: spec §3.1 e §4; D2, D3): ata em
   `persona/conselho/atas/<data>-espera/`, `acordo.md` com o catálogo e a regra dos lotes.
-  Gravar: `magi/core/espera.yaml` (spec §3.1), as frases em `phrases.yaml` (`lazy`) e os moldes
+  Gravar: `magi/core/espera.yaml` (spec §3.1, com `demorados` e `sinais_demora` da D2), as frases em `phrases.yaml` (`lazy`) e os moldes
   (`templates`), a linha "Ferramenta demorada…" de `magi/agent/persona.md` reescrita com a regra
   de lotes (design §5), e a linha "Última decisão" de `persona/condessa.md`. *(R3.1, R4, D1–D4)*
   - Lê: requirements (Problema, R3–R5, Decisões); spec §3.1, §3.4, §4; `magi/agent/persona.md`; `persona/condessa.md` linhas 1–60; `magi/core/phrases.yaml` linhas 1–10 e 140–160
   - Escreve: `persona/conselho/atas/<data>-espera/*`, `magi/core/espera.yaml`, `magi/core/phrases.yaml`, `magi/agent/persona.md` (só a linha da espera), `persona/condessa.md` (só a linha "Última decisão"), `tests/agent/test_prompt.py` (só se a linha mudada quebrar asserção de texto)
   - Depende de: E0.1
   - Orçamento: ~45k
-  - Pronto: mínimo da spec §3.1 cumprido; toda frase checada à mão contra a tabela §4 (o linter de verdade é da E2.2); `tests/core/test_tts.py` verde; nota do Pedro na ata.
+  - Pronto: mínimo da spec §3.1 cumprido; toda frase checada à mão contra a tabela §4 (o linter de verdade é da E2.2); `tests/core/test_tts.py` verde; ata registra que o veto do Pedro vem depois pelo gosto.
   - Paralelo: E1.1, E1.3, E1.4, E2.2
 
-- [ ] **E2.2 Seletor da frase** — `espera.py`: `Catalogo.load` (+ vetadas do gosto, caminho
-  injetável), `topico` (spec §3.2), `Cota` (§3.3), `escolher`, `mesma_espera` (§3.4), `honesta`
-  (§4). Puro, `rng` injetado. Testes com catálogo de teste (não depende do arquivo real).
+- [ ] **E2.2 Seletor da frase** — `espera.py`: `Catalogo.load` (+ `demorados`, `sinais_demora`,
+  vetadas do gosto, caminho injetável), `topico` (spec §3.2), `demorado` (§3.3, D2), `Cota` (§3.3),
+  `escolher` (devolve `None` em pedido não demorado com `so_demorado`), `mesma_espera` (§3.4),
+  `honesta` (§4). Puro, `rng` injetado. Testes com catálogo de teste (não depende do arquivo real).
   *(R3.6, R4, D2)*
   - Lê: spec §3, §4; `magi/core/espera.py`; `magi/core/compose.py` linhas 1–40 (normalização/`sentences`)
   - Escreve: `magi/core/espera.py`, `tests/core/test_espera.py`
@@ -139,7 +145,8 @@ E0.1 ─┬─ E1.1 ─────────┐
   - Paralelo: E1.1, E1.3, E1.4, E2.1
 
 - [ ] **E2.3 Frase de espera no turno** — `TurnPipeline.peek_route(text, ctx)` (`route` +
-  `_settle`, sem efeito); no `_think`, a tarefa `espera` do design §3 (só rota agente, `frase_apos_ms`,
+  `_settle`, sem efeito); no `_think`, a tarefa `espera` do design §3 (só rota agente **e pedido demorado** — D2,
+  `espera.demorado` / `[espera] so_demorado` —, `frase_apos_ms`,
   `early.started`, cota por satélite); `EarlySpeech.say_wait`, `waits`, `drop_wait_echo`,
   `missing` sem `waits` (spec §6); `_Voice` chama `drop_wait_echo` na 1ª interina; `notify_wait`;
   cancelamento no `finally` do `_think` e em `_cancel_work`; montagem (`assemble.py`: `EsperaCfg`,
@@ -150,7 +157,7 @@ E0.1 ─┬─ E1.1 ─────────┐
   - Escreve: `magi/core/turn.py`, `magi/core/early.py`, `magi/agent/graph.py` (só `_Voice`), `magi/core/assemble.py` (só a montagem), `tests/core/test_espera_turno.py`, `tests/core/test_espera_catalogo.py`
   - Depende de: E0.1, E2.1, E2.2
   - Orçamento: ~50k
-  - Pronto: CA-05, CA-06, CA-09 verdes; CA-10 (`frase = false`) verde; `test_turn_states.py`, `test_stream_speech.py`, `test_followup.py` sem mudar asserção.
+  - Pronto: CA-05 (inclui pedido não demorado sem frase), CA-06, CA-09 verdes; CA-10 (`frase = false`) verde; `test_turn_states.py`, `test_stream_speech.py`, `test_followup.py` sem mudar asserção.
   - Paralelo: E1.2
 
 ## Fase E3 — Lotes
@@ -169,7 +176,7 @@ E0.1 ─┬─ E1.1 ─────────┐
 
 ## Fase E4 — Medida e validação
 
-- [ ] **E4.1 Medida e uma semana de uso** — **precisa do Pedro.** `tools/perf.py latency` com
+- [ ] **E4.1 Medida e uma semana de uso** — **do Pedro (não implementar por agente).** `tools/perf.py latency` com
   `primeiro_som` (spec §8); rodar `latency --turns 20` com 3 frases (simples, com ferramenta, de 2
   partes) antes/depois (`[espera] frase/lotes` desligados × ligados); `docs/perf/espera.md` com a
   tabela e os critérios de sucesso 1, 3–6; uma semana de uso com o log `espera:` e a nota do Pedro;
@@ -184,3 +191,9 @@ E0.1 ─┬─ E1.1 ─────────┐
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
+
+- **E0.1:** assinaturas finais em `espera.py` levam o catálogo primeiro e o jogo por palavra-chave
+  (`TurnContext` não tem jogo em foco): `topico(cat, texto)`, `demorado(cat, texto)`,
+  `escolher(cat, texto, cota, rng, *, jogo, continuacao, so_demorado)`; `Cota.livre()` /
+  `Cota.registrar(frase|None)`. `EsperaCfg.from_raw` recebe a seção `[espera]` (não o config
+  inteiro) e recusa chave desconhecida. Sinal Qt da ponte: `think(str v, str tool, int n)`.

@@ -1,8 +1,8 @@
 # Spec — Espera viva
 
 Contratos, números e tabelas. Implementa [requirements.md](requirements.md) segundo o
-[design.md](design.md). Os números com "(D*)" seguem o padrão da decisão em aberto até o Pedro
-decidir.
+[design.md](design.md). Os números com "(D*)" seguem as decisões de 2026-10-10
+(`specs/DECISOES-2026-10-10.md`; D2 = só em pedido demorado).
 
 ## 1. Mensagem `think` (núcleo → HUD)
 
@@ -104,6 +104,8 @@ topicos:
   pc:       {palavras: [pc, gpu, cpu, temperatura, fps, memoria, disco], frases: [...]}
   conta:    {palavras: [quanto, quantos, calcula, converte, porcento], frases: [...]}
   geral:    {frases: [...]}   # sem tópico
+demorados: [jogo, noticia, musica, pc]   # tópicos que contam como pedido demorado (D2)
+sinais_demora: [pesquisa, procura, busca, noticia, ultimas, hoje, agora, atual, preco, lancamento, steam, internet]
 vetadas: []   # o Pedro também veta em ~/.config/magi/condessa-gosto.toml [espera] vetadas
 ```
 
@@ -120,9 +122,15 @@ nome do jogo > 30 caracteres → frase sem molde.
 
 ### 3.3 Quando (R3, D2)
 
+`demorado(texto, ctx, cat) -> bool`: verdadeiro se `topico(texto, ctx)` está em `cat.demorados`
+**ou** o texto normalizado tem prefixo de palavra de `cat.sinais_demora`. Assim "quanto é 8 vezes
+7" (`conta`) e conversa (`geral`) não têm frase; "como passo desse chefe" (`jogo`) e "o que saiu
+de notícia hoje" (`noticia`) têm.
+
 | Regra | Valor |
 | --- | --- |
 | Só rota | `RouteKind.AGENT` (depois do `_settle`) |
+| Só pedido demorado | `demorado(...)` verdadeiro (D2); `[espera] so_demorado = false` volta a valer para todo turno de agente |
 | Espera mínima | `frase_apos_ms` = 700 ms contados do fim do `transcribe` |
 | Não fala se | `early.started`; turno de continuação com texto ≤ 3 palavras; `[espera] frase = false`; tarefa cancelada |
 | Por turno | ≤ 1 |
@@ -159,6 +167,7 @@ O teste roda em todas as frases e moldes preenchidos com 3 jogos falsos.
 ```toml
 [espera]
 frase = true              # R3 (frase de espera local)
+so_demorado = true        # D2: frase só em pedido demorado (tópico/sinal, §3.3)
 frase_apos_ms = 700       # espera após a transcrição antes da frase (D2)
 lotes = true              # R5.1–R5.4
 lotes_max = 3             # lotes por turno (D3)
@@ -209,10 +218,12 @@ resultado delas descartado. Exceção numa ferramenta = resultado de erro dela (
 - **CA-02** `pose()` dá a etapa certa nos tempos 0; 1,19; 1,21; 3,49; 3,51 s; com `lote=1` nunca
   dá `hm`; asset ausente sai do ciclo.
 - **CA-03** Linter reprova cada linha da tabela §4 e aprova o catálogo inteiro (+ moldes).
-- **CA-04** `escolher` respeita §3.3 (repetição, folga, vetadas, continuação curta) com `rng` fixo.
-- **CA-05** Turno de agente com chat falso que demora 2 s: a frase de espera toca a ~700 ms
-  (relógio do loop controlado) e a resposta entra no **mesmo** envio; com chat que fala em 300 ms,
-  nenhuma frase de espera. Comando local: nenhuma.
+- **CA-04** `escolher` respeita §3.3 (repetição, folga, vetadas, continuação curta, só pedido
+  demorado) com `rng` fixo; `demorado` verdadeiro por tópico e por sinal, falso em `conta`/`geral`.
+- **CA-05** Turno de agente com pedido demorado e chat falso que demora 2 s: a frase de espera
+  toca a ~700 ms (relógio do loop controlado) e a resposta entra no **mesmo** envio; com chat que
+  fala em 300 ms, nenhuma frase de espera. Pedido não demorado (conversa, conta) com chat de 2 s:
+  nenhuma. Comando local: nenhuma.
 - **CA-06** Eco: frase local + interina "Deixa eu ver isso." → a interina não toca; "O tempo eu já
   sei: sol." toca.
 - **CA-07** Pedido de 2 partes com 2 voltas de ferramenta: lote 1 toca antes da 2ª ferramenta

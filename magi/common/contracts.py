@@ -15,7 +15,7 @@ Mapa rápido
 - Núcleo: ``Transcript``, ``Slot``, ``Intent``, ``RouteResult``, ``TurnContext``,
   ``ActionRequest``, ``ActionResult``, ids canônicos em ``IntentId`` e ``SlotName``.
 - HUD (§6): ``StateMsg``, ``SubtitleMsg``, ``SpeechMsg``, ``MouthMsg``, ``MoodMsg``, ``VoteMsg``,
-  ``TurnTagMsg``, ``CardMsg``, ``CmdMsg``, ``DetailMsg``. JSON de uma linha via
+  ``TurnTagMsg``, ``ThinkMsg``, ``CardMsg``, ``CmdMsg``, ``DetailMsg``. JSON de uma linha via
   ``magi.common.events.encode_hud`` / ``decode_hud`` (ou ``msg.to_json()``).
   Learning Mode (``lm_*``, LM1.2): ``LmModeMsg``, ``LmSessionMsg``, ``LmSayMsg``, ``LmMsgMsg``,
   ``LmActionMsg``, ``LmResultMsg``, ``LmObsMsg``, ``LmCfgMsg``, ``LmTopicMsg``, ``LmSaveMsg``,
@@ -736,6 +736,47 @@ class TurnTagMsg(_HudMsg):
         return {"t": self.T, "v": self.v}
 
 
+THINK_KINDS = frozenset({"wait", "tool", "lote"})
+THINK_TOOLS = frozenset({"search", "news_query", "steam_game", "game_help", "self_info",
+                         "screenshot", "spotify_play", "spotify_pick", "spotify_control",
+                         "open_game", "close_game", "volume", "rgb", "hud", "remember",
+                         "forget", "other"})
+
+
+@dataclass(frozen=True, slots=True)
+class ThinkMsg(_HudMsg):
+    """núcleo -> HUD ``{"t":"think","v":"tool","tool":"search"}`` (espera viva, R2/R5.3).
+
+    ``tool`` só vale com ``v="tool"`` (nome fora de ``THINK_TOOLS`` vira ``"other"``); ``n`` só
+    com ``v="lote"`` (lote que acabou de ser falado, 1..). Fora disso são zerados.
+    """
+
+    T: ClassVar[str] = "think"
+    v: str
+    tool: str | None = None
+    n: int = 0
+
+    def __post_init__(self) -> None:
+        if self.v not in THINK_KINDS:
+            raise ValueError(f"think fora de {sorted(THINK_KINDS)}: {self.v!r}")
+        if isinstance(self.n, bool) or not isinstance(self.n, int) or self.n < 0:
+            raise ValueError(f"think com n inválido: {self.n!r}")
+        tool = None
+        if self.v == "tool":
+            tool = self.tool if self.tool in THINK_TOOLS else "other"
+        object.__setattr__(self, "tool", tool)
+        if self.v != "lote":
+            object.__setattr__(self, "n", 0)
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"t": self.T, "v": self.v}
+        if self.v == "tool":
+            d["tool"] = self.tool
+        elif self.v == "lote":
+            d["n"] = self.n
+        return d
+
+
 class Verdict(StrEnum):
     """Estado da votação dos MAGI (R5.3)."""
 
@@ -1102,7 +1143,7 @@ LearningMessageMsg = (
 
 HudMessage = (
     StateMsg | SubtitleMsg | SpeechMsg | MouthMsg | MoodMsg | VoteMsg | CardMsg | CmdMsg | DetailMsg
-    | LearningMessageMsg | TurnTagMsg
+    | LearningMessageMsg | TurnTagMsg | ThinkMsg
 )
 
 

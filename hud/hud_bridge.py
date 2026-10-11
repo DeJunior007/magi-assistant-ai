@@ -133,6 +133,26 @@ def _m_turn_tag(d: dict[str, Any]) -> dict[str, Any]:
     return {"t": "turn_tag", "v": v}
 
 
+THINK_KINDS = frozenset({"wait", "tool", "lote"})  # = magi.common.contracts
+THINK_TOOLS = frozenset({"search", "news_query", "steam_game", "game_help", "self_info",
+                         "screenshot", "spotify_play", "spotify_pick", "spotify_control",
+                         "open_game", "close_game", "volume", "rgb", "hud", "remember",
+                         "forget", "other"})  # = magi.common.contracts
+
+
+def _m_think(d: dict[str, Any]) -> dict[str, Any]:
+    v = _choice(d, "v", THINK_KINDS)
+    if v == "tool":
+        tool = _field(d, "tool", str, None)
+        return {"t": "think", "v": v, "tool": tool if tool in THINK_TOOLS else "other"}
+    if v == "lote":
+        n = _field(d, "n", int, 0)
+        if isinstance(n, bool) or n < 0:
+            raise DecodeError(f"think com n inválido: {n!r}")
+        return {"t": "think", "v": v, "n": n}
+    return {"t": "think", "v": v}
+
+
 def _m_vote(d: dict[str, Any]) -> dict[str, Any]:
     out = {"t": "vote", "verdict": _choice(d, "verdict", VERDICTS)}
     return _opt(out, label=_field(d, "label", str, None))
@@ -189,6 +209,7 @@ _MIN_DECODERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "mouth": _m_mouth,
     "mood": _m_mood,
     "turn_tag": _m_turn_tag,
+    "think": _m_think,
     "vote": _m_vote,
     "card": _m_card,
     "cmd": _m_cmd,
@@ -307,6 +328,7 @@ class HudBridge(QObject):
     mouth = Signal(float)
     mood = Signal(int)
     turnTag = Signal(str)
+    think = Signal(str, str, int)  # espera viva: v, tool ("" sem), n
     vote = Signal(str, str)
     card = Signal(dict)
     detail = Signal(str)
@@ -350,6 +372,7 @@ class HudBridge(QObject):
             "mouth": lambda m: self.mouth.emit(float(m["v"])),
             "mood": lambda m: self.mood.emit(int(m["v"])),
             "turn_tag": lambda m: self.turnTag.emit(m["v"]),
+            "think": lambda m: self.think.emit(m["v"], m.get("tool") or "", int(m.get("n", 0))),
             "vote": lambda m: self.vote.emit(m["verdict"], m.get("label") or ""),
             "card": lambda m: self.card.emit({k: v for k, v in m.items() if k != "t"}),
             "detail": lambda m: self.detail.emit(m["v"]),

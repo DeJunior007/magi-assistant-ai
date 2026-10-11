@@ -58,9 +58,12 @@ DEVE mandar ao HUD `{"t":"think","v":"tool","tool":<nome>}` (spec §1), e o HUD 
 - R2.1 olhar para o painel ligado à ferramenta (tabela da spec §2.3), se houver;
 - R2.2 trocar o chip `Thinking · 思考中` pelo rótulo da ferramenta (spec §2.4) até a fala começar.
 
-**R3 — Frase de espera (núcleo).** QUANDO, num turno de agente, a transcrição estiver pronta e
-nada tiver sido falado em `[espera] frase_apos_ms` (padrão 700 ms), o núcleo DEVE falar **uma**
-frase de espera do catálogo (spec §3), escolhida pelo tópico do pedido.
+**R3 — Frase de espera (núcleo).** QUANDO, num turno de agente cujo pedido **parece demorado**
+(o tópico ou um sinal do texto indica ferramenta provável — spec §3.3, D2), a transcrição estiver
+pronta e nada tiver sido falado em `[espera] frase_apos_ms` (padrão 700 ms), o núcleo DEVE falar
+**uma** frase de espera do catálogo (spec §3), escolhida pelo tópico do pedido. Pedido que não
+parece demorado NÃO tem frase de espera, mesmo passando de 700 ms (o rosto/chip de pensar do R1/R2
+continua valendo em todo turno).
 - R3.1 A frase DEVE sair do cache de TTS (`phrases.yaml`, `lazy`/`templates`) para tocar sem ida
   à nuvem depois da 1ª vez.
 - R3.2 A frase DEVE entrar no mesmo envio de áudio da resposta (`EarlySpeech`), antes dela, e não
@@ -72,7 +75,7 @@ frase de espera do catálogo (spec §3), escolhida pelo tópico do pedido.
   ("o tempo eu já sei: …") segue.
 - R3.5 O núcleo NÃO DEVE falar frase de espera em comando local, confirmação, resposta a oferta,
   "não peguei", dispensa, aviso proativo nem no Learning Mode.
-- R3.6 Cota (padrão, D2): no máximo 1 por turno; nunca a mesma frase de 2 turnos atrás; pula 1
+- R3.6 Cota (D2): só em pedido demorado; no máximo 1 por turno; nunca a mesma frase de 2 turnos atrás; pula 1
   turno de agente a cada 3 se os 2 anteriores tiveram frase (para não virar tique).
 
 **R4 — Honestidade da espera.** Toda frase de espera DEVE obedecer à spec §4: fala do que ela está
@@ -111,7 +114,11 @@ de "fim da fala → resposta", e o núcleo DEVE logar em INFO `espera: frase "<t
 - Frase de espera gerada por LLM extra (ver D1).
 - Arte nova obrigatória: tudo funciona com os assets de hoje (R1.2).
 
-## Decisões em aberto (precisam do Pedro)
+## Decisões
+
+Decididas em 2026-10-10 (`specs/DECISOES-2026-10-10.md`, vale acima deste texto): D1 (a), **D2
+(c) só em pedido demorado**, D3 (a), D4 sim (E2.1 roda o `/conselho`; o Pedro veta depois em
+`[espera] vetadas`), D5 código pronto. O texto abaixo fica como registro das opções.
 
 - **D1 — Fonte da frase de espera.** (a) catálogo local por tópico, com cache de TTS e molde com o
   jogo em foco (zero custo, toca em ~0 s); (b) chamada a um modelo pequeno em paralelo (mais
@@ -119,7 +126,9 @@ de "fim da fala → resposta", e o núcleo DEVE logar em INFO `espera: frase "<t
   a frase do modelo principal (hoje). **Padrão da spec: (a).**
 - **D2 — Frequência.** (a) cota do R3.6 (1/turno, sem repetir, pula 1 a cada 3); (b) toda vez que
   passar do limiar; (c) só quando o pedido parece demorado (ferramenta provável pelo tópico).
-  **Padrão: (a), limiar 700 ms após a transcrição.**
+  ~~Padrão: (a), limiar 700 ms após a transcrição.~~ **Decidido: (c)** — frase só quando o
+  tópico/sinal do pedido indica ferramenta ou demora (spec §3.3), com a cota (a) por cima e o
+  limiar de 700 ms ainda valendo (resposta que chega antes não tem frase).
 - **D3 — Lotes furam o "1 a 2 frases".** A persona manda 1–2 frases faladas. Lotes chegam a 6.
   (a) até 3 lotes / 6 frases só em pedido de várias partes explícitas; (b) 2 lotes / 4 frases;
   (c) lote só no HUD (falado continua 2 frases). **Padrão: (a)**, e a regra nova vai ao Conselho
