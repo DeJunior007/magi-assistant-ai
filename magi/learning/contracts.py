@@ -106,6 +106,7 @@ class Topic(StrEnum):
     INTERVIEW = "interview"
     GAME = "game"
     NEWS = "news"
+    ROLEPLAY = "roleplay"  # D5: cenário escolhido (magi/learning/roleplay.py)
 
 
 #: Rótulo de cada tema na UI e no ``TopicContext.label`` (LM-013, spec §10.1).
@@ -114,6 +115,7 @@ TOPIC_LABELS: dict[Topic, str] = {
     Topic.INTERVIEW: "TECH INTERVIEW",
     Topic.GAME: "THE GAME I'M PLAYING",
     Topic.NEWS: "TODAY'S NEWS",
+    Topic.ROLEPLAY: "ROLEPLAY",  # efetivo: "ROLEPLAY // <TITLE>" (spec imersivo §12)
 }
 #: Tamanho máximo do bloco de contexto do tema no prompt (LM-013).
 TOPIC_BLOCK_MAX = 1500

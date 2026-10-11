@@ -13,6 +13,10 @@ partir só de fontes que o núcleo já mantém. **Nada de LLM nem rede**:
 - ``news``: até 5 itens das últimas 24 h do ``NewsRepo`` do Rádio Ayanami, **só leitura** (nunca
   ``mark_delivered``), com o filtro de spoiler do rádio (``present``); sem item → ``free`` com
   ``detail = "no news today"``.
+- ``roleplay`` (LI4.1, D5, spec imersivo §12): cenário de ``prompts/scenarios/<id>.md`` lido por
+  ``magi.learning.roleplay`` e posto em ``prompts/topics/roleplay.md``; rótulo
+  ``ROLEPLAY // <TITLE>``. Sem cenário ou id desconhecido → ``free`` com
+  ``detail = "unknown scenario"``.
 
 O bloco é cortado em ``BLOCK_MAX`` caracteres. O tema é assunto, não roteiro (PRN-002).
 """
@@ -37,6 +41,7 @@ __all__ = [
     "NEWS_MAX",
     "NO_GAME",
     "NO_NEWS",
+    "NO_SCENARIO",
     "TopicBuilder",
     "clip",
 ]
@@ -51,6 +56,7 @@ NEWS_WINDOW = timedelta(hours=24)
 NEWS_SCAN = 30  # itens lidos do repo antes do filtro de 24 h
 NO_GAME = "no game detected"
 NO_NEWS = "no news today"
+NO_SCENARIO = "unknown scenario"
 DEFAULT_ROLE = ("a general software engineering role (backend/Python, systems design, "
                 "trade-offs) at mid/senior level")
 
@@ -59,6 +65,7 @@ LABELS: dict[Topic, str] = {
     Topic.INTERVIEW: "TECH INTERVIEW",
     Topic.GAME: "THE GAME I'M PLAYING",
     Topic.NEWS: "TODAY'S NEWS",
+    Topic.ROLEPLAY: "ROLEPLAY",
 }
 
 
@@ -78,9 +85,9 @@ def clip(text: str | None, limit: int = BLOCK_MAX) -> str | None:
 
 
 def _ctx(topic: Topic, requested: Topic, block: str | None = None,
-         detail: str | None = None) -> TopicContext:
-    return TopicContext(topic=topic, requested=requested, label=LABELS[topic], block=clip(block),
-                        detail=detail)
+         detail: str | None = None, label: str | None = None) -> TopicContext:
+    return TopicContext(topic=topic, requested=requested, label=label or LABELS[topic],
+                        block=clip(block), detail=detail)
 
 
 class TopicBuilder:
@@ -100,6 +107,7 @@ class TopicBuilder:
         interview_role: str | None = None,
         clock: Callable[[], float] = time.time,
         now: Callable[[], datetime] | None = None,
+        scenarios_dir: Path | None = None,
     ) -> None:
         self.game = game
         self.steam = steam
@@ -107,6 +115,7 @@ class TopicBuilder:
         self.interview_role = (interview_role or "").strip() or None
         self.clock = clock
         self.now = now or (lambda: datetime.now(UTC))
+        self.scenarios_dir = scenarios_dir
         self._last_closed: tuple[Any, float] | None = None
         subscribe = getattr(game, "subscribe", None)
         if callable(subscribe):
@@ -117,9 +126,11 @@ class TopicBuilder:
         if getattr(event, "kind", None) == "closed":
             self._last_closed = (event.game, float(event.at))
 
-    async def build(self, requested: Topic | str) -> TopicContext:
+    async def build(self, requested: Topic | str, scenario: str | None = None) -> TopicContext:
         requested = Topic(requested)
         try:
+            if requested is Topic.ROLEPLAY:
+                return self._roleplay(scenario)
             if requested is Topic.INTERVIEW:
                 return self._interview()
             if requested is Topic.GAME:
@@ -128,7 +139,8 @@ class TopicBuilder:
                 return await self._news()
         except Exception:
             log.exception("learning: falha ao montar o tema %s; conversa livre", requested.value)
-            detail = NO_GAME if requested is Topic.GAME else NO_NEWS if requested is Topic.NEWS else None
+            detail = {Topic.GAME: NO_GAME, Topic.NEWS: NO_NEWS,
+                      Topic.ROLEPLAY: NO_SCENARIO}.get(requested)
             return _ctx(Topic.FREE, requested, detail=detail)
         return _ctx(Topic.FREE, requested)
 
@@ -137,6 +149,19 @@ class TopicBuilder:
     def _interview(self) -> TopicContext:
         block = _template("interview").replace("{role}", self.interview_role or DEFAULT_ROLE)
         return _ctx(Topic.INTERVIEW, Topic.INTERVIEW, block)
+
+    def _roleplay(self, scenario: str | None) -> TopicContext:
+        from magi.learning import roleplay
+
+        try:
+            sc = roleplay.load(scenario or "", self.scenarios_dir or roleplay.SCENARIOS_DIR)
+        except ValueError:
+            log.info("learning: cenário de roleplay desconhecido: %r", scenario)
+            return _ctx(Topic.FREE, Topic.ROLEPLAY, detail=NO_SCENARIO)
+        block = _template("roleplay")
+        for key in ("title", "role", "setting", "goal", "twist", "body"):
+            block = block.replace("{" + key + "}", getattr(sc, key))
+        return _ctx(Topic.ROLEPLAY, Topic.ROLEPLAY, block, label=f"ROLEPLAY // {sc.title.upper()}")
 
     def _game(self) -> TopicContext:
         now = self.clock()

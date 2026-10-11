@@ -200,7 +200,7 @@ LI0.1 ─┬─ LI0.2 ─────────┐
 
 ## Fase LI4 — Roleplay (D5 aprovada: 4 cenários)
 
-- [ ] **LI4.1 Roleplay: tema e dados** — `Topic.ROLEPLAY` (+ rótulo em `TOPIC_LABELS`) em
+- [x] **LI4.1 Roleplay: tema e dados** — `Topic.ROLEPLAY` (+ rótulo em `TOPIC_LABELS`) em
   `magi/learning/contracts.py`; `magi/learning/roleplay.py` (novo, puro: `Scenario`, `load`,
   `scenarios`, `SCENARIOS_DIR`, spec §12); os 4 cenários em `magi/learning/prompts/scenarios/`
   (`hotel_checkin.md`, `ordering_food.md`, `doctor_visit.md`, `support_call.md`, escritos pelo
@@ -262,3 +262,9 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   entrar). Escolhas sem spec: CANDIDATE_QS e WRAP com `followups = 0`; rótulos `SYSTEM DESIGN` e
   `CANDIDATE QUESTIONS`; `minutes` < nº de etapas → `ValueError`; EXPERIENCE com piso de 1 min (o
   excesso sai da maior etapa).
+- **LI4.1 (2026-10-11):** `TopicBuilder(…, scenarios_dir=None)` (dir injetável) e
+  `topic.NO_SCENARIO`; `TOPIC_LABELS[ROLEPLAY] = "ROLEPLAY"` (o efetivo vem no `label`). Para a
+  LI4.2: `hud/wired/learning_topic.py` `LABELS` não tem `roleplay` (só quebra se o `lm_topic` vier sem
+  `label`); `[learning] default_topic = "roleplay"` passa na validação do config e cai em `free`
+  (sem cenário). `test_interview_contracts.py::test_stubs_have_final_signatures` falha porque uma
+  tarefa paralela (LI1.x) já implementou um stub — não é do LI4.1.
