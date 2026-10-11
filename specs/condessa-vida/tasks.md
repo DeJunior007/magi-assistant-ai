@@ -222,7 +222,7 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   - Pronto: testes de gravação, desfazer, fator/piso/janela, pauta, e de que nada mexe no ânimo nem no gosto; `tests/hud` verde; `ruff` limpo.
   - Paralelo: V1.2, V1.3, V1.4, V1.6
 
-- [ ] **V1.6 Piso da `torcida`** — `hud/wired/reacoes/torcida.py` (novo): relógio "desde a última
+- [x] **V1.6 Piso da `torcida`** — `hud/wired/reacoes/torcida.py` (novo): relógio "desde a última
   positiva" (lista de positivas do teste da meta 6) com jogo aberto e Pedro presente; ≥
   `forca_slot_min` o próximo slot de passiva em Jogando é `torcida`; ≥ `fura_slot_min` sai fora de
   slot respeitando 25 s / 60 s pós-cena; máx. 1 a cada `intervalo_min`; ocupa a vaga no teto de 12/h
@@ -486,3 +486,16 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   `test_vida_diretor::test_pedro_voltou_corta_e_escolhe_ramo` conferia o roteiro antigo da volta
   (ajustado para o novo). `test_vida_simulacao::test_escada_encarando_aos_15_min_sem_musica` falha
   também no HEAD limpo, sem a V1.2 (não mexi).
+- **V1.6:** `torcida.Torcida(vida)`: `atualizar(agora, jogo=, presente=)` a cada tick (o relógio só
+  anda com jogo aberto e Pedro presente; pausa fora disso, não zera), `positiva(agora)` em toda positiva
+  da lista da meta 6, `no_slot(agora, momento, gov)` no slot de passiva em Jogando (≥ 30 min → `Escolha`
+  com a variante, causa `jogando_sem_positiva:<min>`, Δ do `[vida.torcida]`; `None` = sorteia) e
+  `fora_do_slot(...)` entre slots (≥ 45 min). As duas passam pelo `Governador` como `Tipo.GESTO`
+  (ocupam a vaga do teto de 12/h); o fora de slot usa `Pedido(fora_de_slot=True)`, que só pula o
+  `passiva_min` (25 s e 60 s pós-cena valem). A `torcida` do sorteio também chama `registrar(agora, var)`
+  (intervalo de 30 min e alternância contam as duas origens). Não existe número "≤ 4/h de Jogando" no
+  `[vida]` (só `passiva_media_min.jogando` = 8): o teto é o de 12/h. Falta (V1.7): o Reactor chamar,
+  aplicar `catalogo.com_suor` com episódio aberto, `exportar/importar` no `Estado`. Ao fechar,
+  vermelhos por arquivos em edição de outras tarefas (passivas.py da V1.2b, det_tempo/diretor da V1.3):
+  `test_v11_sorteio_das_novas_fica_no_grupo[flagra_no_forum]`, `test_19_cabeca_pesada_sessao_longa_de_madrugada`,
+  `test_passivas_aceitam_fatores`, `test_replay_do_dia_real_bate_as_7_metas`.

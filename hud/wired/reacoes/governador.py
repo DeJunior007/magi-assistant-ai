@@ -250,6 +250,7 @@ class Pedido:
     causas: frozenset[str] = frozenset()  # causas que valem para esta negativa (vazio = todas)
     fura: str | None = None  # motivo de FURA_TUDO
     truque: bool = False
+    fora_de_slot: bool = False  # piso da ``torcida`` (≥ ``fura_slot_min``): pula o ``passiva_min``
 
 
 def causas_recentes(ctx: dict, agora: float) -> frozenset[str]:
@@ -337,7 +338,7 @@ class Governador:
             if cena is not None and agora - cena < c["pausa_apos_cena_s"]:
                 return "pausa_apos_cena"
             gesto = self._ultimo({Tipo.GESTO})
-            if gesto is not None and agora - gesto < c["passiva_min_s"]:
+            if not p.fora_de_slot and gesto is not None and agora - gesto < c["passiva_min_s"]:
                 return "passiva_min"
             if self._na_hora(agora, Tipo.GESTO) >= c["passivas_hora"]:
                 return "passivas_hora"
