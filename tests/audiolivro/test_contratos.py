@@ -140,5 +140,5 @@ def test_contratos() -> None:
     lid = livro_id(Path("/l/a.epub"), 10)
     assert len(lid) == 12 and lid == livro_id(Path("/l/a.epub"), 10)
     livro = Livro(lid, Path("/l/a.epub"), "A", None, "pt-br", "epub", 1, 10)
-    with pytest.raises(NotImplementedError):
-        livro.capitulo(0)  # extração é da A1.1
+    with pytest.raises(FileNotFoundError):
+        livro.capitulo(0)  # extração (A1.1) lê o arquivo, que não existe

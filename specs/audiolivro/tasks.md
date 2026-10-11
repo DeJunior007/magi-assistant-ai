@@ -71,7 +71,7 @@ onda 1) · **3)** A2.2 · **4)** A2.3. A3.1 é do Pedro (não implementar).
 
 ## Fase A1 — Texto, marcas, custo
 
-- [ ] **A1.1 Leitores EPUB e PDF** — `epub.py` (OPF → spine → XHTML; pula `nav`/`toc`/notas
+- [x] **A1.1 Leitores EPUB e PDF** — `epub.py` (OPF → spine → XHTML; pula `nav`/`toc`/notas
   `epub:type="footnote|endnote"`; `<h*>` vira parágrafo título; itálico marcado para A1.2 com
   um atributo no `Paragrafo` ou marca `\x1e` documentada), `pdf.py` (`pymupdf`/`fitz`, D6, texto por
   blocos na ordem de leitura; junta hifenização;
