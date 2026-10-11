@@ -13,7 +13,10 @@ orçamento). Usos:
 
 from __future__ import annotations
 
+import datetime as _dt
+import json
 import re
+import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -149,6 +152,7 @@ class SelfModel:
     in_call: Callable[[], bool] | None = None
     missing_keys: Callable[[], Iterable[str]] | None = None
     budget: Callable[[], Awaitable[BudgetStatus]] | None = None
+    condessa: Callable[[], Sequence[str]] | None = None  # placar e "sem sentido" (V1.9), do HUD
     agent_ready: bool = True
     _cache: tuple[float, list[dict[str, Any]]] | None = field(default=None, repr=False)
 
@@ -286,6 +290,8 @@ class SelfModel:
         if s.spotify_connected is not None:
             spot = "conectado." if s.spotify_connected else "desconectado: não toca busca por nome."
             lines.append(f"Spotify {spot}")
+        if self.condessa is not None:
+            lines.extend(_safe(self.condessa) or ["Placar com ele: não sei agora (nunca invente número)."])
         last = "Detalhes de comandos, estado, gasto e limites: self_info. Fora disso, não ofereça."
         if gaps:
             # Os limites ficam com o que sobrar do teto; a linha final nunca é cortada.
@@ -356,6 +362,78 @@ class SelfModel:
             full += "\nAinda não sei: " + "; ".join(gaps) + "."
         card = CardMsg(CardLevel.NORMAL, "MAGI · o que eu sei fazer")
         return ActionResult(ok=True, speech=speech, full_text=full, cards=(card,))
+
+
+# -- Condessa no HUD (V1.9): placar e "isso foi sem sentido" ------------------------------------
+# Só o que o HUD gravou: ``condessa-estado.json`` (placar, salvo a cada minuto) e a cauda do
+# ``reacoes.jsonl`` (última expressão). Sem arquivo ou sem ponto: "não sei", nunca número inventado.
+
+CONDESSA_ESTADO = Path.home() / ".local/state/magi/condessa-estado.json"
+CONDESSA_REGISTRO = Path.home() / ".local/state/magi/reacoes.jsonl"
+PLACAR_FECHA_DIA_H = 4  # [vida.placar] fecha_dia_h padrão (a madrugada conta no dia anterior)
+SEM_SENTIDO_JANELA_S = 60.0  # [vida.sem_sentido] voz_janela_s padrão
+EXPRESSOES = frozenset({"gesto", "cena", "ativa", "atencao"})  # = hud reactions.EXPRESSOES
+_CAUDA_BYTES = 16384
+
+
+def placar_texto(path: Path = CONDESSA_ESTADO, agora: float | None = None,
+                 fecha_dia_h: int = PLACAR_FECHA_DIA_H) -> str | None:
+    """``Condessa X × Y Pedro · semana X × Y`` (o texto do hover) a partir do estado do HUD, ou None
+    sem estado legível. Dia e semana como no ``Placar`` do HUD (dia fecha às ``fecha_dia_h``)."""
+    try:
+        dados = json.loads(Path(path).read_text(encoding="utf-8"))
+        dias = dados["placar"]["dias"]
+        if not isinstance(dias, dict):
+            return None
+        lt = time.localtime(time.time() if agora is None else agora)
+        hoje = _dt.date(lt.tm_year, lt.tm_mon, lt.tm_mday)
+        if lt.tm_hour < fecha_dia_h:
+            hoje -= _dt.timedelta(days=1)
+
+        def total(d: _dt.date) -> tuple[int, int]:
+            r = dias.get(d.isoformat()) or {}
+            return int(r.get("ela", 0)), int(r.get("ele", 0))
+
+        ela, ele = total(hoje)
+        ini = hoje - _dt.timedelta(days=hoje.weekday())
+        sem = [total(ini + _dt.timedelta(days=i)) for i in range(7)]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    return f"Condessa {ela} × {ele} Pedro · semana {sum(a for a, _ in sem)} × {sum(b for _, b in sem)}"
+
+
+def ultima_expressao_s(path: Path = CONDESSA_REGISTRO, agora: float | None = None) -> float | None:
+    """Há quantos segundos foi a última expressão dela no HUD (cauda do ``reacoes.jsonl``) ou None."""
+    try:
+        with Path(path).open("rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - _CAUDA_BYTES))
+            cauda = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None
+    for raw in reversed(cauda):
+        try:
+            linha = json.loads(raw)
+            if linha.get("tipo") in EXPRESSOES:
+                return max(0.0, (time.time() if agora is None else agora) - float(linha["t"]))
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+    return None
+
+
+def condessa_linhas(estado: Path = CONDESSA_ESTADO, registro: Path = CONDESSA_REGISTRO,
+                    agora: float | None = None, janela_s: float = SEM_SENTIDO_JANELA_S) -> list[str]:
+    """Linhas do contexto: o placar (ou "não sei") e o alvo do "isso foi sem sentido"."""
+    agora = time.time() if agora is None else agora
+    placar = placar_texto(estado, agora)
+    idade = ultima_expressao_s(registro, agora)
+    return [
+        f"Placar com ele (HUD): {placar}." if placar else
+        "Placar com ele: não sei agora (nunca invente número).",
+        'Se ele disser "isso foi sem sentido": ' + (
+            '"hm, anotado".' if idade is not None and idade <= janela_s else
+            "você não fez expressão no último minuto; diga que não sabe do que ele fala."),
+    ]
 
 
 def _safe[T](fn: Callable[[], T] | None) -> T | None:

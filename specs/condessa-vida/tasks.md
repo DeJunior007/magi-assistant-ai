@@ -260,7 +260,7 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   - Pronto: teste do texto do hover, do ✗ acertando a causa certa e do atalho; `tests/hud` verde; `ruff` limpo. Conferir na tela fica para o Pedro (*Sobras*).
   - Paralelo: V1.9
 
-- [ ] **V1.9 Voz: "qual o placar?" e "isso foi sem sentido"** — do lado da conversa: a frase "isso foi
+- [x] **V1.9 Voz: "qual o placar?" e "isso foi sem sentido"** — do lado da conversa: a frase "isso foi
   sem sentido" (com o Pedro já falando com ela) marca a última expressão de ≤ `voz_janela_s` (sem
   alvo → ela diz que não sabe do que ele fala); "qual o placar?" responde com o número do
   `condessa-estado.json` no contexto, nunca inventado. Achar por `grep` o caminho que as tags da
@@ -561,3 +561,15 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   mínimo: `hud/wired/standby_screen.py` (o hover da espera usa o `_g_mood_tip` da base pelo
   `tip_anchor`). A caixa do hover cresceu de 3 para até 11 linhas (`TIP_MAX`, ~202 px acima do pé
   do medidor): conferir na tela (Pedro).
+- **V1.9:** voz no núcleo: `turn_tag.classify` dá `sem_sentido` ("isso/essa foi [meio|muito|
+  totalmente] sem sentido", acima de tudo) → `TurnTagMsg` (o `TURN_TAGS` ganhou `sem_sentido` em
+  `magi/common/contracts.py` e `hud/hud_bridge.py`) → `det_conversa` põe `ctx["sem_sentido_voz"]` →
+  `Reactor.sem_sentido_voz` (última expressão de ≤ `voz_janela_s`; sem alvo: `alvo: nenhum` e sem o
+  rosto "hm… anotado"). Contexto: `SelfModel.condessa` (ligado em `magi/core/assemble.py`) põe no
+  "Sobre você" o placar calculado do `condessa-estado.json` (dia/semana como o `Placar`; sem estado:
+  "não sei", nunca número) e, pela cauda do `reacoes.jsonl`, se há expressão de ≤ 60 s ("hm, anotado"
+  ou "não sei do que você fala"). Fora do *Escreve* (mínimo): `turn_tag.py`, `contracts.py`,
+  `hud_bridge.py`, `assemble.py`, `reactions.py` (+11 linhas). Pendências: o núcleo usa os padrões
+  `fecha_dia_h = 4` e `voz_janela_s = 60` (não lê o `[vida]` do Pedro — se ele mudar, mudar
+  `PLACAR_FECHA_DIA_H`/`SEM_SENTIDO_JANELA_S` em `self_model.py`); o placar no disco atrasa até
+  `SALVAR_S` (60 s); precisa reiniciar o magi-core e o HUD para valer.

@@ -589,7 +589,7 @@ def _self_model(core: Core, config: Config) -> Any:
     call pelo ``ProactiveSink``, chaves por tarefa e o orçamento."""
     import time
 
-    from magi.agent.self_model import SelfModel
+    from magi.agent.self_model import SelfModel, condessa_linhas
 
     seen: list[tuple[float, bool]] = []
 
@@ -614,6 +614,7 @@ def _self_model(core: Core, config: Config) -> Any:
         in_call=proactive.in_call if proactive is not None else None,
         missing_keys=missing,
         budget=core.budget.status,
+        condessa=condessa_linhas,  # placar e "sem sentido" do HUD (V1.9)
     )
 
 

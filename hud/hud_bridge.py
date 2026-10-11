@@ -123,7 +123,7 @@ def _m_mood(d: dict[str, Any]) -> dict[str, Any]:
     return {"t": "mood", "v": v}
 
 
-TURN_TAGS = frozenset({"elogio", "zoeira", "correcao", "sussurro"})  # = magi.common.contracts
+TURN_TAGS = frozenset({"elogio", "zoeira", "correcao", "sussurro", "sem_sentido"})  # = magi.common.contracts
 
 
 def _m_turn_tag(d: dict[str, Any]) -> dict[str, Any]:

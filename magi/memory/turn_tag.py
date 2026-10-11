@@ -10,7 +10,10 @@ Só sinais LOCAIS, sem LLM, com as mesmas regras de palavras do ``mood.py``:
 - ``sussurro`` (R2.F): voz baixa — ``ToneMetadata.energy_db`` (RMS médio com voz, dBFS) abaixo
   de ``SUSSURRO_DB``, com ``duration_ms`` > 0 (sem voz medida não conta) — ela sussurra junto (88).
 
-Ordem: correção > elogio > zoeira > sussurro (bronca vale mais que riso; "kkk mandou bem" é
+- ``sem_sentido`` (V1.9): "isso foi sem sentido" — o HUD marca a última expressão dela (≤ 60 s;
+  sem alvo, ``alvo: nenhum``). Vale acima de tudo: é um gesto, não o tom do turno.
+
+Ordem: sem sentido > correção > elogio > zoeira > sussurro (bronca vale mais que riso; "kkk mandou bem" é
 elogio; a palavra decide antes do tom, então "valeu" sussurrado é elogio). Sem
 sinal: ``None`` (turno neutro, nada vai ao HUD). O ``MoodTracker.observe`` manda a tag como
 ``TurnTagMsg`` pelo mesmo canal do ``MoodMsg``.
@@ -32,6 +35,10 @@ _PRAISE = re.compile(
 _GREETING = re.compile(r"\bboa (noite|tarde|madrugada|sorte)\b")
 # voz baixa: abaixo do "desanimado" do mood.py (FLAT_DB = -35), sem exigir fala lenta
 SUSSURRO_DB = -42.0
+# "isso foi sem sentido" / "essa foi sem sentido" (V1.9; o HUD marca a última expressão)
+_SEM_SENTIDO = re.compile(
+    r"\b(isso|essa|esse|isto|ai) (foi|ficou|e|ta) (meio |muito |totalmente )?sem sentido\b"
+)
 
 
 def _sussurro(tone: ToneMetadata | None) -> bool:
@@ -39,10 +46,12 @@ def _sussurro(tone: ToneMetadata | None) -> bool:
 
 
 def classify(text: str, tone: ToneMetadata | None = None) -> str | None:
-    """Tag do turno (``correcao``, ``elogio``, ``zoeira``, ``sussurro``) ou ``None``."""
+    """Tag do turno (``sem_sentido``, ``correcao``, ``elogio``, ``zoeira``, ``sussurro``) ou ``None``."""
     norm = normalize(text)
     if not norm:
         return "sussurro" if _sussurro(tone) else None
+    if _SEM_SENTIDO.search(norm):
+        return "sem_sentido"
     if _CORRECTION.search(norm) or _STOP_TEASE.search(norm):
         return "correcao"
     sem_saudacao = _GREETING.sub(" ", norm)

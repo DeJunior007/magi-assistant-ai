@@ -178,3 +178,75 @@ def test_5_jogando_nao_desvia_para_player():
     s = Sim(det_entrada, jogo=True)
     s.tick(0.0, track=Track("A", "x", playing=True), gaming=True, fps=140.0)
     assert s.tick(1.0, track=Track("B", "x", playing=True), gaming=True, fps=140.0) == []
+
+
+# ---------------------------------------------------------------- V1.9: "isso foi sem sentido" por voz
+
+
+def test_v19_tag_sem_sentido_vira_pedido_e_nao_reacao():
+    s = Sim(det_conversa)
+    assert s.tick(10.0, turn_tag=("sem_sentido", 9.0)) == []
+    assert s.ctx["sem_sentido_voz"] == 9.0
+    s.ctx.pop("sem_sentido_voz")
+    assert s.tick(11.0, turn_tag=("sem_sentido", 9.0)) == []  # a mesma tag não pede de novo
+    assert "sem_sentido_voz" not in s.ctx
+
+
+def test_v19_tag_velha_nao_pede():
+    s = Sim(det_conversa)
+    assert s.tick(100.0, turn_tag=("sem_sentido", 50.0)) == []
+    assert "sem_sentido_voz" not in s.ctx
+
+
+def _reactor(tmp_path, relogio):
+    import json as _json
+    import random
+
+    from wired.reactions import Reactor
+    from wired.reactions import Taste as _Taste
+
+    g = tmp_path / "genres.json"
+    g.write_text(_json.dumps({}), encoding="utf-8")
+    t = tmp_path / "gosto.toml"
+    t.write_text("", encoding="utf-8")
+    r = Reactor(_Taste(g, t), cleanup_file=tmp_path / "cleanup.json", seen_file=tmp_path / "seen.json",
+                clock=lambda: relogio[0], rng=random.Random(3), detectores=(det_conversa_wired(),),
+                sortear=lambda ctx, agora, rng: None, registro_file=tmp_path / "r.jsonl",
+                estado_file=tmp_path / "estado.json", sem_sentido_file=tmp_path / "ss.jsonl",
+                boot_id="boot-1")
+    r.favorite_of_day = lambda: ""
+    return r
+
+
+def det_conversa_wired():
+    from wired.reacoes import det_conversa as dc
+
+    return dc.detectar
+
+
+def _marcas(tmp_path) -> list[dict]:
+    import json as _json
+
+    p = tmp_path / "ss.jsonl"
+    return [_json.loads(x) for x in p.read_text().splitlines()] if p.exists() else []
+
+
+@pytest.mark.parametrize("idade, alvo", [(30.0, "cabeca_ritmo"), (90.0, None)])
+def test_v19_voz_marca_ultima_expressao_da_janela(tmp_path, idade, alvo):
+    relogio = [1_800_000_000.0]
+    r = _reactor(tmp_path, relogio)
+    r.observe(Snapshot(), 0.0, 15)
+    r._expressoes = [{"t": relogio[0] - idade, "chave": "cabeca_ritmo", "tipo": "gesto"}]
+    r.observe(Snapshot(turn_tag=("sem_sentido", 1.0)), 1.5, 15)
+    m = _marcas(tmp_path)
+    assert len(m) == 1 and m[0]["gesto"] == "voz"
+    if alvo is None:  # sem expressão em ≤ voz_janela_s (60): alvo nenhum, o núcleo diz que não sabe
+        assert m[0]["alvo"] == "nenhum"
+    else:
+        assert m[0]["alvo"]["chave"] == alvo
+
+
+def test_v19_voz_sem_nenhuma_expressao(tmp_path):
+    r = _reactor(tmp_path, [1_800_000_000.0])
+    linha = r.sem_sentido_voz(5.0)
+    assert linha["alvo"] == "nenhum" and linha["gesto"] == "voz"

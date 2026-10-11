@@ -13,6 +13,9 @@ Dono: R1.5 (cond. B: R2.B; cond. F: R2.F).
   (10 s) de ``ctx["agora"]``: ``correcao`` → 86 `desculpa`; ``zoeira`` → 76 `rindo`; ``elogio`` →
   74 `tsundere`, ou 87 `gaguejando` se for o 2º elogio em ≤ ``ELOGIO_DUPLO_S`` (5 min).
 - cond. F (R2.F): tag ``sussurro`` (voz baixa, ``ToneMetadata`` no núcleo) → 88 `sussurro`.
+- V1.9: tag ``sem_sentido`` ("isso foi sem sentido", com o Pedro já falando com ela) não é reação:
+  vira ``ctx["sem_sentido_voz"]`` (a hora da tag) e o ``Reactor`` marca a última expressão de
+  ≤ ``voz_janela_s`` (sem alvo: ``alvo: nenhum``) pelo ``marcar_sem_sentido(gesto="voz")``.
 
 Estado próprio: ``_conversa_humor`` (último humor visto), ``_conversa_tag`` (hora da última tag
 vista), ``_conversa_elogio`` (hora do último elogio).
@@ -92,6 +95,9 @@ def _tag(snap: Any, ctx: dict) -> Disparo | None:
         return None
     ctx["_conversa_tag"] = quando
     if not 0 <= agora - quando <= TAG_MAX_S:
+        return None
+    if tag == "sem_sentido":  # gesto, não reação: o Reactor marca (V1.9)
+        ctx["sem_sentido_voz"] = quando
         return None
     if tag == "elogio":
         antes = ctx.get("_conversa_elogio")

@@ -718,7 +718,7 @@ class MoodMsg(_HudMsg):
         return {"t": self.T, "v": self.v}
 
 
-TURN_TAGS = frozenset({"elogio", "zoeira", "correcao", "sussurro"})
+TURN_TAGS = frozenset({"elogio", "zoeira", "correcao", "sussurro", "sem_sentido"})
 
 
 @dataclass(frozen=True, slots=True)

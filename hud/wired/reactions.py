@@ -601,6 +601,8 @@ class Reactor:
                     disparos.extend((d, {}) for d in det(prev, snap, ctx) or ())
                 except Exception:  # noqa: BLE001 — um detector quebrado não derruba o HUD
                     continue
+            if ctx.pop("sem_sentido_voz", None) is not None:  # "isso foi sem sentido" (V1.9)
+                self.sem_sentido_voz(now)
             disparos += self._legado(snap, prev, now, hour, ctx)
             disparos += self._fila_disp + self._musica
             self._musica, self._fila_disp = [], []
@@ -1032,6 +1034,15 @@ class Reactor:
             d = Def("sem_sentido", "gesto", "sem_sentido", _passos(f"{r.rosto} {r.ms}"), frozenset())
             self.tocar(d, Disparo("sem_sentido", gesto), now)
         return linha
+
+    def sem_sentido_voz(self, now: float | None = None) -> dict:
+        """Voz "isso foi sem sentido": a última expressão de ≤ ``voz_janela_s`` (relógio de parede,
+        o ``t`` da linha); sem nenhuma na janela, ``alvo: nenhum`` (o núcleo diz que não sabe)."""
+        janela = float(self.sem_sentido.cfg.get("voz_janela_s", 60))
+        alvo = self._expressoes[-1] if self._expressoes else None
+        if alvo is None or self.clock() - float(alvo.get("t", 0.0)) > janela:
+            return self.marcar_sem_sentido({}, "voz")  # vazio = ``nenhum``; sem o "hm… anotado"
+        return self.marcar_sem_sentido(alvo, "voz", now)
 
     def _contadores(self, ctx: dict, rel: float, now: float) -> None:
         """Franja/cantando (≤ 1 por espera/faixa) e a escada do Tédio no ``ctx`` (acordo §3); as
