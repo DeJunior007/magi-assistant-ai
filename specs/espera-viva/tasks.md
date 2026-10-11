@@ -69,7 +69,7 @@ E0.1 ─┬─ E1.1 ─────────┐
 
 ## Fase E1 — Rosto, chip e aviso de ferramenta
 
-- [ ] **E1.1 Pose de pensar** — `pensando.pose(desde_s, tool, lote, tem)` pela spec §2.1 e §2.3
+- [x] **E1.1 Pose de pensar** — `pensando.pose(desde_s, tool, lote, tem)` pela spec §2.1 e §2.3
   (etapas, ciclo filtrado por asset, olhar de painel 1,5 s pela ferramenta, `lote` nunca volta ao
   `hm`). Puro, sem Qt. *(R1, R1.2, R2.1)*
   - Lê: spec §2; `hud/wired/pensando.py`; `portrait.py` linhas 455–466 (`THINK_*`); `reactions.py` linhas 100–105 (`LOOK_DIRS`)
@@ -216,3 +216,7 @@ E0.1 ─┬─ E1.1 ─────────┐
   (nunca há frase); tópico sem frases cai nas de `geral`; vetadas comparadas normalizadas (vale o
   texto do molde ou a frase preenchida). `escolher` não roda o linter em tempo de execução (nome do
   jogo com dígito, ex. "FIFA 23", entra no molde: o permitido da §4).
+- **E1.1:** `pose()` não sabe quando a ferramenta começou: devolve `look` enquanto há `tool` com
+  painel; quem cronometra os 1,5 s é o retrato (E1.2), com `pensando.OLHAR_PAINEL_S`. Constantes
+  `THINK_*` copiadas em `pensando.py` (sem Qt); teste confere contra `portrait.py` via `ast`.
+  Efeito `dots` é o mesmo nas duas etapas; o período (0,9/0,6 s) sai de `Pose.etapa` (E1.2).
