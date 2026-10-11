@@ -2,9 +2,9 @@
 
 O ``hud_bridge`` entrega **todo** ``lm_*`` vindo do núcleo a ``LearningModel.feed(msg, now)``
 (``lm_mode``, ``lm_session``, ``lm_msg``, ``lm_result`` por ``id``, ``lm_obs``, ``lm_topic``,
-``lm_saved``, ``lm_summary``); o ``gamerhud`` repassa também ``state``/``speech``/``subtitle``/
-``mouth`` (``on_state``/``on_speech``/``on_subtitle``/``on_mouth``). As telas só leem daqui:
-LM2.2, LM3.4, LM3.5, LM4.3 e LM4.6 não precisam mexer neste arquivo.
+``lm_saved``, ``lm_summary``, ``lm_interview``); o ``gamerhud`` repassa também ``state``/
+``speech``/``subtitle``/``mouth`` (``on_state``/``on_speech``/``on_subtitle``/``on_mouth``). As
+telas só leem daqui: LM2.2, LM3.4, LM3.5, LM4.3 e LM4.6 não precisam mexer neste arquivo.
 
 - **Mensagens:** únicas por ``id`` (reenvio na reconexão substitui, não duplica), em ordem de
   ``id``, no máximo ``MAX_MESSAGES`` (as 200 últimas, como a recarga da spec §10). ``lm_session``
@@ -101,6 +101,8 @@ class LearningModel:
     obs_items: list[dict[str, Any]] = field(default_factory=list)
     obs_count: int = 0
     topic: dict[str, Any] = field(default_factory=dict)      # último lm_topic (confirmação)
+    interview: dict[str, Any] | None = None  # último lm_interview do núcleo (LI2.2)
+    interview_at: float | None = None        # instante (monotônico) em que ele chegou
     saved: dict[str, dict[str, Any]] = field(default_factory=dict)  # lm_saved por norm
     summary: dict[str, Any] | None = None    # último lm_summary
     summary_at: float | None = None          # instante (monotônico) em que ele chegou
@@ -139,7 +141,8 @@ class LearningModel:
             self._finish_speech()
             self.pending_actions.clear()
             self.action_running = False
-        return {"header", "condessa", "history", "input", "footer"}
+            self.interview = self.interview_at = None
+        return {"header", "condessa", "history", "input", "footer", "interview"}
 
     def _on_lm_session(self, m: dict[str, Any], now: float) -> set[str]:
         sid = str(m["id"])
@@ -165,6 +168,7 @@ class LearningModel:
         self.obs_items = []
         self.obs_count = 0
         self.topic = {}
+        self.interview = self.interview_at = None
         self.scroll = 0.0
         self.action_running = False
         self._finish_speech()
@@ -211,6 +215,14 @@ class LearningModel:
     def _on_lm_topic(self, m: dict[str, Any], now: float) -> set[str]:
         self.topic = {k: v for k, v in m.items() if k != "t"}
         return {"topic"}
+
+    def _on_lm_interview(self, m: dict[str, Any], now: float) -> set[str]:
+        """Estado da entrevista pela vaga (LI2.2). Comando (``{"cmd"}``, UI → núcleo): ignorado."""
+        if m.get("state") is None:
+            return set()
+        self.interview = {k: v for k, v in m.items() if k != "t"}
+        self.interview_at = now
+        return {"interview"}
 
     def _on_lm_saved(self, m: dict[str, Any], now: float) -> set[str]:
         self.saved[str(m["norm"])] = {"saved": bool(m["saved"]), "id": m.get("id"), "at": now}

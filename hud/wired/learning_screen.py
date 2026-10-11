@@ -15,7 +15,8 @@ balão de ``learning_overlay``; retângulos dinâmicos, os antigos entram até s
 ``obs`` (LM4.3: ``OBSERVATIONS [nn] ▾`` e drawer de ``learning_obs``; clique num item rola o
 histórico até a mensagem e a destaca uma vez) e ``topic`` (LM1.9: chip ``TOPIC // … ▾`` com o tema
 confirmado pelo núcleo e a lista de ``learning_topic``, pintada depois do histórico; abre sozinha
-em sessão nova; escolher manda ``lm_topic`` por ``send_lm``).
+em sessão nova; escolher manda ``lm_topic`` por ``send_lm``) e ``interview`` (LI2.2: faixa da
+entrevista pela vaga no topo do histórico e painel do perfil, de ``learning_interview``).
 ``hit_test`` devolve ``"learning"`` no botão END SESSION (a ação é ligada no LM1.7).
 
 Os dados do modo vêm do ``learning_model.LearningModel`` (``screen.info``/``screen.model``;
@@ -39,6 +40,7 @@ from PySide6.QtCore import QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import QPainter, QPen
 
 from . import kit
+from . import learning_interview as iv
 from . import learning_obs as obsv
 from . import learning_overlay as ov
 from . import learning_topic as tp
@@ -136,6 +138,9 @@ class LearningScreen(Screen):
         self.topic_picker = tp.TopicPicker()
         self.send_lm = None                        # HudBridge.send_lm; sem ele, o do BridgeProvider
         self._tp_shown: list[QRectF] = []          # lista já pintada (a apagar ao fechar)
+        # LI2.2: entrevista pela vaga (faixa + painel do perfil)
+        self.interview_view = iv.InterviewView()
+        self._iv_shown: list[QRectF] = []          # painel já pintado (a apagar ao fechar)
 
     # ---------------------------------------------------------------- estático
 
@@ -196,6 +201,7 @@ class LearningScreen(Screen):
             "input": [qr(L.input)],
             "obs": [qr(L.obs)],
             "footer": [self._footer_rect()],
+            "interview": self._interview_rects(),  # faixa + painel do perfil: sobre o histórico
             "topic": self._topic_rects(),      # chip + lista: depois do histórico
             "overlay": self._overlay_rects(),  # menu + balão: por último, por cima
         }
@@ -233,6 +239,8 @@ class LearningScreen(Screen):
             return self.obs_view.key(self.obs_count(groups), groups)
         if name == "topic":
             return self._topic_key()
+        if name == "interview":
+            return self._interview_key()
         return ()
 
     def draw_group(self, name: str, p: QPainter, snap: Snapshot, now: datetime, s: float) -> None:
@@ -482,6 +490,8 @@ class LearningScreen(Screen):
             if self.L.end_btn.contains(point):
                 self.clear_selection()
                 return "learning"
+            if self._interview_press(point):
+                return None
             if self._topic_press(point):
                 return None
             if self.L.obs.contains(point) and not self._overlay_hit(point):
@@ -630,6 +640,68 @@ class LearningScreen(Screen):
             tp.paint_list(p, lst, self.topic_picker, tp.confirmed(i.topic, i.session),
                           tp.hints(i.session))
 
+    # ---------------------------------------------------------------- entrevista (LI2.2)
+
+    def _interview_strip(self) -> Rect:
+        return iv.strip_rect(self.L.history)
+
+    def _interview_now(self) -> list[QRectF]:
+        i = self.info
+        self.interview_view.sync(i.interview)
+        if not self.interview_view.panel_open:
+            return []
+        return [qr(iv.panel_rect(self._interview_strip(), i.interview))]
+
+    def _interview_rects(self) -> list[QRectF]:
+        """Faixa (fixa: apaga ao acabar) + painel de agora + o já pintado (a apagar)."""
+        now = [qr(self._interview_strip()), *self._interview_now()]
+        return now + [r for r in self._iv_shown if r not in now]
+
+    def _interview_key(self) -> tuple:
+        i = self.info
+        msg = i.interview
+        self.interview_view.sync(msg)
+        if not iv.visible(msg):
+            return (False,)
+        t = self.info.clock()
+        return (True, tuple(sorted((k, str(v)) for k, v in msg.items())),
+                self.interview_view.panel_open, iv.stage_line(msg, i.interview_at, t),
+                iv.frame(i.interview_at, t) if msg.get("state") == "preparing" else 0)
+
+    def interview_deadline(self, now: float | None = None) -> float | None:
+        """Próximo instante em que a faixa muda sozinha (barra de preparo, relógio)."""
+        i = self.info
+        return iv.deadline(i.interview, i.interview_at, i.clock() if now is None else now)
+
+    def _interview_press(self, point: Point) -> bool:
+        """Clique na faixa (chip, END INTERVIEW, RETRY) ou no painel. ``True`` = consumido;
+        fora do painel aberto ele fecha e o clique segue."""
+        msg = self.info.interview
+        what = self.interview_view.press(point, self._interview_strip(), msg)
+        if what == "end":
+            self.send_core("lm_interview", {"cmd": "end"}, "end not sent — not connected")
+        elif what == "retry" and msg is not None:
+            self.send_core("lm_job", {"job_id": msg["job_id"]}, "retry not sent — not connected")
+        return what in ("end", "retry", "toggle", "inside")
+
+    def send_core(self, t: str, fields: dict, fail_log: str) -> bool:
+        """Manda ``t`` ao núcleo por ``send_lm``; sem conexão, a linha do rodapé avisa."""
+        send = self.send_lm or getattr(self.overlay.provider.inner, "send", None)
+        try:
+            ok = bool(send(t, fields)) if send is not None else False
+        except Exception:  # noqa: BLE001 - socket caído não derruba o HUD
+            ok = False
+        if not ok:
+            self.info.log = fail_log
+        return ok
+
+    def _g_interview(self, p, snap, now, s):
+        i = self.info
+        if not i.session_active:
+            return
+        iv.paint(p, self._interview_strip(), i.interview, i.interview_at, i.clock(),
+                 self.interview_view, CENTER_FILL)
+
     # ---------------------------------------------------------------- seleção e overlay (LM2.2)
 
     def _begin_select(self) -> None:
@@ -658,6 +730,8 @@ class LearningScreen(Screen):
         gamerhud não repassa ao campo). ``typing`` = o campo tem texto: Enter fica com ele
         (``lm_say``); ↑↓/Esc continuam no menu. Esc sem menu apaga a seleção, se houver."""
         if self.topic_picker.key(name):
+            return True
+        if self.interview_view.key(name):
             return True
         if name == "enter" and typing:
             self.topic_picker.close()   # o Pedro digitou: a lista fecha (spec §11)
@@ -791,6 +865,8 @@ class LearningScreen(Screen):
             self._ov_shown = self._overlay_now()  # os antigos já foram cobertos
         if self._keys.get("topic") == self._topic_key():
             self._tp_shown = self._topic_now()
+        if self._keys.get("interview") == self._interview_key():
+            self._iv_shown = self._interview_now()
 
     def _g_footer(self, p, snap, now, s):
         r = self._footer_rect()

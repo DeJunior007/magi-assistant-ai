@@ -142,7 +142,7 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Pronto: CA-07 (parte do envio) com clipboard falso; seletor antigo continua passando em `tests/learning/test_topic_view.py`; captura offscreen da lista com as sublinhas.
   - Paralelo: LI0.2, LI1.x, LI2.2
 
-- [ ] **LI2.2 Chip, etapa e painel do perfil** — `hud/wired/learning_interview.py` (novo): estado
+- [x] **LI2.2 Chip, etapa e painel do perfil** — `hud/wired/learning_interview.py` (novo): estado
   `InterviewView` alimentado por `lm_interview`, `chip_parts`, linha `STAGE n/N · LABEL  mm:ss`,
   `[ END INTERVIEW ]` (manda `lm_interview {"cmd":"end"}`), estados `preparing` (barra animada como a
   do balão) e `error` com `retry` (`lm_job {"job_id"}`); painel do perfil (stack + must) aberto pelo
@@ -284,3 +284,12 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   `[ YES ] [ NO ]` clicáveis no rodapé pedem a `learning_screen`. O Ctrl+V pelo `eventFilter` foi
   provado só no offscreen; conferir no Wayland real (LIF.1). Recusa local no HUD é
   `learning_topic.job_check` (não normaliza; o núcleo normaliza com `jobtext`).
+- **LI2.2 (2026-10-11):** a faixa da entrevista (`learning_interview.strip_rect`, 60 px) cobre o
+  topo de `L.history` com fundo opaco (o `learning_layout` não reserva espaço; mensagens antigas
+  ficam por baixo) — se incomodar, reservar `STRIP_H` no layout durante a simulação. Para a LI2.5:
+  `caption_tick` deve somar `self.wired.learning.interview_deadline(now)` (barra do `preparing` a
+  5 q/s e virada do segundo do relógio em `running`); o `hud_bridge` precisa entregar
+  `lm_interview` ao `LearningModel.feed` (o modelo ignora o eco `{"cmd"}`). Esc fecha o painel
+  (uma linha no `key` da tela). `tests/learning/test_learning_screen.py::GROUPS` ganhou
+  `"interview"` (fora do *Escreve*, inevitável com o grupo novo; a LI2.4 fará o mesmo com
+  `debrief`). Envio por `LearningScreen.send_core(t, fields, log)` (reutilizável pela LI2.4).
