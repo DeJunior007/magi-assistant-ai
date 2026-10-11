@@ -209,7 +209,8 @@ def test_nao_cobre_retrato_nem_player(ui, view):
         assert not r.intersects(main_screen.NP) and not r.intersects(main_screen.LEARN_BTN)
     else:
         assert not r.intersects(scr.learn_btn) and r.bottom() < scr.y_rule2
-    assert list(scr.groups())[-1] == "lm_summary"   # pintado por cima
+    # pintado por cima de tudo, menos do hover do medidor (V0.4/V1.8: ``mood_tip`` fica no topo quando aberto)
+    assert list(scr.groups())[-2:] == ["lm_summary", "mood_tip"]
 
 
 def render(w: WiredUI, view: str) -> QImage:

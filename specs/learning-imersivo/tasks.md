@@ -92,7 +92,7 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Pronto: CA-02; vaga em português gera `requirements.text` em inglês no `FakeModel` gravado; erro de cada `code` vira `ModelError` certo.
   - Paralelo: LI0.2, LI1.2, LI2.1, LI2.2
 
-- [ ] **LI1.2 Roteiro** — `plan.build_plan(profile, minutes)` pura, tabela da spec §4 (entradas
+- [x] **LI1.2 Roteiro** — `plan.build_plan(profile, minutes)` pura, tabela da spec §4 (entradas
   condicionais, INTERN/JUNIOR, sem stack, ajuste da soma de minutos). *(R2.3)*
   - Lê: spec §2 (`JobProfile`, `Stage`, `InterviewPlan`), §4; `magi/learning/interview/contracts.py`
   - Escreve: `magi/learning/interview/plan.py`, `tests/learning/test_interview_plan.py`
@@ -256,3 +256,9 @@ LI0.1 ─┬─ LI0.2 ─────────┐
 - **LI0.1:** `tests/learning/test_summary_card.py::test_nao_cobre_retrato_nem_player` falha no
   `main` antes desta tarefa (o grupo `mood_tip` da V1.8 é pintado depois do `lm_summary`) e
   `ruff check` acusa E501 em `hud/konsole_term.py:395` — nenhum dos dois é do learning-imersivo.
+- **LI1.2 (2026-10-11):** `tests/learning/test_interview_contracts.py::test_stubs_have_final_signatures`
+  espera `NotImplementedError("LI1.2")` do `plan.build_plan` e fica vermelho com o roteiro pronto
+  (fora do Escreve): tirar as linhas 146–147 (o mesmo vale para `run.command_of` quando a LI1.3
+  entrar). Escolhas sem spec: CANDIDATE_QS e WRAP com `followups = 0`; rótulos `SYSTEM DESIGN` e
+  `CANDIDATE QUESTIONS`; `minutes` < nº de etapas → `ValueError`; EXPERIENCE com piso de 1 min (o
+  excesso sai da maior etapa).
