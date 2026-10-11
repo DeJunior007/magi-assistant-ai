@@ -561,6 +561,7 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   mínimo: `hud/wired/standby_screen.py` (o hover da espera usa o `_g_mood_tip` da base pelo
   `tip_anchor`). A caixa do hover cresceu de 3 para até 11 linhas (`TIP_MAX`, ~202 px acima do pé
   do medidor): conferir na tela (Pedro).
+- **V1.8b:** `test_summary_card::test_nao_cobre_retrato_nem_player` exigia `lm_summary` como último grupo, mas o `mood_tip` (V0.4, reforçado na V1.8) é pintado depois de propósito, no painel e na espera; o código fica e o teste passa a exigir `[..., "lm_summary", "mood_tip"]` (cartão por cima de tudo, menos do hover do medidor).
 - **V1.9:** voz no núcleo: `turn_tag.classify` dá `sem_sentido` ("isso/essa foi [meio|muito|
   totalmente] sem sentido", acima de tudo) → `TurnTagMsg` (o `TURN_TAGS` ganhou `sem_sentido` em
   `magi/common/contracts.py` e `hud/hud_bridge.py`) → `det_conversa` põe `ctx["sem_sentido_voz"]` →
