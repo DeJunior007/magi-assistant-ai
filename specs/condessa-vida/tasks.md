@@ -284,6 +284,16 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   - Pronto: 50/50 nas metas; placar ≤ 3:1 no replay; `tests/hud` verde; o Pedro avisado do que conferir.
   - Paralelo: —
 
+- [ ] **V1.2b Escada do Tédio no replay** — `test_vida_simulacao::test_escada_encarando_aos_15_min_sem_musica`
+  ficou vermelho depois da V1.1/Conselho (encarando sai aos ~26,5 min, o teste pede 15–20 min sem
+  música). Achar a causa (passivas novas no Tédio? chaves novas do `[vida]`?) e corrigir no lugar certo.
+  - Lê: *Sobras* (V0.8b, V0.9, V1.1), `tests/hud/test_vida_simulacao.py` (o teste), `momento.py`, `passivas.py`, `reactions.py` (escada, por trecho)
+  - Escreve: `hud/wired/reacoes/momento.py`, `hud/wired/reacoes/passivas.py`, `tests/hud/test_vida_simulacao.py` (só esse teste)
+  - Depende de: V1.2
+  - Orçamento: ~35k
+  - Pronto: `tests/hud` verde; causa anotada em *Sobras*.
+  - Paralelo: V1.3, V1.6
+
 ## Sobras
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
 - **V0.3:** os limiares da tabela do acordo §3 (2 min de conversa, 10 min sumiu, 15 min de Tédio,
