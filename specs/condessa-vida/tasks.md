@@ -249,7 +249,7 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   - Pronto: teste de ponta a ponta no `Reactor` (partida limpa → ponto com `ref`; truque ignorado → ponto dele; marca → fator no sorteio; piso dispara em Jogando); `tests/hud` verde; `ruff` limpo.
   - Paralelo: —
 
-- [ ] **V1.8 Medidor: placar no hover, ✗ e atalho** — hover do medidor com `Condessa X × Y Pedro ·
+- [x] **V1.8 Medidor: placar no hover, ✗ e atalho** — hover do medidor com `Condessa X × Y Pedro ·
   semana X × Y` + 3 últimos pontos com a fonte, "ajustes: N", e um ✗ clicável ao lado de cada uma das
   3 causas (chama `Reactor.marcar_sem_sentido`); atalho de teclado `[vida.sem_sentido] atalho` (ou o
   padrão) para "a última expressão, agora". O clique no rosto continua só reagindo.
@@ -548,3 +548,16 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   mudou (o `Reactor` se inscreve em `ganchos_truque`). Falta: `semente` na linha de origem, a
   `pauta` com ocorrências contadas no `reacoes.jsonl`, a voz ("qual o placar?", V1.9) e conferir na
   tela.
+- **V1.8:** hover do medidor (`main_screen.tip_linhas`, de cima para baixo): placar e os 3 últimos
+  pontos, "ajustes: N", as 3 causas do ânimo (como antes) e as 3 últimas expressões (a mais nova em
+  cima: `chave (causa|motivo) · há X`) com ✗ à direita (`tip_x_rects`). `Snapshot.placar/
+  placar_ultimos/ajustes/expressoes` preenchidos em `WiredUI._hover_dados` a cada tick. Com o hover
+  aberto a caixa dele também conta como hover (o ponteiro chega ao ✗); `WiredUI.hit` → alvo
+  `sem_sentido:<i>` → `on_click` chama `marcar_sem_sentido(alvo, "hover", now)` (não vira clique
+  para ela olhar). Atalho: só local, no `keyPressEvent` do HUD (sem KGlobalAccel/D-Bus; só funciona
+  com a janela do HUD em foco, e ela fica abaixo das outras) — tecla = `[vida.sem_sentido] atalho`
+  (QKeySequence, ex. `"Ctrl+Shift+X"`); **vazio = sem atalho** (o comentário do gosto diz "vazio = o
+  padrão": não há padrão; **a tecla e se precisa ser global são do Pedro**). Fora do *Escreve*, o
+  mínimo: `hud/wired/standby_screen.py` (o hover da espera usa o `_g_mood_tip` da base pelo
+  `tip_anchor`). A caixa do hover cresceu de 3 para até 11 linhas (`TIP_MAX`, ~202 px acima do pé
+  do medidor): conferir na tela (Pedro).

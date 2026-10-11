@@ -79,6 +79,15 @@ DETAIL_INFO = {
 }
 
 
+SEM_SENTIDO = "sem_sentido:"  # alvo do ✗ no hover: ``sem_sentido:<índice em snap.expressoes>``
+
+
+def expressao_texto(linha: dict) -> str:
+    """Linha de expressão no hover: ``suspiro (claude_demorando)`` (a causa; sem ela, o motivo)."""
+    por = linha.get("causa") or linha.get("motivo")
+    return f"{linha.get('chave')}" + (f" ({por})" if por else "")
+
+
 def rgb_hex(rgb) -> str | None:
     """(r, g, b[, nível]) do OpenRGB → "#rrggbb"; preto (LEDs apagados) ou None → None."""
     if not rgb:
@@ -229,6 +238,7 @@ class WiredUI:
         self.konsole_rev = 0  # o gamerhud incrementa quando o terminal tem tela nova
         self.snap = Snapshot()
         self.reactor = Reactor()  # reações dela ao HUD, à música e aos cliques (só rosto/texto)
+        self._alvos: list[dict] = []  # expressões do hover, na ordem de ``snap.expressoes`` (alvos do ✗)
         # volume do PipeWire (R2.D): thread de 1 s com wpctl; MAGI_NO_VOLUME=1 desliga (testes)
         if volume is None and Volume is not None and os.environ.get("MAGI_NO_VOLUME") != "1":
             volume = Volume().start()
@@ -357,12 +367,47 @@ class WiredUI:
             set_rest(r.repouso)
         s = self.snap  # o medidor dela (acordo §6): ânimo, cor da faixa, momento e 3 causas
         s.mood_dela, s.mood_dela_cor, s.momento, s.causas = r.medidor(mono)
+        self._hover_dados()
         if self.caption is None and self.magui_state in IDLE_STATES:
             self.snap.caption = r.caption(mono)  # a fala dela (texto, sem voz)
 
-    def on_click(self, target: str, mono: float | None = None) -> None:
-        """Clique do Pedro no HUD: ela olha para lá (e às vezes comenta em texto)."""
+    def _hover_dados(self) -> None:
+        """Hover do medidor (acordo-pj §3–§4): placar, "ajustes: N" e as 3 últimas expressões."""
+        r, s = self.reactor, self.snap
+        pl = r.placar_resumo() or {}
+        s.placar, s.placar_ultimos = pl.get("texto"), tuple(pl.get("ultimos") or ())
+        s.ajustes = r.ajustes()
+        self._alvos = r.ultimas_expressoes(3)
+        agora = r.clock()
+        s.expressoes = tuple((expressao_texto(x), agora - float(x.get("t") or agora)) for x in self._alvos)
+
+    def sem_sentido(self, idx: int | None = None, gesto: str = "hover",
+                    mono: float | None = None) -> dict | None:
+        """"Isso foi sem sentido" (acordo-pj §4): ``idx`` = a expressão do ✗ (em ``snap.expressoes``);
+        None = a última expressão, agora (o atalho). Ela faz o "hm… anotado"; devolve a linha gravada."""
         mono = time.monotonic() if mono is None else mono
+        alvo = None
+        if idx is not None:
+            if not 0 <= idx < len(self._alvos):
+                return None
+            alvo = self._alvos[idx]
+        linha = self.reactor.marcar_sem_sentido(alvo, gesto, now=mono)
+        if self.magui_state in IDLE_STATES:
+            self.mascot.react(self.reactor.active(mono), self.reactor.until)
+        self._hover_dados()
+        return linha
+
+    def atalho_sem_sentido(self) -> str:
+        """Tecla do "sem sentido" (``[vida.sem_sentido] atalho``, QKeySequence); vazio = sem atalho."""
+        return str((self.reactor.vida.get("sem_sentido") or {}).get("atalho") or "").strip()
+
+    def on_click(self, target: str, mono: float | None = None) -> None:
+        """Clique do Pedro no HUD: ela olha para lá (e às vezes comenta em texto). O ✗ do hover
+        (``sem_sentido:i``) marca a expressão, sem virar clique para ela olhar."""
+        mono = time.monotonic() if mono is None else mono
+        if target.startswith(SEM_SENTIDO):
+            self.sem_sentido(int(target[len(SEM_SENTIDO):]), "hover", mono)
+            return
         self.reactor.on_click(target, mono)
         if self.magui_state in IDLE_STATES:
             self.mascot.react(self.reactor.active(mono), self.reactor.until)
@@ -491,6 +536,9 @@ class WiredUI:
         pt = QPointF(pos.x() / s, pos.y() / s)
         if view != "idle" and detail and DETAIL_RECT.contains(pt):
             return "detail"
+        i = scr.tip_hit(pos, size)  # ✗ do hover do medidor: por cima de tudo
+        if i is not None:
+            return f"{SEM_SENTIDO}{i}"
         if scr.SUMMARY_RECT.contains(pt) and self.summary_now() is not None:
             return "lm_summary"  # cartão LAST SESSION: clique fecha (LM4.6)
         if scr.MASCOT_RECT.contains(pt):

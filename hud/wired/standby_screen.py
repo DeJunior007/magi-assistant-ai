@@ -27,7 +27,6 @@ from .main_screen import (
     accent,
     baseline,
     chip_label,
-    draw_causas,
     draw_cover,
     draw_learning_btn,
     draw_mood,
@@ -224,9 +223,8 @@ class StandbyScreen(Screen):
             return
         draw_mood(p, self.mood, snap, legend=False, bar_w=4.0)
 
-    def _g_mood_tip(self, p, snap, now, s):
-        if self.tip_key(snap)[0]:
-            draw_causas(p, tip_rect(self.mood), snap.causas)
+    def tip_anchor(self) -> QRectF:
+        return self.mood  # o hover (placar, causas, ✗) é o ``_g_mood_tip`` da base
 
     def _g_lm_summary(self, p, snap, now, s):
         cur = self.summary() if self.summary else None

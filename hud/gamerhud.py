@@ -26,7 +26,7 @@ from collections import deque
 from PySide6.QtCore import QCoreApplication, QPointF, QRectF, QSocketNotifier, Qt, QTimer
 from PySide6.QtDBus import QDBusConnection, QDBusInterface
 from PySide6.QtGui import (QColor, QFont, QFontDatabase, QGuiApplication, QIcon, QImage,
-                           QLinearGradient, QPainter, QPainterPath, QPen,
+                           QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen,
                            QPixmap, QPolygonF, QRegion)
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
@@ -1775,6 +1775,9 @@ class HUD(QWidget):
         """Teclado do Konsole expandido → pty (Esc também: o Claude usa para interromper).
         Ctrl+Shift+V cola; Shift+PgUp/PgDn rolam o histórico."""
         if not self.konsole_shown():
+            if self.sem_sentido_key(e):
+                e.accept()
+                return
             super().keyPressEvent(e)
             return
         e.accept()
@@ -2029,6 +2032,23 @@ class HUD(QWidget):
         if self.wired:
             self.wired_click("face")
 
+    def sem_sentido_key(self, e):
+        """Atalho local (só com o HUD em foco; nada de atalho global/D-Bus) de "isso foi sem
+        sentido" para a última expressão, agora (acordo-pj §4). A tecla é ``[vida.sem_sentido]
+        atalho`` (QKeySequence, ex.: "Ctrl+Shift+X"); vazio = sem atalho. True se tratou."""
+        if not self.wired or self.view == "learning":
+            return False
+        tecla = self.wired.atalho_sem_sentido()
+        if not tecla:
+            return False
+        seq = QKeySequence(tecla)
+        if seq.isEmpty() or QKeySequence(e.keyCombination()).matches(seq) != QKeySequence.ExactMatch:
+            return False
+        self.wired.sem_sentido(None, "atalho", self.mono())
+        self.face_tick()
+        self.wired_refresh()
+        return True
+
     def wired_click(self, target):
         """Cliques do tema wired: LED → RGB Sync, player → MPRIS, cards → detalhes por processo,
         LEARNING/END SESSION → pede ``lm_mode`` ao núcleo (a tela só troca na confirmação, LM1.7;
@@ -2051,6 +2071,8 @@ class HUD(QWidget):
             self.open_detail(self.detail)   # mesmo tipo de novo = fecha
         elif target in CARD_DETAIL:
             self.open_detail(CARD_DETAIL[target])
+        elif target.startswith("sem_sentido:"):   # ✗ do hover do medidor (a WiredUI já marcou)
+            self.wired_refresh()
         elif self.wired.player(target):
             self.wired_refresh()
 

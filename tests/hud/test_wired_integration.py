@@ -330,3 +330,90 @@ def test_meta_m_alterna_com_cortina(make_hud, monkeypatch):
     w.trans["t0"] = _time.monotonic() - gamerhud.TRANSITION_S - 0.1
     w.animate()
     assert w.view == "full" and w.trans is None
+
+
+# ------------------------------------------------------------------ V1.8: placar no hover, ✗ e atalho
+
+EXPRS = [{"t": 1000.0, "chave": "suspiro", "causa": "claude_demorando", "motivo": "x", "tipo": "passiva"},
+         {"t": 1100.0, "chave": "piscadinha", "causa": None, "motivo": "placar:virada", "tipo": "passiva"},
+         {"t": 1170.0, "chave": "hover", "causa": None, "motivo": "", "tipo": "gesto"}]
+
+
+def fake_reactor(monkeypatch, r, marcas):
+    monkeypatch.setattr(r, "placar_resumo", lambda: {
+        "texto": "Condessa 3 × 2 Pedro · semana 9 × 7",
+        "ultimos": ["Condessa +1 · truque", "Pedro +1 · partida limpa", "Condessa +1 · faixa"]})
+    monkeypatch.setattr(r, "ajustes", lambda: 2)
+    monkeypatch.setattr(r, "ultimas_expressoes", lambda n=3: [dict(x) for x in EXPRS[-n:]])
+    monkeypatch.setattr(r, "clock", lambda: 1200.0)
+    monkeypatch.setattr(r, "marcar_sem_sentido",
+                        lambda alvo=None, gesto="atalho", now=None: marcas.append((alvo, gesto)) or {})
+
+
+def test_hover_do_medidor_com_placar_ajustes_e_x(monkeypatch):
+    ui, marcas = make_ui(), []
+    fake_reactor(monkeypatch, ui.reactor, marcas)
+    ui._hover_dados()
+    s = ui.snap
+    s.mood_dela, s.causas = 0.2, (("Ado", 0.3, 120.0),)
+    linhas = ms.tip_linhas(s)
+    assert linhas == [("Condessa 3 × 2 Pedro · semana 9 × 7", None), ("Condessa +1 · truque", None),
+                      ("Pedro +1 · partida limpa", None), ("Condessa +1 · faixa", None),
+                      ("ajustes: 2", None), ("+0,30 Ado · há 2 min", None),
+                      ("hover · agora", 2), ("piscadinha (placar:virada) · há 1 min", 1),
+                      ("suspiro (claude_demorando) · há 3 min", 0)]
+    assert ms.tip_linhas(Snapshot()) == [("sem causa ainda", None)]  # sem dado: como antes
+    for scr in (ui.main, ui.standby):  # pinta nas duas telas (o grupo cobre a caixa inteira)
+        box = scr.tip_box(s)
+        assert len(ms.tip_x_rects(box, s)) == 3
+        grupo = scr.groups()["mood_tip"][0]
+        assert grupo.contains(scr._tip_base(box).adjusted(1, 1, -1, -1))
+        scr._snap = s
+        scr.set_hover("mood")
+        img = QImage(SIZE, QImage.Format_ARGB32)
+        p = QPainter(img)
+        scr._g_mood_tip(p, s, datetime.now(), 1.0)
+        p.end()
+
+
+def test_x_do_hover_marca_a_expressao_certa(monkeypatch):
+    ui, marcas = make_ui(), []
+    fake_reactor(monkeypatch, ui.reactor, marcas)
+    ui._hover_dados()
+    ui.snap.mood_dela = 0.1
+    scr = ui.main
+    scr._snap = ui.snap
+    xs = {i: dev(scr._tip_base(r)) for r, i in ms.tip_x_rects(scr.tip_box(ui.snap), ui.snap)}
+    assert ui.hit(xs[1], SIZE, "full") != "sem_sentido:1"  # hover fechado: o ✗ não existe
+    scr.set_hover("mood")
+    assert scr.hover_test(xs[0], SIZE) == "mood"  # o ponteiro no ✗ mantém o hover aberto
+    for i in (1, 0, 2):
+        target = ui.hit(xs[i], SIZE, "full")
+        assert target == f"sem_sentido:{i}"
+        ui.on_click(target, mono=5.0)
+    assert [(a["chave"], g) for a, g in marcas] == [("piscadinha", "hover"), ("suspiro", "hover"),
+                                                    ("hover", "hover")]
+    assert ui.sem_sentido(7) is None and len(marcas) == 3  # índice fora: nada
+
+
+def test_atalho_sem_sentido_local(make_hud, monkeypatch):
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    w = make_hud()
+    marcas = []
+    fake_reactor(monkeypatch, w.wired.reactor, marcas)
+    ctrl_shift = Qt.ControlModifier | Qt.ShiftModifier
+
+    def tecla(key, mods=ctrl_shift):
+        w.keyPressEvent(QKeyEvent(QEvent.KeyPress, key, mods))
+
+    monkeypatch.setitem(w.wired.reactor.vida["sem_sentido"], "atalho", "")
+    tecla(Qt.Key_X)
+    assert marcas == []  # vazio = sem atalho
+    monkeypatch.setitem(w.wired.reactor.vida["sem_sentido"], "atalho", "Ctrl+Shift+X")
+    tecla(Qt.Key_X, Qt.ControlModifier)
+    tecla(Qt.Key_Y)
+    assert marcas == []
+    tecla(Qt.Key_X)
+    assert marcas == [(None, "atalho")]  # None = a última expressão, agora

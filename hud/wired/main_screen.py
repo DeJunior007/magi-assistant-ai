@@ -147,6 +147,11 @@ class Snapshot:
     mood_dela_cor: str | None = None  # estado.COR_FAIXA; None = acento
     momento: str | None = None  # vida.Momento (valor)
     causas: tuple = ()  # até 3, a mais nova por último: (texto, Δ ânimo, há quantos s)
+    # hover do medidor (acordo-pj §3–§4): placar, "ajustes: N" e as 3 últimas expressões com ✗
+    placar: str | None = None  # "Condessa X × Y Pedro · semana X × Y"; None = sem placar
+    placar_ultimos: tuple = ()  # os 3 últimos pontos com a fonte
+    ajustes: int | None = None  # pesos que o "sem sentido" ajusta agora; None = sem dado
+    expressoes: tuple = ()  # até 3, a mais nova por último: (texto, há quantos s) — alvos do ✗
     news: list[tuple[str, str]] = field(default_factory=list)  # Rádio Ayanami: (HH:MM, manchete), novas 1º
     claude: Any = None  # data.ClaudeView: consumo e sessões do Claude Code; None = sem dado
     lm_on: bool = False  # Learning Mode ligado (``LearningModel.mode_on``; momento Estudando/No flow)
@@ -479,6 +484,8 @@ MOMENTO_NOME = {"conversa": "conversa", "alerta": "alerta", "jogando": "pilotand
                 "curtindo": "curtindo", "aturando": "aturando", "ouvindo": "ouvindo",
                 "pedro_sumiu": "Pedro sumiu", "tedio": "tédio", "a_toa": "à toa"}
 TIP_W, TIP_LINE, TIP_PAD = 250.0, 17.0, 8.0  # caixa das causas no hover
+TIP_MAX = 11  # linhas no hover: placar + 3 pontos + ajustes + 3 causas + 3 expressões com ✗
+TIP_X = 14.0  # coluna do ✗ ("isso foi sem sentido"), à direita da linha da expressão
 
 
 def momento_nome(m: str | None) -> str:
@@ -535,13 +542,49 @@ def causas_linhas(causas) -> list[str]:
     return out
 
 
-def tip_rect(anchor: QRectF, n: int = 3) -> QRectF:
-    """Caixa das causas à esquerda do medidor (à direita, se não couber), rente ao pé dele."""
+def tip_linhas(snap: Snapshot) -> list[tuple[str, int | None]]:
+    """Linhas do hover do medidor, de cima para baixo: placar e os 3 últimos pontos, "ajustes: N",
+    as 3 causas do ânimo e as 3 últimas expressões (a mais nova em cima). O 2º item é o índice da
+    expressão em ``snap.expressoes`` (a linha tem ✗) ou None."""
+    out: list[tuple[str, int | None]] = []
+    if snap.placar:
+        out += [(snap.placar, None)] + [(str(u), None) for u in list(snap.placar_ultimos)[-3:]]
+    if snap.ajustes is not None:
+        out.append((f"ajustes: {snap.ajustes}", None))
+    out += [(ln, None) for ln in causas_linhas(snap.causas)]
+    n = len(snap.expressoes)
+    for i in range(n - 1, max(-1, n - 4), -1):
+        texto, ha = snap.expressoes[i]
+        out.append((f"{texto} · {_ha(ha)}", i))
+    return out or [("sem causa ainda", None)]
+
+
+def tip_rect(anchor: QRectF, n: int = TIP_MAX) -> QRectF:
+    """Caixa do hover à esquerda do medidor (à direita, se não couber), rente ao pé dele."""
     h = 2 * TIP_PAD + max(1, n) * TIP_LINE
     x = anchor.left() - 8 - TIP_W
     if x < 0:
         x = anchor.right() + 8
-    return QRectF(x, anchor.bottom() - h, TIP_W, h)
+    return QRectF(x, max(0.0, anchor.bottom() - h), TIP_W, h)
+
+
+def tip_x_rects(box: QRectF, snap: Snapshot) -> list[tuple[QRectF, int]]:
+    """Caixas clicáveis do ✗ (espaço de pintura do hover) com o índice da expressão em ``snap``."""
+    x = box.right() - TIP_PAD - TIP_X
+    return [(QRectF(x, box.top() + TIP_PAD + k * TIP_LINE, TIP_X, TIP_LINE), i)
+            for k, (_, i) in enumerate(tip_linhas(snap)) if i is not None]
+
+
+def draw_tip(p: QPainter, box: QRectF, snap: Snapshot) -> None:
+    p.fillRect(box, alpha(color(M_PANEL), 235))
+    p.setPen(color(LINE_STRONG))
+    p.drawRect(box.adjusted(0.5, 0.5, -0.5, -0.5))
+    for k, (ln, i) in enumerate(tip_linhas(snap)):
+        y = box.top() + TIP_PAD + (k + 0.75) * TIP_LINE
+        text(p, box.left() + TIP_PAD, y, ln, px=11, color_=TEXT,
+             max_w=box.width() - 2 * TIP_PAD - (TIP_X + 4 if i is not None else 0))
+        if i is not None:
+            text(p, box.right() - TIP_PAD - TIP_X / 2, y, "✗", px=11, color_=M_LILAC, align=C)
 
 
 def draw_causas(p: QPainter, box: QRectF, causas) -> None:
@@ -579,10 +622,44 @@ class Screen:
         mood = self.groups().get("mood")
         return {"mood": mood[0]} if mood else {}
 
+    TIP_F = 1.0  # escala do espaço de pintura do hover para a base 1920 (a principal pinta em F)
+
+    def tip_anchor(self) -> QRectF | None:
+        """Medidor no espaço de pintura do hover (None = tela sem hover)."""
+        return None
+
+    def tip_box(self, snap: Snapshot | None) -> QRectF | None:
+        a = self.tip_anchor()
+        return None if a is None or snap is None else tip_rect(a, len(tip_linhas(snap)))
+
+    def _tip_base(self, r: QRectF) -> QRectF:
+        f = self.TIP_F
+        return QRectF(r.x() * f, r.y() * f, r.width() * f, r.height() * f)
+
     def hover_test(self, pos: QPoint | QPointF, size: QSize) -> str | None:
+        """Área em hover; com o hover aberto, a caixa dele também conta (o ponteiro vai até o ✗)."""
         s = self.scale(size)
         pt = QPointF(pos.x() / s, pos.y() / s)
-        return next((n for n, r in self.hover_rects().items() if r.contains(pt)), None)
+        hit = next((n for n, r in self.hover_rects().items() if r.contains(pt)), None)
+        if hit is None and self.hover == "mood":
+            box = self.tip_box(self._snap)
+            if box is not None and self._tip_base(box).contains(pt):
+                hit = "mood"
+        return hit
+
+    def tip_hit(self, pos: QPoint | QPointF, size: QSize) -> int | None:
+        """Índice da expressão (em ``snap.expressoes``) cujo ✗ está sob ``pos``, com o hover aberto."""
+        snap = self._snap
+        if snap is None or not self.tip_key(snap)[0]:
+            return None
+        s = self.scale(size)
+        pt = QPointF(pos.x() / s, pos.y() / s)
+        return next((i for r, i in tip_x_rects(self.tip_box(snap), snap)
+                     if self._tip_base(r).contains(pt)), None)
+
+    def _g_mood_tip(self, p, snap, now, s):
+        if self.tip_key(snap)[0]:
+            draw_tip(p, self.tip_box(snap), snap)
 
     def set_hover(self, name: str | None) -> bool:
         """Muda a área em hover; True se mudou (quem chama pede repintura pelo ``dirty_regions``)."""
@@ -592,7 +669,7 @@ class Screen:
 
     def tip_key(self, snap: Snapshot) -> tuple:
         on = self.hover == "mood" and snap.mood_dela is not None
-        return (on, tuple(causas_linhas(snap.causas)) if on else ())
+        return (on, tuple(tip_linhas(snap)) if on else ())
 
     # -- a implementar
     def groups(self) -> dict[str, list[QRectF]]:
@@ -1284,6 +1361,7 @@ class MainScreen(Screen):
 
     MASCOT_RECT = MASCOT_MAIN
     MASCOT_DIRTY = MASCOT_MAIN
+    TIP_F = F  # o hover pinta no espaço do mockup (``p.scale(F, F)``)
     CAPTION_RECT = CAPTION_RECT
     SUMMARY_RECT = SUMMARY_RECT
     summary = None  # () -> dict | None: resumo visível agora (o WiredUI liga, LM4.6)
@@ -1296,6 +1374,9 @@ class MainScreen(Screen):
         self._overlay: tuple[tuple, QPixmap] | None = None
         self.clock = time.monotonic  # relógio da animação (os testes trocam)
         self.kon_swap = False  # Konsole expandido na caixa do cam 01; a câmera no slot do card
+
+    def tip_anchor(self) -> QRectF:
+        return QRectF(*B_GAUGE)
 
     # ---------------------------------------------------------------- fala (digitação + rolagem)
 
@@ -1821,10 +1902,6 @@ class MainScreen(Screen):
         p.fillRect(QRectF(cx - 5.5, ty, 11, 1), col if col is not None else color(M_DIM))
         tx(p, cx, y + h - 9 * LH["mono"] + asc("mono", 9), "–" if snap.mood is None else f"{snap.mood:02d}",
            px=9, c=M_DIM, align=C)
-
-    def _g_mood_tip(self, p, snap, now, s):
-        if self.tip_key(snap)[0]:
-            draw_causas(p, tip_rect(QRectF(*B_GAUGE)), snap.causas)
 
     def _g_talk(self, p, snap, now, s):
         # chip de estado
