@@ -48,6 +48,8 @@ EVENTOS: dict[str, tuple[float, float, str]] = {
     "fps_recuperou": (0.10, 0.0, "recuperou"),
     "truque_aplauso": (0.20, 0.0, "truque aplaudido"),
     "truque_ignorado": (-0.05, 0.0, "truque ignorado"),
+    "pedro_volta_2": (0.10, 0.0, "Pedro voltou de novo"),  # 2ª volta na hora (acordo-pj §2)
+    "torcida": (0.03, 0.0, "torcida"),  # [vida.torcida] delta_animo (acordo-pj §1)
 }
 SEM_HABITUACAO = frozenset({"ado", "favorita"})  # acordo §1
 CLIQUE_HORA = 3  # acordo §1: clique carinhoso conta ≤ 3/h
@@ -255,19 +257,28 @@ class Humor:
         return h
 
 
+EXTRAS = ("placar", "sem_sentido", "torcida")  # guardados como o ``exportar()`` de cada módulo
+
+
 class Estado:
     """Humor + postura + contadores do governador, persistidos com escrita atômica.
 
     ``truque`` = o último número do truque de salão e o dia (``{"numero", "dia"}``): a alternância
-    diária fone ↔ piscadinha não repete o de ontem (acordo-pj §2).
+    diária fone ↔ piscadinha não repete o de ontem (acordo-pj §2). ``placar``, ``sem_sentido`` e
+    ``torcida`` = o ``exportar()`` de cada módulo (V1.7), guardados como vieram.
     """
 
     def __init__(self, humor: Humor | None = None, postura: Postura | None = None,
-                 governador: dict | None = None, truque: dict | None = None) -> None:
+                 governador: dict | None = None, truque: dict | None = None,
+                 placar: dict | None = None, sem_sentido: dict | None = None,
+                 torcida: dict | None = None) -> None:
         self.humor = humor or Humor()
         self.postura = postura or Postura()
         self.governador = governador or {}
         self.truque = truque or {}
+        self.placar = placar or {}
+        self.sem_sentido = sem_sentido or {}
+        self.torcida = torcida or {}
 
     def salvar(self, agora: float, path: Path | None = None) -> None:
         p = Path(path or ESTADO_FILE)
@@ -278,6 +289,7 @@ class Estado:
             "postura": {"fone": str(self.postura.fone), "motivo": self.postura.motivo},
             "governador": self.governador,
             "truque": self.truque,
+            **{k: getattr(self, k) for k in EXTRAS},
         }
         tmp = p.with_name(p.name + ".tmp")
         tmp.write_text(json.dumps(dados, ensure_ascii=False), encoding="utf-8")
@@ -294,6 +306,7 @@ class Estado:
             postura = Postura(Fone(pd.get("fone", Fone.PESCOCO)), str(pd.get("motivo", "")))
             governador = dict(dados.get("governador") or {})
             truque = dict(dados.get("truque") or {})
+            extras = {k: dict(dados.get(k) or {}) for k in EXTRAS}
             salvo_em = float(dados["salvo_em"])
         except (OSError, ValueError, KeyError, TypeError):
             return cls(Humor(cfg))
@@ -301,4 +314,4 @@ class Estado:
         humor._decair(fechado, time.localtime(agora).tm_hour)
         humor.energia = humor.energia_nivel
         humor.ultimo_tick = agora
-        return cls(humor, postura, governador, truque)
+        return cls(humor, postura, governador, truque, **extras)

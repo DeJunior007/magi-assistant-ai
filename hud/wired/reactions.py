@@ -28,10 +28,14 @@ from pathlib import Path
 
 from .reacoes import DETECTORES, det_musica, governador, humor, passivas, registro, repouso
 from .reacoes import diretor as _diretor
+from .reacoes import episodio as _episodio
 from .reacoes import estado as _estado
 from .reacoes import momento as _momento
+from .reacoes import placar as _placar
+from .reacoes import sem_sentido as _sem_sentido
+from .reacoes import torcida as _torcida
 from .reacoes.atividade import Atividade
-from .reacoes.catalogo import ATIVAS, CENAS, DEFS
+from .reacoes.catalogo import ATIVAS, CENAS, DEFS, _passos, com_suor
 from .reacoes.contratos import Classe, Def, Disparo, Passo
 from .reacoes.governador import Pedido, Tipo
 from .reacoes.vida import VIDA_PADRAO, Cena, Evento, Fone, Momento, mesclar
@@ -54,6 +58,8 @@ LINE_SECS = 7.0
 CLEANUP_MIN_BYTES = 1_000_000_000  # faxina menor que isso não é comemorada (= cleanup_announce_gb)
 CLICK_TALK = 0.25  # chance de comentar um clique comum (player, card)
 CLIQUES_S = 30.0  # ctx["cliques"]: cliques do HUD dos últimos 30 s (det_entrada)
+ATIVO_S = 60.0  # Pedro "ativo" para o placar da madrugada (como o truque: < 60 s parado)
+EXPRESSOES_N = 10  # linhas guardadas para o ✗ do hover e o atalho
 PASSIVA_A_CADA = 10.0  # passivas.sortear roda a cada 10 s (design §4)
 CLICK_MS = 1800.0  # olhada de um clique comum (player, card)
 ATENCAO_MS = 500.0
@@ -70,6 +76,16 @@ EVENTO_DE = {"tsundere": ("tag_elogio", "pedro"), "gaguejando": ("tag_elogio", "
              "cleanup": ("faxina", "sistema"), "game_on": ("jogo_abriu", "jogo"),
              "ideia": ("commit", "claude"), "pulou_essa": ("birra", "musica"),
              "pedro_voltou": ("pedro_volta", "pedro")}
+# a volta orgulhosa aplica o Δ pelo degrau que o diretor escolheu (acordo-pj §2): 3ª = nada
+VOLTA_EVENTO = {"orgulhosa": "pedro_volta", "orgulhosa_longa": "pedro_volta", "cochilou": "pedro_volta",
+                None: "pedro_volta", "orgulhosa_2": "pedro_volta_2"}
+# positivas da meta 6 (a lista do test_vida_simulacao): zeram o relógio da ``torcida``
+POSITIVAS = frozenset({"sorriso_canto", "rindo_sozinha", "piscada_gato", "corando", "cantarolando",
+                       "cantando_junto", "refrao", "piscadinha", "brilho_presilha", "music_love",
+                       "music_like", "pedro_voltou", "bom_dia", "ideia", "commit", "musica_comecou",
+                       "cabeca_ritmo", "claude_terminou", "game_on", "truque", "duelo_ado", "torcida"})
+EXPRESSOES = frozenset({"gesto", "cena", "ativa", "atencao"})  # alvos do "isso foi sem sentido"
+POS_BATALHA = frozenset({"game_off", "eu_avisei", "desconfiada"})  # a linha vai na que já sai
 PARADA = "sleeping"  # = integration.IDLE_STATES: só parada ela toca reação nova (fila anda à parte)
 _SPLIT = re.compile(r"\s*(?:,|&|/|;| feat\.? | ft\.? | x | e )\s*")
 
@@ -343,7 +359,8 @@ class Reactor:
                  seen_file: Path | None = None, clock=time.time, rng: random.Random | None = None,
                  detectores=None, sortear=None, defs: dict | None = None,
                  registro_file: Path | None = None, atividade: Atividade | None = None,
-                 estado_file: Path | None = None, boot_id: str | None = None):
+                 estado_file: Path | None = None, boot_id: str | None = None,
+                 sem_sentido_file: Path | None = None):
         self.taste = taste or Taste()
         self.cleanup_file = cleanup_file or CLEANUP_FILE
         self.seen_file = seen_file or SEEN_FILE
@@ -412,6 +429,17 @@ class Reactor:
         self._boot_visto = str(self.vida_estado.governador.get("boot") or "")
         # contadores por momento/faixa e a escada do Tédio (V0.8b): o que já saiu e o "ei" pendente
         self._marcas: dict = {"momento_desde": None, "faixa": None, "ei_em": None}
+        # placar, "sem sentido" e piso da torcida (V1.7): guardados no ``Estado``
+        self.placar = _placar.Placar(self.vida)
+        self.placar.importar(self.vida_estado.placar)
+        self.sem_sentido = _sem_sentido.SemSentido(self.vida, sem_sentido_file,
+                                                   frozenset(passivas.NEGATIVAS))
+        self.torcida = _torcida.Torcida(self.vida)
+        self.torcida.importar(self.vida_estado.torcida)
+        self.diretor.ganchos_truque.append(self._placar_truque)
+        self._expressoes: list[dict] = []  # últimas linhas de expressão (alvo do "sem sentido")
+        self._virada: dict | None = None  # virada do placar esperando o próximo slot de passiva
+        self._ui_now = -1e18  # ``now`` do último gesto da UI entre ticks
 
     # ------------------------------------------------------------ saída
 
@@ -576,6 +604,7 @@ class Reactor:
             disparos += self._legado(snap, prev, now, hour, ctx)
             disparos += self._fila_disp + self._musica
             self._musica, self._fila_disp = [], []
+            disparos = self._placar_tick(ctx, disparos, rel)
         self._vida(ctx, disparos, now, rel, hour, primeiro=prev is None)
 
     def _legado(self, snap, prev, now: float, hour: int, ctx: dict) -> list[tuple[Disparo, dict]]:
@@ -652,6 +681,7 @@ class Reactor:
             alerta="quente" if self._hot and not snap.gaming else None)
         sin.pop("musica_nota")  # o ctx segue com 0 sem música (os detectores); humor.sinais converte
         ctx.update(sin)
+        ctx["placar_bom_dia"] = self.placar.bom_dia(self._rel(now))  # o det_tempo põe no "bom dia"
         ctx.update(
             defs=self.defs, estado=self.estado, agora=now, relogio=self.clock(), hora=hour,
             madrugada=_in_hours(hour, self.taste.ctx("madrugada", [22, 4])),
@@ -736,9 +766,15 @@ class Reactor:
                 self._olhar(card, now, "diretor", dr.atencao_ms)
         # 4 · passivas (a cada 10 s, só sem sequência tocando)
         livre = ctx["magui"] == PARADA and (self._seq is None or now >= self.until)
+        self.torcida.atualizar(rel, jogo=bool(ctx.get("jogo")), presente=float(
+            ctx.get("inatividade_s") or 0.0) < float(self.vida["momentos"]["pedro_sumiu_s"]))
         if not primeiro and livre and now >= self._next_passiva:
             self._next_passiva = now + PASSIVA_A_CADA
             self._passivas(ctx, now, rel, hour)
+        elif not primeiro and livre and dr.tocando(rel) is None:  # piso da torcida furando o slot
+            esc = self.torcida.fora_do_slot(rel, m, dr.gov, dr._ctx_gov(), self.rng)  # noqa: SLF001
+            if esc is not None:
+                self._tocar_torcida(esc, ctx, now, rel, hour)
         ctx["causas"] = dict(dr.causas)
         # 5 · repouso (e a troca de fone que faltou, por um passo de cena P11)
         self._repouso(ctx, m, faixa, fs, now, rel)
@@ -772,8 +808,9 @@ class Reactor:
     def _adaptar(d: Disparo) -> Disparo:
         """Disparos de antes que já têm roteiro de cena (V0.10): a volta do Pedro."""
         if d.chave in ("sobressalto", "sentiu_falta"):
+            fora = {"fora_s": d.fmt["fora_s"]} if "fora_s" in (d.fmt or {}) else {}
             return Disparo("pedro_voltou", d.motivo, None,
-                           {"cochilou": d.chave == "sobressalto", "causa": "pedro_voltou"})
+                           {"cochilou": d.chave == "sobressalto", "causa": "pedro_voltou", **fora})
         return d
 
     @staticmethod
@@ -784,6 +821,8 @@ class Reactor:
             return ("fps_recuperou" if v in ("alivio", "recuperou") else "fps_episodio"), "jogo"
         if k == "claude_terminou":
             return ("claude_fim", "claude") if float(d.fmt.get("dur_s", 0)) > CLAUDE_LONGO_S else None
+        if k == "pedro_voltou":
+            return None  # o Δ sai na cena, pelo degrau da habituação (``_tocar_cena``)
         if d.motivo.startswith("turno: "):
             tag = f"tag_{d.motivo[7:]}"
             return (tag, "pedro") if tag in _estado.EVENTOS else None
@@ -792,6 +831,9 @@ class Reactor:
     def _tocar_cena(self, cena: Cena, now: float, rel: float, hour: int, ctx: dict) -> None:
         """Toca a cena do diretor: as antigas com o humor/fala de antes, o catálogo com os bloqueios."""
         disp, opts = self._origem.get(cena.causa, (None, {}))
+        linha_placar = (disp.fmt or {}).get("placar_linha") if disp is not None else None
+        if cena.tipo == "pedro_voltou" and cena.ramo in VOLTA_EVENTO:
+            self.humor.aplicar(Evento(VOLTA_EVENTO[cena.ramo], "pedro", rel), rel)
         antiga = "skips" if cena.tipo == "impaciente" else (
             disp.chave if disp is not None and disp.chave in REACTIONS else None)
         roteiro = (cena.tipo, cena.ramo) in CENAS or (cena.tipo, None) in CENAS
@@ -816,17 +858,27 @@ class Reactor:
             disp = Disparo(cena.tipo, disp.motivo if disp is not None else "diretor", cena.ramo,
                            disp.fmt if disp is not None else {})
         self.tocar(d, disp, now, passos)
+        if linha_placar:  # pós-batalha / "bom dia": 1 linha na expressão que já sai
+            self._falar_placar(linha_placar, now)
         ctx["ultima_expressao_em"] = rel
         self._log("cena" if roteiro else "ativa", d.chave, disp.motivo, now, d, disp, cena.causa)
 
     def _passivas(self, ctx: dict, now: float, rel: float, hour: int) -> None:
         dr = self.diretor
+        if self._virada is not None and self._tocar_virada(ctx, now, rel, hour):
+            return
         if rel - ctx.get("_passivas_inicio", rel) >= passivas.AQUECIMENTO_S:
             cena = dr.truque(rel, ctx)
             if cena is not None:
                 self._tocar_cena(cena, now, rel, hour, ctx)
                 return
-        extra = self.sortear(ctx, rel, self.rng)
+        esc = self.torcida.no_slot(rel, ctx.get("momento"), dr.gov, dr._ctx_gov(), self.rng)  # noqa: SLF001
+        if esc is not None:
+            self._tocar_torcida(esc, ctx, now, rel, hour)
+            return
+        fatores = self.sem_sentido.fatores(ctx.get("momento"), rel)
+        extra = (self.sortear(ctx, rel, self.rng, fatores) if fatores
+                 else self.sortear(ctx, rel, self.rng))
         if extra is None:
             return
         if extra.chave == passivas.ATENCAO:  # piso de vida: olhada dirigida, fora de cota
@@ -845,11 +897,141 @@ class Reactor:
                     dr.gov.motivo(neg, rel, dr._ctx_gov()) == "negativa_sem_causa":  # noqa: SLF001
                 self._log("descartada_sem_causa", extra.chave, extra.motivo, now)
             return
+        if d.chave == _torcida.CHAVE:  # a do sorteio conta no intervalo e na alternância do piso
+            self.torcida.registrar(rel, extra.variante)
+            d = com_suor(d) if ctx.get("episodio") else d
+            self.humor.aplicar(Evento("torcida", "jogo", rel), rel)
         self.tocar(d, extra, now, governador.aplicar_bloqueios(d, {**ctx, "agora": rel}))
         governador._aprovar(d, extra, rel, hour, self.estado)  # noqa: SLF001
         ctx["ultima_expressao_em"] = rel
         self._marcar(d.chave, ctx, rel, now)
         self._log("gesto", d.chave, extra.motivo, now, d, extra)
+
+    # ------------------------------------------------------------ placar, torcida, sem sentido
+
+    def _tocar_torcida(self, esc, ctx: dict, now: float, rel: float, hour: int) -> bool:
+        """Piso da ``torcida`` (já aprovado pelo governador): suor com episódio aberto e o Δ."""
+        disp = Disparo(esc.chave, esc.causa, esc.var)
+        d = governador._achar(disp, self.defs)  # noqa: SLF001
+        if d is None:
+            return False
+        d = com_suor(d) if ctx.get("episodio") else d
+        self.tocar(d, disp, now, governador.aplicar_bloqueios(d, {**ctx, "agora": rel}))
+        governador._aprovar(d, disp, rel, hour, self.estado)  # noqa: SLF001
+        self.humor.aplicar(Evento("torcida", "jogo", rel), rel)  # Δ = estado.EVENTOS (= [vida.torcida])
+        ctx["ultima_expressao_em"] = rel
+        self._log("gesto", d.chave, esc.causa, now, d, disp, esc.causa)
+        return True
+
+    def _tocar_virada(self, ctx: dict, now: float, rel: float, hour: int) -> bool:
+        """Virada do placar no slot de passiva: ``piscadinha`` (ela) / ``soprando_franja`` (ele, com
+        a causa ``placar:virada``). Recusada pelo governador, a virada só muda o número."""
+        v, self._virada = self._virada, None
+        disp = Disparo(v["chave"], "placar:virada")
+        d = governador._achar(disp, self.defs)  # noqa: SLF001
+        if d is None or self.diretor.sortear_passiva([d.chave], rel, ctx) is None:
+            return False
+        self.tocar(d, disp, now, governador.aplicar_bloqueios(d, {**ctx, "agora": rel}))
+        governador._aprovar(d, disp, rel, hour, self.estado)  # noqa: SLF001
+        ctx["ultima_expressao_em"] = rel
+        self._marcar(d.chave, ctx, rel, now)
+        self._log("gesto", d.chave, disp.motivo, now, d, disp, "placar:virada")
+        return True
+
+    def _ref(self, origem: str, rel: float) -> str:
+        """Id da linha de origem de um ponto: ``<hora local ISO>#<origem>``."""
+        return time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(rel)) + "#" + origem
+
+    def _pontuar(self, fonte: str | None, origem: str, rel: float) -> _placar.Ponto | None:
+        """Ponto no placar (se a fonte/teto deixar): grava a linha e guarda a virada."""
+        if not fonte:
+            return None
+        p = self.placar.pontuar(fonte, self._ref(origem, rel), rel)
+        return self._ponto(p, rel)
+
+    def _ponto(self, p: _placar.Ponto | None, rel: float) -> _placar.Ponto | None:
+        if p is None:
+            return None
+        linha = {"tipo": "placar", "momento": str(self.ctx.get("momento") or ""), **p.linha}
+        registro.gravar_placar(linha, self.registro_file or registro.REGISTRO_FILE)
+        if p.virada is not None:
+            self._virada = p.virada
+            self.diretor.causas["placar:virada"] = rel  # a negativa dele tem culpado: o ponto
+        return p
+
+    def _placar_truque(self, lado: str, agora: float) -> None:
+        """Gancho do diretor no fim da janela do truque (aplaudido → ela; ignorado → ele)."""
+        fonte = "ela_truque_aplaudido" if lado == "aplaudido" else "ele_truque_ignorado"
+        self._pontuar(fonte, f"truque:{lado}", agora)
+
+    def _placar_tick(self, ctx: dict, disparos: list[tuple[Disparo, dict]],
+                     rel: float) -> list[tuple[Disparo, dict]]:
+        """Fontes do placar deste tick: fim de partida (com a linha pós-batalha na expressão que já
+        sai), faixa até o fim / pulo (nota 2, Ado/Favorita) e "ativo depois da 1h"."""
+        ep = ctx.get("_sistema_ep")
+        fim = getattr(ep, "fim_partida", None)
+        if fim is not None:
+            ep.fim_partida = None
+            fonte = _episodio.fonte_placar(fim, float(self.vida["placar"]["partida_min_min"]))
+            linha = _placar.Placar.linha_pos_batalha(self._pontuar(fonte, "game_off", rel))
+            if linha:
+                disparos = [(replace(d, fmt={**(d.fmt or {}), "placar_linha": linha}), o)
+                            if d.chave in POS_BATALHA else (d, o) for d, o in disparos]
+        m = ctx.pop("_musica_fim", None)
+        if m is not None:
+            origem = "faixa:" + "|".join(m.get("faixa") or ())
+            if m.get("nota") == 2 and m.get("ate_fim"):
+                self._pontuar("ele_faixa_nota2", origem, rel)
+            elif m.get("nota") == 2 and m.get("pulo"):
+                self._pontuar("ela_pulo_nota2", origem, rel)
+            if m.get("especial") and m.get("ate_fim"):
+                self._pontuar("ela_favorita_ado", origem, rel)
+        if float(ctx.get("inatividade_s") or 0.0) < ATIVO_S:
+            self._ponto(self.placar.ativo(rel, self._ref("ativo", rel)), rel)
+        return disparos
+
+    def _falar_placar(self, linha: str, now: float) -> None:
+        """A linha do placar substitui a fala da expressão (se as falas estão ligadas)."""
+        if self.taste.lines.get("geral", True):
+            self.line, self.line_until, self._last_line = linha, now + LINE_SECS, now
+
+    # ------------------------------------------------------------ API para a UI e a voz
+
+    def _agora(self) -> float:
+        """Relógio da vida fora do tick (o do último tick; antes do 1º, o de parede)."""
+        if "agora" not in self.ctx:
+            return self.clock()
+        return self._rel(max(float(self.ctx["agora"]), self._ui_now))
+
+    def placar_resumo(self) -> dict:
+        """Hover do medidor: ``{"texto": "Condessa X × Y Pedro · semana X × Y", "ultimos": [...]}``."""
+        return self.placar.resumo(self._agora())
+
+    def ajustes(self) -> int:
+        """Quantos pesos o "sem sentido" está ajustando agora ("ajustes: N")."""
+        return self.sem_sentido.ajustes(self._agora())
+
+    def ultimas_expressoes(self, n: int = 3) -> list[dict]:
+        """As ``n`` últimas linhas de expressão (alvos do ✗ / atalho), a mais nova por último."""
+        return [dict(x) for x in self._expressoes[-n:]]
+
+    def marcar_sem_sentido(self, alvo: dict | None = None, gesto: str = "atalho",
+                           now: float | None = None) -> dict:
+        """Pedro marcou "isso foi sem sentido". ``alvo`` = linha de ``ultimas_expressoes`` (None =
+        a última expressão; sem nenhuma, ``alvo: nenhum``). O mesmo alvo em ≤ ``desfazer_s`` desfaz.
+        Toca o ``hm… anotado`` (``B7 C12 ?`` 700): sem ânimo, sem placar, fora do ritmo. Devolve a
+        linha gravada no ``sem-sentido.jsonl``."""
+        if alvo is None and self._expressoes:
+            alvo = self._expressoes[-1]
+        if now is not None:
+            self._ui_now = max(self._ui_now, now)
+        rel = self._agora() if now is None else self._rel(now)
+        linha = self.sem_sentido.marcar(alvo, gesto, rel)
+        if "desfeito" not in linha and now is not None and self.ctx.get("magui", PARADA) == PARADA:
+            r = _sem_sentido.REACAO
+            d = Def("sem_sentido", "gesto", "sem_sentido", _passos(f"{r.rosto} {r.ms}"), frozenset())
+            self.tocar(d, Disparo("sem_sentido", gesto), now)
+        return linha
 
     def _contadores(self, ctx: dict, rel: float, now: float) -> None:
         """Franja/cantando (≤ 1 por espera/faixa) e a escada do Tédio no ``ctx`` (acordo §3); as
@@ -938,6 +1120,9 @@ class Reactor:
             return
         self._salvo_em = rel
         self.vida_estado.governador = {**self.diretor.gov.exportar(), "boot": self._boot()}
+        self.vida_estado.placar = self.placar.exportar()
+        self.vida_estado.sem_sentido = self.sem_sentido.exportar(rel)
+        self.vida_estado.torcida = self.torcida.exportar(rel)
         try:
             self.vida_estado.salvar(rel, self.estado_file)
         except OSError:
@@ -951,6 +1136,13 @@ class Reactor:
                   "faixa": str(ctx.get("faixa_humor") or ""), "animo": round(h.animo, 3),
                   "energia": round(h.energia, 3), "causa": causa}
         caminho = self.registro_file or registro.REGISTRO_FILE
+        if tipo in EXPRESSOES:  # alvo do "sem sentido" (a linha de origem, como foi gravada)
+            self._expressoes = [*self._expressoes[-(EXPRESSOES_N - 1):], {
+                "t": self.clock(), "chave": d.chave if d is not None else chave,
+                "variante": disp.variante if disp is not None else None, "motivo": motivo,
+                **campos}]
+            if (d.chave if d is not None else chave) in POSITIVAS:
+                self.torcida.positiva(self._rel(now))
         if d is not None and disp is not None:
             registro.gravar(d, disp, self.clock(), caminho, campos)
         else:

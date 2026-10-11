@@ -166,7 +166,9 @@ def _volta(anterior: Any, snap: Any, ctx: dict, relogio: float) -> list[Disparo]
     cochilou = ctx.pop("_tempo_cochilou", False)
     motivo = "+".join(evs)
     if primeiro:
-        return [Disparo("bom_dia", f"1º evento do dia ({motivo})")]
+        linha = ctx.get("placar_bom_dia")  # placar de ontem (o Reactor põe no ctx, V1.7)
+        return [Disparo("bom_dia", f"1º evento do dia ({motivo})", None,
+                        {"placar_linha": linha} if linha else {})]
     if parado is not None and parado >= AUSENTE_S:
         return [Disparo("sentiu_falta", f"voltou depois de {parado / 3600:.1f} h ({motivo})", None,
                         {"fora_s": parado})]

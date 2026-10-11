@@ -200,10 +200,18 @@ def _troca(ctx: dict, chave, agora: float) -> list[Disparo]:
     out: list[Disparo] = []
     velha, desde = ctx.get("_musica_faixa"), float(ctx.get("_musica_desde", agora))
     nota_velha = int(ctx.get("_musica_nota", 0))
-    pulo = False
-    if velha is not None and chave is not None:
+    pulo = ate_fim = False
+    if velha is not None:
         pos, dur = ctx.get("_musica_pos") or (None, None)
-        pulo = pos < dur - FIM_FILA_S if pos is not None and dur else agora - desde < PULO_SEM_POSICAO_S
+        if pos is not None and dur:
+            ate_fim = pos >= dur - FIM_FILA_S
+            pulo = chave is not None and not ate_fim
+        elif chave is not None:
+            pulo = agora - desde < PULO_SEM_POSICAO_S
+            ate_fim = not pulo
+        # placar (V1.7): o Reactor consome ``_musica_fim`` (faixa até o fim / pulo, Ado/Favorita)
+        ctx["_musica_fim"] = {"faixa": velha, "nota": nota_velha, "pulo": pulo, "ate_fim": ate_fim,
+                              "especial": bool(ctx.get("_musica_especial")), "t": agora}
     if pulo:
         pulos = _janela(ctx, "_musica_pulos", agora, TONTURA[1])
         pulos.append(agora)
@@ -237,7 +245,7 @@ def _troca(ctx: dict, chave, agora: float) -> list[Disparo]:
             out.append(Disparo("indecisa", "anterior_proxima"))
     ctx["_musica_nota_ant"] = nota_velha if velha is not None else None
     ctx.update(_musica_faixa=chave, _musica_desde=agora, _musica_feitas=set(), _musica_fps=None,
-               _musica_pos=None, _musica_nota=int(ctx.get("musica_nota", 0)))
+               _musica_pos=None, _musica_nota=int(ctx.get("musica_nota", 0)), _musica_especial=False)
     if chave is not None:
         out += _comecou(ctx, chave)
     return out
@@ -288,6 +296,7 @@ def _comecou(ctx: dict, chave: tuple[str, str]) -> list[Disparo]:
     if fav and fav in nomes and ctx.get("_musica_fav_dia") != dia:
         ctx["_musica_fav_dia"] = dia
         out.append(Disparo("favorita_dia", "favorita_do_dia", fmt=fmt))
+    ctx["_musica_especial"] = bool(fav and fav in nomes) or bool(ctx.get("ado")) or "ado" in nomes
     if ctx.get("ado") or "ado" in nomes:
         out.append(Disparo("duelo_ado", "ado", fmt=fmt))
     if DIVA in nomes:

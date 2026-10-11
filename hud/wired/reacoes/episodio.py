@@ -26,6 +26,8 @@ class Episodio:
         self.aberto = False
         self.estavel_desde: float | None = None
         self.fechou_em: float | None = None
+        self.partida_desde: float | None = None
+        self.fim_partida: dict | None = None  # placar (V1.7): o Reactor consome no fim da partida
         self._zerar_partida()
 
     def _zerar_partida(self) -> None:
@@ -92,11 +94,25 @@ class Episodio:
     def game_on(self, agora: float) -> None:
         """Partida nova ("cockpit", P12): zera os tetos; um episódio aberto segue como estado."""
         self._zerar_partida()
+        self.partida_desde = agora
 
     def game_off(self, agora: float, pedro_mal: bool = False) -> str:
         """Relatório pós-batalha: ``"vitoria"`` (cockpit), ``"eu_avisei"`` ou ``"desconfiada"``."""
         teve = self.teve_problema or self.episodios > 0 or self.cobrancas > 0
+        dur = agora - self.partida_desde if self.partida_desde is not None else 0.0
+        self.fim_partida = {"t": agora, "dur_s": max(0.0, dur), "episodio": teve}
+        self.partida_desde = None
         self._zerar_partida()
         if not teve:
             return "vitoria"
         return "desconfiada" if pedro_mal else "eu_avisei"
+
+
+def fonte_placar(fim: dict | None, partida_min_min: float) -> str | None:
+    """Fonte do placar (acordo placar-e-jogo §3) da partida que fechou: com episódio FPS/calor é
+    ponto dela; limpa e ≥ ``partida_min_min`` é dele; curta e limpa não conta."""
+    if not fim:
+        return None
+    if fim.get("episodio"):
+        return "ela_partida_episodio"
+    return "ele_partida_limpa" if float(fim.get("dur_s", 0)) >= partida_min_min * 60 else None

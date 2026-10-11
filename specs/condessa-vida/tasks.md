@@ -235,7 +235,7 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   - Pronto: testes de 30/45 min, intervalo de 30 min, vaga ocupada (não soma), causa no log, variantes alternando; `tests/hud` verde; `ruff` limpo.
   - Paralelo: V1.3, V1.4, V1.5
 
-- [ ] **V1.7 Ligação no Reactor** — o `Reactor` passa a: chamar o piso da `torcida` e os fatores do
+- [x] **V1.7 Ligação no Reactor** — o `Reactor` passa a: chamar o piso da `torcida` e os fatores do
   sem sentido no sorteio de passivas; alimentar o placar pelos ganchos (fim de partida no
   `episodio.py`, faixa até o fim / pulo e Ado/Favorita no `det_musica.py`, fim do truque no diretor,
   "ativo depois da 1h"); guardar placar e ajustes no `Estado` (`condessa-estado.json`); soltar a
@@ -526,3 +526,25 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   lê o tempo do motivo (`depois de X h`) — a V1.7 deve repassar o `fora_s`. Contador de voltas em
   `Diretor.voltas` (só memória; o cochilo não conta); a 3ª vira `Cena("pedro_voltou","atencao")`
   com `catalogo.VOLTA_ATENCAO`, registrada no governador como `ATENCAO`.
+- **V1.7:** API para a UI/voz: `Reactor.placar_resumo()` (`{texto, ultimos}` do `Placar.resumo`),
+  `Reactor.ajustes()` (N), `Reactor.ultimas_expressoes(n=3)` (linhas de expressão `gesto`/`cena`/
+  `ativa`/`atencao`, só memória, ≤ 10) e `Reactor.marcar_sem_sentido(alvo=None, gesto="atalho",
+  now=None)` (alvo None = a última expressão, sem nenhuma `nenhum`; com `now` toca a `REACAO` direto
+  no `Reactor`, fora do diretor/governador/ânimo e sem linha no `reacoes.jsonl`). `ref` do ponto =
+  `<hora local ISO>#<origem>` (`game_off`, `faixa:<título>|<artista>`, `truque:<lado>`, `ativo`), não
+  o id exato de uma linha gravada. A linha do placar ganha `tipo: placar` e `momento` no `Reactor`
+  (o `registro.linha_placar` não tem `tipo` e o `test_vida_sobras` lê `tipo`). Fim de partida:
+  `Episodio.partida_desde`/`fim_partida` + `episodio.fonte_placar`; música: `det_musica` põe
+  `ctx["_musica_fim"]` (`nota`, `ate_fim`, `pulo`, `especial` = Ado/Favorita) e o `Reactor` consome.
+  "Ativo depois da 1h" = `inatividade_s` < 60 s. Pós-batalha e "bom dia" (`det_tempo` leva
+  `ctx["placar_bom_dia"]` no `fmt`) trocam a legenda da expressão que já sai (`_falar_placar`).
+  Virada toca no próximo slot de passiva (recusada = só número); `soprando_franja` usa a causa
+  `placar:virada` em `diretor.causas`. Volta: `fora_s` repassado no `_adaptar`; o Δ sai na cena pelo
+  `Cena.ramo` (`pedro_volta`; `orgulhosa_2` → `pedro_volta_2` +0,10 novo em `estado.EVENTOS`; 3ª nada)
+  — se a cena não toca (MAGI falando, suprimida), não há Δ. `torcida`: Δ por `estado.EVENTOS
+  ["torcida"]` (+0,03, cópia do `[vida.torcida]`, como o truque) no piso e no sorteio; `com_suor`
+  com `ctx["episodio"]`; positivas = `reactions.POSITIVAS` (cópia da lista do replay). `Estado`
+  ganhou `placar`/`sem_sentido`/`torcida`. `jogo` já estava no `ctx` do diretor. `diretor.py` não
+  mudou (o `Reactor` se inscreve em `ganchos_truque`). Falta: `semente` na linha de origem, a
+  `pauta` com ocorrências contadas no `reacoes.jsonl`, a voz ("qual o placar?", V1.9) e conferir na
+  tela.
