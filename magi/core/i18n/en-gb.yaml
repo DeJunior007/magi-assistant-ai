@@ -160,6 +160,14 @@ fixed:
   "Não vi jogo nenhum aberto. Conversa livre, então.": "No game detected, so free talk."
   "Não tem notícia de hoje. Conversa livre, então.": "No news today, so free talk."
   "Não consegui trocar o tema.": "I couldn't change the topic."
+  "Pegando a vaga que você copiou.": "Grabbing the job you copied."
+  "Bora de novo com a última vaga.": "Let's go again with the last job."
+  "Não tenho vaga nenhuma guardada.": "I don't have any job saved."
+  "Não tem entrevista rolando.": "There's no interview running."
+  "Não consegui mexer na entrevista.": "I couldn't change the interview."
+  "Próxima etapa, então.": "Next stage, then."
+  "Entrevista pausada.": "Interview paused."
+  "Entrevista encerrada.": "Interview over."
 
 templates:
   # audiolivro (A2.3)

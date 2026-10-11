@@ -151,6 +151,15 @@ lazy:
   - "Não vi jogo nenhum aberto. Conversa livre, então."
   - "Não tem notícia de hoje. Conversa livre, então."
   - "Não consegui trocar o tema."
+  # Learning imersivo (LI1.4): entrevista pela vaga por voz
+  - "Pegando a vaga que você copiou."
+  - "Bora de novo com a última vaga."
+  - "Não tenho vaga nenhuma guardada."
+  - "Não tem entrevista rolando."
+  - "Não consegui mexer na entrevista."
+  - "Próxima etapa, então."
+  - "Entrevista pausada."
+  - "Entrevista encerrada."
   # espera viva (E2.1, Conselho 2026-10-11): frases de espera de magi/core/espera.yaml
   - "Calma, tô montando isso na cabeça."
   - "Isso tem nuance, deixa eu pensar."

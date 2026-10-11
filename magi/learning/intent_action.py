@@ -17,6 +17,10 @@ frases só existem no roteador **com sessão ativa** (filtro no ``best`` do rote
 fora da aula "vamos falar do jogo" segue o caminho antigo. A ação guarda o ``TopicBuilder`` com as
 fontes do núcleo (``GameWatcher``, Steam, ``NewsRepo``); a ``LearningWiring`` o acha por
 ``builder_of``.
+
+Entrevista pela vaga (LI1.4): ``learning.interview.job|last`` (só com sessão ativa) pedem a vaga
+ao HUD (``lm_job_req``, D1) ou recarregam a última; ``learning.interview.next|skip|pause|end``
+(só com simulação viva) são os comandos da spec §5.3 → ``LearningWiring.interview_command``.
 """
 
 from __future__ import annotations
@@ -42,7 +46,9 @@ __all__ = [
     "SAY_ON",
     "SAY_UNAVAILABLE",
     "TOPIC_INTENTS",
+    "INTERVIEW_INTENTS",
     "LearningIntentAction",
+    "LearningInterviewAction",
     "LearningTopicAction",
     "builder_of",
     "enabled",
@@ -62,6 +68,16 @@ TOPIC_OF: dict[str, Topic] = {
     IntentId.LEARNING_TOPIC_NEWS.value: Topic.NEWS,
 }
 TOPIC_INTENTS = frozenset(TOPIC_OF)
+#: Entrevista pela vaga (LI1.4): vaga (com sessão) e comandos (com simulação viva) → ``cmd``.
+JOB_INTENTS = frozenset({IntentId.LEARNING_INTERVIEW_JOB.value, IntentId.LEARNING_INTERVIEW_LAST.value})
+RUN_CMD_OF: dict[str, str] = {
+    IntentId.LEARNING_INTERVIEW_NEXT.value: "next",
+    IntentId.LEARNING_INTERVIEW_SKIP.value: "skip_stage",
+    IntentId.LEARNING_INTERVIEW_PAUSE.value: "pause",
+    IntentId.LEARNING_INTERVIEW_END.value: "end",
+}
+RUN_INTENTS = frozenset(RUN_CMD_OF)
+INTERVIEW_INTENTS = JOB_INTENTS | RUN_INTENTS
 #: Marca no roteador de que o filtro "só com sessão" já foi instalado.
 _GATED = "_learning_topic_gate"
 
@@ -83,6 +99,17 @@ SAY_TOPIC_FALLBACK: dict[str, str] = {
     NO_NEWS: "Não tem notícia de hoje. Conversa livre, então.",
 }
 SAY_TOPIC_FAILED = "Não consegui trocar o tema."
+SAY_JOB_ASKED = "Pegando a vaga que você copiou."
+SAY_JOB_LAST = "Bora de novo com a última vaga."
+SAY_NO_LAST_JOB = "Não tenho vaga nenhuma guardada."
+SAY_NO_INTERVIEW = "Não tem entrevista rolando."
+SAY_INTERVIEW_FAILED = "Não consegui mexer na entrevista."
+SAY_RUN_CMD: dict[str, str] = {
+    "next": "Beleza.",
+    "skip_stage": "Próxima etapa, então.",
+    "pause": "Entrevista pausada.",
+    "end": "Entrevista encerrada.",
+}
 
 WiringRef = Callable[[], "LearningWiring | None"]
 
@@ -138,6 +165,39 @@ class LearningTopicAction:
         return ActionResult(ok=True, speech=SAY_TOPIC[ctx.topic])
 
 
+class LearningInterviewAction:
+    """``ActionHandler`` de ``learning.interview.*`` (voz): vaga copiada, última vaga e comandos."""
+
+    intents = INTERVIEW_INTENTS
+
+    def __init__(self, wiring: WiringRef) -> None:
+        self._wiring = wiring
+
+    async def run(self, req: ActionRequest) -> ActionResult:
+        wiring = self._wiring()
+        if wiring is None:
+            return ActionResult(ok=False, speech=SAY_UNAVAILABLE)
+        if not wiring.session.active:
+            return ActionResult(ok=False, speech=SAY_NOT_ON)
+        iid = req.intent.id
+        try:
+            if iid == IntentId.LEARNING_INTERVIEW_JOB.value:
+                await wiring.request_job()
+                return ActionResult(ok=True, speech=SAY_JOB_ASKED)
+            if iid == IntentId.LEARNING_INTERVIEW_LAST.value:
+                if await wiring.last_job():
+                    return ActionResult(ok=True, speech=SAY_JOB_LAST)
+                return ActionResult(ok=False, speech=SAY_NO_LAST_JOB)
+            cmd = RUN_CMD_OF[iid]
+            if wiring.live_run() is None:
+                return ActionResult(ok=False, speech=SAY_NO_INTERVIEW)
+            await wiring.interview_command(cmd, "voice")
+        except Exception:
+            log.exception("learning: falha no comando de entrevista %s", iid)
+            return ActionResult(ok=False, speech=SAY_INTERVIEW_FAILED)
+        return ActionResult(ok=True, speech=SAY_RUN_CMD[cmd])
+
+
 def builder_of(deps: Any) -> TopicBuilder | None:
     """``TopicBuilder`` deixado pelo ``wire`` na ação de tema (``None`` = sem ação/fontes)."""
     by_intent = getattr(getattr(deps, "actions", None), "_by_intent", None) or {}
@@ -146,17 +206,21 @@ def builder_of(deps: Any) -> TopicBuilder | None:
     return builder if isinstance(builder, TopicBuilder) else None
 
 
-def _gate(router: Any, active: Callable[[], bool]) -> None:
-    """Intents de tema só com sessão ativa: fora dela o ``best`` do roteador não as vê."""
+def _gate(router: Any, active: Callable[[], bool], live: Callable[[], bool] = lambda: False) -> None:
+    """Intents de tema e de vaga só com sessão ativa; comandos da entrevista só com simulação
+    viva (``live``): fora disso o ``best`` do roteador não as vê."""
     if router is None or not hasattr(router, "intents") or getattr(router, _GATED, False):
         return
     inner = router.best
 
     def best(text: str) -> Any:
-        if active():
+        on = active()
+        hidden = (frozenset() if on else TOPIC_INTENTS | JOB_INTENTS) | (
+            frozenset() if on and live() else RUN_INTENTS)
+        if not hidden:
             return inner(text)
         saved = router.intents
-        router.intents = [s for s in saved if s.id not in TOPIC_INTENTS]
+        router.intents = [s for s in saved if s.id not in hidden]
         try:
             return inner(text)
         finally:
@@ -194,18 +258,25 @@ def wire(
     router = getattr(deps, "router", None)
     if not enabled(config):
         if router is not None and hasattr(router, "intents"):
-            router.intents = [s for s in router.intents if s.id not in INTENTS | TOPIC_INTENTS]
+            router.intents = [s for s in router.intents
+                              if s.id not in INTENTS | TOPIC_INTENTS | INTERVIEW_INTENTS]
         return found
 
     def active() -> bool:
         wiring = wiring_of(deps)
         return wiring is not None and wiring.session.active
 
-    _gate(router, active)
+    def live() -> bool:
+        wiring = wiring_of(deps)
+        return wiring is not None and wiring.live_run() is not None
+
+    _gate(router, active, live)
     if not any(INTENTS & set(h.intents) for h in found):
         found = [*found, LearningIntentAction(lambda: wiring_of(deps))]
     if not any(TOPIC_INTENTS & set(h.intents) for h in found):
         found = [*found, LearningTopicAction(lambda: wiring_of(deps), topics)]
+    if not any(INTERVIEW_INTENTS & set(h.intents) for h in found):
+        found = [*found, LearningInterviewAction(lambda: wiring_of(deps))]
     return found
 
 
@@ -221,6 +292,6 @@ def wire_persona(config: Any, deps: Any) -> bool:
 
     def topic() -> str | None:
         wiring = wiring_of(deps)
-        return wiring.session.topic_block if wiring is not None else None
+        return wiring._topic_block() if wiring is not None else None  # run viva: run.block (LI1.4)
 
     return persona.install(deps.agent, active, topic=topic)

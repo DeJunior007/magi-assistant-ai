@@ -112,7 +112,7 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Pronto: CA-04 (relógio falso, 30 min); frases PT/EN da §5.3 casam e "how am I doing?" não; `asked_log` impede repetição no bloco.
   - Paralelo: LI0.2, LI1.1, LI2.x
 
-- [ ] **LI1.4 Ligação ao núcleo** — no `LearningWiring`: handlers `lm_job` e `lm_interview` (cmd)
+- [x] **LI1.4 Ligação ao núcleo** — no `LearningWiring`: handlers `lm_job` e `lm_interview` (cmd)
   na tabela `_handlers`; fluxo do design §4 (preparing ≤ 100 ms, extração em tarefa, reuso por hash,
   `set_topic` com rótulo, `lm_interview` ready, abertura P11 com a etapa 1); `_topic_block()` que
   devolve `run.block(now)` com run ativa (o `persona.install(topic=…)` passa a usá-lo); depois de
@@ -300,3 +300,18 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   depois de fechado. `tests/learning/test_learning_screen.py::GROUPS` ganhou `"debrief"` (fora do
   *Escreve*, como na LI2.2). Rótulo do aspecto `job_fit` no painel: `JOB FIT`; seção da língua:
   `ENGLISH`; a `closing` não aparece (é a fala).
+- **LI1.4 (2026-10-11):** fora do *Escreve*: `IntentId.LEARNING_INTERVIEW_*` (6 linhas em
+  `magi/common/contracts.py`, o roteador recusa id fora do enum) e as 8 respostas curtas novas em
+  `magi/core/i18n/en-gb.yaml`. O `core.service` não passa `job_model`: o `install` monta
+  `build_job_model(config, budget=engine.budget)` (só funciona com provedor `fake`, falta o
+  `registry=core.providers`) e senão cai no `engine.model` de ações (prazo interno de 8 s) — ligar
+  `install(…, job_model=build_job_model(config, budget=…, registry=core.providers))` no
+  `service.py` (LI2.5). `run_id` = `IV-AAAAMMDD-<segundos do dia + 1>` (sem contador no repo).
+  `lm_session.jobs` só se atualiza ao reabrir o modo. "pula essa" ficou só no texto (empata com
+  `music.next` no roteador). Comandos de voz `next|skip|pause|end` só com run viva (`_gate`);
+  `job|last` só com sessão. `next`/`skip_stage` (voz, texto, botão) disparam um turno interno
+  (`INTERVIEW_NEXT_PROMPT`); comando digitado não vai ao agente. `lm_job` em `PREPARING` responde
+  `lm_interview {"state":"preparing","error":"still preparing the last one"}`; texto curto do
+  núcleo vai como `state = error` com a linha do `jobtext`. Sessão retomada após reinício conta o
+  tempo parado como tempo da etapa (pode avançar no 1º `tick`). Fechar a sessão com run viva só
+  fecha e grava (`_close_run`); o retorno em segundo plano é da LI2.3.

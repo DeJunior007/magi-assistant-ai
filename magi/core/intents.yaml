@@ -717,6 +717,62 @@ intents:
       - "let's talk about the news"
       - "talk about today's news"
 
+  # Entrevista pela vaga (learning-imersivo LI1.4, spec §5.3, D1): ``job``/``last`` só com sessão
+  # ativa; ``next``/``skip``/``pause``/``end`` só com simulação viva (filtro de
+  # ``magi.learning.intent_action``). "pula essa" fica só no texto (empata com ``media.next``).
+  - id: learning.interview.job
+    label: "treinar para a vaga copiada"
+    reply: null
+    phrases:
+      - "treinar para a vaga que eu copiei"
+      - "treina pra vaga que eu copiei"
+      - "entrevista da vaga que eu copiei"
+      - "prepare the interview for the job I copied"
+      - "interview me for the job I copied"
+      - "use the job I copied"
+
+  - id: learning.interview.last
+    label: "treinar de novo para a última vaga"
+    reply: null
+    phrases:
+      - "treinar de novo para a última vaga"
+      - "treina de novo a última vaga"
+      - "same job again"
+      - "let's do the last job again"
+
+  - id: learning.interview.next
+    label: "próxima pergunta da entrevista"
+    reply: null
+    phrases:
+      - "próxima pergunta"
+      - "next question"
+      - "skip this one"
+
+  - id: learning.interview.skip
+    label: "próxima etapa da entrevista"
+    reply: null
+    phrases:
+      - "próxima etapa"
+      - "next stage"
+      - "let's move on"
+
+  - id: learning.interview.pause
+    label: "pausar a entrevista"
+    reply: null
+    phrases:
+      - "pausa a entrevista"
+      - "pausar a entrevista"
+      - "pause the interview"
+
+  - id: learning.interview.end
+    label: "encerrar a entrevista"
+    reply: null
+    phrases:
+      - "encerra a entrevista"
+      - "encerrar a entrevista"
+      - "end the interview"
+      - "let's stop here"
+
   # -- audiolivro (A2.3, spec §5) ---------------------------------------------
   # ``context: reading`` (na intent ou na frase): só concorre com leitura ativa ou pausada há
   # ≤ 30 min (``TurnContext.reading``, A6.1); sem leitura, "pausa"/"para" seguem para a música.

@@ -32,6 +32,13 @@ Fluxos (spec §4):
   segundo plano (``lm_mode`` não espera); fechada por qualquer motivo → ``stop()``. O Qwen não
   ocupa recurso fora da aula. Sem ``ready`` nem subida em andamento, a observação é descartada
   em silêncio (o gate do engine espera enquanto o container sobe; ver ``core.service``).
+- **Entrevista pela vaga (LI1.4, design §4–§5 do learning-imersivo):** ``lm_job`` → ``preparing``
+  na hora → extração em tarefa (reuso por hash, R2.6) → roteiro → run gravada → ``lm_topic``
+  ``INTERVIEW // <CARGO>`` + ``lm_interview ready`` → abertura P11 com a etapa 1. Com run viva o
+  ``<topic_context>`` é ``run.block(now)`` (``_topic_block``); depois de cada turno ``run.observe``
+  (+ ``lm_interview`` e gravação). Comandos: ``lm_interview {"cmd"}`` (botão), texto que casa com
+  ``run.command_of`` e intents ``learning.interview.*`` (voz). Troca de tema pausa a run; sessão
+  retomada volta à run (R5.3); fim (``end``/WRAP) chama ``_finish_interview`` (retorno: LI2.3).
 
 Fora do modo nada é gravado nem publicado. ``install`` só liga tudo com ``[learning] enabled``;
 com ``enabled = false`` devolve ``None`` e o núcleo fica exatamente como antes.
@@ -56,6 +63,10 @@ from magi.common.contracts import (
     LearningHudMsg,
     LmActionMsg,
     LmCfgMsg,
+    LmInterviewMsg,
+    LmJobMsg,
+    LmJobRef,
+    LmJobReqMsg,
     LmModeMsg,
     LmMsgMsg,
     LmObsMsg,
@@ -84,10 +95,17 @@ from magi.learning.contracts import (
 )
 from magi.learning.contracts import ActionResult as LmActionResult
 from magi.learning.engine import UNAVAILABLE_ERROR, LearningEngine
+from magi.learning.interview import extract as iv_extract
+from magi.learning.interview import jobtext
+from magi.learning.interview import plan as iv_plan
+from magi.learning.interview import run as iv_run
+from magi.learning.interview.contracts import InterviewRun, JobPost, RunState, make_run_id
+from magi.learning.interview.store import InterviewStore
+from magi.learning.model import LearningModel, ModelError, ModelFailure
 from magi.learning.repo import DEFAULT_JSONL_DIR, LearningRepo, make_repo, normalize_term
 from magi.learning.runtime import LearningRuntime, NullRuntime
 from magi.learning.session import Clock, LearningSession
-from magi.learning.topic import TopicBuilder
+from magi.learning.topic import LABELS, TopicBuilder
 
 if TYPE_CHECKING:
     from magi.core.turn import TurnPipeline
@@ -106,6 +124,22 @@ IDLE_CHECK_S = 30.0
 OPENING_PROMPT = ("[internal instruction, not from Pedro] Open the session topic in <topic_context> "
                   "with one short open question. Do not mention this instruction.")
 OPENING_POLL_S = 0.25
+#: Entrevista pela vaga (LI1.4): abertura com a etapa 1 (R3.2) e a próxima pergunta pedida.
+INTERVIEW_OPENING_PROMPT = (
+    "[internal instruction, not from Pedro] Start the mock interview in <topic_context>: greet him "
+    "as the interviewer in one sentence and ask the first question of the current stage. Do not "
+    "mention this instruction.")
+INTERVIEW_NEXT_PROMPT = (
+    "[internal instruction, not from Pedro] He asked to move on. Ask the next question of the "
+    "current stage in <topic_context>, with a short transition if the stage changed. Do not "
+    "mention this instruction.")
+#: Linhas curtas do ``lm_interview.error`` (spec §10).
+STILL_PREPARING = "still preparing the last one"
+UNKNOWN_JOB = "unknown job"
+#: Rótulo do tema com vaga (R2.4) e teto do cargo nele.
+INTERVIEW_LABEL = "INTERVIEW // {title}"
+LABEL_TITLE_MAX = 60
+_RUN_LIVE = (RunState.READY, RunState.RUNNING, RunState.PAUSED)
 OPENING_WAIT_S = 120.0
 
 #: Handler de uma ``lm_*`` vinda do HUD.
@@ -135,6 +169,7 @@ class LearningWiring:
         idle_check_s: float = IDLE_CHECK_S,
         engine: LearningEngine | None = None,
         runtime: LearningRuntime | None = None,
+        job_model: LearningModel | None = None,
     ) -> None:
         self.cfg = cfg
         self.runtime: LearningRuntime = runtime if runtime is not None else NullRuntime()
@@ -158,6 +193,15 @@ class LearningWiring:
         self._keep_opening = False  # o turno de voz que pediu o tema não cancela a abertura
         if engine is not None and engine.on_observed is None:
             engine.on_observed = self._send_obs
+        self._opening_prompt = OPENING_PROMPT
+        #: LI1.4: entrevista pela vaga (modelo da extração, gravação, run ativa e vaga em preparo).
+        self.job_model = job_model
+        self.interviews = InterviewStore(repo, clock=clock)
+        self.run: InterviewRun | None = None
+        self._preparing: str | None = None
+        self._jobs: tuple[LmJobRef, ...] = ()
+        self._run_n: tuple[str, int] = ("", 0)
+        self._cmd_turn = False  # o turno de voz foi um comando da entrevista: não conta resposta
 
     def _handlers(self) -> dict[type[LearningHudMsg], Handler]:
         """**Único ponto de registro** dos handlers ``lm_*`` (as próximas tarefas acrescentam aqui)."""
@@ -168,6 +212,8 @@ class LearningWiring:
             LmActionMsg: self._on_action,
             LmTopicMsg: self._on_topic,
             LmSaveMsg: self._on_save,
+            LmJobMsg: self._on_job,
+            LmInterviewMsg: self._on_interview,
         }
 
     # -- ciclo de vida --------------------------------------------------------------------------
@@ -189,6 +235,7 @@ class LearningWiring:
             await asyncio.gather(*list(self._tasks), return_exceptions=True)
         if self.engine is not None:
             await self.engine.aclose()
+        await self._close_run("shutdown")
         if self.session.active:
             try:
                 await self.session.end("shutdown")
@@ -244,6 +291,10 @@ class LearningWiring:
             log.info("learning: lm_say recusado (%d caracteres)", len(text))
             return
         self._cancel_opening()  # o Pedro digitou antes da abertura do tema (P11)
+        cmd = iv_run.command_of(text) if self.live_run() is not None else None
+        if cmd is not None and cmd != "repeat":  # comando digitado da entrevista: sem LLM
+            self._spawn(self._say_command(text, cmd), "comando da entrevista")
+            return
         # O leitor do socket do HUD não pode esperar o agente: o turno roda à parte.
         self._spawn(self._say(text), "lm_say")
 
@@ -311,6 +362,9 @@ class LearningWiring:
             if on:
                 info, resumed = await self.session.start()
                 self.runtime.launch()  # sobe em segundo plano; a confirmação não espera
+                await self._refresh_jobs()
+                if resumed:
+                    await self._resume_run(info.id)
                 await self.hud.send(LmModeMsg(True))
                 await self.hud.send(self._session_msg())
                 if resumed:
@@ -318,8 +372,11 @@ class LearningWiring:
                         await self.hud.send(self._msg(m))
                     await self._resend_obs(info.id)
                 await self._restore_topic()
+                if (run := self.live_run()) is not None:
+                    await self.hud.send(self._iv_msg(run))
                 return
             self._cancel_opening()
+            await self._close_run(reason)
             await self.session.end(reason)
             self._stop_runtime()
             await self.hud.send(LmModeMsg(False))
@@ -339,6 +396,7 @@ class LearningWiring:
             track=info.track or self.cfg.track,
             topic=info.topic,
             n_msgs=self.session.n_msgs,
+            jobs=self._jobs,
         )
 
     async def _idle_loop(self) -> None:
@@ -355,6 +413,7 @@ class LearningWiring:
         async with self._lock:
             if await self.session.end_if_idle() is None and not await self._end_if_too_long():
                 return False
+            await self._close_run("idle")
             self._stop_runtime()
             await self.hud.send(LmModeMsg(False))
             return True
@@ -401,7 +460,13 @@ class LearningWiring:
             if current is not None and current.requested == requested and current.detail is None:
                 await self.hud.send(self._topic_msg(current))
                 return current
-            ctx = await self._builder().build(requested)
+            run = self.live_run()
+            if run is not None and requested is Topic.INTERVIEW:
+                ctx = self._run_ctx(run)  # volta à vaga da run pausada (spec §10)
+            else:
+                ctx = await self._builder().build(requested)
+                if run is not None and iv_run.apply(run, "pause", self._now()):
+                    await self._push_run(run)  # troca de tema no meio: PAUSED e grava
             previous = current.topic if current is not None else self.session.topic
             await self.session.set_topic(ctx)
             await self.hud.send(self._topic_msg(ctx))
@@ -424,9 +489,10 @@ class LearningWiring:
             await self.session.set_topic(ctx, record=False)
         await self.hud.send(self._topic_msg(ctx))
 
-    def _schedule_opening(self, *, keep: bool = False) -> None:
+    def _schedule_opening(self, *, keep: bool = False, prompt: str = OPENING_PROMPT) -> None:
         self._cancel_opening()
         self._keep_opening = keep
+        self._opening_prompt = prompt
         task = asyncio.ensure_future(self._open_topic())
         self._opening = task
         self._tasks.add(task)
@@ -468,7 +534,7 @@ class LearningWiring:
         if agent is None or not self.session.active:
             return
         ctx = TurnContext(satellite=TEXT_SATELLITE, source=WakeSource.PTT, started_at=self.clock())
-        result = tr_result(await agent.answer(OPENING_PROMPT, ctx))
+        result = tr_result(await agent.answer(self._opening_prompt, ctx))
         if not result.speech or not self.session.active:
             return
         async with self._lock:
@@ -483,6 +549,260 @@ class LearningWiring:
             except Exception:
                 log.exception("learning: falha ao falar a abertura do tema")
         await self.hud.send(self._msg(her, speaking=spoken))
+        await self._after_turn(None, her)
+
+    # -- entrevista pela vaga (LI1.4) -----------------------------------------------------------
+
+    def _now(self) -> float:
+        return self.clock().timestamp()
+
+    def live_run(self) -> InterviewRun | None:
+        run = self.run
+        return run if run is not None and run.state in _RUN_LIVE else None
+
+    def _in_interview(self) -> bool:
+        ctx = self.session.topic_context
+        return ctx is not None and ctx.topic is Topic.INTERVIEW
+
+    def _iv_msg(self, run: InterviewRun) -> LmInterviewMsg:
+        return LmInterviewMsg(**iv_run.progress(run, self._now()))
+
+    def _run_ctx(self, run: InterviewRun) -> TopicContext:
+        title = run.profile.title.upper()[:LABEL_TITLE_MAX]
+        return TopicContext(Topic.INTERVIEW, Topic.INTERVIEW, INTERVIEW_LABEL.format(title=title),
+                            iv_run.block(run, self._now()), None)
+
+    def _run_id(self) -> str:
+        """``IV-AAAAMMDD-NN`` com ``NN`` = segundos do dia + 1 (sem contador no repositório);
+        sobe 1 se repetir no mesmo dia."""
+        now = self.clock()
+        day = f"{now:%Y%m%d}"
+        n = now.hour * 3600 + now.minute * 60 + now.second + 1
+        last_day, last_n = self._run_n
+        if day == last_day and n <= last_n:
+            n = last_n + 1
+        self._run_n = (day, n)
+        return make_run_id(now, n)
+
+    def _topic_block(self) -> str | None:
+        """Bloco ``<topic_context>`` do turno: com run viva no tema interview é ``run.block(now)``
+        (o avanço por tempo entra aqui, ``run.tick``); senão o bloco fixo do tema."""
+        run = self.live_run()
+        if run is None or not self._in_interview():
+            return self.session.topic_block
+        now = self._now()
+        if iv_run.tick(run, now):
+            self._spawn(self._push_run(run), "etapa por tempo")
+        return iv_run.block(run, now)
+
+    async def _push_run(self, run: InterviewRun, end_reason: str | None = None) -> None:
+        """Grava a run e manda o ``lm_interview`` (só com sessão aberta)."""
+        try:
+            await self.interviews.save_run(run, end_reason)
+        except Exception:
+            log.warning("learning: simulação %s não gravada", run.id, exc_info=True)
+        if self.session.active:
+            await self.hud.send(self._iv_msg(run))
+
+    async def _refresh_jobs(self) -> None:
+        """Vagas recentes para ``lm_session.jobs`` (≤ 3)."""
+        try:
+            recent = await self.interviews.recent(3)
+        except Exception:
+            log.warning("learning: vagas recentes indisponíveis", exc_info=True)
+            return
+        self._jobs = tuple(LmJobRef(jid, p.title, p.company) for jid, p in recent[:3])
+
+    async def _resume_run(self, session_id: str) -> None:
+        """Sessão retomada com simulação viva volta à mesma etapa e contagem (R5.3)."""
+        if self.run is not None:
+            return
+        try:
+            run = await self.interviews.load_active(session_id)
+        except Exception:
+            log.warning("learning: simulação da sessão retomada indisponível", exc_info=True)
+            return
+        if run is None or run.state not in _RUN_LIVE:
+            return
+        self.run = run
+        await self.session.set_topic(self._run_ctx(run), record=False)
+
+    async def _on_job(self, msg: LmJobMsg, *, keep: bool = False) -> None:
+        """``lm_job``: ``preparing`` na hora (≤ 100 ms, R2.1) e o preparo em tarefa própria."""
+        if not self.session.active:
+            return
+        if self._preparing is not None:
+            await self.hud.send(LmInterviewMsg(state=RunState.PREPARING, job_id=self._preparing,
+                                               error=STILL_PREPARING))
+            return
+        post: JobPost | None = None
+        if msg.text is not None:
+            checked = jobtext.check(msg.text)
+            if not checked.ok:
+                await self.hud.send(LmInterviewMsg(state=RunState.ERROR, error=checked.line))
+                return
+            jid = jobtext.job_id(checked.text)
+            post = JobPost(id=jid, text=checked.text, source=msg.source or "clipboard",
+                           created_at=self.clock())
+        else:
+            assert msg.job_id is not None
+            jid = msg.job_id
+        self._preparing = jid
+        await self.hud.send(LmInterviewMsg(state=RunState.PREPARING, job_id=jid))
+        self._spawn(self._prepare(jid, post, keep=keep), "preparar a vaga")
+
+    async def _prepare(self, jid: str, post: JobPost | None, *, keep: bool = False) -> None:
+        try:
+            await self._prepare_now(jid, post, keep=keep)
+        except Exception:
+            log.exception("learning: falha ao preparar a vaga %s", jid)
+            await self.hud.send(LmInterviewMsg(state=RunState.ERROR, job_id=jid, error="model"))
+        finally:
+            self._preparing = None
+
+    async def _prepare_now(self, jid: str, post: JobPost | None, *, keep: bool) -> None:
+        """Design §4: grava a vaga → perfil (reuso por hash ou extração) → roteiro → run → tema."""
+        if post is not None:
+            await self.interviews.save_post(post)
+        profile = await self.interviews.profile_of(jid)
+        if profile is None:
+            post = post or await self.interviews.post_of(jid)
+            if post is None:
+                await self.hud.send(LmInterviewMsg(state=RunState.ERROR, job_id=jid, error=UNKNOWN_JOB))
+                return
+            model = self.job_model
+            try:
+                if model is None:
+                    raise ModelFailure("sem modelo para a vaga")
+                profile = await iv_extract.extract(post, model)
+            except ModelError as e:  # R2.5: tema anterior fica, vaga gravada não se perde
+                log.info("learning: extração da vaga %s falhou (%s)", jid, e.code)
+                await self.hud.send(LmInterviewMsg(state=RunState.ERROR, job_id=jid, error=e.code))
+                return
+            await self.interviews.set_profile(jid, profile, model=getattr(model, "model", None))
+        plan = iv_plan.build_plan(profile, self.cfg.interview_minutes, job_id=jid)
+        async with self._lock:
+            if not self.session.active or self.session.id is None:
+                return
+            now = self._now()
+            old = self.live_run()
+            if old is not None and old.job_id == jid:
+                run = old  # mesma vaga: retoma a run (spec §10)
+            else:
+                if old is not None:
+                    iv_run.finish(old, "replaced", now)
+                    await self.interviews.save_run(old, "replaced")
+                run = iv_run.start(plan, profile, self.session.id, now, run_id=self._run_id())
+                self.run = run
+                await self.interviews.save_run(run)
+            ctx = self._run_ctx(run)
+            await self.session.set_topic(ctx)
+            await self.hud.send(self._topic_msg(ctx))
+            await self.hud.send(self._iv_msg(run))
+        await self._refresh_jobs()
+        log.info("learning: entrevista %s pronta (vaga %s)", run.id, jid)
+        if run is not old:
+            self._schedule_opening(keep=keep, prompt=INTERVIEW_OPENING_PROMPT)
+
+    async def request_job(self) -> bool:
+        """Voz (D1): pede ao HUD o clipboard como ``lm_job`` (``lm_job_req``)."""
+        if not self.session.active:
+            return False
+        self._cmd_turn = True
+        await self.hud.send(LmJobReqMsg())
+        return True
+
+    async def last_job(self) -> bool:
+        """Voz: recarrega a última vaga usada (``lm_job {"job_id"}``); ``False`` sem vaga."""
+        if not self.session.active:
+            return False
+        await self._refresh_jobs()
+        if not self._jobs:
+            return False
+        self._cmd_turn = True
+        await self._on_job(LmJobMsg(job_id=self._jobs[0].job_id), keep=True)
+        return True
+
+    async def _on_interview(self, msg: LmInterviewMsg) -> None:
+        if msg.cmd is not None:
+            await self.interview_command(msg.cmd, "button")
+
+    async def _say_command(self, text: str, cmd: str) -> None:
+        async with self._lock:
+            if await self._publish(Author.YOU, Source.TEXT, text) is None:
+                return
+        await self.interview_command(cmd, "text")
+
+    async def interview_command(self, cmd: str, via: str) -> bool:
+        """Comando da spec §5.3 (``next|skip_stage|pause|end``; ``via`` = ``button|voice|text``).
+        ``next``/``skip_stage`` pedem a pergunta seguinte num turno do agente. Sem run: ``False``."""
+        run = self.live_run()
+        if run is None:
+            return False
+        if via == "voice":
+            self._cmd_turn = True
+        if cmd == "end":
+            await self._finish_interview(via)
+            return True
+        changed = iv_run.apply(run, cmd, self._now())  # type: ignore[arg-type]
+        if changed:
+            await self._push_run(run)
+            if cmd in ("next", "skip_stage") and self._in_interview():
+                self._schedule_opening(keep=via == "voice", prompt=INTERVIEW_NEXT_PROMPT)
+        return changed
+
+    async def _after_turn(self, you: LearningMessage | None, her: LearningMessage | None) -> None:
+        """Design §5.3: depois do turno, ``run.observe`` → ``lm_interview`` e gravação; WRAP
+        fechado → ``_finish_interview("done")``."""
+        run = self.live_run()
+        if run is None or not self._in_interview() or (you is None and her is None):
+            return
+        first = you if you is not None else her
+        assert first is not None
+        if run.first_message_id is None:
+            run.first_message_id = first.id
+        run.last_message_id = (her or first).id
+        changed = iv_run.observe(run, her.text if her is not None else "", you is not None,
+                                 self._now())
+        if run.state not in _RUN_LIVE:
+            await self._finish_interview("done")
+            return
+        if changed:
+            await self._push_run(run)
+        else:
+            try:
+                await self.interviews.save_run(run)
+            except Exception:
+                log.warning("learning: simulação %s não gravada", run.id, exc_info=True)
+
+    async def _close_run(self, reason: str) -> None:
+        """Sessão fechando (``button|voice|idle|shutdown``) com run viva: fecha e grava sem
+        publicar (o retorno em segundo plano é da LI2.3)."""
+        run, self.run = self.live_run(), None
+        if run is None:
+            return
+        iv_run.finish(run, reason, self._now())
+        try:
+            await self.interviews.save_run(run, reason)
+        except Exception:
+            log.warning("learning: simulação %s não gravada no fechamento", run.id, exc_info=True)
+
+    async def _finish_interview(self, reason: str) -> None:
+        """Fim da simulação (``end`` ou WRAP): fecha a run, manda o ``lm_interview`` final e volta
+        o tema a ``free`` (design §6). O retorno (``debrief``) entra aqui na LI2.3."""
+        run, self.run = self.run, None
+        if run is None:
+            return
+        self._cancel_opening()
+        iv_run.finish(run, reason, self._now())  # WRAP já fechou: não faz nada
+        await self._push_run(run, reason)
+        async with self._lock:
+            if not self.session.active:
+                return
+            ctx = TopicContext(Topic.FREE, Topic.FREE, LABELS[Topic.FREE], None, None)
+            await self.session.set_topic(ctx)
+            await self.hud.send(self._topic_msg(ctx))
+        log.info("learning: entrevista %s encerrada (%s)", run.id, reason)
 
     # -- conversa -------------------------------------------------------------------------------
 
@@ -525,6 +845,9 @@ class LearningWiring:
                 except Exception:
                     log.exception("learning: falha ao falar a resposta digitada")
             await self.hud.send(self._msg(her, speaking=spoken))
+            await self._after_turn(you, her)
+        else:
+            await self._after_turn(you, None)
         self._observe(you)
 
     def on_turn(self, transcript: Transcript, ctx: TurnContext, result: ActionResult) -> None:
@@ -535,12 +858,14 @@ class LearningWiring:
             self._keep_opening = False  # este é o turno que pediu o tema por voz
         else:
             self._cancel_opening()  # o Pedro falou antes da abertura (P11)
+        command, self._cmd_turn = self._cmd_turn, False
         result = tr_result(result)  # o chat mostra o que ela falou (a voz já sai traduzida)
         speaking = bool(result.speech) and self.pipeline.deps.speaker is not None
-        self._spawn(self._voice(transcript, ctx, result, speaking), "voz")
+        self._spawn(self._voice(transcript, ctx, result, speaking, command=command), "voz")
 
     async def _voice(
-        self, transcript: Transcript, ctx: TurnContext, result: ActionResult, speaking: bool
+        self, transcript: Transcript, ctx: TurnContext, result: ActionResult, speaking: bool,
+        *, command: bool = False,
     ) -> None:
         heard = transcript.heard.strip()
         final = (result.redo_text or transcript.final).strip()
@@ -550,8 +875,12 @@ class LearningWiring:
                                        turn_id=ctx.turn_id)
             if you is None:
                 return
+            her = None
             if result.speech:
-                await self._publish(Author.CONDESSA, Source.VOICE, result.speech, speaking=speaking)
+                her = await self._publish(Author.CONDESSA, Source.VOICE, result.speech,
+                                          speaking=speaking)
+        if not command:
+            await self._after_turn(you, her)
         self._observe(you)
 
     # -- observações (LM4.1) ------------------------------------------------------------------
@@ -633,6 +962,7 @@ def install(
     engine: LearningEngine | None = None,
     engine_factory: EngineFactory | None = None,
     runtime: LearningRuntime | None = None,
+    job_model: LearningModel | None = None,
 ) -> LearningWiring | None:
     """Liga o Learning Mode ao núcleo: ``hud.on_learning`` e ``pipeline.deps.learning``.
 
@@ -658,10 +988,24 @@ def install(
         except Exception:
             log.exception("learning: falha ao montar o Learning Engine; seguindo sem ele")
             engine = None
+    if job_model is None and isinstance(config, Config):
+        job_model = _job_model(config, engine)
     wiring = LearningWiring(cfg, repo, hud, pipeline, speak=speak, clock=clock, engine=engine,
-                            runtime=runtime)
+                            runtime=runtime, job_model=job_model)
     hud.on_learning = wiring.on_learning
     pipeline.deps.learning = wiring.on_turn
     if start:
         wiring.start()
     return wiring
+
+
+def _job_model(config: Config, engine: LearningEngine | None) -> LearningModel | None:
+    """Modelo da extração da vaga (LI1.1, D8): ``build_job_model`` sobre o orçamento do engine;
+    sem registro de provedores (provedor real) cai no modelo de ações do engine."""
+    budget = getattr(engine, "budget", None)
+    if budget is not None:
+        try:
+            return iv_extract.build_job_model(config, budget=budget)
+        except Exception as e:  # noqa: BLE001 - sem modelo a vaga responde error = "model"
+            log.debug("learning: modelo da vaga pelo config indisponível (%s)", e)
+    return getattr(engine, "model", None)

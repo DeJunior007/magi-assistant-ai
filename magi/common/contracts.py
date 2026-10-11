@@ -477,6 +477,13 @@ class IntentId(StrEnum):
     LEARNING_TOPIC_INTERVIEW = "learning.topic.interview"  # "entrevista técnica", "tech interview"
     LEARNING_TOPIC_GAME = "learning.topic.game"  # "vamos falar do jogo" (só com sessão ativa)
     LEARNING_TOPIC_NEWS = "learning.topic.news"  # "vamos falar das notícias"
+    # entrevista pela vaga (learning-imersivo LI1.4): job/last só com sessão, o resto com run viva
+    LEARNING_INTERVIEW_JOB = "learning.interview.job"  # "treinar para a vaga que eu copiei" (D1)
+    LEARNING_INTERVIEW_LAST = "learning.interview.last"  # "same job again"
+    LEARNING_INTERVIEW_NEXT = "learning.interview.next"  # "next question"
+    LEARNING_INTERVIEW_SKIP = "learning.interview.skip"  # "next stage"
+    LEARNING_INTERVIEW_PAUSE = "learning.interview.pause"  # "pause the interview"
+    LEARNING_INTERVIEW_END = "learning.interview.end"  # "end the interview"
     # audiolivro (spec §5; frases com ``context: reading`` só valem com ``TurnContext.reading``)
     BOOK_READ = "book.read"  # "lê o livro X", slot query
     BOOK_RESUME = "book.resume"  # "continua o livro"
