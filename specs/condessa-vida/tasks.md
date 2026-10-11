@@ -192,7 +192,7 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   - Pronto: testes de alternância (sem repetir o de ontem), bloqueio com jogo, janela 15 s, escada de habituação e passo ≥ 2 h; `tests/hud` verde; `ruff` limpo.
   - Paralelo: V1.4, V1.5, V1.6
 
-- [ ] **V1.4 Placar (módulo)** — `hud/wired/reacoes/placar.py` puro (relógio injetado): fontes e
+- [x] **V1.4 Placar (módulo)** — `hud/wired/reacoes/placar.py` puro (relógio injetado): fontes e
   tetos de `[vida.placar]`, dia que fecha às `fecha_dia_h`, total do dia e da semana com
   `exportar()/importar()` (o `Estado` guarda na V1.7), cada ponto devolvido como linha para o
   `reacoes.jsonl` com `causa: placar:<fonte>` e `placar: {lado, fonte, ref}` (campo novo no
@@ -451,3 +451,13 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   — V1.7/V1.8. Ao rodar, `test_reacoes_catalogo::test_113_itens_chaves_unicas` e
   `test_vida_diretor::test_pedro_voltou_corta_e_escolhe_ramo[orgulhosa]` falhavam pelo `catalogo.py`
   em edição (V1.2).
+- **V1.4:** `placar.Placar(vida)`: `pontuar(fonte, ref, agora)` → `Ponto` (`linha` pronta via
+  `registro.linha_placar`; grava com `registro.gravar_placar`) e `virada` (`{chave, causa:
+  placar:virada, lado, ref}`; virada = líder estrito troca, o 1º líder do dia não conta); `ativo(agora,
+  ref)` só entre `ativo_depois_h` e `fecha_dia_h`; `resumo()`, `linha_pos_batalha(ponto)`, `bom_dia()`,
+  `exportar()/importar()` (guarda 14 dias). Nomes das fontes = chaves de `[vida.placar] tetos`; o
+  `ref` é obrigatório (formato do id da linha de origem fica com a V1.7). Frase pós-batalha do ponto
+  dela ("Suou nessa, hein? Ponto meu.") e as do "bom dia" sem empate/derrota dela são do agente, não
+  do acordo — revisar. Ao fechar: `test_vida_diretor::test_pedro_voltou_corta_e_escolhe_ramo[False-
+  orgulhosa-F1]` e `test_vida_simulacao::test_escada_encarando_aos_15_min_sem_musica` vermelhos pelos
+  arquivos em edição da V1.2/V1.5 (não tocados aqui).

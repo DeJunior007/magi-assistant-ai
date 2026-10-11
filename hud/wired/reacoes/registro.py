@@ -23,6 +23,21 @@ def gravar_vida(chave: str, motivo: str, agora: float, caminho: Path = REGISTRO_
                **(extra or {})}, caminho)
 
 
+def linha_placar(lado: str, fonte: str, ref: str, agora: float) -> dict:
+    """Linha de um ponto do placar (acordo placar-e-jogo §3): ``causa: placar:<fonte>`` e o campo
+    ``placar: {lado, fonte, ref}`` (``ref`` = id da linha de origem). Só monta; grava com
+    ``gravar_placar``."""
+    return {"t": agora, "hora": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(agora)),
+            "chave": "placar", "n": None, "variante": None, "motivo": "placar",
+            "furou_cota": False, "causa": f"placar:{fonte}",
+            "placar": {"lado": lado, "fonte": fonte, "ref": ref}}
+
+
+def gravar_placar(linha: dict, caminho: Path = REGISTRO_FILE) -> None:
+    """Acrescenta a linha de ``linha_placar`` ao registro."""
+    _escrever(linha, caminho)
+
+
 def gravar(d: Def, disparo: Disparo, agora: float, caminho: Path = REGISTRO_FILE,
            extra: dict | None = None) -> None:
     """Acrescenta uma linha JSON com a reação tocada (gira o arquivo acima de ``GIRO_BYTES``).
