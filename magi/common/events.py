@@ -46,14 +46,22 @@ from magi.common.contracts import (
     LmActionResult,
     LmAuthor,
     LmCfgMsg,
+    LmDebriefMsg,
+    LmInterviewDebrief,
+    LmInterviewMsg,
+    LmJobMsg,
+    LmJobRef,
+    LmJobReqMsg,
     LmModeMsg,
     LmMsgMsg,
     LmObservation,
     LmObsMsg,
     LmResultMsg,
+    LmRunState,
     LmSavedMsg,
     LmSaveMsg,
     LmSayMsg,
+    LmScenarioRef,
     LmSessionMsg,
     LmSessionSummary,
     LmSource,
@@ -399,6 +407,16 @@ def _hud_lm_session(d: Mapping[str, Any]) -> LmSessionMsg:
         topic=LmTopic(_h(d, "topic", str)),
         n_msgs=_h(d, "n_msgs", int, 0),
         obs_count=_h(d, "obs_count", int, 0),
+        jobs=tuple(
+            LmJobRef(job_id=_h(j, "job_id", str), title=_h(j, "title", str),
+                     company=_h(j, "company", str, None))
+            for j in _h(d, "jobs", list, [])
+        ),
+        debrief_unseen=_h(d, "debrief_unseen", bool, False),
+        scenarios=tuple(
+            LmScenarioRef(id=_h(c, "id", str), title=_h(c, "title", str))
+            for c in _h(d, "scenarios", list, [])
+        ),
     )
 
 
@@ -449,6 +467,64 @@ def _hud_lm_topic(d: Mapping[str, Any]) -> LmTopicMsg:
         requested=_hud_opt_topic(d, "requested"),
         label=_h(d, "label", str, None),
         detail=_h(d, "detail", str, None),
+        scenario=_h(d, "scenario", str, None),
+    )
+
+
+def _hud_lm_job(d: Mapping[str, Any]) -> LmJobMsg:
+    return LmJobMsg(
+        text=_h(d, "text", str, None),
+        source=_h(d, "source", str, None),
+        job_id=_h(d, "job_id", str, None),
+    )
+
+
+def _hud_lm_job_req(d: Mapping[str, Any]) -> LmJobReqMsg:
+    return LmJobReqMsg()
+
+
+def _hud_str_tuple(d: Mapping[str, Any], key: str) -> tuple[str, ...] | None:
+    v = _h(d, key, list, None)
+    if v is None:
+        return None
+    if not all(isinstance(x, str) for x in v):
+        raise HudDecodeError(f"{key}: esperava lista de textos")
+    return tuple(v)
+
+
+def _hud_lm_interview(d: Mapping[str, Any]) -> LmInterviewMsg:
+    state = _h(d, "state", str, None)
+    return LmInterviewMsg(
+        cmd=_h(d, "cmd", str, None),
+        state=None if state is None else LmRunState(state),
+        job_id=_h(d, "job_id", str, None),
+        run_id=_h(d, "run_id", str, None),
+        title=_h(d, "title", str, None),
+        company=_h(d, "company", str, None),
+        seniority=_h(d, "seniority", str, None),
+        stack=_hud_str_tuple(d, "stack"),
+        must=_hud_str_tuple(d, "must"),
+        stage=_h(d, "stage", int, None),
+        n_stages=_h(d, "n_stages", int, None),
+        stage_label=_h(d, "stage_label", str, None),
+        asked=_h(d, "asked", int, None),
+        quota=_h(d, "quota", int, None),
+        elapsed_s=_h(d, "elapsed_s", _NUM, None),
+        minutes=_h(d, "minutes", int, None),
+        error=_h(d, "error", str, None),
+    )
+
+
+_DEBRIEF_EXTRA = ("title", "company", "at")
+
+
+def _hud_lm_debrief(d: Mapping[str, Any]) -> LmDebriefMsg:
+    body = {k: v for k, v in _payload(d).items() if k not in _DEBRIEF_EXTRA}
+    return LmDebriefMsg(
+        debrief=LmInterviewDebrief.from_dict(body),
+        title=_h(d, "title", str),
+        at=_hud_time(d, "at"),
+        company=_h(d, "company", str, None),
     )
 
 
@@ -488,6 +564,10 @@ _HUD_DECODERS: dict[str, Callable[[Mapping[str, Any]], HudMessage]] = {
     LmSaveMsg.T: _hud_lm_save,
     LmSavedMsg.T: _hud_lm_saved,
     LmSummaryMsg.T: _hud_lm_summary,
+    LmJobMsg.T: _hud_lm_job,
+    LmJobReqMsg.T: _hud_lm_job_req,
+    LmInterviewMsg.T: _hud_lm_interview,
+    LmDebriefMsg.T: _hud_lm_debrief,
 }
 
 

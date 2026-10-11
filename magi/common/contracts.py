@@ -55,6 +55,11 @@ from magi.learning.contracts import Observation as LmObservation
 from magi.learning.contracts import SessionSummary as LmSessionSummary
 from magi.learning.contracts import Source as LmSource
 from magi.learning.contracts import Topic as LmTopic
+from magi.learning.interview.contracts import INTERVIEW_CMDS as LM_INTERVIEW_CMDS
+from magi.learning.interview.contracts import JOB_MAX as LM_JOB_MAX
+from magi.learning.interview.contracts import JOB_SOURCES as LM_JOB_SOURCES
+from magi.learning.interview.contracts import InterviewDebrief as LmInterviewDebrief
+from magi.learning.interview.contracts import RunState as LmRunState
 
 # ---------------------------------------------------------------------------------------------
 # Constantes
@@ -917,6 +922,36 @@ class LmModeMsg(LearningHudMsg):
         return {"t": self.T, "on": bool(self.on)}
 
 
+#: Vagas recentes no ``lm_session.jobs`` (spec §7 do learning-imersivo).
+LM_JOBS_MAX = 3
+
+
+@dataclass(frozen=True, slots=True)
+class LmJobRef:
+    """Vaga já usada no seletor: ``{"job_id","title","company"}``."""
+
+    job_id: str
+    title: str
+    company: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"job_id": self.job_id, "title": self.title}
+        if self.company is not None:
+            d["company"] = self.company
+        return d
+
+
+@dataclass(frozen=True, slots=True)
+class LmScenarioRef:
+    """Cenário de roleplay no seletor: ``{"id","title"}`` (spec §12 do learning-imersivo)."""
+
+    id: str
+    title: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "title": self.title}
+
+
 @dataclass(frozen=True, slots=True)
 class LmSessionMsg(LearningHudMsg):
     """núcleo -> UI: sessão atual (``id`` = ``LS-AAAAMMDD-NN``, spec §1 e §10)."""
@@ -929,9 +964,18 @@ class LmSessionMsg(LearningHudMsg):
     topic: LmTopic
     n_msgs: int = 0
     obs_count: int = 0
+    #: Opcionais da entrevista pela vaga e do roleplay (specs/learning-imersivo spec §7, §12);
+    #: vazios/falsos são omitidos no fio (mensagem antiga igual).
+    jobs: tuple[LmJobRef, ...] = ()
+    debrief_unseen: bool = False
+    scenarios: tuple[LmScenarioRef, ...] = ()
+
+    def __post_init__(self) -> None:
+        if len(self.jobs) > LM_JOBS_MAX:
+            raise ValueError(f"lm_session.jobs: mais de {LM_JOBS_MAX}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "t": self.T,
             "id": self.id,
             "started_at": self.started_at.isoformat(),
@@ -941,6 +985,13 @@ class LmSessionMsg(LearningHudMsg):
             "n_msgs": self.n_msgs,
             "obs_count": self.obs_count,
         }
+        if self.jobs:
+            d["jobs"] = [j.to_dict() for j in self.jobs]
+        if self.debrief_unseen:
+            d["debrief_unseen"] = True
+        if self.scenarios:
+            d["scenarios"] = [sc.to_dict() for sc in self.scenarios]
+        return d
 
 
 @dataclass(frozen=True, slots=True)
@@ -1074,6 +1125,8 @@ class LmTopicMsg(LearningHudMsg):
     requested: LmTopic | None = None
     label: str | None = None
     detail: str | None = None
+    #: Id do cenário de roleplay (learning-imersivo spec §12); só com o tema roleplay.
+    scenario: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"t": self.T, "topic": self.topic.value}
@@ -1083,6 +1136,112 @@ class LmTopicMsg(LearningHudMsg):
             d["label"] = self.label
         if self.detail is not None:
             d["detail"] = self.detail
+        if self.scenario is not None:
+            d["scenario"] = self.scenario
+        return d
+
+
+@dataclass(frozen=True, slots=True)
+class LmJobMsg(LearningHudMsg):
+    """UI -> núcleo: a vaga (learning-imersivo spec §7). ``{"text","source"}`` (texto colado,
+    ``text`` ≤ ``LM_JOB_MAX``) ou ``{"job_id"}`` (recarregar/retry). Sem ``file`` (D2)."""
+
+    T: ClassVar[str] = "lm_job"
+    text: str | None = None
+    source: str | None = None
+    job_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if (self.text is None) == (self.job_id is None):
+            raise ValueError("lm_job: mande text ou job_id (só um)")
+        if self.text is not None:
+            if not self.text.strip():
+                raise ValueError("lm_job: texto vazio")
+            if len(self.text) > LM_JOB_MAX:
+                raise ValueError(f"lm_job: texto passa de {LM_JOB_MAX} caracteres")
+            if (self.source or "clipboard") not in LM_JOB_SOURCES:
+                raise ValueError(f"lm_job: origem inválida {self.source!r}")
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"t": self.T}
+        if self.text is not None:
+            d["text"] = self.text
+            d["source"] = self.source or "clipboard"
+        if self.job_id is not None:
+            d["job_id"] = self.job_id
+        return d
+
+
+@dataclass(frozen=True, slots=True)
+class LmJobReqMsg(LearningHudMsg):
+    """núcleo -> UI ``{}``: "mande o clipboard como ``lm_job``" (D1)."""
+
+    T: ClassVar[str] = "lm_job_req"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"t": self.T}
+
+
+@dataclass(frozen=True, slots=True)
+class LmInterviewMsg(LearningHudMsg):
+    """ambos (learning-imersivo spec §7): UI -> núcleo ``{"cmd"}`` (``next|skip_stage|pause|end``);
+    núcleo -> UI ``{"state",…}`` com o estado da simulação. Opcionais ``None`` são omitidos."""
+
+    T: ClassVar[str] = "lm_interview"
+    cmd: str | None = None
+    state: LmRunState | None = None
+    job_id: str | None = None
+    run_id: str | None = None
+    title: str | None = None
+    company: str | None = None
+    seniority: str | None = None
+    stack: tuple[str, ...] | None = None
+    must: tuple[str, ...] | None = None
+    stage: int | None = None
+    n_stages: int | None = None
+    stage_label: str | None = None
+    asked: int | None = None
+    quota: int | None = None
+    elapsed_s: float | None = None
+    minutes: int | None = None
+    error: str | None = None
+
+    def __post_init__(self) -> None:
+        if (self.cmd is None) == (self.state is None):
+            raise ValueError("lm_interview: mande cmd ou state (só um)")
+        if self.cmd is not None and self.cmd not in LM_INTERVIEW_CMDS:
+            raise ValueError(f"lm_interview: comando inválido {self.cmd!r}")
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"t": self.T}
+        for name in self.__dataclass_fields__:
+            v = getattr(self, name)
+            if v is None:
+                continue
+            if isinstance(v, LmRunState):
+                v = v.value
+            elif isinstance(v, tuple):
+                v = list(v)
+            d[name] = v
+        return d
+
+
+@dataclass(frozen=True, slots=True)
+class LmDebriefMsg(LearningHudMsg):
+    """núcleo -> UI: retorno da simulação (``InterviewDebrief`` com as notas 0–100 por aspecto,
+    D3) + ``{"title","company","at"}``."""
+
+    T: ClassVar[str] = "lm_debrief"
+    debrief: LmInterviewDebrief
+    title: str
+    at: datetime
+    company: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"t": self.T, **self.debrief.to_dict(), "title": self.title,
+                             "at": self.at.isoformat()}
+        if self.company is not None:
+            d["company"] = self.company
         return d
 
 
@@ -1139,6 +1298,10 @@ LearningMessageMsg = (
     | LmSaveMsg
     | LmSavedMsg
     | LmSummaryMsg
+    | LmJobMsg
+    | LmJobReqMsg
+    | LmInterviewMsg
+    | LmDebriefMsg
 )
 
 HudMessage = (

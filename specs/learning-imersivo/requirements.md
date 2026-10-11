@@ -26,10 +26,11 @@ Limites do sistema atual que a feature esbarra:
 ## Objetivo
 
 Um modo **entrevista pela vaga** dentro do Learning Mode: o Pedro manda a vaga (área de
-transferência, arquivo ou a última usada, por botão ou voz), a Condessa extrai o perfil (cargo,
+transferência ou a última usada, por botão ou voz; sem pasta de vagas, D2), a Condessa extrai o perfil (cargo,
 empresa, senioridade, stack, requisitos), monta um roteiro de etapas com tempo, conduz a simulação
-em inglês (uma pergunta por vez, follow-ups) e, no fim, entrega um retorno escrito por requisito.
-Os outros temas continuam como estão. Temas novos de roleplay ficam como **proposta** (D5).
+em inglês (uma pergunta por vez, follow-ups) e, no fim, entrega um retorno escrito por requisito com notas de 0 a 100 por aspecto (D3).
+Os outros temas continuam como estão. Ganha também o tema **Roleplay** com 4 cenários do dia a dia
+(D5, design §9), sem roteiro nem retorno.
 
 ## Critérios de sucesso
 
@@ -62,8 +63,8 @@ Os outros temas continuam como estão. Temas novos de roleplay ficam como **prop
 - R1.2 **colar no campo**: QUANDO o Pedro colar no campo de texto um texto com > 600 caracteres ou
   com quebra de linha, o HUD DEVE perguntar numa linha do rodapé `use as job description? [ YES ] [ NO ]`
   em vez de mandar como fala; `YES` lê o clipboard inteiro (R1.1).
-- R1.3 **arquivo**: ONDE existir a pasta de vagas (D2), a lista do seletor DEVE mostrar as 3 vagas
-  mais recentes (arquivos `.txt`/`.md` e as já usadas), e escolher uma DEVE carregá-la.
+- R1.3 ~~**arquivo**~~ — **removido (D2, 2026-10-10):** sem pasta de vagas; a lista do seletor mostra
+  só as vagas já usadas (`lm_session.jobs`) e o `[ PASTE JOB ]`.
 - R1.4 **voz**: "prepare the interview for the job I copied" / "treinar para a vaga que eu copiei"
   DEVE ter o mesmo efeito de R1.1 (o núcleo pede ao HUD o clipboard, spec §7 `lm_job_req`);
   "treinar de novo para a última vaga" / "same job again" DEVE recarregar a última vaga usada.
@@ -102,7 +103,9 @@ botão `[ END INTERVIEW ]` ou fim da sessão com ≥ 3 respostas do Pedro na sim
 - R4.3 o retorno DEVE ter: cobertura por requisito obrigatório (`covered` | `thin` | `missed`, com
   evidência citada), até 3 pontos fortes, até 3 pontos a melhorar, até 2 respostas reescritas
   ("a stronger answer could be…") e as observações de inglês da simulação vindas do engine LM4
-  (sem chamada nova); **sem nota numérica** (D3);
+  (sem chamada nova); e **notas de 0 a 100 por aspecto** (D3): fluência, gramática, vocabulário,
+  aderência aos requisitos da vaga e clareza/estrutura das respostas, cada uma com uma frase de
+  motivo. Sem nota geral única obrigatória;
 - R4.4 SE o encerramento vier com < 3 respostas do Pedro, ENTÃO não gera retorno e diz isso numa linha.
 - R4.5 Fim de sessão por `idle`/`shutdown` com simulação ativa DEVE gerar o retorno em segundo plano,
   gravar e não publicar (aparece na próxima abertura do modo, R5.2).
@@ -128,30 +131,38 @@ O retorno abre num painel no lugar do drawer de observações, fechável.
 **R8 — Sem quebrar o resto.** `interview` sem vaga continua o tema genérico de hoje (P14). Os
 temas free/game/news, a persona e as ações do menu não mudam. Tudo atrás de `[learning] enabled`.
 
-## Mudança de decisão do LM (precisa de "ok" do Pedro, já pedida por ele)
+## Mudança de decisão do LM (**ok do Pedro em 2026-10-10**)
 
 - **LM-013 regra 9** ("o tema NÃO DEVE virar lição nem roteiro"): passa a valer **exceto** para a
   entrevista com vaga, que tem roteiro e fim por pedido explícito do Pedro (§13). Free/game/news
-  seguem sem roteiro.
+  seguem sem roteiro. O Roleplay (D5) também não tem roteiro de etapas nem retorno.
 - **"Sem nota nem avaliação"** do `interview.md`: na entrevista com vaga passa a haver retorno no
-  fim (R4), ainda sem nota numérica (PDF §12, sem gamificação).
+  fim (R4), com notas de 0 a 100 por aspecto e sem nota geral (D3, decidido pelo Pedro em 2026-10-10;
+  sem streak, ranking nem outra gamificação). **Ok do Pedro em 2026-10-10.**
 
-## Decisões em aberto (precisam do Pedro)
+## Decisões (resolvidas em 2026-10-10 — `specs/DECISOES-2026-10-10.md`, que vale acima deste texto)
+
+D1, D4, D6, D7, D8: padrão confirmado. D2, D3, D5: mudaram (ver **Decidido** em cada uma).
 
 - **D1 — Como a vaga chega por voz.** O clipboard é do HUD (Wayland). (a) o núcleo manda
   `lm_job_req` e o HUD responde com `lm_job` do clipboard; (b) só botão/arquivo, sem voz para colar.
   **Padrão: (a).**
 - **D2 — Pasta de vagas.** (a) `~/Documentos/vagas/` (visível, o Pedro salva ali); (b)
   `~/.local/share/magi/learning/jobs/` (escondida); (c) sem pasta, só clipboard. **Padrão: (a),
-  configurável em `[learning] jobs_dir`; a tarefa LI3.1 só roda depois do "ok".**
+  configurável em `[learning] jobs_dir`; a tarefa LI3.1 só roda depois do "ok".** **Decidido: (c)** —
+  só clipboard (botão/colar no seletor); sem `jobs_dir`; LI3.1 fora do escopo.
 - **D3 — Nota no retorno.** (a) sem nota, só cobertura por requisito e pontos; (b) nota de 1–5 por
-  etapa. **Padrão: (a)** (PDF §12 proíbe gamificação).
+  etapa. **Padrão: (a)** (PDF §12 proíbe gamificação). **Decidido: nota de 0 a 100 por aspecto**
+  (fluência, gramática, vocabulário, aderência à vaga, clareza/estrutura), além da cobertura por
+  requisito e dos pontos a melhorar; sem nota geral única obrigatória.
 - **D4 — Vaga por URL** (LinkedIn/Gupy): exige rede e scraping frágil. **Padrão: fora** (colar o texto).
 - **D5 — Temas imersivos novos (proposta):** roleplay de situações do dia a dia em inglês — check-in
   no hotel, pedir comida, consulta médica, ligação com suporte, daily standup de time gringo, small
   talk num meetup, negociação de salário. Cada cenário é um arquivo de dados com papel, cenário e
   objetivo, sem LLM para montar. **Padrão: não implementar até o "ok"; a tarefa LI4.1 fica
-  bloqueada.** Se aprovado: quais cenários entram primeiro?
+  bloqueada.** Se aprovado: quais cenários entram primeiro? **Decidido: aprovado com 4** — check-in no
+  hotel, pedir comida, consulta médica, ligação com suporte (LI4.1/LI4.2). Standup, salário e meetup
+  ficam para depois.
 - **D6 — Duração padrão da simulação.** 20, 30 ou 45 min. **Padrão: 30** (`[learning] interview_minutes`).
 - **D7 — Idioma do retorno.** (a) inglês simples (como as ações, P5 do LM); (b) PT-BR. **Padrão:
   (a), com `[learning] explain_language` valendo também aqui.**

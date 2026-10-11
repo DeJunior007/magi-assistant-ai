@@ -28,11 +28,12 @@ class Seniority(StrEnum): INTERN, JUNIOR, MID, SENIOR, STAFF, LEAD, UNKNOWN
 class StageKind(StrEnum):  INTRO, EXPERIENCE, TECHNICAL, SYSTEM_DESIGN, BEHAVIOURAL, CANDIDATE_QS, WRAP
 class RunState(StrEnum):   PREPARING, READY, RUNNING, PAUSED, DEBRIEFING, DONE, ERROR
 class Cover(StrEnum):      COVERED, THIN, MISSED
+class Aspect(StrEnum):     FLUENCY, GRAMMAR, VOCABULARY, JOB_FIT, CLARITY   # D3
 
 @dataclass(frozen=True)
 class JobPost:
-    id: str; text: str; source: str      # "clipboard" | "file" | "voice" | "last"
-    file: str | None; created_at: datetime
+    id: str; text: str; source: str      # "clipboard" | "voice" | "last" (sem "file": D2)
+    created_at: datetime
 
 @dataclass(frozen=True)
 class Requirement:
@@ -79,8 +80,14 @@ class Coverage:
     requirement: str; cover: Cover; evidence: str | None  # trecho do Pedro (≤ 200) ou None em MISSED
 
 @dataclass(frozen=True)
+class AspectScore:                       # D3: nota de 0 a 100 por aspecto
+    aspect: Aspect; score: int           # 0..100 (inteiro; fora disso → ValueError)
+    note: str                            # 1 frase de motivo (≤ 200)
+
+@dataclass(frozen=True)
 class InterviewDebrief:
     run_id: str; coverage: tuple[Coverage, ...]
+    scores: tuple[AspectScore, ...]      # ≤ 5, um por aspecto, na ordem do enum; sem nota geral (D3)
     strengths: tuple[str, ...]           # ≤ 3
     improve: tuple[str, ...]             # ≤ 3
     rewrites: tuple[tuple[str, str], ...]  # ≤ 2: (pergunta, resposta melhor)
@@ -108,7 +115,9 @@ fora do enum → `UNKNOWN`; sem `title` → `ModelInvalid`.
   vocabulary from the job is expected here", "never claim facts about the company beyond the
   profile" (R7.1).
 - `debrief.md`: "You are the interviewer writing feedback for the candidate. Use only the transcript.
-  Every `evidence` must be a verbatim excerpt of Pedro's answers. No score." Idioma por D7.
+  Every `evidence` must be a verbatim excerpt of Pedro's answers. Score each aspect from 0 to 100
+  (fluency, grammar, vocabulary, job_fit = fit to the job requirements, clarity = structure of the
+  answers) with one sentence why. No overall score." Idioma por D7.
 
 ## 4. Roteiro (`plan.build_plan(profile, minutes=30)`)
 
@@ -172,7 +181,10 @@ comando (R3.6 fica com o `conduct.md`).
 
 Entrada ao modelo: perfil (JSON compacto), etapas, transcrição da run (mensagens entre
 `first_message_id` e `last_message_id`, autor + texto, cortada do começo se passar de 24 000
-caracteres). Saída: schema do `InterviewDebrief` sem `run_id`/`language`. Pós-checagem: cada
+caracteres). Saída: schema do `InterviewDebrief` sem `run_id`/`language` (com `scores`:
+`[{"aspect","score","note"}]`). Pós-checagem das notas: aspecto fora do enum cai, duplicata fica a
+primeira, `score` vira inteiro e é preso em 0..100, aspecto ausente fica ausente (o painel mostra
+`—`); `note` cortada em 200. Pós-checagem da cobertura: cada
 `evidence` precisa estar contida nas falas do Pedro (normalizado), senão vira `None` e `COVERED` cai
 para `THIN`; requisitos `must` ausentes da resposta entram como `MISSED`. `language` = labels de
 `repo.observations(session_id)` com `message_id` no intervalo da run (`recurring` primeiro, ≤ 6).
@@ -181,11 +193,12 @@ para `THIN`; requisitos `must` ausentes da resposta entram como `MISSED`. `langu
 
 | Tipo | Direção | Campos |
 | --- | --- | --- |
-| `lm_job` | UI → núcleo | `{"text","source"}` ou `{"file"}` ou `{"job_id"}` (recarregar/retry) |
+| `lm_job` | UI → núcleo | `{"text","source"}` ou `{"job_id"}` (recarregar/retry); sem `{"file"}` (D2) |
 | `lm_job_req` | núcleo → UI | `{}` — "mande o clipboard como `lm_job`" (D1); o HUD responde em ≤ 1 s ou ignora |
 | `lm_interview` | ambos | UI → núcleo `{"cmd"}` (`next|skip_stage|pause|end`); núcleo → UI `{"state","job_id","run_id","title","company","seniority","stack","must","stage","n_stages","stage_label","asked","quota","elapsed_s","minutes","error"}` (opcionais omitidos) |
-| `lm_debrief` | núcleo → UI | `InterviewDebrief` em JSON + `{"title","company","at"}` |
-| `lm_session` | núcleo → UI | ganha opcionais `jobs: [{"job_id","title","company"}]` (≤ 3 recentes) e `debrief_unseen: bool` |
+| `lm_debrief` | núcleo → UI | `InterviewDebrief` em JSON (com `scores`) + `{"title","company","at"}` |
+| `lm_session` | núcleo → UI | ganha opcionais `jobs: [{"job_id","title","company"}]` (≤ 3 recentes), `debrief_unseen: bool` e `scenarios: [{"id","title"}]` (roleplay, §12) |
+| `lm_topic` | ambos | ganha opcional `scenario` (id do cenário de roleplay, §12) |
 
 Registrar em `_HUD_DECODERS` (`magi/common/events.py`) e `_MIN_DECODERS` (`hud/hud_bridge.py`).
 `lm_job.text` ≤ `JOB_MAX` nos dois decodificadores. Fora do modo nenhuma destas é publicada.
@@ -198,7 +211,6 @@ CREATE TABLE IF NOT EXISTS learning_jobs (
     created_at  timestamptz NOT NULL DEFAULT now(),
     last_used   timestamptz NOT NULL DEFAULT now(),
     source      text NOT NULL,
-    file        text,
     text        text NOT NULL,
     profile     jsonb,                            -- NULL até a extração dar certo
     model       text,
@@ -227,7 +239,6 @@ da sessão. `LearningRepo` ganha: `save_job`, `get_job`, `set_profile`, `recent_
 
 ```toml
 interview_minutes = 30          # D6
-jobs_dir = "~/Documentos/vagas" # D2; "" desliga a pasta
 # [tasks] learning_job = { … }  # D8; ausente → learning_actions
 ```
 
@@ -249,6 +260,32 @@ jobs_dir = "~/Documentos/vagas" # D2; "" desliga a pasta
 - **CA-03** `plan`: tabela da §4 para SENIOR com 3 skills, JUNIOR sem stack e minutos 20/30/45 (soma exata).
 - **CA-04** `run`: 30 min simulados com relógio falso percorrem todas as etapas; `block` ≤ 1500 em todos os ticks; comandos da §5.3.
 - **CA-05** wiring: `lm_job` → `preparing` em ≤ 100 ms → `ready` + `lm_topic` com o rótulo; mesma vaga 2× = 1 chamada ao modelo.
-- **CA-06** retorno: `evidence` fora das falas vira `None`/`THIN`; `must` ausente vira `MISSED`; < 3 respostas não chama o modelo.
-- **CA-07** HUD: `[ PASTE JOB ]` com clipboard falso manda `lm_job`; colagem longa no campo pergunta; chip/etapa/painel do retorno pintam sem erro (offscreen).
+- **CA-06** retorno: `evidence` fora das falas vira `None`/`THIN`; `must` ausente vira `MISSED`; < 3 respostas não chama o modelo; nota fora de 0..100 é presa, aspecto desconhecido cai.
+- **CA-07** HUD: `[ PASTE JOB ]` com clipboard falso manda `lm_job`; colagem longa no campo pergunta; chip/etapa/painel do retorno (com as 5 notas e com notas faltando) pintam sem erro (offscreen).
 - **CA-08** Nada muda fora da run: testes de `tests/learning` e `tests/hud` existentes verdes sem alteração de asserção.
+
+## 12. Roleplay (D5, design §9)
+
+Cenários em `magi/learning/prompts/scenarios/<id>.md`; `id` = nome do arquivo (`[a-z_]+`). Os 4
+primeiros: `hotel_checkin`, `ordering_food`, `doctor_visit`, `support_call`.
+
+```
+title: Hotel check-in
+role: front desk clerk at a mid-range hotel in Chicago
+setting: Pedro arrives late at night with a reservation under his name
+goal: check in, ask about breakfast and Wi-Fi, solve one small problem
+twist: the room type on the reservation is wrong
+
+<texto livre para a Condessa, ≤ 900 caracteres: como agir no papel, o que pedir, tom>
+```
+
+`roleplay.py` (puro): `Scenario(id, title, role, setting, goal, twist, body)` frozen;
+`load(id, dir=SCENARIOS_DIR) -> Scenario` (`ValueError` se faltar chave, id fora do padrão ou arquivo
+> 4 KB); `scenarios(dir) -> tuple[Scenario, ...]` ordenado por id. Bloco do tema
+(`prompts/topics/roleplay.md` com `{title}`, `{role}`, `{setting}`, `{goal}`, `{twist}`, `{body}`)
+≤ `TOPIC_BLOCK_MAX`; rótulo `ROLEPLAY // <TITLE em maiúsculas>`. Sem roteiro, sem retorno, sem
+chamada de modelo. `lm_topic {"topic":"roleplay"}` sem `scenario` ou com id desconhecido → `free`
+com `detail "unknown scenario"`.
+
+- **CA-09** roleplay: os 4 arquivos carregam; bloco ≤ 1500; id desconhecido → `free`; seletor mostra
+  os 4 sob "Roleplay ▸" e manda `lm_topic` com `scenario`.

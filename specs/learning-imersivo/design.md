@@ -38,7 +38,7 @@ bruto da vaga nunca vai ao prompt de conversa (R7.2).
 | `extract.py` | `async extract(post, model) -> JobProfile` (1 chamada, schema spec §2); prompt `prompts/interview/extract.md` | LI1.1 |
 | `plan.py` | `build_plan(profile, minutes) -> InterviewPlan`; puro, sem LLM (spec §4) | LI1.2 |
 | `run.py` | máquina da simulação: etapa, contagem, relógio injetado, comandos (spec §5); `block(run) -> str` | LI1.3 |
-| `debrief.py` | `async debrief(run, messages, observations, model) -> InterviewDebrief` (spec §6) | LI2.3 |
+| `debrief.py` | `async debrief(run, messages, observations, model) -> InterviewDebrief` (spec §6), com notas 0–100 por aspecto (D3) | LI2.3 |
 | `store.py` | gravação de vagas/runs/retornos no `LearningRepo` (Postgres + JSONL) | LI0.2 |
 | `prompts/interview/{extract,conduct,debrief}.md` | textos dos três prompts | LI1.1 / LI1.3 / LI2.3 |
 
@@ -52,7 +52,8 @@ próprio módulo + o próprio teste.
 ## 4. Fluxo: da vaga à primeira pergunta
 
 1. HUD: `[ PASTE JOB ]` (seletor ou chip) → `QClipboard.text()` → `jobtext.check` local (vazio/curto)
-   → `lm_job {"text","source":"clipboard"}`. Arquivo: `lm_job {"file"}` (o núcleo lê o arquivo, D2).
+   → `lm_job {"text","source":"clipboard"}`. Sem pasta de vagas (D2 decidido: só clipboard); vagas já
+   usadas voltam por `lm_job {"job_id"}`.
    Voz (D1): intent `learning.interview.job` → núcleo manda `lm_job_req` → HUD responde `lm_job`.
 2. Núcleo (`wiring._on_job`): `jobtext.normalize` → hash → `lm_interview {"state":"preparing"}`.
    Se o hash já tem perfil (R2.6), pula o passo 3.
@@ -91,7 +92,7 @@ fecha e o tema volta a `interview` genérico com o perfil ainda como contexto? *
 | Seletor | `hud/wired/learning_topic.py` | linha Tech interview ganha sublinhas: `[ PASTE JOB ]` e até 3 vagas recentes (de `lm_session.jobs`) |
 | Clipboard | `hud/gamerhud.py` | `learning_paste_job()` lê `QApplication.clipboard().text()`; responde `lm_job_req`; intercepta colagem longa no `QLineEdit` (R1.2) |
 | Chip + etapa | `hud/wired/learning_interview.py` (novo, puro + pintura) | `InterviewView` (estado do `lm_interview`), chip `INTERVIEW // CARGO · EMPRESA`, linha `STAGE 3/6 · …  12:40`, `[ END INTERVIEW ]`, painel do perfil |
-| Retorno | `hud/wired/learning_debrief.py` (novo) | painel no lugar do drawer de observações; rolável; fecha em `✕`/Esc |
+| Retorno | `hud/wired/learning_debrief.py` (novo) | painel no lugar do drawer de observações: notas 0–100 por aspecto (barras), cobertura, pontos; rolável; fecha em `✕`/Esc |
 | Modelo | `hud/wired/learning_model.py` | guarda `interview`, `debrief`, `jobs` vindos do núcleo |
 | Ponte | `hud/hud_bridge.py` | decodificadores `lm_interview`, `lm_debrief`, `lm_job_req`; `send_lm("lm_job", …)` aceita até `JOB_MAX` |
 | Tela | `hud/wired/learning_screen.py` | grupos `interview` e `debrief` (chave/pintura delegadas aos módulos novos) |
@@ -109,12 +110,22 @@ Migração aditiva `magi/memory/migrations/004_learning_jobs.sql` (spec §8): `l
 arquivo da sessão. O `LearningRepo` (Protocol) ganha métodos; `JsonlRepo` e `PostgresRepo`
 implementam. Nada de `DROP`/`down` (LM-010).
 
-## 9. Temas de roleplay (D5 — proposta, só com "ok")
+## 9. Tema Roleplay (D5 — aprovado em 2026-10-10, 4 cenários)
 
-Se aprovado: `Topic.ROLEPLAY` novo (o único tema novo), com cenários em
-`magi/learning/prompts/scenarios/*.md` (cabeçalho `title`/`role`/`setting`/`goal`/`twist` + texto),
-lidos pelo `TopicBuilder` sem LLM; o seletor ganha a linha "Roleplay ▸" com os cenários; voz
-"let's roleplay a hotel check-in". Sem roteiro de etapas nem retorno (conversa, LM-013 regra 9 vale).
+`Topic.ROLEPLAY` novo (o único tema novo), com um cenário escolhido. Cenários em
+`magi/learning/prompts/scenarios/<id>.md`, um arquivo de dados cada, **sem LLM para montar**:
+`hotel_checkin`, `ordering_food`, `doctor_visit`, `support_call`. Formato (spec §12): cabeçalho
+`key: value` (`title`, `role`, `setting`, `goal`, `twist`) até a primeira linha vazia, depois o texto
+livre para a Condessa. `magi/learning/roleplay.py` lê/valida (puro) e o `TopicBuilder` monta o bloco
+com `prompts/topics/roleplay.md` (≤ 1500). Rótulo `ROLEPLAY // <TITLE>`.
+
+Fluxo: o seletor ganha a linha "Roleplay ▸" com os 4 cenários como sublinhas (lista vinda de
+`lm_session.scenarios`); escolher manda `lm_topic {"topic":"roleplay","scenario":"<id>"}`; voz
+"let's roleplay a hotel check-in" / "vamos simular um check-in no hotel" → intent
+`learning.topic.roleplay` com o cenário. Sem cenário válido → `free` com `detail "unknown scenario"`.
+Sessão retomada com roleplay volta ao mesmo cenário quando o id estiver gravado com o tema;
+senão cai em `free` (LI4.2 decide onde gravar, sem coluna nova). Sem roteiro de etapas nem retorno (conversa, LM-013
+regra 9 vale). Standup, salário e meetup ficam para depois (um arquivo novo cada, sem código).
 
 ## 10. Riscos
 
@@ -126,4 +137,5 @@ lidos pelo `TopicBuilder` sem LLM; o seletor ganha a linha "Roleplay ▸" com os
 | Extração inventa requisito | schema exige `evidence` (trecho literal da vaga) por item; item sem trecho achado no texto é descartado (`extract` confere) |
 | Clipboard vazio/imagem | HUD recusa local com linha curta; nada vai ao núcleo |
 | Linha do socket > 64 KiB | `JOB_MAX = 12000` caracteres no HUD **e** no núcleo (≤ ~48 KiB em UTF-8 + JSON) |
+| Cenário de roleplay com instrução estranha | é arquivo do repo, não entrada do usuário; `roleplay.py` valida cabeçalho e tamanho |
 | Mexer no `gamerhud` em uso | só na view learning; `tests/hud` antes e depois |

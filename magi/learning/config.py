@@ -52,6 +52,8 @@ class LearningConfig:
     local_start_timeout_s: int = 60
     #: Sessão aberta há mais que isso é fechada (``idle``) e o container para (watchdog).
     max_session_min: int = 180
+    #: Duração da entrevista pela vaga (learning-imersivo D6, spec §9). Sem pasta de vagas (D2).
+    interview_minutes: int = 30
 
     @property
     def level_label(self) -> str:
@@ -144,6 +146,7 @@ def parse_learning(raw: dict[str, Any]) -> LearningConfig:
         local_model=_str(sec, "local_model", d.local_model),
         local_start_timeout_s=_int(sec, "local_start_timeout_s", d.local_start_timeout_s, 1),
         max_session_min=_int(sec, "max_session_min", d.max_session_min, 1),
+        interview_minutes=_int(sec, "interview_minutes", d.interview_minutes, 5),
     )
 
 

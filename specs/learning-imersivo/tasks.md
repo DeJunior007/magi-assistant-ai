@@ -24,8 +24,9 @@ uma tarefa quando todas as de *Depende de* estão no `main`.
    nada de rede. Nunca `docker compose down`/`DROP` no `magi-pg` (LM-010).
 8. **Uma tarefa = um commit** com o ID (`LI1.2: roteiro da entrevista`), na branch `imersivo/<ID>`;
    merge no `main` pelo orquestrador.
-9. **Decisão em aberto** (requirements, D1–D8): use o padrão; tarefa marcada "precisa do Pedro" só
-   roda depois do "ok" registrado aqui.
+9. **Decisões D1–D8 resolvidas em 2026-10-10** (`specs/DECISOES-2026-10-10.md`, vale acima do
+   requirements): D1/D4/D6/D7/D8 padrão; **D2** só clipboard (LI3.1 removida); **D3** notas 0–100
+   por aspecto no retorno; **D5** roleplay com 4 cenários (LI4.1/LI4.2). LIF.1 é do Pedro.
 
 Estimativa: 1k tokens ≈ 3,5 KB de português ou 4 KB de código. Tamanhos: `requirements.md` ~3,5k,
 `design.md` ~3k, `spec.md` ~5k, `topic.py` ~2,5k, `persona.py` ~1k, `model.py` ~3,5k,
@@ -38,30 +39,33 @@ Formato: **Lê** · **Escreve** · **Depende de** · **Orçamento** · **Pronto*
 ```
 LI0.1 ─┬─ LI0.2 ─────────┐
        ├─ LI1.1 ─────────┼─ LI1.4 ─┬─ LI2.3 ─┐
-       ├─ LI1.2 ─ LI1.3 ─┘         └─ LI3.1 (D2) ··········┐
-       ├─ LI2.1 ─────────────────────────────┼─ LI2.5 ─────┴─ LIF.1
-       └─ LI2.2 ─ LI2.4 ─────────────────────┘
-       (LI4.1 roleplay: bloqueada até D5)
+       ├─ LI1.2 ─ LI1.3 ─┘         │         │
+       ├─ LI2.1 ───────────────────┼─────────┼─ LI2.5 ── LIF.1 (Pedro)
+       ├─ LI2.2 ─ LI2.4 ───────────┼─────────┘
+       └─ LI4.1 (roleplay: tema e dados) ─┴─ LI4.2 (roleplay: tela e ligação; depois de LI1.4 e LI2.1)
+       (LI3.1 removida — D2)
 ```
 
 ---
 
 ## Fase LI0 — Contratos e banco
 
-- [ ] **LI0.1 Contratos, texto da vaga e esqueleto** — pacote `magi/learning/interview/` com
+- [x] **LI0.1 Contratos, texto da vaga e esqueleto** — pacote `magi/learning/interview/` com
   `contracts.py` completo (spec §2, `to_dict`/`from_dict`, validações), `jobtext.py` completo (spec §1:
   `normalize`, `job_id`, `check` → recusa/corte), **stubs** com assinatura final de `extract.py`,
   `plan.py`, `run.py`, `debrief.py`, `store.py` (docstring com a tarefa dona), pasta
-  `prompts/interview/` com os 3 arquivos vazios marcados `TODO <tarefa>`. Mensagens do socket da
-  spec §7 como dataclasses em `magi/common/contracts.py` (`LmJobMsg`, `LmJobReqMsg`,
-  `LmInterviewMsg`, `LmDebriefMsg`, opcionais novos do `LmSessionMsg`) e decodificadores em
+  `prompts/interview/` com os 3 arquivos vazios marcados `TODO <tarefa>`. Contratos do retorno já
+  com as notas 0–100 por aspecto (D3: `Aspect`, `AspectScore`, `InterviewDebrief.scores`). Mensagens
+  do socket da spec §7 como dataclasses em `magi/common/contracts.py` (`LmJobMsg`, `LmJobReqMsg`,
+  `LmInterviewMsg`, `LmDebriefMsg`, opcionais novos do `LmSessionMsg` — `jobs`, `debrief_unseen`,
+  `scenarios` — e o opcional `scenario` do `LmTopicMsg`, spec §12) e decodificadores em
   `magi/common/events.py` (`_HUD_DECODERS`) e `hud/hud_bridge.py` (`_MIN_DECODERS`, `JOB_MAX`).
-  Config `interview_minutes`/`jobs_dir` em `magi/learning/config.py` e `config.example.toml`. *(R1.5, R5.1)*
+  Config `interview_minutes` em `magi/learning/config.py` e `config.example.toml` (sem `jobs_dir`, D2). *(R1.5, R5.1)*
   - Lê: spec §1, §2, §7, §9; design §2–§3; `magi/learning/contracts.py` linhas 1–120 e a classe `TopicContext`; `grep -n "class LmTopicMsg\|class LmSessionMsg" -A30 magi/common/contracts.py`; `grep -n "lm_topic\|_HUD_DECODERS" magi/common/events.py hud/hud_bridge.py` e só esses trechos; `magi/learning/config.py`
   - Escreve: `magi/learning/interview/*.py`, `magi/learning/prompts/interview/*.md`, `magi/common/contracts.py` (só as classes novas e os opcionais do `LmSessionMsg`), `magi/common/events.py`, `hud/hud_bridge.py` (só decodificadores e `JOB_MAX`), `magi/learning/config.py`, `config.example.toml`, `tests/learning/test_interview_contracts.py`, `tests/learning/test_jobtext.py`
   - Depende de: —
   - Orçamento: ~45k
-  - Pronto: CA-01; ida-e-volta JSON de todos os contratos; `decode_hud` aceita as 4 mensagens e recusa `lm_job` > 12 000; testes antigos de `tests/learning` (em especial `test_socket.py`, `test_bridge.py`, `test_contracts.py`) e `tests/hud/test_bridge.py` verdes.
+  - Pronto: CA-01; ida-e-volta JSON de todos os contratos (inclui `scores`); `decode_hud` aceita as 4 mensagens e recusa `lm_job` > 12 000; testes antigos de `tests/learning` (em especial `test_socket.py`, `test_bridge.py`, `test_contracts.py`) e `tests/hud/test_bridge.py` verdes.
   - Paralelo: —
 
 - [ ] **LI0.2 Banco e repositório** — migração `magi/memory/migrations/004_learning_jobs.sql` (spec
@@ -152,7 +156,9 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Paralelo: LI0.2, LI1.x, LI2.1
 
 - [ ] **LI2.3 Retorno no núcleo** — `debrief.debrief(run, messages, observations, model)` (spec §6,
-  prompt `prompts/interview/debrief.md`, prazo 40 s, idioma por D7); no wiring, `_finish_interview`
+  prompt `prompts/interview/debrief.md`, prazo 40 s, idioma por D7), com **notas 0–100 por aspecto**
+  (D3: fluência, gramática, vocabulário, aderência à vaga, clareza; pós-checagem da spec §6 — preso
+  em 0..100, aspecto desconhecido cai, sem nota geral); no wiring, `_finish_interview`
   passa a gerar o retorno em tarefa própria, gravar, publicar `lm_debrief` + `lm_msg` curta (falada
   se `speak_replies`), regra das < 3 respostas, fim de sessão `idle`/`shutdown` grava sem publicar,
   `lm_session.debrief_unseen` e reenvio na abertura. *(R4, R5.2)*
@@ -160,18 +166,20 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Escreve: `magi/learning/interview/debrief.py`, `magi/learning/prompts/interview/debrief.md`, `magi/learning/wiring.py` (só `_finish_interview` e a abertura com retorno pendente), `tests/learning/test_interview_debrief.py`
   - Depende de: LI1.4
   - Orçamento: ~45k
-  - Pronto: CA-06; turno do agente não espera o retorno (teste com modelo falso lento); `shutdown` grava e não publica.
-  - Paralelo: LI3.1
+  - Pronto: CA-06 (inclui as notas); turno do agente não espera o retorno (teste com modelo falso lento); `shutdown` grava e não publica.
+  - Paralelo: LI2.4
 
 - [ ] **LI2.4 Painel do retorno no HUD** — `hud/wired/learning_debrief.py` (novo, puro + pintura):
   cobertura por requisito (✓ / ~ / ✗ com a evidência em `TEXT_DIM`), fortes, a melhorar, respostas
   reescritas, inglês; rolagem; fecha em `✕`/Esc/clique fora; ocupa o lugar do drawer de observações
-  enquanto aberto. `learning_model.py` guarda `debrief`; grupo `debrief` na `learning_screen.py`. *(R6, R4.3)*
+  enquanto aberto. No topo, as **notas 0–100 por aspecto** (D3): uma linha por aspecto
+  (`FLUENCY  72` + barra fina + a `note` em `TEXT_DIM`), aspecto ausente mostra `—`; sem nota geral.
+  `learning_model.py` guarda `debrief`; grupo `debrief` na `learning_screen.py`. *(R6, R4.3)*
   - Lê: spec §2 (`InterviewDebrief`), §7; `hud/wired/learning_screen.py` por trecho (`_g_obs`, `obs_groups`, `mouse`, `key`); `hud/wired/learning_obs.py` por trecho (geometria do drawer); `hud/wired/learning_interview.py` (assinaturas, LI2.2)
   - Escreve: `hud/wired/learning_debrief.py`, `hud/wired/learning_model.py` (só `debrief`), `hud/wired/learning_screen.py` (só o grupo `debrief`), `tests/hud/test_learning_debrief_view.py`
   - Depende de: LI2.2
   - Orçamento: ~45k
-  - Pronto: pinta com `lm_debrief` falso cheio e vazio (offscreen 2560×1440); Esc fecha; drawer de observações volta igual.
+  - Pronto: pinta com `lm_debrief` falso cheio (5 notas), com notas faltando e vazio (offscreen 2560×1440); Esc fecha; drawer de observações volta igual.
   - Paralelo: LI1.4, LI2.3
 
 - [ ] **LI2.5 Integração tela ↔ núcleo** — orquestrador ou agente: liga as pontas que caíram em
@@ -184,41 +192,53 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Pronto: as três suítes verdes; fluxo vaga → ready → `end` → painel do retorno com núcleo falso no teste de integração do LM.
   - Paralelo: —
 
-## Fase LI3 — Arquivo de vagas
+## Fase LI3 — Arquivo de vagas (removida)
 
-- [ ] **LI3.1 Pasta de vagas** — **precisa do Pedro (D2).** O núcleo lista `jobs_dir` (`.txt`/`.md`,
-  mais novos primeiro, ≤ 20, ≤ 64 KB cada) e junta com as vagas já usadas em `lm_session.jobs`;
-  `lm_job {"file"}` lê só arquivos dentro de `jobs_dir` (caminho resolvido, sem `..`/symlink para
-  fora). Sem pasta → nada muda.
-  - Lê: requirements R1.3, D2; spec §7, §9; `magi/learning/interview/store.py`; `magi/learning/wiring.py` por trecho (`_on_job`, `_session_msg`)
-  - Escreve: `magi/learning/interview/jobfiles.py`, `magi/learning/wiring.py` (só a origem `file`), `tests/learning/test_interview_jobfiles.py`
-  - Depende de: LI1.4
-  - Orçamento: ~25k
-  - Pronto: teste com pasta temporária (arquivo fora da pasta recusado; arquivo grande recusado; ordem por mtime).
-  - Paralelo: LI2.3
+- [—] **LI3.1 Pasta de vagas** — **REMOVIDA em 2026-10-10 (D2):** o Pedro decidiu sem pasta de vagas,
+  só clipboard (botão `[ PASTE JOB ]`, colar no campo, voz via `lm_job_req`) e as vagas já usadas
+  (`lm_job {"job_id"}`). Nada de `jobs_dir`, `jobfiles.py` nem `lm_job {"file"}`. Não implementar.
 
-## Fase LI4 — Roleplay (proposta)
+## Fase LI4 — Roleplay (D5 aprovada: 4 cenários)
 
-- [ ] **LI4.1 Tema Roleplay** — **bloqueada até D5 (precisa do Pedro).** Design §9: `Topic.ROLEPLAY`,
-  cenários em `magi/learning/prompts/scenarios/*.md` (os escolhidos pelo Pedro), `TopicBuilder`
-  lendo o cenário sem LLM, linha "Roleplay ▸" no seletor com os cenários, intents de voz. Sem
-  roteiro nem retorno. Dividir em núcleo / HUD se passar de 50k na estimativa feita no "ok".
-  - Lê: design §9; LM spec §10.1; `magi/learning/topic.py`; `hud/wired/learning_topic.py`
-  - Escreve: definido no "ok"
-  - Depende de: LI0.1 e D5
-  - Orçamento: ~45k (núcleo) + ~35k (HUD)
-  - Pronto: definido no "ok"
-  - Paralelo: qualquer LI2.x
+- [ ] **LI4.1 Roleplay: tema e dados** — `Topic.ROLEPLAY` (+ rótulo em `TOPIC_LABELS`) em
+  `magi/learning/contracts.py`; `magi/learning/roleplay.py` (novo, puro: `Scenario`, `load`,
+  `scenarios`, `SCENARIOS_DIR`, spec §12); os 4 cenários em `magi/learning/prompts/scenarios/`
+  (`hotel_checkin.md`, `ordering_food.md`, `doctor_visit.md`, `support_call.md`, escritos pelo
+  agente em inglês simples, nível B1–B2, cada um com um `twist`); `prompts/topics/roleplay.md`;
+  `TopicBuilder.build(requested, scenario=None)` com o ramo `_roleplay(scenario)` sem LLM (id
+  desconhecido → `free` + `detail "unknown scenario"`). Standup, salário e meetup ficam para depois.
+  *(D5, design §9)*
+  - Lê: design §9; spec §12; LM spec §10.1; `magi/learning/topic.py`; `magi/learning/contracts.py` por trecho (`class Topic`, `TOPIC_LABELS`, `TopicContext`)
+  - Escreve: `magi/learning/contracts.py` (só `Topic.ROLEPLAY` e o rótulo), `magi/learning/roleplay.py`, `magi/learning/prompts/scenarios/*.md`, `magi/learning/prompts/topics/roleplay.md`, `magi/learning/topic.py`, `tests/learning/test_roleplay.py`
+  - Depende de: LI0.1 (o `scenario` do `lm_topic` e o `scenarios` do `lm_session` já estão nos contratos)
+  - Orçamento: ~35k
+  - Pronto: CA-09 (parte do núcleo): os 4 arquivos carregam e validam; bloco ≤ 1500 em todos; id desconhecido/ausente → `free`; `tests/learning/test_topic.py`, `test_contracts.py` e `test_topic_view.py` verdes (o enum novo não quebra o seletor antigo; se quebrar, anotar em *Sobras* para a LI4.2).
+  - Paralelo: LI0.2, LI1.x, LI2.x (não escreve nenhum arquivo delas)
+
+- [ ] **LI4.2 Roleplay: tela e ligação** — no `wiring`, `_on_topic` passa `msg.scenario` ao
+  `TopicBuilder`, `lm_session.scenarios` vem de `roleplay.scenarios()`, e a sessão retomada volta ao
+  mesmo cenário (gravar o id com o tema sem coluna nova; sem id → `free`); intent de voz
+  `learning.topic.roleplay` ("let's roleplay a hotel check-in" / "vamos simular um check-in no
+  hotel", um sinônimo por cenário) só com sessão ativa; no seletor, linha "Roleplay ▸" com os 4
+  cenários como sublinhas (mesmo padrão das sublinhas de vaga da LI2.1), clique manda
+  `lm_topic {"topic":"roleplay","scenario"}`; chip `ROLEPLAY // <TITLE>`. *(D5, design §9)*
+  - Lê: design §9; spec §7, §12; `magi/learning/roleplay.py` (assinaturas); `magi/learning/wiring.py` por trecho (`_on_topic`, `_session_msg`, `_restore_topic`); `magi/learning/intent_action.py`; `magi/core/intents.yaml` linhas 670–760; `hud/wired/learning_topic.py`
+  - Escreve: `magi/learning/wiring.py` (só `_on_topic`, `_session_msg`, `_restore_topic`), `magi/learning/intent_action.py`, `magi/core/intents.yaml` (só o intent novo), `hud/wired/learning_topic.py`, `tests/learning/test_roleplay_wiring.py`, `tests/hud/test_roleplay_picker.py`
+  - Depende de: LI4.1, LI1.4 (mesmos arquivos do núcleo), LI2.1 (mesmo `learning_topic.py`)
+  - Orçamento: ~40k
+  - Pronto: CA-09 completo; voz e clique abrem o cenário; captura offscreen do seletor com as sublinhas; `tests/learning` e `tests/hud` verdes.
+  - Paralelo: LI2.4, LI2.5 (não LI2.3: as duas escrevem `magi/learning/wiring.py`)
 
 ## Fechamento
 
-- [ ] **LIF.1 Ponta a ponta com o Pedro** — **precisa do Pedro** *(gasta API)*. 3 vagas reais
+- [ ] **LIF.1 Ponta a ponta com o Pedro** — **é do Pedro; agente não implementa** *(gasta API)*. 3 vagas reais
   (backend, full-stack, dados): critérios de sucesso 1–5 do requirements; conferir o perfil à mão,
-  uma simulação de 30 min inteira por voz e uma por texto, o retorno, o custo no `costs`. O que
+  uma simulação de 30 min inteira por voz e uma por texto, o retorno (notas 0–100 por aspecto fazem
+  sentido?), um roleplay, o custo no `costs`. O que
   incomodar vira item em *Sobras* ou volta ao Pedro.
   - Lê: requirements (Critérios), spec §11
   - Escreve: `docs/perf/learning-imersivo.md`
-  - Depende de: LI2.5 (e LI3.1 se D2 aprovada)
+  - Depende de: LI2.5 (e LI4.2 para provar um roleplay; LI3.1 removida, D2)
   - Orçamento: ~25k
   - Pronto: relatório com os 5 critérios e a nota do Pedro.
   - Paralelo: —
@@ -226,3 +246,13 @@ LI0.1 ─┬─ LI0.2 ─────────┐
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
+
+- **LI0.1 (2026-10-11):** assinaturas que ganharam argumento além da spec — `plan.build_plan(profile,
+  minutes=30, *, job_id)` (o `InterviewPlan` precisa do id), `run.start(…, *, run_id)`; extras nos
+  stubs: `run.tick(run, now)` (avanço por tempo sem turno), `run.progress(run, now)` (campos do
+  `lm_interview`), `store.set_profile`/`store.post_of`. `jobtext.check(raw) -> Checked(text, ok,
+  trimmed, line)` e `jobtext.is_long_paste` (R1.2) para o HUD. `LmInterviewMsg.seniority` é texto.
+  Nenhum `Fake*` novo: o `FakeModel` do LM basta; o clipboard falso fica com a LI2.1.
+- **LI0.1:** `tests/learning/test_summary_card.py::test_nao_cobre_retrato_nem_player` falha no
+  `main` antes desta tarefa (o grupo `mood_tip` da V1.8 é pintado depois do `lm_summary`) e
+  `ruff check` acusa E501 em `hud/konsole_term.py:395` — nenhum dos dois é do learning-imersivo.

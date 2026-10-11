@@ -189,6 +189,8 @@ def _m_lm(d: dict[str, Any]) -> dict[str, Any]:
 LM_TYPES = (
     "lm_mode", "lm_session", "lm_say", "lm_msg", "lm_action", "lm_result",
     "lm_obs", "lm_cfg", "lm_topic", "lm_save", "lm_saved", "lm_summary",
+    # entrevista pela vaga (specs/learning-imersivo spec §7)
+    "lm_job", "lm_job_req", "lm_interview", "lm_debrief",
 )
 
 #: `lm_*` que a UI manda ao núcleo, com os campos obrigatórios (spec §6).
@@ -199,8 +201,21 @@ LM_SEND: dict[str, tuple[str, ...]] = {
     "lm_action": ("id", "kind", "message_id", "start", "end"),
     "lm_topic": ("topic",),
     "lm_save": ("action_id", "on"),
+    "lm_job": (),  # {"text","source"} ou {"job_id"} (learning-imersivo spec §7)
+    "lm_interview": ("cmd",),
 }
 LM_SAY_MAX = 2000  # caracteres (spec §4.2: maior que isso é recusado na UI)
+JOB_MAX = 12_000  # caracteres do texto da vaga (learning-imersivo spec §1, R1.5)
+
+
+def _m_lm_job(d: dict[str, Any]) -> dict[str, Any]:
+    """`lm_job`: `text` (≤ `JOB_MAX`) ou `job_id`, como o contrato."""
+    text = d.get("text")
+    if (text is None) == (d.get("job_id") is None):
+        raise DecodeError("lm_job: mande text ou job_id (só um)")
+    if text is not None and (not isinstance(text, str) or not text.strip() or len(text) > JOB_MAX):
+        raise DecodeError("lm_job: texto vazio ou longo demais")
+    return dict(d)
 
 _MIN_DECODERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "state": _m_state,
@@ -215,6 +230,7 @@ _MIN_DECODERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "cmd": _m_cmd,
     "detail": _m_detail,
     **dict.fromkeys(LM_TYPES, _m_lm),
+    "lm_job": _m_lm_job,
 }
 
 
@@ -270,6 +286,8 @@ def encode_lm(t: str, fields: dict[str, Any] | None = None) -> bytes:
         if not text or len(text) > LM_SAY_MAX:
             raise DecodeError("lm_say vazio ou longo demais")
         d["text"] = text
+    if t == "lm_job":
+        _m_lm_job(d)
     line = (json.dumps(d, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
     if len(line) > MAX_LINE:
         raise DecodeError("lm_* maior que MAX_LINE")
