@@ -1,0 +1,24 @@
+Senior Backend Engineer (Python)
+Quillfeather Payments · Remote
+
+About us
+Quillfeather Payments is a fictional fintech that helps small shops accept card payments.
+
+What you will do
+• Design and build APIs for our payments platform
+• Own services from design to production
+• Mentor other engineers on the team
+
+Requirements
+• 5+ years of experience with Python in production
+• Solid experience with PostgreSQL and query tuning
+• Experience running services on Kubernetes
+• Good understanding of distributed systems design and architecture
+• Clear written communication in English
+
+Nice to have
+• Experience with Kafka
+• Previous work in fintech
+
+Apply now
+Show more

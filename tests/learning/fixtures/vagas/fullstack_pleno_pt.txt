@@ -1,0 +1,23 @@
+Pessoa Desenvolvedora Full Stack Pleno
+Ateliê Lunar Tecnologia — Híbrido (São Paulo)
+
+Sobre a vaga
+O Ateliê Lunar é uma empresa fictícia de e-commerce de artesanato.
+
+Responsabilidades
+- Desenvolver novas telas da loja em React
+- Criar e manter APIs em Node.js com TypeScript
+- Participar das cerimônias do time e das revisões de código
+
+Requisitos
+- Experiência de 3 anos com React e TypeScript
+- Conhecimento em Node.js e bancos relacionais (MySQL)
+- Vivência com testes automatizados
+- Boa comunicação com o time de produto
+
+Diferenciais
+- Conhecimento em Docker
+- Inglês intermediário
+
+Candidatar-se
+Ver mais

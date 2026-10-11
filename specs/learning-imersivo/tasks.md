@@ -81,7 +81,7 @@ LI0.1 ─┬─ LI0.2 ─────────┐
 
 ## Fase LI1 — Núcleo da entrevista
 
-- [ ] **LI1.1 Extração do perfil** — `extract.extract(post, model) -> JobProfile` com o prompt
+- [x] **LI1.1 Extração do perfil** — `extract.extract(post, model) -> JobProfile` com o prompt
   `prompts/interview/extract.md` (spec §3), schema da spec §2, pós-checagem de `evidence`/stack/
   senioridade, prazo de 20 s; `build_job_model(config)` que escolhe `[tasks] learning_job` ou cai em
   `learning_actions` (D8) usando o `build_model` existente. *(R2.2, R2.5, R7.1)*
@@ -268,3 +268,11 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   `label`); `[learning] default_topic = "roleplay"` passa na validação do config e cai em `free`
   (sem cenário). `test_interview_contracts.py::test_stubs_have_final_signatures` falha porque uma
   tarefa paralela (LI1.x) já implementou um stub — não é do LI4.1.
+- **LI1.1 (2026-10-11):** `LearningCostTask` (`magi/learning/budget.py`, fora do pacote) não tem
+  rótulo `learning_job`: `build_job_model` monta a tarefa escolhida (job ou actions) no lugar de
+  `learning_actions` e o custo da extração sai como `learning_actions` em `costs`; sem `timeout_s`
+  explícito o prazo passa a 20 s (o das ações é 8 s). `learning_tasks().job` novo (opcional).
+  `tests/learning/test_interview_contracts.py::test_stubs_have_final_signatures` exige `TODO` em
+  `prompts/interview/extract.md` (e `NotImplementedError` no `plan`, hoje quebrado pela LI1.2): o
+  teste do stub precisa ser afrouxado por quem for dono dele (não é do pacote da LI1.1).
+  `config.example.toml` sem `[tasks.learning_job]` (D8 cai em `learning_actions`).

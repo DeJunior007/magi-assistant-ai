@@ -1,0 +1,18 @@
+Junior Data Analyst
+Hosted by an unnamed retail client · Onsite
+
+Responsibilities
+* Build weekly sales dashboards
+* Clean and join data from several sources
+* Present findings to the commercial team
+
+Must have
+* Strong SQL skills (joins, window functions)
+* Experience with Python and pandas for data analysis
+* Ability to explain numbers to non-technical people
+
+Nice to have
+* Power BI or Looker
+* Basic statistics knowledge
+
+Save

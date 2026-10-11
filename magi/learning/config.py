@@ -23,8 +23,10 @@ STORAGES = ("postgres", "jsonl")
 #: Nomes das tarefas de LLM do Learning Mode em ``[tasks]``.
 TASK_ACTIONS = "learning_actions"
 TASK_OBSERVE = "learning_observe"
-#: Prazo padrão de cada tarefa quando ``timeout_s`` falta (spec §2).
-DEFAULT_TIMEOUTS_S = {TASK_ACTIONS: 8.0, TASK_OBSERVE: 20.0}
+#: Tarefa própria da extração da vaga (learning-imersivo D8); ausente → ``learning_actions``.
+TASK_JOB = "learning_job"
+#: Prazo padrão de cada tarefa quando ``timeout_s`` falta (spec §2; vaga: imersivo spec §1).
+DEFAULT_TIMEOUTS_S = {TASK_ACTIONS: 8.0, TASK_OBSERVE: 20.0, TASK_JOB: 20.0}
 
 
 @dataclass(frozen=True)
@@ -75,11 +77,12 @@ class LearningTask:
 
 @dataclass(frozen=True)
 class LearningTasks:
-    """``learning_actions`` (ações do menu) e ``learning_observe`` (background); ``None`` se a
-    tarefa não está no config (ENG-002)."""
+    """``learning_actions`` (ações do menu), ``learning_observe`` (background) e ``learning_job``
+    (extração da vaga, D8); ``None`` se a tarefa não está no config (ENG-002)."""
 
     actions: LearningTask | None
     observe: LearningTask | None
+    job: LearningTask | None = None
 
 
 def _bool(sec: dict[str, Any], key: str, default: bool) -> bool:
@@ -178,5 +181,10 @@ def learning_config(config: Config) -> LearningConfig:
 
 
 def learning_tasks(config: Config) -> LearningTasks:
-    """Tarefas ``[tasks] learning_actions`` e ``learning_observe`` tipadas (ENG-002)."""
-    return LearningTasks(actions=_task(config, TASK_ACTIONS), observe=_task(config, TASK_OBSERVE))
+    """Tarefas ``[tasks] learning_actions``, ``learning_observe`` e ``learning_job`` tipadas
+    (ENG-002, D8)."""
+    return LearningTasks(
+        actions=_task(config, TASK_ACTIONS),
+        observe=_task(config, TASK_OBSERVE),
+        job=_task(config, TASK_JOB),
+    )
