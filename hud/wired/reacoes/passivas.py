@@ -164,7 +164,8 @@ def _agendar(ctx: dict, agora: float, m: Momento, rng: random.Random) -> None:
 def piso_vencido(ctx: dict, agora: float, m: Momento) -> bool:
     if m in SEM_PISO or not ctx.get("pedro_presente", m != Momento.PEDRO_SUMIU):
         return False
-    usos = ctx.get("_passivas_usos") or []
+    recusadas = ctx.get("_passivas_recusadas") or ()  # V1.10: recusada pelo governador não saiu no rosto
+    usos = [u for u in ctx.get("_passivas_usos") or [] if u[0] not in recusadas]
     marcas = [ctx.get("ultima_expressao_em"), usos[-1][0] if usos else None, ctx["_passivas_inicio"]]
     ult = max(t for t in marcas if t is not None)
     return agora - ult > _vida(ctx)["piso_vida_min"] * 60.0

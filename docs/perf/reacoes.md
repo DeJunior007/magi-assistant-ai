@@ -51,6 +51,29 @@ música: o encarando sai aos 15 min sem música, e o "ei, tô aqui" só depois d
 (colar a saída do relatório e as horas estranhas aqui)
 ```
 
+## 0b. Placar e jogo (V1.10, acordo `2026-10-10-placar-e-jogo`)
+
+Replay de 2026-10-09 (`tests/hud/test_vida_simulacao.py`), 50 sementes: metas 1–7 + 6b em 50/50
+(1: 13,0–15,3 expr./h; 3: maior buraco 5,6–6,0 min; 6: nenhuma hora sem positiva; 6b: 0 positivas
+sem causa; 7: toda volta no rosto). Placar no replay: **Condessa 3 × 4 Pedro** (7 pontos, ≤ 3:1) em
+todas. Rodar as 50: `MAGI_REPLAY_SEMENTES=50 uv run pytest -q tests/hud/test_vida_simulacao.py`
+(~1 min em 12 núcleos; a suíte padrão roda 3).
+
+Conferência da semana (Pedro):
+- **Placar (calibração 2):** depois de 7 dias de log, o Pedro ganha **40–60 % dos dias** (empate é
+  empate; o dia fecha às 4h). Contar no `reacoes.jsonl` as linhas `tipo: placar` por dia e lado.
+  Fora disso: mexer **nos tetos** de `[vida.placar]`, nunca nas fontes.
+- **Pontos por dia:** esperado 4–12 num dia normal; nenhum dia acima de 3:1 sem motivo claro.
+- **Meta 6 (jogo longo sem música):** toda hora com jogo e o Pedro presente tem positiva; `torcida`
+  com causa `jogando_sem_positiva:<min>` no máximo 1 a cada 30 min.
+- **Meta 6b:** toda positiva tem causa (acontecimento) ou é sorteio/piso do momento da linha.
+- **Meta 7:** toda volta aparece no rosto (cena; a 3ª em < 60 min é só a olhada).
+- Na tela: hover do medidor (placar, ajustes, ✗), `O1` de frente nas cenas, atalho do "sem sentido".
+
+| Semana | Dias Pedro ganhou | Empates | Pontos/dia (mín–máx) | Ajuste nos tetos |
+| --- | --- | --- | --- | --- |
+| | | | | |
+
 ## 1. Antes de começar
 
 - Reabrir o HUD depois de qualquer build da arte (`catalogo.ATIVAS` olha a pasta do retrato só

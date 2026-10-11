@@ -891,6 +891,7 @@ class Reactor:
         if d is None:
             return
         if dr.sortear_passiva([extra.chave], rel, ctx) is None:
+            ctx["_passivas_recusadas"] = [*(ctx.get("_passivas_recusadas") or [])[-7:], rel]  # piso
             if extra.motivo == "piso":  # V0.9: o piso não fica sem nada (governador recusou)
                 dr.gov.registrar(Pedido(Tipo.ATENCAO, "atencao"), rel)
                 self._olhar(self._card_piso(ctx), now, "piso", dr.vida["atencao_ms"][1])

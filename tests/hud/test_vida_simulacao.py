@@ -13,6 +13,8 @@ sistema e Claude, relógio e ``rng`` injetados (passo de 2 s).
 from __future__ import annotations
 
 import json
+import multiprocessing
+import os
 import random
 import time
 from collections import Counter
@@ -90,10 +92,13 @@ def simular(tmp_path: Path, semente: int = 1, gosto_pedro: str = "") -> dict:
     r.favorite_of_day = lambda: ""
     log: list[dict] = []
 
-    def _log(tipo, chave, motivo, now, d=None, disp=None, causa=None):  # noqa: ARG001
+    log_real = r._log  # noqa: SLF001
+
+    def _log(tipo, chave, motivo, now, d=None, disp=None, causa=None):
         log.append({"t": relogio[0] - meia_noite, "tipo": tipo, "chave": chave, "rel": r._rel(now),  # noqa: SLF001
                     "causas": dict(r.diretor.causas), "momento": str(r.ctx.get("momento") or ""),
-                    "var": disp.variante if disp is not None else None})
+                    "var": disp.variante if disp is not None else None, "motivo": motivo, "causa": causa})
+        log_real(tipo, chave, motivo, now, d, disp, causa)  # o real conta a positiva da torcida (V1.7)
 
     r._log = _log  # noqa: SLF001
     faixas: Counter = Counter()
@@ -115,7 +120,11 @@ def simular(tmp_path: Path, semente: int = 1, gosto_pedro: str = "") -> dict:
             presente_s[int(t // 3600)] += PASSO
         ticks.append((t, ausente, str(r.momento)))
         t += PASSO
-    return {"log": log, "faixas": faixas, "presente_s": presente_s, "animo": animo, "ticks": ticks}
+    reg = tmp_path / "r.jsonl"
+    linhas = [json.loads(x) for x in reg.read_text("utf-8").splitlines()] if reg.exists() else []
+    pontos = [x for x in linhas if x.get("tipo") == "placar"]
+    return {"log": log, "faixas": faixas, "presente_s": presente_s, "animo": animo, "ticks": ticks,
+            "log_placar": pontos}
 
 
 @pytest.fixture(scope="module")
@@ -144,10 +153,15 @@ def metas(dia: dict) -> dict:
     pos_h = Counter(int(x["t"] // 3600) for x in exp
                     if x["chave"] in POSITIVAS or (x["chave"], x["var"]) in ALIVIO)
     horas_sem_pos = [h for h, s in dia["presente_s"].items() if s >= 1800 and not pos_h[h]]
-    cenas = [x for x in dia["log"] if x["tipo"] == "cena"]
-    voltas_sem_cena = [v for v in DIA["volta"] if not any(
+    rostos = [x for x in dia["log"] if x["tipo"] in (*EXPRESSAO, "atencao")]  # acordo-pj §2: a volta
+    voltas_sem_rosto = [v for v in DIA["volta"] if not any(  # aparece no rosto (cena, ou só a olhada
         abs(c["t"] - v) <= 15 and c["chave"].startswith(("pedro_voltou", "sentiu_falta", "sobressalto"))
-        for c in cenas)]
+        for c in rostos)]  # da 3ª volta em < 60 min), não precisa virar cena
+    pos = [x for x in exp if x["chave"] in POSITIVAS or (x["chave"], x["var"]) in ALIVIO]
+    # meta 6b (acordo-pj §1): toda positiva tem causa no log, como as negativas: o acontecimento
+    # (``causa`` da cena/ativa/piso da torcida) ou o sorteio/piso de vida do momento da linha
+    pos_sem_causa = [x for x in pos if not x["causa"] and not (x["motivo"] in ("passiva", "piso")
+                                                                and x["momento"])]
     return {
         "1_exp_h": len(exp) / horas,
         "2_rajadas": rajadas,
@@ -155,8 +169,26 @@ def metas(dia: dict) -> dict:
         "4_neg_sem_causa": len(sem_causa),
         "5_faixas": {str(k): round(v / total, 3) for k, v in dia["faixas"].items()},
         "6_horas_sem_positiva": horas_sem_pos,
-        "7_voltas_sem_cena": voltas_sem_cena,
+        "6b_pos_sem_causa": len(pos_sem_causa),
+        "7_voltas_sem_rosto": voltas_sem_rosto,
     }
+
+
+def falhas(dia: dict) -> list[str]:
+    """As metas do acordo §8 (+ 6b e a 7 nova do acordo-pj) que falharam neste replay."""
+    m, fx = metas(dia), dia["faixas"]
+    total = sum(fx.values())
+    checks = {"1": 12 <= m["1_exp_h"] <= 20, "2": m["2_rajadas"] == 0, "3": m["3_maior_buraco_min"] <= 6,
+              "4": m["4_neg_sem_causa"] == 0, "5_n": len([f for f, s in fx.items() if s > 0]) >= 3,
+              "5_emb": fx[FaixaHumor.EMBURRADA] / total < 0.15, "5_rad": fx[FaixaHumor.RADIANTE] > 0,
+              "6": m["6_horas_sem_positiva"] == [], "6b": m["6b_pos_sem_causa"] == 0,
+              "7": m["7_voltas_sem_rosto"] == []}
+    return [k for k, ok in checks.items() if not ok]
+
+
+def placar(dia: dict) -> tuple[int, int]:
+    lados = Counter(x["placar"]["lado"] for x in dia["log_placar"])
+    return lados["ela"], lados["ele"]
 
 
 def test_replay_do_dia_real_bate_as_7_metas(dia):
@@ -172,7 +204,45 @@ def test_replay_do_dia_real_bate_as_7_metas(dia):
     assert fx[FaixaHumor.EMBURRADA] / total < 0.15
     assert fx[FaixaHumor.RADIANTE] > 0
     assert m["6_horas_sem_positiva"] == []
-    assert m["7_voltas_sem_cena"] == []
+    assert m["6b_pos_sem_causa"] == 0
+    assert m["7_voltas_sem_rosto"] == []
+
+
+def test_torcida_e_positiva_da_meta_6():
+    from wired.reactions import POSITIVAS as DO_REACTOR
+    assert "torcida" in POSITIVAS and POSITIVAS == DO_REACTOR  # o piso da torcida conta a mesma lista
+
+
+def test_placar_no_replay_sem_lado_acima_de_3_para_1(dia):
+    """Calibração (1) do acordo-pj §3: no dia de 2026-10-09 nenhum lado passa de 3:1; 4–12 pontos.
+    Medido (V1.10): Condessa 3 × 4 Pedro em todas as sementes."""
+    ela, ele = placar(dia)
+    print({"ela": ela, "ele": ele})
+    assert 4 <= ela + ele <= 12
+    assert max(ela, ele) <= 3 * max(1, min(ela, ele))
+
+
+def _replay(semente: int) -> tuple[int, list[str], tuple[int, int]]:
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        dia = simular(Path(d), semente)
+    return semente, falhas(dia), placar(dia)
+
+
+# 50 sementes (acordo-pj §1) levam ~5,5 min em série (~55 s em 12 processos): a suíte padrão roda
+# as sementes 2 e 3 (a 1 é o ``dia``); ``MAGI_REPLAY_SEMENTES=50`` roda as 50 (em paralelo).
+SEMENTES = int(os.environ.get("MAGI_REPLAY_SEMENTES", "3"))
+
+
+def test_replay_metas_em_todas_as_sementes():
+    sementes = range(2, SEMENTES + 1)
+    if SEMENTES > 3:
+        with multiprocessing.get_context("fork").Pool() as pool:
+            res = pool.map(_replay, sementes)
+    else:
+        res = [_replay(s) for s in sementes]
+    ruins = [(s, f, p) for s, f, p in res if f or not (4 <= sum(p) <= 12 and max(p) <= 3 * max(1, min(p)))]
+    assert ruins == []
 
 
 def test_escada_encarando_aos_15_min_sem_musica(tmp_path):

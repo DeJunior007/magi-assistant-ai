@@ -272,7 +272,7 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   - Pronto: testes da frase com e sem alvo e do placar no contexto (sem número inventado); `uv run pytest -q tests/hud tests/agent` verde; `ruff` limpo; sem chamada a LLM.
   - Paralelo: V1.8
 
-- [ ] **V1.10 Validação placar-e-jogo** — `test_vida_simulacao.py`: replay de 2026-10-09 com **50
+- [x] **V1.10 Validação placar-e-jogo** — `test_vida_simulacao.py`: replay de 2026-10-09 com **50
   sementes**; meta 6 em 50/50 e as outras sem regressão em 50/50; **meta 6b** (0 positivas sem causa);
   meta 7 com o texto novo ("toda volta aparece no rosto"); `torcida` na lista de positivas; placar no
   replay com nenhum lado acima de 3:1 e 4–12 pontos (anotar se fora). Roteiro de conferência da
@@ -573,3 +573,18 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   `fecha_dia_h = 4` e `voz_janela_s = 60` (não lê o `[vida]` do Pedro — se ele mudar, mudar
   `PLACAR_FECHA_DIA_H`/`SEM_SENTIDO_JANELA_S` em `self_model.py`); o placar no disco atrasa até
   `SALVAR_S` (60 s); precisa reiniciar o magi-core e o HUD para valer.
+- **V1.10:** replay de 2026-10-09 com 50 sementes, medido: meta 1 13,0–15,3 expr./h; 2: 0 rajadas;
+  3: maior buraco 5,57–6,00 min (no limite de 6); 4: 0; 5: 3 faixas, Emburrada 0 %, Radiante > 0;
+  6: 50/50; 6b: 0 positivas sem causa; 7 (texto novo): 50/50. Placar: Condessa 3 × 4 Pedro (7
+  pontos, 4:3) igual nas 50 (as fontes do dia não dependem do `rng`). 6b, leitura minha: "causa" =
+  `causa` na linha (cena/ativa/piso da torcida) ou sorteio/piso de vida com o momento na linha (as do
+  sorteio gravam `causa: null`; a A votou contra "sorriso por sorteio", K e S a favor) — se o
+  Conselho quiser causa explícita no sorteio, o `Reactor._log` passa a gravar `passiva:<momento>`.
+  Meta 7 conta cena **ou** atenção de volta em ≤ 15 s. **Bug corrigido** (fora do *Escreve*, mínimo):
+  passiva sorteada e recusada pelo governador (ex.: < 60 s depois da cena da volta) zerava o relógio
+  do piso de vida (`_passivas_usos`), e o buraco chegava a 6,07 min (sementes 7 e 10); agora o
+  `Reactor` anota `ctx["_passivas_recusadas"]` e `passivas.piso_vencido` ignora esses usos (+3
+  linhas). O replay passou a chamar o `_log` real (antes o teste o substituía e a `torcida` não via
+  as positivas). Suíte padrão: sementes 1–3 (~20 s); as 50: `MAGI_REPLAY_SEMENTES=50` (pool em fork,
+  ~55 s em 12 núcleos; em série ~5,5 min). Não há marcador de teste lento no `pyproject` (só `db`/
+  `live`), por isso a variável. Roteiro da semana em `docs/perf/reacoes.md` §0b (Pedro).
