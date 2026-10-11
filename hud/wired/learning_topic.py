@@ -11,6 +11,12 @@ sozinha; em retomada, não. Fecha ao escolher, ao clicar fora, em ``topic_picker
 ou quando chega mensagem do Pedro (fala ou texto). Escolher manda ``lm_topic {"topic"}``; o chip só
 muda com a confirmação (``lm_topic`` do núcleo no ``LearningModel``). Sem escolha = Free talk
 (nada é enviado). O chip reabre a lista a qualquer momento.
+
+Vaga (learning-imersivo LI2.1, R1.1/R1.3, D2): a linha Tech interview ganha sublinhas — sempre
+``[ PASTE JOB ]`` (manda o clipboard como ``lm_job``) e até 3 vagas recentes de ``lm_session.jobs``
+(recarregar por ``job_id``). A altura da lista (``list_rect(…, n_jobs)``) diz quantas sublinhas de
+vaga cabem; ``row_rect``/``item_at``/``sub_rect`` leem isso do próprio retângulo. Clicar numa
+sublinha fecha a lista e chama ``TopicPicker.on_job(job_id | None)`` (``None`` = colar).
 """
 from __future__ import annotations
 
@@ -28,6 +34,18 @@ LIST_GAP = 4.0           # entre o chip e a lista
 HEAD_H = 36.0            # cabeçalho "TOPIC // 話題"
 ROW_H = 48.0             # título + linha de descrição
 PAD = 12.0
+SUB_H = 26.0             # sublinha da vaga sob Tech interview (LI2.1)
+JOBS_MAX = 3             # vagas recentes no seletor (lm_session.jobs, spec §7)
+INTERVIEW = 1            # índice da linha Tech interview em ITEMS
+# = magi.learning.interview.contracts (o HUD não importa magi.learning)
+JOB_MIN = 200
+JOB_MAX = 12_000
+PASTE_ASK = 600
+PASTE_LABEL = "[ PASTE JOB ]"
+PASTE_QUESTION = "use as job description? [ YES ] [ NO ]"
+TOO_SHORT = "too short to be a job post"
+TRIMMED = "job post too long — trimmed to 12k"
+EMPTY = "clipboard is empty"
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,25 +112,86 @@ def hints(session: Mapping[str, Any] | None) -> dict[str, str]:
     return {str(k): str(v) for k, v in raw.items() if v}
 
 
+@dataclass(frozen=True, slots=True)
+class JobRow:
+    job_id: str
+    title: str
+    company: str = ""
+
+    def text(self) -> str:
+        return f"{self.title} · {self.company}" if self.company else self.title
+
+
+def jobs_of(session: Mapping[str, Any] | None) -> tuple[JobRow, ...]:
+    """Até ``JOBS_MAX`` vagas recentes de ``lm_session.jobs`` (sem ``job_id`` = ignorada)."""
+    raw = (session or {}).get("jobs") or ()
+    out: list[JobRow] = []
+    for j in raw if isinstance(raw, Sequence) and not isinstance(raw, str) else ():
+        if isinstance(j, Mapping) and j.get("job_id"):
+            out.append(JobRow(str(j["job_id"]), str(j.get("title") or j["job_id"]),
+                              str(j.get("company") or "")))
+    return tuple(out[:JOBS_MAX])
+
+
+def job_check(raw: str | None) -> tuple[str | None, str | None]:
+    """Recusa local do texto da vaga (R1.5, espelha ``jobtext.check`` sem normalizar):
+    ``(texto, aviso)``; ``texto`` ``None`` = recusado (``aviso`` é a linha do rodapé). Acima de
+    ``JOB_MAX`` corta na última quebra de linha e avisa."""
+    text = (raw or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return None, EMPTY
+    if len(text) < JOB_MIN:
+        return None, TOO_SHORT
+    if len(text) > JOB_MAX:
+        head = text[:JOB_MAX]
+        nl = head.rfind("\n")
+        return (head[:nl] if nl > 0 else head).rstrip(), TRIMMED
+    return text, None
+
+
+def is_long_paste(text: str | None) -> bool:
+    """Colagem no campo que vira a pergunta ``PASTE_QUESTION`` (R1.2)."""
+    return bool(text) and (len(text or "") > PASTE_ASK or "\n" in (text or ""))
+
+
 # ====================================================================== geometria
 
-def list_rect(chip: Rect, bounds: Rect, with_hints: bool = False) -> Rect:
+_BASE_H = HEAD_H + ROW_H * len(ITEMS) + PAD / 2
+PASTE_ROW = len(ITEMS)   # índice de hover/clique da sublinha [ PASTE JOB ]; vagas = PASTE_ROW + 1 + k
+
+
+def list_rect(chip: Rect, bounds: Rect, with_hints: bool = False, n_jobs: int = 0) -> Rect:
     """Lista ancorada embaixo do chip, alinhada à direita dele e dentro de ``bounds`` (a coluna
-    da conversa)."""
+    da conversa). ``n_jobs`` vagas recentes (≤ 3) + ``[ PASTE JOB ]`` sob Tech interview."""
     w = min(LIST_W_HINT if with_hints else LIST_W, bounds.w)
-    h = HEAD_H + ROW_H * len(ITEMS) + PAD / 2
+    h = _BASE_H + SUB_H * (1 + max(0, min(JOBS_MAX, n_jobs)))
     x = max(bounds.left, min(chip.right - w, bounds.right - w))
     return Rect(x, chip.bottom + LIST_GAP, w, h)
 
 
+def n_subs(lst: Rect) -> int:
+    """Sublinhas sob Tech interview que cabem na lista (1 = só ``[ PASTE JOB ]``)."""
+    return max(1, min(1 + JOBS_MAX, round((lst.h - _BASE_H) / SUB_H)))
+
+
 def row_rect(lst: Rect, idx: int) -> Rect:
-    return Rect(lst.x, lst.y + HEAD_H + ROW_H * idx, lst.w, ROW_H)
+    extra = SUB_H * n_subs(lst) if idx > INTERVIEW else 0.0
+    return Rect(lst.x, lst.y + HEAD_H + ROW_H * idx + extra, lst.w, ROW_H)
+
+
+def sub_rect(lst: Rect, k: int) -> Rect:
+    """Sublinha ``k`` (0 = ``[ PASTE JOB ]``, 1.. = vagas) logo abaixo de Tech interview."""
+    return Rect(lst.x, lst.y + HEAD_H + ROW_H * (INTERVIEW + 1) + SUB_H * k, lst.w, SUB_H)
 
 
 def item_at(lst: Rect, point: Point) -> int | None:
+    """Índice em ``ITEMS``, ou ``PASTE_ROW + k`` numa sublinha da vaga."""
     for i in range(len(ITEMS)):
         if row_rect(lst, i).contains(point):
             return i
+    for k in range(n_subs(lst)):
+        if sub_rect(lst, k).contains(point):
+            return PASTE_ROW + k
     return None
 
 
@@ -129,6 +208,8 @@ class TopicPicker:
     hover: int | None = None
     opened_at: float | None = None
     auto: bool = False                 # aberta sozinha (sessão nova)
+    jobs: tuple[JobRow, ...] = ()      # lm_session.jobs (LI2.1)
+    on_job: Callable[[str | None], Any] | None = field(default=None, repr=False, compare=False)
     _session_id: str | None = None
     _you_mark: int | None = None       # última mensagem do Pedro quando abriu
 
@@ -163,6 +244,7 @@ class TopicPicker:
         now = self.clock() if now is None else now
         before = (self.is_open, self.hover)
         session = session or {}
+        self.jobs = jobs_of(session)
         sid = session.get("id")
         if sid is not None and str(sid) != self._session_id:
             self._session_id = str(sid)
@@ -207,13 +289,25 @@ class TopicPicker:
             idx = item_at(lst, point)
             if idx is None:
                 return ("inside", None)
+            if idx >= PASTE_ROW:      # sublinha da vaga: a lista fecha e o HUD manda lm_job
+                k = idx - PASTE_ROW
+                job = self.jobs[k - 1].job_id if 0 < k <= len(self.jobs) else None
+                self.close()
+                if k == 0 or job is not None:
+                    self.pick_job(job)
+                return ("inside", None)
             self.close()
             return ("choose", ITEMS[idx].topic)
         self.close()
         return ("outside", None)
 
+    def pick_job(self, job_id: str | None) -> None:
+        """``None`` = ``[ PASTE JOB ]`` (clipboard); senão recarrega a vaga ``job_id``."""
+        if self.on_job is not None:
+            self.on_job(job_id)
+
     def state_key(self) -> tuple:
-        return (self.is_open, self.hover)
+        return (self.is_open, self.hover, self.jobs)
 
 
 def last_you(messages: Sequence[Any]) -> int | None:
@@ -361,5 +455,34 @@ def paint_list(p, lst: Rect, picker: TopicPicker, current: str,
              max_w=max(0.0, r.right - PAD - tag_w - x))
         text(p, x, r.top + 39, description(item.topic, hint), px=11, color_=TEXT_DIM,
              max_w=max(0.0, r.right - PAD - x))
-        if i < len(ITEMS) - 1 and not (hov or picker.hover == i + 1):
+        if i < len(ITEMS) - 1 and i != INTERVIEW and not (hov or picker.hover == i + 1):
             p.fillRect(QRectF(x, r.bottom, r.right - PAD - x, 1), alpha(LINE, 160))
+        if i == INTERVIEW:
+            paint_subs(p, lst, picker)
+
+
+def paint_subs(p, lst: Rect, picker: TopicPicker) -> None:
+    """Sublinhas da vaga sob Tech interview: ``[ PASTE JOB ]`` (lilás, ``from clipboard`` à
+    direita) e as vagas recentes ``↻ TÍTULO · EMPRESA`` (as que couberem na lista)."""
+    from PySide6.QtCore import QRectF
+
+    from .main_screen import R, label, text
+    from .theme import CPU, LINE, TEXT, TEXT_DIM, alpha
+
+    x = lst.left + PAD + 30
+    for k in range(min(n_subs(lst), 1 + len(picker.jobs))):
+        r = sub_rect(lst, k)
+        hov = picker.hover == PASTE_ROW + k
+        if hov:
+            p.fillRect(QRectF(r.x + 1, r.y, r.w - 2, r.h), alpha(CPU, 30))
+            p.fillRect(QRectF(r.x + 1, r.y + 5, 2, r.h - 10), alpha(CPU, 150))
+        base = r.top + r.h / 2 + 4
+        if k == 0:
+            w = label(p, x, base, PASTE_LABEL, px=11, color_=CPU).width()
+            label(p, r.right - PAD, base, "from clipboard", px=9, color_=TEXT_DIM, align=R,
+                  upper=False, max_w=max(0.0, r.right - PAD - x - w - 12))
+        else:
+            text(p, x, base, f"↻ {picker.jobs[k - 1].text()}", px=12,
+                 color_=TEXT if hov else TEXT_DIM, max_w=max(0.0, r.right - PAD - x))
+    end = sub_rect(lst, n_subs(lst) - 1).bottom
+    p.fillRect(QRectF(x, end, lst.right - PAD - x, 1), alpha(LINE, 160))

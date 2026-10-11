@@ -130,7 +130,7 @@ LI0.1 ─┬─ LI0.2 ─────────┐
 
 ## Fase LI2 — Tela e retorno
 
-- [ ] **LI2.1 Mandar a vaga pelo HUD** — `[ PASTE JOB ]` e até 3 vagas recentes como sublinhas da
+- [x] **LI2.1 Mandar a vaga pelo HUD** — `[ PASTE JOB ]` e até 3 vagas recentes como sublinhas da
   linha Tech interview no `TopicPicker` (lógica pura + pintura; `lm_session.jobs`); no `gamerhud`:
   `learning_paste_job()` (clipboard injetável, recusa local de vazio/curto, `send_lm("lm_job")`),
   resposta ao `lm_job_req`, `eventFilter` de colagem longa no `QLineEdit` com a pergunta do rodapé
@@ -276,3 +276,11 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   `prompts/interview/extract.md` (e `NotImplementedError` no `plan`, hoje quebrado pela LI1.2): o
   teste do stub precisa ser afrouxado por quem for dono dele (não é do pacote da LI1.1).
   `config.example.toml` sem `[tasks.learning_job]` (D8 cai em `learning_actions`).
+- **LI2.1 (2026-10-11):** as vagas recentes só aparecem no seletor quando a tela passar o número
+  delas: `learning_screen._topic_list` deve chamar `tp.list_rect(…, n_jobs=len(self.topic_picker.jobs))`
+  (uma linha, fora do Escreve da LI2.1 — fica para LI2.5); sem isso só o `[ PASTE JOB ]` aparece
+  (já funciona: `on_job` ligado pelo `gamerhud.learning_entry_sync`). A pergunta da colagem longa
+  (R1.2) é responder por teclado (Enter/Y = YES, Esc/N = NO, outra tecla desiste): os botões
+  `[ YES ] [ NO ]` clicáveis no rodapé pedem a `learning_screen`. O Ctrl+V pelo `eventFilter` foi
+  provado só no offscreen; conferir no Wayland real (LIF.1). Recusa local no HUD é
+  `learning_topic.job_check` (não normaliza; o núcleo normaliza com `jobtext`).

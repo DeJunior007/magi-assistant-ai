@@ -40,6 +40,7 @@ from speech_caption import SpeechCaption  # noqa: E402
 from turn_phase import TurnPhase  # noqa: E402
 from wired import fonts as wfonts  # noqa: E402
 from wired import konsole_view as kview  # noqa: E402
+from wired import learning_topic as wtopic  # noqa: E402
 from wired import theme as wtheme  # noqa: E402
 from wired.data import ClaudeStats  # noqa: E402
 from wired.integration import CARD_DETAIL, WiredUI, learning_toggle, rgb_hex  # noqa: E402
@@ -1826,12 +1827,18 @@ class HUD(QWidget):
         e.setPlaceholderText("type a message…")
         e.setAttribute(Qt.WA_MacShowFocusRect, False)
         e.returnPressed.connect(self.learning_submit)
+        e.setContextMenuPolicy(Qt.NoContextMenu)   # colar só pelo Ctrl+V (pergunta R1.2)
         e.hide()
         e.installEventFilter(self)
         self.lm_entry = e
+        self.lm_paste_ask = False   # rodapé "use as job description?" aberto (LI2.1, R1.2)
+        if not callable(getattr(self, "lm_clipboard", None)):   # injetável nos testes
+            self.lm_clipboard = lambda: QGuiApplication.clipboard().text()
         self.learning_entry_sync()
 
     def eventFilter(self, obj, ev):
+        if obj is self.lm_entry and ev.type() == ev.Type.KeyPress and self.learning_paste_key(ev):
+            return True
         if obj is self.lm_entry and ev.type() == ev.Type.KeyPress:
             # menu de seleção aberto (LM2.2): ↑↓/Enter/Esc vão primeiro para ele; com texto no
             # campo o Enter continua mandando lm_say
@@ -1863,6 +1870,7 @@ class HUD(QWidget):
                 e.hide()
             return
         scr = self.wired.learning
+        scr.topic_picker.on_job = self.learning_job_pick   # sublinhas da vaga (LI2.1)
         s = scr.scale(self.size())
         r = scr.entry_rect()
         e.setGeometry(round(r.x() * s), round(r.y() * s), round(r.width() * s), round(r.height() * s))
@@ -1880,6 +1888,70 @@ class HUD(QWidget):
             return
         if self.bridge.send_lm("lm_say", {"text": txt}):
             self.lm_entry.clear()
+
+    # ---------- vaga pelo clipboard (learning-imersivo LI2.1, R1.1–R1.4, D2) ----------
+    def learning_footer(self, line):
+        """Linha curta no rodapé da tela learning (``LearningModel.log``) e repintura."""
+        self.learning_model.log = line
+        self.learning_refresh()
+
+    def learning_paste_job(self, source="clipboard"):
+        """``[ PASTE JOB ]``, ``YES`` da pergunta ou ``lm_job_req``: lê o clipboard (texto puro,
+        com quebras) e manda ``lm_job {"text","source"}``. Vazio/curto é recusado aqui (R1.5);
+        acima de 12k corta e avisa. ``True`` = enviado."""
+        try:
+            raw = self.lm_clipboard()
+        except Exception:  # noqa: BLE001 - clipboard indisponível não derruba o HUD
+            raw = ""
+        text, warn = wtopic.job_check(raw)
+        if text is None:
+            self.learning_footer(warn)
+            return False
+        if not self.bridge.send_lm("lm_job", {"text": text, "source": source}):
+            self.learning_footer("job not sent — not connected")
+            return False
+        self.learning_footer(warn or "job sent — preparing the interview…")
+        return True
+
+    def learning_job_pick(self, job_id):
+        """Clique numa sublinha do seletor: ``None`` = colar; senão recarrega ``{"job_id"}``."""
+        if job_id is None:
+            return self.learning_paste_job()
+        if self.bridge.send_lm("lm_job", {"job_id": job_id}):
+            self.learning_footer("job sent — preparing the interview…")
+            return True
+        self.learning_footer("job not sent — not connected")
+        return False
+
+    def learning_paste_key(self, ev):
+        """Ctrl+V longo no campo vira a pergunta do rodapé (R1.2); com ela aberta, Enter/Y =
+        ``YES`` (manda o clipboard inteiro), Esc/N = ``NO`` (não cola), outra tecla desiste.
+        ``True`` = consumida."""
+        if not (self.wired and self.view == "learning"):
+            return False
+        if self.lm_paste_ask:
+            yes = ev.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Y)
+            no = ev.key() in (Qt.Key_Escape, Qt.Key_N)
+            self.lm_paste_ask = False
+            if not (yes or no):   # outra tecla: a pergunta some e a tecla segue para o campo
+                self.learning_footer(None)
+                return False
+            if yes:
+                self.learning_paste_job()
+            else:
+                self.learning_footer(None)
+            return True
+        if not ev.matches(QKeySequence.StandardKey.Paste):
+            return False
+        try:
+            raw = self.lm_clipboard()
+        except Exception:  # noqa: BLE001
+            return False
+        if not wtopic.is_long_paste(raw):
+            return False   # colagem curta: o QLineEdit cola normalmente
+        self.lm_paste_ask = True
+        self.learning_footer(wtopic.PASTE_QUESTION)
+        return True
 
     def learning_dirty(self):
         """Retângulos da tela learning cujos grupos mudaram (vazio fora da view)."""
@@ -1903,6 +1975,8 @@ class HUD(QWidget):
             self.learning_switch(msg)
         if msg.get("t") == "lm_summary":
             self.summary_schedule()
+        if msg.get("t") == "lm_job_req":   # "treinar para a vaga que eu copiei" (R1.4, D1)
+            self.learning_paste_job(source="voice")
         if msg.get("t") == "lm_msg":
             self.caption_tick()   # prazo da revelação da fala + repintura do histórico
         else:
