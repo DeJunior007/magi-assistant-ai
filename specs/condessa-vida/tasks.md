@@ -284,7 +284,7 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   - Pronto: 50/50 nas metas; placar ≤ 3:1 no replay; `tests/hud` verde; o Pedro avisado do que conferir.
   - Paralelo: —
 
-- [ ] **V1.2b Escada do Tédio no replay** — `test_vida_simulacao::test_escada_encarando_aos_15_min_sem_musica`
+- [x] **V1.2b Escada do Tédio no replay** — `test_vida_simulacao::test_escada_encarando_aos_15_min_sem_musica`
   ficou vermelho depois da V1.1/Conselho (encarando sai aos ~26,5 min, o teste pede 15–20 min sem
   música). Achar a causa (passivas novas no Tédio? chaves novas do `[vida]`?) e corrigir no lugar certo.
   - Lê: *Sobras* (V0.8b, V0.9, V1.1), `tests/hud/test_vida_simulacao.py` (o teste), `momento.py`, `passivas.py`, `reactions.py` (escada, por trecho)
@@ -499,3 +499,14 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   vermelhos por arquivos em edição de outras tarefas (passivas.py da V1.2b, det_tempo/diretor da V1.3):
   `test_v11_sorteio_das_novas_fica_no_grupo[flagra_no_forum]`, `test_19_cabeca_pesada_sessao_longa_de_madrugada`,
   `test_passivas_aceitam_fatores`, `test_replay_do_dia_real_bate_as_7_metas`.
+- **V1.2b:** causa: não era regressão de um commit, era sorte. O degrau da escada entrava no sorteio
+  como mais uma passiva do Tédio (1 em ~5, hora marcada exponencial de 5 min); com a semente 7 o
+  encarando caía nos 15–20 min por acaso (20 sementes no código antigo: só 6 na janela, até 41 min),
+  e qualquer consumo novo do `rng`/candidato novo (`flagra_no_forum`, truque, torcida) o empurrava
+  para 26,5 min. Correção em `passivas.py`: o degrau que cabe (`ESCADA`, via `permitidas`) sai no
+  próximo tick e ganha o sorteio, só quando o chamador acompanha a escada (`encarando_feito` no
+  `ctx`, o `Reactor`) e com `passiva_min_s` desde o último sorteio (recusa do governador não insiste).
+  Agora: encarando a 15,5–17 min nas 20 sementes, `ei_to_aqui` a 31–32 min. Fora do *Escreve*, o
+  mínimo: o replay (`POSITIVAS` de `test_vida_simulacao`) passou a contar `torcida` como positiva
+  (acordo-pj §1, ela existe para a meta 6); a hora 14 do replay é só Jogando e passava pela sorte de
+  um `cabeca_ritmo`. `ruff check` do repo acusa `hud/konsole_term.py:395` (E501), alheio a esta tarefa.

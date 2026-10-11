@@ -42,7 +42,8 @@ HOOKS = sorted([(x, "notify") for x in DIA["espera"]] + [(x, "fail") for x in DI
 POSITIVAS = frozenset({"sorriso_canto", "rindo_sozinha", "piscada_gato", "corando", "cantarolando",
                        "cantando_junto", "refrao", "piscadinha", "brilho_presilha", "music_love",
                        "music_like", "pedro_voltou", "bom_dia", "ideia", "commit", "musica_comecou",
-                       "cabeca_ritmo", "claude_terminou", "game_on", "truque", "duelo_ado"})
+                       "cabeca_ritmo", "claude_terminou", "game_on", "truque", "duelo_ado",
+                       "torcida"})  # torcida: positiva do Jogando (acordo-pj §1, meta 6)
 ALIVIO = frozenset({("fps_drop", "recuperou"), ("hot", "alivio")})  # acontecimento +0,10 (acordo §1)
 
 

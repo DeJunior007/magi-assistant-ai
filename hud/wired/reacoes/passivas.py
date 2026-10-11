@@ -14,6 +14,12 @@ grupo vazio, uma atenção dirigida (``Disparo(ATENCAO, "piso")``). O governador
 
 Estado próprio no ``ctx``: ``_passivas_inicio``, ``_passivas_proxima``, ``_passivas_momento``,
 ``_passivas_usos`` (lista de ``(em, chave)``).
+
+**Escada do Tédio** (acordo §3): o degrau que cabe (``momento.escada_tedio``: encarando aos 15 min sem
+música, ``ei_to_aqui`` aos 30, beicinho se ignorado) não espera a hora marcada nem o sorteio: sai no
+próximo tick, se a faixa/causas/cooldown e a cota deixarem (o governador ainda decide). Só quando o
+chamador acompanha os degraus (``encarando_feito`` no ``ctx``, o ``Reactor``) e com ``passiva_min_s``
+desde o último sorteio (recusado não insiste a cada tick); sem isso, o degrau só entra no sorteio.
 """
 
 from __future__ import annotations
@@ -51,6 +57,8 @@ FAIXA_BLOQUEIA: dict[Faixa, frozenset[str]] = {
     Faixa.NEUTRA: frozenset({"rindo_sozinha"}),
     Faixa.EMBURRADA: frozenset({"sorriso_canto", "rindo_sozinha", "cantarolando", "cantando_junto"}),
 }
+
+ESCADA = ("beicinho", "ei_to_aqui", "encarando")  # degraus do Tédio, na ordem de prioridade
 
 SEM_PISO = frozenset({Momento.CONVERSA, Momento.JOGANDO, Momento.ALERTA})
 
@@ -162,6 +170,17 @@ def piso_vencido(ctx: dict, agora: float, m: Momento) -> bool:
     return agora - ult > _vida(ctx)["piso_vida_min"] * 60.0
 
 
+def _degrau(ctx: dict, agora: float, m: Momento) -> str | None:
+    """Degrau da escada do Tédio que já pode sair agora (passa por ``permitidas``), ou None."""
+    if m != Momento.TEDIO or "encarando_feito" not in ctx:
+        return None  # sem quem acompanhe os degraus (o Reactor, V0.8b), o degrau só entra no sorteio
+    usos = ctx.get("_passivas_usos") or []
+    if usos and agora - usos[-1][0] < _vida(ctx)["passiva_min_s"]:
+        return None  # recusado pelo governador ou recém-sorteado: não insiste a cada tick
+    ok = permitidas(ctx, agora)
+    return next((c for c in ESCADA if c in ok), None)
+
+
 def sortear(ctx: dict, agora: float, rng: random.Random,
             fatores: dict[str, float] | None = None) -> Disparo | None:
     """A cada 10 s: na hora marcada (ou no piso de vida) devolve 1 passiva do grupo do momento.
@@ -174,7 +193,8 @@ def sortear(ctx: dict, agora: float, rng: random.Random,
         _agendar(ctx, agora, m, rng)
     piso = piso_vencido(ctx, agora, m)
     prox = ctx["_passivas_proxima"]
-    if not piso and (prox is None or agora < prox):
+    degrau = _degrau(ctx, agora, m)
+    if not piso and degrau is None and (prox is None or agora < prox):
         return None
     cheia = sum(1 for u in _usos(ctx, agora) if u[1] != ATENCAO) >= _vida(ctx)["passivas_hora"]
     if cheia and not piso:
@@ -186,7 +206,7 @@ def sortear(ctx: dict, agora: float, rng: random.Random,
             return Disparo(ATENCAO, "piso")
         return None  # nada cabe agora: tenta de novo no próximo sorteio
     chaves = list(ps)
-    chave = rng.choices(chaves, weights=[ps[c] for c in chaves], k=1)[0]
+    chave = degrau if degrau in ps else rng.choices(chaves, weights=[ps[c] for c in chaves], k=1)[0]
     ctx["_passivas_usos"].append((agora, chave))
     _agendar(ctx, agora, m, rng)
     return Disparo(chave, "piso" if piso else "passiva")
