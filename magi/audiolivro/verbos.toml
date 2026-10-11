@@ -1,0 +1,13 @@
+# Verbos de elocução e gatilhos de emoção/gênero/idade da marcação por regras (A1.2; spec §2).
+# Formato (uma tabela por idioma do TEXTO do livro):
+#
+# [pt]
+# elocucao = ["disse", "respondeu", ...]          # verbos que colam narração à fala
+# grito    = ["gritou", ...]                       # uma lista por emoção (nomes de Emocao)
+# feminino = ["ela", "a moça", ...]                # pronome/substantivo → gênero
+# masculino = ["ele", "o velho", ...]
+# crianca  = ["o menino", "a menina", ...]         # substantivo → idade
+# idoso    = ["o velho", "a velha", "o avô", ...]
+#
+# [en]
+# (mesmas chaves)

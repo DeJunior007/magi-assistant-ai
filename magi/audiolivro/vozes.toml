@@ -1,0 +1,14 @@
+# Grupos de vozes Kokoro por idioma DELA (A1.2; spec §3; D1/D5). Sobrepostos por
+# [audiolivro.vozes.<idioma>] do config. A narração é sempre a voz dela; personagens pegam a
+# primeira voz livre do grupo (≠ voz dela) e ficam no elenco do livro.
+# Formato:
+#
+# [en-gb]
+# f      = ["bf_emma", "bf_alice", "bf_lily"]
+# m      = ["bm_george", "bm_lewis", "bm_daniel"]
+# jovem  = ["bf_lily", "af_nicole:0.5,bf_lily:0.5"]
+# idoso  = ["bm_fable", "bf_alice:0.6,bm_fable:0.4"]
+# sem_genero = "<voz_dela>:0.6,<f>:0.4"
+#
+# [emocao]   # fator de velocidade e pausa (ms) depois do trecho
+# tensa = { fator = 1.08, pausa_ms = 150 }
