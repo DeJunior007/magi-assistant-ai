@@ -36,6 +36,7 @@ from wyoming.audio import AudioChunk, AudioStart
 from magi.common.contracts import (
     ARG_ALSO_YES,
     ARG_DECLINED,
+    ARG_NARRATE,
     ARG_QUIET,
     CONFIRM_TIMEOUT_MS,
     MAX_RECORDING_MS,
@@ -101,6 +102,8 @@ SAY_CANCELLED = "Cancelado."
 SAY_DECLINED = "Beleza."
 #: Nada atende o pedido (ação ou agente ainda não plugados).
 SAY_UNAVAILABLE = "Ainda não sei fazer isso."
+#: Legenda (sem fala) quando uma call começa no meio do audiolivro (A8.4).
+READING_CALL_CAPTION = "Pausei o livro: você entrou numa call."
 #: "Você quis dizer X?" quando o roteador não traz a frase pronta (R4.2).
 SAY_DID_YOU_MEAN = "Você quis dizer isso?"
 #: Por quanto tempo uma confirmação interrompida (nova ativação no meio da pergunta) ou expirada
@@ -512,6 +515,11 @@ class TurnMachine:
         # legenda sincronizada: avisos de frase de uma fala interrompida não chegam ao HUD
         self._speech_gen = 0
         self._hud_tasks: set[asyncio.Task[None]] = set()
+        # audiolivro (A2.2): leitura do contexto, se está narrando agora e o pedido de narração
+        # que vale ao fim da fala em curso (``ARG_NARRATE``)
+        self._reading: Any = None
+        self._narrating = False
+        self._narrate_next: Any = None
 
     # -- consulta ------------------------------------------------------------------------------
 
@@ -526,6 +534,14 @@ class TurnMachine:
     @property
     def in_call(self) -> bool:
         return self._in_call
+
+    @property
+    def reading(self) -> Any:
+        """``Leitura`` lendo ou pausada há ≤ 30 min (vai no ``TurnContext.reading``); senão ``None``."""
+        r = self._reading
+        if r is None or getattr(r, "estado", "parada") == "parada":
+            return None
+        return r
 
     @property
     def busy(self) -> bool:
@@ -565,6 +581,8 @@ class TurnMachine:
                 await self.hud.send(MouthMsg(msg.level))
             case SatelliteStatus():
                 self._in_call = msg.in_call
+                if msg.in_call and self._narrating:
+                    await self._pause_for_call()
             case SatelliteHello():
                 pass
             case _:
@@ -633,6 +651,54 @@ class TurnMachine:
         self._start(speaker.say(said.speech, self.link, personal=False, **self._captions(speaker.say)))
         return True
 
+    async def narrate(self, leitura: Any) -> bool:
+        """Narra ``leitura`` (audiolivro, design §4): ``speaking`` com ``say_parts`` no TTS do livro
+        (``leitura.tts``), sem janela de continuação; cada parte que começa vai a
+        ``leitura.tocando(i)`` (marcador). Ativação pausa na frase em curso (``interrompida``).
+        Só começa dormindo e livre e fora de call (A8.4). ``False`` = não começou."""
+        if self._state is not TurnState.SLEEPING or self.busy or self._in_call:
+            return False
+        if getattr(self.pipeline.deps.speaker, "say_parts", None) is None:
+            return False
+        await self._go(TurnState.SPEAKING)
+        return self._narrate_now(leitura)
+
+    def _narrate_now(self, leitura: Any) -> bool:
+        speaker = self.pipeline.deps.speaker
+        say_parts = getattr(speaker, "say_parts", None)
+        self._reading = leitura
+        if say_parts is None:
+            return False
+        self._followup = False
+        self._narrating = True
+        hud = self._captions(say_parts).get("on_sentence")
+
+        def on_sentence(text: str, dur: float | None, index: int) -> None:
+            leitura.tocando(index)
+            if hud is not None:
+                hud(text, dur, index)
+
+        self._start(
+            say_parts(
+                leitura.partes(),
+                self.link,
+                personal=False,
+                on_sentence=on_sentence,
+                provider=getattr(leitura, "tts", None),
+            )
+        )
+        return True
+
+    async def _pause_for_call(self) -> None:
+        """Call começou no meio da leitura (A8.4): para o áudio, pausa e avisa só por legenda."""
+        await self._cancel_work()
+        await self.link.send(StopPlayback())
+        said = tr_result(compose(ActionResult(ok=True, speech=READING_CALL_CAPTION)))
+        if (sub := subtitle(said)) is not None:
+            await self.hud.send(sub)
+        if self._state is not TurnState.SLEEPING:
+            await self._go(TurnState.SLEEPING)
+
     async def close(self) -> None:
         """Satélite desconectado: cancela tudo e dorme (§9)."""
         await self._cancel_work()
@@ -655,6 +721,7 @@ class TurnMachine:
             in_call=self._in_call,
             previous_text=self._last_text,
             previous_at=self._last_at,
+            reading=self.reading,
         )
 
     async def _open_stream(self, fmt: PcmFormat) -> None:
@@ -727,6 +794,16 @@ class TurnMachine:
         """Fim da fala (ou nada a falar): confirma se há pedido pendente; senão abre a janela de
         continuação (se ligada e fora de call) ou dorme."""
         followup, self._followup = self._followup, False
+        if self._narrating:  # fim da narração (fim do livro ou ``parar_apos_capitulos``)
+            self._narrating = False
+            await self._go(TurnState.SLEEPING)
+            return
+        leitura, self._narrate_next = self._narrate_next, None
+        if leitura is not None and self._pending is None and self._offer is None and not self._in_call:
+            if self._state is not TurnState.SPEAKING:
+                await self._go(TurnState.SPEAKING)
+            if self._narrate_now(leitura):
+                return
         if self._pending is not None or self._offer is not None:
             await self._go(TurnState.CONFIRMING)
             await self.link.send(ListenRequest(timeout_ms=self.confirm_timeout_ms))
@@ -934,6 +1011,12 @@ class TurnMachine:
         Depois do ``compose``, a fala vai para o idioma de ``[speech] language`` (``magi.core.i18n``);
         as frases do agente já vêm no idioma e passam iguais, então ``early.missing`` segue valendo."""
         self._followup = followup
+        self._narrate_next = None
+        req = result.on_confirm
+        if req is not None and not result.needs_confirmation and ARG_NARRATE in req.args:
+            alvo = req.args[ARG_NARRATE]
+            self._narrate_next = self._reading if alvo is True else alvo
+            self._followup = False  # leitura não abre janela de continuação
         result = tr_result(compose(result))
         if result.needs_confirmation:
             self._pending = result.on_confirm
@@ -985,6 +1068,11 @@ class TurnMachine:
     async def _cancel_work(self) -> None:
         """Cancela tarefa e prazo em curso e descarta gravação e confirmação pendentes."""
         self._speech_gen += 1
+        if self._narrating:  # ativação/call no meio da leitura: pausa na frase em curso (A6.2)
+            self._narrating = False
+            with contextlib.suppress(Exception):
+                self._reading.interrompida()
+        self._narrate_next = None
         self._cancel_timer()
         task, self._task = self._task, None
         if task is not None and task is not asyncio.current_task() and not task.done():

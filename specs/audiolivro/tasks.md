@@ -143,7 +143,7 @@ onda 1) · **3)** A2.2 · **4)** A2.3. A3.1 é do Pedro (não implementar).
   - Pronto: CA-A8 (inclui `pausa_ms` → silêncio do tamanho certo); com `[tasks].tts` OpenAI o TTS do livro sai Kokoro; `tests/core/test_tts*.py` e `tests/providers/` antigos verdes.
   - Paralelo: A1.1, A1.3, A1.2, A1.4
 
-- [ ] **A2.2 Leitura e narração no turno** — `leitor.py` (`Leitura`: `abrir(livro, posicao)`,
+- [x] **A2.2 Leitura e narração no turno** — `leitor.py` (`Leitura`: `abrir(livro, posicao)`,
   `partes()` assíncrono frase a frase com marcas (regras; marcas do Qwen quando o cache do
   capítulo já existe, sem esperar) + `Elenco`, `interrompida()`, `voltar(n)`, `pular(n)`,
   `capitulo(delta|n)`, `velocidade(delta)`, `estado`; dispara o refino A1.3 do capítulo atual e do
@@ -193,3 +193,12 @@ onda 1) · **3)** A2.2 · **4)** A2.3. A3.1 é do Pedro (não implementar).
   parágrafo; concatenação == `limpo(paragrafo.texto)`) e corta trechos por frase; use
   `marcar_capitulo` (lembra gênero/idade do falante) e `vozes.partes(trechos, elenco, velocidade)`
   para o `say_parts`. `opcoes` ficou com a assinatura do stub (sem `cfg`; o `Elenco` leva o cfg).
+- (A2.2) Para a A2.3: retomar/abrir a narração = `ActionResult(on_confirm=ActionRequest(...,
+  args={ARG_NARRATE: leitura}), needs_confirmation=False)` (`True` = a leitura do contexto); sem
+  `ARG_NARRATE` a leitura fica pausada. Montagem: `Leitura(cfg, Marcador(cfg), voz_dela=...,
+  idioma_dela=..., tts=registry.tts_livro(), refino=marcas_llm.criar(...))` (o `tts` é embrulhado
+  pelo cache de PCM). `TurnContext.reading` = `TurnMachine.reading` (lendo ou pausada ≤ 30 min).
+  O fim da narração (fim do livro/`parar_apos_capitulos`) não avisa o handler: a volta da música
+  (D4) e o `refino.parar()` no fim ficam para a A2.3 (ex.: embrulhar `Leitura.partes`). A legenda
+  de call (`READING_CALL_CAPTION` em `turn.py`) não tem tradução en-gb (só legenda, sem fala).
+  Os índices de parágrafo da `Posicao` são a posição na lista do capítulo (= `Paragrafo.n` no EPUB/PDF).

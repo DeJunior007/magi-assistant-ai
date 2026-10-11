@@ -532,7 +532,8 @@ class TurnContext:
     ``satellite``: de onde veio o turno; a resposta volta para ele. ``turn_id`` é o id em
     ``turns`` (``None`` antes de gravar). ``previous_text``/``previous_at``: texto final e início
     do turno anterior do mesmo satélite (preenchidos pelo ``TurnMachine``; base do "não, eu falei
-    X", R3.3). ``None`` no primeiro turno.
+    X", R3.3). ``None`` no primeiro turno. ``reading``: a ``Leitura`` do audiolivro lendo ou
+    pausada há ≤ 30 min (``None`` = nenhuma); frases com ``context: reading`` só valem com ela (A6.1).
     """
 
     satellite: str
@@ -544,6 +545,7 @@ class TurnContext:
     in_call: bool = False
     previous_text: str | None = None
     previous_at: datetime | None = None
+    reading: Any = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -591,6 +593,9 @@ ARG_DECLINED = "declined"
 ARG_QUIET = "quiet"
 #: Falas que também valem "sim" para esta pergunta (sem acento, minúsculas), ex.: "proxima".
 ARG_ALSO_YES = "also_yes"
+#: ``ActionResult.on_confirm.args`` (com ``needs_confirmation=False``): ao terminar a fala, o
+#: ``TurnMachine`` narra esta ``Leitura`` (``True`` = a leitura do contexto). Audiolivro, A6.2.
+ARG_NARRATE = "narrate"
 
 
 @dataclass(frozen=True, slots=True)
