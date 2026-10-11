@@ -101,7 +101,7 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Pronto: CA-03; um teste por linha da tabela §4.
   - Paralelo: LI0.2, LI1.1, LI2.1, LI2.2
 
-- [ ] **LI1.3 Condução (máquina e bloco)** — `run.py`: `start(plan, profile, session_id, now)`,
+- [x] **LI1.3 Condução (máquina e bloco)** — `run.py`: `start(plan, profile, session_id, now)`,
   `observe`, avanço por cota/tempo, pausa, `command_of`/`apply(cmd)`, `finish(reason)`,
   `block(now)` ≤ 1500 com corte por prioridade (spec §5); `prompts/interview/conduct.md` (spec §3,
   R3.1–R3.6, R7.1). *(R3)*

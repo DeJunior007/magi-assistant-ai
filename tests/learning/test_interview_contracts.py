@@ -142,14 +142,10 @@ def test_debrief_scores_by_aspect_no_overall() -> None:
 
 
 def test_stubs_have_final_signatures() -> None:
-    assert callable(extract.extract) and callable(extract.build_job_model)
-    with pytest.raises(NotImplementedError, match="LI1.2"):
-        plan.build_plan(profile(), 30, job_id="JOB-1a2b3c4d")
-    with pytest.raises(NotImplementedError, match="LI1.3"):
-        run.command_of("next question")
+    # LI1.1 (extract), LI1.2 (plan) e LI1.3 (run) já implementados: só os stubs restantes.
+    assert callable(extract.extract) and callable(plan.build_plan) and callable(run.block)
     assert debrief.MIN_ANSWERS == 3 and store.InterviewStore(None).repo is None
-    for name in ("extract", "conduct", "debrief"):
-        assert "TODO" in (extract.PROMPT.parent / f"{name}.md").read_text()
+    assert "TODO" in (extract.PROMPT.parent / "debrief.md").read_text()
 
 
 # --- socket (spec §7) ---------------------------------------------------------------------
