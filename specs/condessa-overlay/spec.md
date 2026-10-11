@@ -5,6 +5,9 @@ Contratos, números e casos de borda. Implementa [requirements.md](requirements.
 
 ## 1. Módulo puro `hud/wired/overlay.py` (assinaturas finais)
 
+Os caminhos são lidos na hora da chamada (padrão `None`), para os testes trocarem as constantes
+com `monkeypatch` (o `tests/hud/conftest.py` isola todas).
+
 ```python
 CONFIG_FILE = Path.home() / ".config/magi/overlay.toml"
 LOCK_FILE = Path.home() / ".cache/gamerhud/overlay.lock"
@@ -16,20 +19,30 @@ ATIVIDADE_FILE = Path.home() / ".local/state/magi/atividade-overlay.json"
 class Config:
     tamanho: int = 220            # lado do quadro em px lógicos, preso em 120..480
     tela: str | None = None       # QScreen.name(); None = principal
-    canto: str = "inf_dir"        # sup_esq | sup_dir | inf_esq | inf_dir
+    canto: str = "sup_dir"        # sup_esq | sup_dir | inf_esq | inf_dir      (D6)
     margem: int = 24              # px da borda da tela até o quadro
     fundo: bool = False           # True = desenha o fundo de hexágonos do retrato
     renderer: str = "cpu"         # "cpu" | "gl" (sobrepõe o portrait.toml só no overlay)
-    em_jogo: str = "esconde"      # "esconde" | "fica"            (D3)
-    com_hud: str = "independente" # "independente" | "esconde"    (D2)
+    em_jogo: str = "oposto"       # "oposto" | "esconde" | "fica"  (D3)
+    tela_jogo: str | None = None  # monitor do jogo (QScreen.name()); None = principal
+    com_hud: str = "esconde"      # "esconde" | "independente"     (D2)
     ligado: bool = True           # False = o autostart sai na hora
     x: int | None = None          # só na recaída XWayland (D4 = b)
     y: int | None = None
     @classmethod
-    def ler(cls, caminho: Path = CONFIG_FILE) -> "Config": ...   # ausente/inválido → padrões; chave desconhecida ignorada
-    def gravar(self, caminho: Path = CONFIG_FILE) -> None: ...   # escrita atômica (tmp + rename)
+    def ler(cls, caminho: Path | None = None) -> "Config": ...   # None = CONFIG_FILE; ausente/inválido → padrões; chave desconhecida ignorada
+    def gravar(self, caminho: Path | None = None) -> None: ...   # escrita atômica (tmp + rename)
 
 def canto_para_posicao(cfg: Config, tela: QRect) -> QPoint: ...   # topo-esquerdo do quadro
+
+@dataclass(frozen=True)
+class Lugar:                                   # o que a janela faz agora (D2/D3)
+    visivel: bool
+    tela: str | None = None                    # monitor onde mostrar; None = principal
+    motivo: str = ""                           # "normal" | "hud" | "jogo" | "jogo_oposto"
+
+def decidir_lugar(cfg: Config, telas: Sequence[str], principal: str | None,
+                  gaming: bool, hud: bool) -> Lugar: ...
 
 class Gestos:                                  # relógio injetado; sem Qt de verdade
     DBL_MS = 250; LONG_S = 0.6; DRAG_PX = 18   # mesmos valores do gamerhud (FACE_*), copiados
@@ -42,7 +55,7 @@ class Gestos:                                  # relógio injetado; sem Qt de ve
 
 def regiao_entrada(img: QImage, limiar: int = 76, grade: int = 8) -> list[QRect]: ...
 def snapshot_leve(magui: str, mouth: float, mood: int | None, turn_tag, track, gaming: bool) -> Snapshot: ...
-def hud_aberto(lock: Path = HUD_LOCK) -> bool: ...      # flock LOCK_EX|LOCK_NB; conseguiu → solta e False
+def hud_aberto(lock: Path | None = None) -> bool: ... # None = HUD_LOCK; flock LOCK_EX|LOCK_NB; conseguiu → solta e False
 def jogo_aberto() -> bool: ...                          # steam_game() or mango_game() do gamerhud-watch.py
 DETECTORES_OVERLAY: tuple                               # spec §3
 ```
@@ -52,17 +65,25 @@ DETECTORES_OVERLAY: tuple                               # spec §3
 junta as células em retângulos por linha (≤ 64 retângulos). Imagem vazia → `[]` (o chamador então
 usa o quadro inteiro, para nunca ficar "inclicável").
 
+`decidir_lugar` (ordem): 1) `hud` e `com_hud == "esconde"` → `Lugar(False, motivo="hud")`;
+2) `gaming` e `em_jogo == "esconde"` → `Lugar(False, motivo="jogo")`; 3) `gaming` e
+`em_jogo == "oposto"`: monitor do jogo = `tela_jogo` se ligado, senão `principal`; alvo = `cfg.tela`
+se ligado e ≠ do jogo, senão o primeiro de `telas` ≠ do jogo → `Lugar(True, alvo, "jogo_oposto")`;
+nenhum → `Lugar(False, motivo="jogo")`; 4) normal → `Lugar(True, cfg.tela se ligado senão
+principal, "normal")`. A posição no monitor é `canto_para_posicao(cfg, geometria_do_monitor)`.
+
 ## 2. `overlay.toml`
 
 ```toml
 [overlay]
 tamanho = 220
-canto = "inf_dir"
+canto = "sup_dir"
 margem = 24
 fundo = false
 renderer = "cpu"
-em_jogo = "esconde"
-com_hud = "independente"
+em_jogo = "oposto"
+# tela_jogo = "DP-1"   # opcional; sem a chave = monitor principal
+com_hud = "esconde"
 ligado = true
 ```
 Valores fora da faixa são presos (`tamanho`) ou voltam ao padrão (texto inválido). O menu
@@ -82,8 +103,11 @@ Valores fora da faixa são presos (`tamanho`) ou voltam ao padrão (texto invál
 
 | Situação | Overlay |
 | --- | --- |
-| `em_jogo = "esconde"` e `gaming` | `hide()`; volta 10 s depois do jogo fechar |
-| `com_hud = "esconde"` e `hud_aberto()` (teste a cada 5 s) | `hide()` |
+| `com_hud = "esconde"` e `hud_aberto()` (teste a cada 5 s) | `hide()`; volta ao fechar o HUD (D2; ganha do jogo) |
+| `em_jogo = "oposto"`, `gaming` e há monitor ≠ `tela_jogo` | vai para esse monitor, mesmo `canto`/`margem` (D3) |
+| `em_jogo = "oposto"`, `gaming` e um monitor só | `hide()`; volta ao lugar de antes quando o jogo fecha |
+| `em_jogo = "esconde"` e `gaming` | `hide()` |
+| jogo fechou | volta ao monitor e à posição de antes (guardada pela janela antes de sair) |
 | núcleo fora (`connectedChanged(False)`) | dormindo, `portrait.glitch = 0.4` por 2 s e depois 0 |
 | menu "Esconder 1 h" | `hide()`; `QTimer` de 3600 s mostra de novo |
 
@@ -146,7 +170,10 @@ regra ainda não existir (reinstalar não apaga a posição lembrada). Sem chama
   uma vez; baixo não arrasta), hover `in`/`move`/`out`. Nunca emite nada que ligue escuta.
 - **CA-O3** `regiao_entrada`: imagem sintética com um círculo opaco → retângulos cobrem o círculo
   dilatado e não cobrem os cantos; imagem vazia → `[]`.
-- **CA-O4** `canto_para_posicao` nos 4 cantos com margem.
+- **CA-O4** `canto_para_posicao` nos 4 cantos com margem; padrão = superior direito, 24 px (D6).
+- **CA-O9** `decidir_lugar`: HUD aberto → escondido (e ganha do jogo); jogo com 2 monitores → o
+  outro (o principal quando `tela_jogo` é o outro); jogo com 1 monitor → escondido; `"esconde"` e
+  `"fica"`; sem jogo nem HUD → `cfg.tela` se ligada, senão o principal.
 - **CA-O5** `snapshot_leve` + `Reactor(detectores=DETECTORES_OVERLAY)` dispara uma reação de
   `det_entrada` com cliques sintéticos e grava em `REGISTRO_FILE` (caminho do `tmp_path`).
 - **CA-O6** janela offscreen (`QT_QPA_PLATFORM=offscreen`): abre, pinta 10 quadros sem erro com

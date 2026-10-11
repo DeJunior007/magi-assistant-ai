@@ -30,6 +30,11 @@ uma tarefa quando todas as de *Depende de* estão no `main`.
 Estimativa: 1k tokens ≈ 3,5 KB de português ou 4 KB de código. Tamanhos: `requirements.md` ~2,5k,
 `design.md` ~2k, `spec.md` ~3,5k, `hud_bridge.py` ~5k (ler só a classe), `install.sh` ~3k.
 
+**Decisões do Pedro (2026-10-10)** já aplicadas neste SDD pela O0.1 (requirements, *Decisões*):
+D1/D4/D5 confirmadas; **D2** com HUD aberto o overlay se esconde; **D3** em jogo vai para o monitor
+oposto (um monitor só → some e volta depois); **D6** canto superior direito, margem 24 px. A
+decisão D2/D3 é a função pura `decidir_lugar` (feita na O0.1); as tarefas só a usam.
+
 Formato: **Lê** · **Escreve** · **Depende de** · **Orçamento** · **Pronto** · **Paralelo**.
 
 ## Grafo
@@ -44,25 +49,26 @@ O0.1 ─┬─ O1.1 ─┐
 
 ## Fase O0 — Contratos
 
-- [ ] **O0.1 Contratos e esqueleto** — `hud/wired/overlay.py` com as constantes de caminho, `Config`
-  (`ler`/`gravar` completos), `canto_para_posicao` completo, e **stubs** com assinatura final e
+- [x] **O0.1 Contratos e esqueleto** — aplica as decisões de 2026-10-10 no SDD; `hud/wired/overlay.py`
+  com as constantes de caminho, `Config` (`ler`/`gravar` completos, padrões D2/D3/D6),
+  `canto_para_posicao` e `Lugar`/`decidir_lugar` (D2/D3) completos, e **stubs** com assinatura final e
   docstring da tarefa dona: `Gestos`, `regiao_entrada`, `snapshot_leve`, `hud_aberto`,
-  `jogo_aberto`, `DETECTORES_OVERLAY = ()`. *(R9, spec §1–§2)*
-  - Lê: design §2, spec §1–§2, requirements R9 e D6
-  - Escreve: `hud/wired/overlay.py`, `tests/hud/test_overlay_config.py`
+  `jogo_aberto`, `DETECTORES_OVERLAY = ()`. *(R7, R7.1, R9, spec §1–§2)*
+  - Lê: design §2, §4, spec §1–§3, requirements R7, R9 e Decisões; `specs/DECISOES-2026-10-10.md`
+  - Escreve: SDD do overlay, `hud/wired/overlay.py`, `tests/hud/test_overlay_config.py`, `tests/hud/conftest.py` (isola os caminhos do overlay)
   - Depende de: —
   - Orçamento: ~25k
-  - Pronto: CA-O1 e CA-O4 verdes; `ruff` limpo; o módulo importa sem `QApplication` (só `QtCore`/`QtGui` tipos).
+  - Pronto: CA-O1, CA-O4 e CA-O9 verdes; `ruff` limpo; o módulo importa sem `QApplication` (só `QtCore`/`QtGui` tipos).
   - Paralelo: —
 
 ## Fase O1 — Peças
 
 - [ ] **O1.1 Gestos, snapshot leve e reações** — `Gestos` (spec §1, constantes copiadas do
   `gamerhud`), `snapshot_leve`, `DETECTORES_OVERLAY`, `hud_aberto` (flock não bloqueante, solta na
-  hora), `jogo_aberto` (carrega `hud/gamerhud-watch.py` por `spec_from_file_location`, sem `main`;
+  hora; é a entrada `hud` do `decidir_lugar`, D2), `jogo_aberto` (entrada `gaming`, D3) (carrega `hud/gamerhud-watch.py` por `spec_from_file_location`, sem `main`;
   erro → False). *(R3, R6, R7, spec §1, §3)*
   - Lê: spec §1, §3, §7 (CA-O2, CA-O5); `hud/gamerhud.py` por trecho (`grep -n "FACE_\|def face_" ` e só esses intervalos, ~1980–2030); `hud/wired/main_screen.py` linhas 104–150 (`Snapshot`); `hud/wired/reactions.py` só a assinatura do `Reactor.__init__` (`grep -n "def __init__" -A8` a partir da linha 284); `hud/wired/reacoes/__init__.py`; `hud/gamerhud-watch.py` linhas 38–90
-  - Escreve: `hud/wired/overlay.py` (só as funções acima), `tests/hud/test_overlay_gestos.py`
+  - Escreve: `hud/wired/overlay.py` (só os corpos dos stubs acima; não mexe em `Config`/`decidir_lugar`), `tests/hud/test_overlay_gestos.py`
   - Depende de: O0.1
   - Orçamento: ~45k
   - Pronto: CA-O2 e CA-O5 verdes; `hud_aberto` testado com trava real num `tmp_path` (ocupada/livre).
@@ -72,7 +78,7 @@ O0.1 ─┬─ O1.1 ─┐
   `False`, o `paint` pula a chamada de `_backdrop`; nada mais muda); `regiao_entrada` (spec §1).
   *(R1.1, R2)*
   - Lê: spec §1, §5; `hud/wired/portrait.py` por trecho: `grep -n "_backdrop\|def __init__\|class PartsPortrait"` e as linhas 627–670 e ~1000–1006; `tests/hud/test_wired_portrait.py` só os helpers do topo (como montam a arte de teste)
-  - Escreve: `hud/wired/portrait.py` (só o atributo e o `if` do fundo), `hud/wired/overlay.py` (só `regiao_entrada`), `tests/hud/test_overlay_regiao.py`
+  - Escreve: `hud/wired/portrait.py` (só o atributo e o `if` do fundo), `hud/wired/overlay.py` (só o corpo do stub `regiao_entrada`), `tests/hud/test_overlay_regiao.py`
   - Depende de: O0.1
   - Orçamento: ~40k
   - Pronto: CA-O3 verde; com `fundo=False` os pixels dos cantos do quadro pintado ficam com alfa 0 (arte de teste); `tests/hud/test_wired_portrait.py` inteiro verde sem mudar asserção.
@@ -83,12 +89,15 @@ O0.1 ─┬─ O1.1 ─┐
   `PartsPortrait` com `fundo`/`renderer` do `Config`, `HudBridge` (`stateChanged`, `mouth`, `mood`,
   `turnTag`, `connectedChanged`), `Reactor` com `DETECTORES_OVERLAY`, `NowPlaying` próprio, laço de
   1 Hz, redesenho pelo `portrait.tick`, máscara, mouse (Gestos / `startSystemMove` / menu),
-  esconder em jogo / com HUD / 1 h, recaída `MAGI_OVERLAY_XCB=1` (D4 = b). *(R1–R7, R9)*
-  - Lê: design §3–§5, spec §3, §5, §7 (CA-O6); assinaturas de `overlay.py`; `hud/hud_bridge.py` linhas 285–380 (classe e sinais); `hud/wired/integration.py` linhas 348–395 (`_react`, `set_state`, `set_mouth`); `hud/gamerhud.py` linhas 2795–2835 (`main`) e 1205–1220 (`mascot_tick`)
+  a cada 5 s `decidir_lugar(cfg, telas, principal, jogo_aberto(), hud_aberto())` e **só aplica** o
+  `Lugar` (D2: HUD aberto → esconde; D3: monitor oposto via `setScreen` + `move` em
+  `canto_para_posicao`, um monitor só → esconde; guarda a posição antes de sair e volta a ela),
+  esconder 1 h, recaída `MAGI_OVERLAY_XCB=1` (D4). *(R1–R7.1, R9)*
+  - Lê: design §3–§5, spec §1 (`decidir_lugar`), §3, §5, §7 (CA-O6); assinaturas de `overlay.py`; `hud/hud_bridge.py` linhas 285–380 (classe e sinais); `hud/wired/integration.py` linhas 348–395 (`_react`, `set_state`, `set_mouth`); `hud/gamerhud.py` linhas 2795–2835 (`main`) e 1205–1220 (`mascot_tick`)
   - Escreve: `hud/condessa_overlay.py`, `tests/hud/test_overlay_janela.py`
   - Depende de: O1.1, O1.2
   - Orçamento: ~50k
-  - Pronto: CA-O6 verde (offscreen, ponte com socket falso num `tmp_path`, `NowPlaying` com backend falso); estado `speaking` + `mouth` 0.8 muda o `mouth_id` do retrato; segunda instância sai com 0.
+  - Pronto: CA-O6 verde (offscreen, ponte com socket falso num `tmp_path`, `NowPlaying` com backend falso); estado `speaking` + `mouth` 0.8 muda o `mouth_id` do retrato; segunda instância sai com 0; com `hud_aberto`/`jogo_aberto` trocados por falsos: `Lugar(False)` esconde, `Lugar(True)` mostra de novo na posição guardada.
   - Paralelo: —
 
 ## Fase O2 — Instalação
@@ -99,6 +108,7 @@ O0.1 ─┬─ O1.1 ─┐
   `condessa-overlay-rule` do spec §4, escrita **antes** do `dbus-send … reconfigure` que já existe;
   `position` só se a regra for nova). Atualizar `hud/README.md` com 5 linhas (como ligar/desligar,
   mover com o botão do meio, onde fica o `overlay.toml`). *(R4, R8, R10)*
+  - Posição inicial da regra: `canto_para_posicao(Config(), geometria do monitor principal)` = canto superior direito, 24 px (D6).
   - Lê: spec §4, §6, §7 (CA-O7, CA-O8); `hud/install.sh` linhas 1–40 e 40–112; `hud/system/bin/gamerhud`; `hud/system/autostart/gamerhud-watch.desktop`; assinatura de `canto_para_posicao`
   - Escreve: `hud/system/bin/condessa-overlay`, `hud/system/autostart/condessa-overlay.desktop`, `hud/system/applications/condessa-overlay.desktop`, `hud/install.sh`, `hud/README.md`, `tests/hud/test_overlay_install.py`
   - Depende de: O0.1
@@ -110,7 +120,9 @@ O0.1 ─┬─ O1.1 ─┐
 
 - [ ] **O3.1 Validação ao vivo** — **precisa do Pedro.** Rodar `hud/install.sh`, sair e entrar
   na sessão. Conferir: aparece em ≤ 10 s; clique fora da silhueta atravessa (5 pontos); arrasto do
-  meio move e a posição volta após relogar; não aparece no Alt+Tab; some em jogo; CPU (critério 3,
+  meio move e a posição volta após relogar; não aparece no Alt+Tab; nasce no canto superior
+  direito (D6); some com o HUD aberto e volta ao fechá-lo (D2); em jogo vai para o outro monitor
+  e volta depois (D3 — se o Wayland não deixar trocar de monitor, anotar); CPU (critério 3,
   `docs/PROXIMOS-PASSOS.md` §7) com o HUD aberto e fechado. Se a máscara não atravessar no Wayland:
   testar `MAGI_OVERLAY_XCB=1` e anotar (D4).
   - Lê: requirements (Critérios), spec §4–§5
@@ -122,7 +134,7 @@ O0.1 ─┬─ O1.1 ─┐
 
 - [ ] **O3.2 Semana de uso** — **precisa do Pedro.** 7 dias com o overlay; `reacoes_relatorio.py`
   apontado para `reacoes-overlay.jsonl` (se o script não aceitar caminho, anotar em *Sobras*);
-  nota do Pedro e decisão final de D2 (independente / esconde / espelho).
+  nota do Pedro e confirmação de D2 (esconde com o HUD) ou troca por espelho.
   - Lê: requirements (Critério 5, D2), `hud/tools/reacoes_relatorio.py` só o `argparse`
   - Escreve: `docs/perf/overlay.md`
   - Depende de: O3.1
@@ -133,3 +145,10 @@ O0.1 ─┬─ O1.1 ─┐
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
+
+- **O0.1:** `decidir_lugar` (D2/D3) ficou pronto na O0.1 (era pura e pequena); O1.1 só faz as
+  entradas `hud_aberto`/`jogo_aberto` e O1.3 só aplica. O1.1 e O1.2 tocam o mesmo
+  `hud/wired/overlay.py`, mas cada uma só o corpo do seu stub (trechos separados; merge sem
+  conflito esperado). Risco aberto para O1.3/O3.1: no Wayland o app pode não conseguir trocar de
+  monitor (`setScreen`/`move`); se não der, esconder em jogo (como com um monitor só) e anotar.
+  `tela_jogo` não é descoberta (exigiria D-Bus do KWin): padrão = monitor principal.

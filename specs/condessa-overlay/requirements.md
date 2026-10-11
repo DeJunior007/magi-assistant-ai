@@ -59,34 +59,44 @@ ser lembrada entre sessões (regra do KWin, spec §4).
 dependem dos sensores do HUD (spec §3) e gravar o registro em `reacoes-overlay.jsonl`, separado do
 `reacoes.jsonl` do HUD.
 
-**R7 — Convivência com o HUD principal.** ENQUANTO o HUD principal estiver aberto, o overlay DEVE
-seguir a política de convivência da decisão D2 (padrão: continua independente).
+**R7 — Convivência com o HUD principal (D2).** ENQUANTO o HUD principal estiver aberto (trava
+`~/.cache/gamerhud/hud.lock` ocupada), o overlay DEVE ficar escondido; QUANDO o HUD fecha, o
+overlay DEVE voltar a aparecer no mesmo lugar. Chave `com_hud = "esconde"` (padrão);
+`"independente"` mantém os dois.
+
+**R7.1 — Em jogo (D3).** ENQUANTO houver jogo aberto, o overlay DEVE ir para um monitor diferente
+do monitor do jogo (`tela_jogo`; padrão: o principal). SE só houver um monitor ligado, ENTÃO o
+overlay DEVE sumir enquanto o jogo estiver aberto. QUANDO o jogo fecha, o overlay DEVE voltar ao
+monitor e à posição de antes. Chave `em_jogo = "oposto"` (padrão); `"esconde"` some sempre em
+jogo; `"fica"` não muda nada.
 
 **R8 — Login.** O overlay DEVE ter autostart no login (`~/.config/autostart/condessa-overlay.desktop`)
 e um comando `condessa-overlay` que liga/desliga (como `hud/system/bin/gamerhud`), com trava de
 instância única.
 
 **R9 — Configuração.** O overlay DEVE ler `~/.config/magi/overlay.toml` (`tamanho`, `tela`,
-`canto`, `margem`, `fundo`, `em_jogo`, `ligado`); arquivo ausente ou inválido → padrões do spec §2.
+`canto`, `margem`, `fundo`, `renderer`, `em_jogo`, `tela_jogo`, `com_hud`, `ligado`); arquivo
+ausente ou inválido → padrões do spec §2. Posição inicial (D6): canto **superior direito** do
+monitor principal, margem 24 px.
 
 **R10 — Segurança da sessão.** Nenhum arquivo do overlay DEVE chamar `qdbus`/`gdbus` nem falar
 com KGlobalAccel/KWin por D-Bus; a regra do KWin é escrita no `kwinrulesrc` pelo `install.sh`, antes
 do `reconfigure` que ele já faz.
 
-## Decisões em aberto (precisam do Pedro)
+## Decisões do Pedro (2026-10-10, `specs/DECISOES-2026-10-10.md`)
 
-- **D1 — Processo.** (a) processo próprio `hud/condessa_overlay.py`, sempre ligado, independente do
-  HUD; (b) janela extra dentro do `gamerhud.py` (só existe com o HUD aberto). **Padrão: (a)** — o
-  HUD principal nem sempre está aberto (o `gamerhud-watch` abre ao começar um jogo) e o núcleo já
-  aceita vários clientes no socket (`magi/core/hud_client.py`, `HudServer._clients`).
-- **D2 — Com o HUD aberto.** (a) os dois rostos reagem cada um por si; (b) o overlay se esconde
-  enquanto a trava `hud.lock` do HUD estiver ocupada; (c) espelho (o HUD publica a reação atual).
-  **Padrão: (a)**; (c) fica para depois (precisa de canal novo).
-- **D3 — Em jogo em tela cheia.** (a) esconde enquanto houver jogo (sinal do `gamerhud-watch` /
-  processo do jogo); (b) fica por cima. **Padrão: (a)**, chave `em_jogo = "esconde"`.
-- **D4 — Plataforma.** (a) Wayland nativo + regra do KWin (posição lembrada pelo KWin);
-  (b) XWayland (`QT_QPA_PLATFORM=xcb`, o app move e lembra sozinho). **Padrão: (a)**; (b) fica como
-  recaída por variável `MAGI_OVERLAY_XCB=1`.
-- **D5 — Legenda.** O overlay mostra a fala dela em texto (balão) ou só o rosto? **Padrão: só o
-  rosto** nesta versão.
-- **D6 — Canto inicial.** **Padrão:** monitor principal, canto inferior direito, margem 24 px.
+Valem acima do texto antigo; aplicadas neste SDD na O0.1.
+
+- **D1 — Processo.** ✔ Confirmada (padrão): processo próprio `hud/condessa_overlay.py`, sempre
+  ligado, independente do HUD (o núcleo já aceita vários clientes no socket).
+- **D2 — Com o HUD aberto.** ⚠ **Mudou:** o overlay **se esconde** enquanto a trava `hud.lock` do
+  HUD estiver ocupada e volta quando o HUD fecha (`com_hud = "esconde"`). O espelho fica para depois.
+- **D3 — Em jogo.** ⚠ **Mudou:** o overlay **vai para o monitor oposto ao do jogo**; com um
+  monitor só, **some** enquanto o jogo estiver aberto e volta ao lugar de antes quando ele fecha
+  (`em_jogo = "oposto"`). O monitor do jogo é `tela_jogo` (padrão: o principal, onde o Pedro joga;
+  descobrir a janela do jogo exigiria D-Bus do KWin, proibido pelo R10).
+- **D4 — Plataforma.** ✔ Confirmada (padrão): Wayland nativo + regra do KWin; recaída XWayland por
+  `MAGI_OVERLAY_XCB=1`.
+- **D5 — Legenda.** ✔ Confirmada (padrão): só o rosto, sem balão de texto.
+- **D6 — Canto inicial.** ⚠ **Mudou:** monitor principal, canto **superior direito**
+  (`canto = "sup_dir"`), margem 24 px.

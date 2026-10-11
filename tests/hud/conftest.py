@@ -42,3 +42,13 @@ def _reacoes_isoladas(tmp_path, monkeypatch):
 
     monkeypatch.setattr(det_tempo, "GIT", lambda: None)  # nunca o git do repositório real
     monkeypatch.setattr(det_tempo, "_CACHE", {})
+    from wired import overlay
+
+    for name, rel in (
+        ("CONFIG_FILE", "overlay.toml"),
+        ("LOCK_FILE", "overlay.lock"),
+        ("HUD_LOCK", "hud.lock"),
+        ("REGISTRO_FILE", "reacoes-overlay.jsonl"),
+        ("ATIVIDADE_FILE", "atividade-overlay.json"),
+    ):
+        monkeypatch.setattr(overlay, name, tmp_path / "overlay" / rel)

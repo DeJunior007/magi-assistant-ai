@@ -28,11 +28,11 @@ O overlay é um **processo próprio** (D1 = a) com um arquivo de entrada e um m�
 
 | Arquivo | Papel | Dono |
 | --- | --- | --- |
-| `hud/wired/overlay.py` | puro (sem janela): `Config` (lê/grava `overlay.toml`), `Gestos` (máquina de estados de clique/duplo/longo/arrasto → eventos do `Reactor`), `snapshot_leve(...)`, `regiao_entrada(img, limiar) -> list[QRect]`, `canto_para_posicao(...)`, `hud_aberto(lock)` | O0.1, O1.x |
-| `hud/condessa_overlay.py` | janela Qt (`OverlayWindow`), `main()`, trava de instância, laço de tempo do retrato | O1.3, O1.4 |
+| `hud/wired/overlay.py` | puro (sem janela): `Config` (lê/grava `overlay.toml`), `decidir_lugar` (D2/D3), `Gestos` (máquina de estados de clique/duplo/longo/arrasto → eventos do `Reactor`), `snapshot_leve(...)`, `regiao_entrada(img, limiar) -> list[QRect]`, `canto_para_posicao(...)`, `hud_aberto(lock)` | O0.1, O1.x |
+| `hud/condessa_overlay.py` | janela Qt (`OverlayWindow`), `main()`, trava de instância, laço de tempo do retrato, aplica o `Lugar` | O1.3 |
 | `hud/system/bin/condessa-overlay`, `hud/system/autostart/condessa-overlay.desktop`, `hud/system/applications/condessa-overlay.desktop` | comando liga/desliga, autostart, menu | O2.1 |
 | `hud/install.sh` | instala os três acima e a regra `condessa-overlay-rule` | O2.1 |
-| `hud/wired/portrait.py` | só um atributo `fundo: bool = True` no `PartsPortrait` (pula `_backdrop`) | O1.1 |
+| `hud/wired/portrait.py` | só um atributo `fundo: bool = True` no `PartsPortrait` (pula `_backdrop`) | O1.2 |
 
 O `gamerhud.py` **não muda**: a lógica de gestos é reescrita pequena e testável em `overlay.Gestos`
 (as constantes `FACE_DBL_MS`, `FACE_LONG_S`, `FACE_DRAG` são copiadas, não importadas, para não
@@ -58,11 +58,19 @@ carregar o HUD inteiro).
 ## 4. Convivência
 
 - **Núcleo:** mais um cliente; `send_cmd` não é usado (o overlay não manda comandos na v1).
-- **HUD principal (D2 = a):** cada um com o seu `Reactor`. Para não dobrar a validação, o overlay
-  grava em `~/.local/state/magi/reacoes-overlay.jsonl` e usa um arquivo de atividade próprio
-  (`atividade-overlay.json`) — o bom-dia do HUD não é "roubado". Com D2 = b, `hud_aberto()` testa a
-  trava `~/.cache/gamerhud/hud.lock` (flock não bloqueante, solta na hora) a cada 5 s.
-- **Jogo (D3 = a):** o overlay esconde enquanto `gaming` for verdadeiro (spec §3).
+- **HUD principal (D2 = esconde):** a cada 5 s, `hud_aberto()` testa a trava
+  `~/.cache/gamerhud/hud.lock` (flock não bloqueante, solta na hora); ocupada → o overlay se
+  esconde; livre de novo → volta onde estava. O overlay mantém o seu `Reactor` (registro
+  `~/.local/state/magi/reacoes-overlay.jsonl` e atividade `atividade-overlay.json` próprios, para
+  o bom-dia do HUD não ser "roubado" quando ele abre).
+- **Jogo (D3 = monitor oposto):** a cada 5 s, `jogo_aberto()`. Em jogo, o overlay vai para um
+  monitor diferente de `tela_jogo` (padrão: o principal), no mesmo `canto`/`margem`; com um monitor
+  só, some. Fechou o jogo → volta ao monitor e à posição de antes (a janela guarda a posição antes
+  de sair).
+- **Decisão pura:** `decidir_lugar(cfg, telas, principal, gaming, hud) -> Lugar` (spec §1, feita na
+  O0.1) junta D2 e D3; a janela (O1.3) só aplica o resultado (`hide()`/`show()`/troca de tela). O
+  HUD ganha da regra do jogo: com HUD aberto, esconde (o `gamerhud-watch` abre o HUD ao começar um
+  jogo, então em jogo com HUD o overlay some).
 
 ## 5. KWin e Wayland
 
@@ -79,7 +87,9 @@ antes do `reconfigure` que o `install.sh` já faz. Recaída D4 = b: com `MAGI_OV
 | --- | --- |
 | `setMask` não vira região de entrada no Qt Wayland desta versão | O1.3 mede ao vivo (O3.1); recaída D4 = b (XWayland faz *shape* de entrada) |
 | GPU: segundo contexto OpenGL do retrato | `renderer` do overlay é `cpu` por padrão (quadro pequeno); `gl` por chave |
-| Duas Condessas reagindo diferente em dois monitores | D2; registro separado para medir; (c) espelho depois |
-| Fica por cima de jogo em tela cheia | D3 = a; e a regra não força "acima de tela cheia" |
+| Duas Condessas reagindo diferente em dois monitores | D2 = esconde: nunca as duas ao mesmo tempo; registro separado; espelho depois |
+| Fica por cima de jogo em tela cheia | D3: sai do monitor do jogo (ou some com um monitor só); a regra não força "acima de tela cheia" |
+| No Wayland o app não escolhe a posição: trocar de monitor pode não funcionar | O1.3 tenta `setScreen` + `move`; O3.1 confere ao vivo; se não mover, esconde (como com um monitor só) ou recaída D4 = b |
+| `tela_jogo` errada (jogo no outro monitor) | chave no `overlay.toml`; o monitor do jogo não é descoberto (exigiria D-Bus do KWin, R10) |
 | Derrubar a sessão KDE | R10: zero `qdbus`/`gdbus`; teste de `grep` |
 | Estado da `condessa-vida` (humor dela persistido) escrito por dois processos | o overlay abre o estado da vida só para leitura (nota para a V0.8) |
