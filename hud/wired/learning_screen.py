@@ -16,7 +16,9 @@ balão de ``learning_overlay``; retângulos dinâmicos, os antigos entram até s
 histórico até a mensagem e a destaca uma vez) e ``topic`` (LM1.9: chip ``TOPIC // … ▾`` com o tema
 confirmado pelo núcleo e a lista de ``learning_topic``, pintada depois do histórico; abre sozinha
 em sessão nova; escolher manda ``lm_topic`` por ``send_lm``) e ``interview`` (LI2.2: faixa da
-entrevista pela vaga no topo do histórico e painel do perfil, de ``learning_interview``).
+entrevista pela vaga no topo do histórico e painel do perfil, de ``learning_interview``) e
+``debrief`` (LI2.4: painel do retorno de ``learning_debrief`` no lugar do drawer de observações,
+aberto sozinho a cada ``lm_debrief`` novo; fecha em ✕/Esc/clique fora).
 ``hit_test`` devolve ``"learning"`` no botão END SESSION (a ação é ligada no LM1.7).
 
 Os dados do modo vêm do ``learning_model.LearningModel`` (``screen.info``/``screen.model``;
@@ -40,6 +42,7 @@ from PySide6.QtCore import QPointF, QRectF, QSize, Qt
 from PySide6.QtGui import QPainter, QPen
 
 from . import kit
+from . import learning_debrief as dbv
 from . import learning_interview as iv
 from . import learning_obs as obsv
 from . import learning_overlay as ov
@@ -141,6 +144,8 @@ class LearningScreen(Screen):
         # LI2.2: entrevista pela vaga (faixa + painel do perfil)
         self.interview_view = iv.InterviewView()
         self._iv_shown: list[QRectF] = []          # painel já pintado (a apagar ao fechar)
+        # LI2.4: retorno da entrevista (no lugar do drawer de observações)
+        self.debrief_view = dbv.DebriefView()
 
     # ---------------------------------------------------------------- estático
 
@@ -200,6 +205,7 @@ class LearningScreen(Screen):
             "history": [qr(L.history)],
             "input": [qr(L.input)],
             "obs": [qr(L.obs)],
+            "debrief": [qr(L.obs)],            # retorno: por cima do drawer de observações
             "footer": [self._footer_rect()],
             "interview": self._interview_rects(),  # faixa + painel do perfil: sobre o histórico
             "topic": self._topic_rects(),      # chip + lista: depois do histórico
@@ -241,6 +247,8 @@ class LearningScreen(Screen):
             return self._topic_key()
         if name == "interview":
             return self._interview_key()
+        if name == "debrief":
+            return self._debrief_key()
         return ()
 
     def draw_group(self, name: str, p: QPainter, snap: Snapshot, now: datetime, s: float) -> None:
@@ -492,6 +500,8 @@ class LearningScreen(Screen):
                 return "learning"
             if self._interview_press(point):
                 return None
+            if self._debrief_press(point):
+                return None
             if self._topic_press(point):
                 return None
             if self.L.obs.contains(point) and not self._overlay_hit(point):
@@ -519,7 +529,9 @@ class LearningScreen(Screen):
             self.sel = self.selector.double(point)
             self._drag = self.sel is not None  # o release que vem depois reabre o menu
         elif kind == "wheel":
-            if delta and self.L.history.contains(point):
+            if delta and self.debrief_view.is_open and self.L.obs.contains(point):
+                self.debrief_view.wheel(delta, self.L.obs, self.info.debrief)
+            elif delta and self.L.history.contains(point):
                 if self.info.scroll_by(delta * WHEEL_STEP, self.max_scroll()):
                     self.clear_selection()  # rolagem fecha menu e balão (spec §11)
         elif kind == "hover":
@@ -702,6 +714,27 @@ class LearningScreen(Screen):
         iv.paint(p, self._interview_strip(), i.interview, i.interview_at, i.clock(),
                  self.interview_view, CENTER_FILL)
 
+    # ---------------------------------------------------------------- retorno (LI2.4)
+
+    def _debrief_key(self) -> tuple:
+        v = self.debrief_view
+        v.sync(self.info.debrief)
+        if not v.is_open or self.L.obs.h <= 0:
+            return (False,)
+        return (True, v.seen, round(v.scroll, 1))
+
+    def _debrief_press(self, point: Point) -> bool:
+        """Clique com o retorno aberto: ✕ fecha, dentro é consumido (o drawer por baixo não
+        recebe), fora fecha e o clique segue."""
+        if self.L.obs.h <= 0:
+            return False
+        return self.debrief_view.press(point, self.L.obs, self.info.debrief) in ("close", "inside")
+
+    def _g_debrief(self, p, snap, now, s):
+        if self.L.obs.h > 0:
+            self.debrief_view.sync(self.info.debrief)
+            dbv.paint(p, self.L.obs, self.info.debrief, self.debrief_view)
+
     # ---------------------------------------------------------------- seleção e overlay (LM2.2)
 
     def _begin_select(self) -> None:
@@ -732,6 +765,8 @@ class LearningScreen(Screen):
         if self.topic_picker.key(name):
             return True
         if self.interview_view.key(name):
+            return True
+        if self.debrief_view.key(name):
             return True
         if name == "enter" and typing:
             self.topic_picker.close()   # o Pedro digitou: a lista fecha (spec §11)

@@ -2,8 +2,8 @@
 
 O ``hud_bridge`` entrega **todo** ``lm_*`` vindo do núcleo a ``LearningModel.feed(msg, now)``
 (``lm_mode``, ``lm_session``, ``lm_msg``, ``lm_result`` por ``id``, ``lm_obs``, ``lm_topic``,
-``lm_saved``, ``lm_summary``, ``lm_interview``); o ``gamerhud`` repassa também ``state``/
-``speech``/``subtitle``/``mouth`` (``on_state``/``on_speech``/``on_subtitle``/``on_mouth``). As
+``lm_saved``, ``lm_summary``, ``lm_interview``, ``lm_debrief``); o ``gamerhud`` repassa também
+``state``/``speech``/``subtitle``/``mouth`` (``on_state``/``on_speech``/``on_subtitle``/``on_mouth``). As
 telas só leem daqui: LM2.2, LM3.4, LM3.5, LM4.3 e LM4.6 não precisam mexer neste arquivo.
 
 - **Mensagens:** únicas por ``id`` (reenvio na reconexão substitui, não duplica), em ordem de
@@ -103,6 +103,8 @@ class LearningModel:
     topic: dict[str, Any] = field(default_factory=dict)      # último lm_topic (confirmação)
     interview: dict[str, Any] | None = None  # último lm_interview do núcleo (LI2.2)
     interview_at: float | None = None        # instante (monotônico) em que ele chegou
+    debrief: dict[str, Any] | None = None    # último lm_debrief do núcleo (LI2.4)
+    debrief_at: float | None = None
     saved: dict[str, dict[str, Any]] = field(default_factory=dict)  # lm_saved por norm
     summary: dict[str, Any] | None = None    # último lm_summary
     summary_at: float | None = None          # instante (monotônico) em que ele chegou
@@ -223,6 +225,15 @@ class LearningModel:
         self.interview = {k: v for k, v in m.items() if k != "t"}
         self.interview_at = now
         return {"interview"}
+
+    def _on_lm_debrief(self, m: dict[str, Any], now: float) -> set[str]:
+        """Retorno da entrevista (LI2.4): ``InterviewDebrief`` + ``title``/``company``/``at``.
+        Fica até chegar outro (sobrevive à sessão nova: o retorno não visto reaparece, R5.2)."""
+        if "run_id" not in m:
+            return set()
+        self.debrief = {k: v for k, v in m.items() if k != "t"}
+        self.debrief_at = now
+        return {"debrief"}
 
     def _on_lm_saved(self, m: dict[str, Any], now: float) -> set[str]:
         self.saved[str(m["norm"])] = {"saved": bool(m["saved"]), "id": m.get("id"), "at": now}

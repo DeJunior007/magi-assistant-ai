@@ -169,7 +169,7 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Pronto: CA-06 (inclui as notas); turno do agente não espera o retorno (teste com modelo falso lento); `shutdown` grava e não publica.
   - Paralelo: LI2.4
 
-- [ ] **LI2.4 Painel do retorno no HUD** — `hud/wired/learning_debrief.py` (novo, puro + pintura):
+- [x] **LI2.4 Painel do retorno no HUD** — `hud/wired/learning_debrief.py` (novo, puro + pintura):
   cobertura por requisito (✓ / ~ / ✗ com a evidência em `TEXT_DIM`), fortes, a melhorar, respostas
   reescritas, inglês; rolagem; fecha em `✕`/Esc/clique fora; ocupa o lugar do drawer de observações
   enquanto aberto. No topo, as **notas 0–100 por aspecto** (D3): uma linha por aspecto
@@ -293,3 +293,10 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   (uma linha no `key` da tela). `tests/learning/test_learning_screen.py::GROUPS` ganhou
   `"interview"` (fora do *Escreve*, inevitável com o grupo novo; a LI2.4 fará o mesmo com
   `debrief`). Envio por `LearningScreen.send_core(t, fields, log)` (reutilizável pela LI2.4).
+- **LI2.4 (2026-10-11):** o painel abre sozinho uma vez por retorno novo (identidade `run_id` +
+  `at`) e o modelo guarda o último `lm_debrief` até chegar outro (sobrevive à sessão nova, R5.2).
+  Para a LI2.5: o `hud_bridge` precisa entregar `lm_debrief` ao `LearningModel.feed`; não há
+  `mark_seen` do HUD → núcleo (o painel não avisa que foi visto) nem botão para reabrir o retorno
+  depois de fechado. `tests/learning/test_learning_screen.py::GROUPS` ganhou `"debrief"` (fora do
+  *Escreve*, como na LI2.2). Rótulo do aspecto `job_fit` no painel: `JOB FIT`; seção da língua:
+  `ENGLISH`; a `closing` não aparece (é a fala).

@@ -27,7 +27,7 @@ from wired.main_screen import Snapshot  # noqa: E402
 SIZE = QSize(2560, 1440)
 NOW = datetime(2026, 10, 7, 17, 42, 10)
 GROUPS = {"header", "topic", "mascot", "condessa", "system", "history", "input", "obs", "footer",
-          "overlay", "interview"}
+          "overlay", "interview", "debrief"}
 
 
 def snap(**kw) -> Snapshot:
