@@ -179,7 +179,7 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   - Pronto: roteiros e durações do acordo (2,1 s / 2,0 s / 3,0 s / 3,5 s / 3,0 s); `torcida` só sai em Jogando; `O1` num passo de cena testado; `tests/hud` verde; `ruff` limpo.
   - Paralelo: V1.4, V1.5
 
-- [ ] **V1.3 Truque e volta orgulhosa no diretor** — truque: alternância diária fone ↔ piscadinha
+- [x] **V1.3 Truque e volta orgulhosa no diretor** — truque: alternância diária fone ↔ piscadinha
   (o de ontem no `Estado`), `mexe_no_fone = false` → só piscadinha, nunca com jogo aberto, janela de
   15 s, ignorado −0,05 sem gastar cota de negativa, aplaudido +0,20; volta orgulhosa: Pedro volta de
   ≥ `fora_min` fora com ela acordada, contador de voltas na última hora (2ª curta, 3ª só atenção
@@ -510,3 +510,19 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   mínimo: o replay (`POSITIVAS` de `test_vida_simulacao`) passou a contar `torcida` como positiva
   (acordo-pj §1, ela existe para a meta 6); a hora 14 do replay é só Jogando e passava pela sorte de
   um `cabeca_ritmo`. `ruff check` do repo acusa `hud/konsole_term.py:395` (E501), alheio a esta tarefa.
+- **V1.3:** `Estado.truque = {numero, dia}` (salvo/carregado); `Diretor.numero_truque(agora)` = o 1º
+  de `[vida.truque] numeros` ≠ o de ontem (dia = `atividade.dia_local`, meia-noite; não o
+  `fecha_dia_h` do placar), sem `fone` com `mexe_no_fone = false`; com ela sem fone sai
+  `fone_inverso` (grava `fone`). `truque` recusa com `ctx["jogo"]` verdadeiro (a V1.7 precisa pôr
+  `jogo` no `ctx` do diretor). O clique na janela agora toca `("truque","aplaudido")` (continuação,
+  fora da cota, como o ignorado). Ganchos: `Diretor.ganchos_truque` (lista de `f(lado, agora)`,
+  `lado` = `aplaudido`/`ignorado`), chamados por `Diretor.truque_fim` — a V1.7 liga o placar
+  (`ela_truque_aplaudido`/`ele_truque_ignorado`). Os Δ do truque e da volta seguem os de
+  `estado.EVENTOS` (iguais ao `[vida.truque]`/`[vida.volta]`; o `Humor` não lê essas chaves), e o
+  Δ da volta é aplicado pelo `Reactor` (`EVENTO_DE`), igual em todos os degraus: falta a V1.7
+  aplicar +0,10 na 2ª e nada na 3ª (o `Cena.ramo` diz qual: `orgulhosa`/`orgulhosa_longa`/
+  `orgulhosa_2`/`atencao`). Volta: `det_tempo` emite o 62 `sentiu_falta` também para ≥ `fora_min`
+  (antes só ≥ 2 h), com `fmt["fora_s"]`; o `Reactor._adaptar` descarta o `fmt`, então o diretor
+  lê o tempo do motivo (`depois de X h`) — a V1.7 deve repassar o `fora_s`. Contador de voltas em
+  `Diretor.voltas` (só memória; o cochilo não conta); a 3ª vira `Cena("pedro_voltou","atencao")`
+  com `catalogo.VOLTA_ATENCAO`, registrada no governador como `ATENCAO`.

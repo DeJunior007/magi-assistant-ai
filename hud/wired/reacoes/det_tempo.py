@@ -14,6 +14,8 @@ Números (acordo §1/§2; os sem número no acordo estão marcados "escolha"):
   rodando ou música nota ≥ 1 (regra do sono);
 - 20 sobressalto: evento real depois de um 18; 57 bom dia: 1º evento real do dia ≥ 05h;
   62 sentiu falta: evento real depois de ≥ 2 h sem nenhum. Só um por evento: 57 > 62 > 20;
+  depois do 20, a volta de ≥ ``[vida.volta] fora_min`` fora também sai como 62 (o ``Reactor`` a
+  adapta em ``pedro_voltou``: volta orgulhosa, acordo-pj §2); o 62 leva ``fora_s`` no ``fmt``;
 - sessão = Pedro ativo (evento real < 30 min, Claude, música, jogo ou Magui fora de parada) sem
   buraco ≥ 30 min (escolha);
 - 58 almoço: ativo entre 12h–13h59 (escolha), 1×/dia; 59 meia-noite: virada 23h → 0h ativo;
@@ -39,6 +41,7 @@ from typing import Any
 
 from .atividade import dia_local
 from .contratos import Disparo
+from .vida import VIDA_PADRAO
 
 MIN = 60.0
 BOCEJO_S = 10 * MIN
@@ -165,10 +168,20 @@ def _volta(anterior: Any, snap: Any, ctx: dict, relogio: float) -> list[Disparo]
     if primeiro:
         return [Disparo("bom_dia", f"1º evento do dia ({motivo})")]
     if parado is not None and parado >= AUSENTE_S:
-        return [Disparo("sentiu_falta", f"voltou depois de {parado / 3600:.1f} h ({motivo})")]
+        return [Disparo("sentiu_falta", f"voltou depois de {parado / 3600:.1f} h ({motivo})", None,
+                        {"fora_s": parado})]
     if cochilou:
         return [Disparo("sobressalto", f"acordou do cochilo ({motivo})")]
+    if parado is not None and parado >= _fora_min(ctx) * 60:  # volta orgulhosa (acordo-pj §2)
+        return [Disparo("sentiu_falta", f"voltou depois de {parado / 3600:.2f} h ({motivo})", None,
+                        {"fora_s": parado})]
     return []
+
+
+def _fora_min(ctx: dict) -> float:
+    """``[vida.volta] fora_min`` do ``ctx["vida"]`` (sem ele, o ``VIDA_PADRAO``)."""
+    volta = (ctx.get("vida") or {}).get("volta") or VIDA_PADRAO["volta"]
+    return float(volta.get("fora_min", VIDA_PADRAO["volta"]["fora_min"]))
 
 
 def _claude_ponto(ctx: dict, claude: bool, agora: float, hora: int, hoje: str) -> list[Disparo]:

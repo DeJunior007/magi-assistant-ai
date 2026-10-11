@@ -256,13 +256,18 @@ class Humor:
 
 
 class Estado:
-    """Humor + postura + contadores do governador, persistidos com escrita atômica."""
+    """Humor + postura + contadores do governador, persistidos com escrita atômica.
+
+    ``truque`` = o último número do truque de salão e o dia (``{"numero", "dia"}``): a alternância
+    diária fone ↔ piscadinha não repete o de ontem (acordo-pj §2).
+    """
 
     def __init__(self, humor: Humor | None = None, postura: Postura | None = None,
-                 governador: dict | None = None) -> None:
+                 governador: dict | None = None, truque: dict | None = None) -> None:
         self.humor = humor or Humor()
         self.postura = postura or Postura()
         self.governador = governador or {}
+        self.truque = truque or {}
 
     def salvar(self, agora: float, path: Path | None = None) -> None:
         p = Path(path or ESTADO_FILE)
@@ -272,6 +277,7 @@ class Estado:
             "humor": self.humor.para_dict(),
             "postura": {"fone": str(self.postura.fone), "motivo": self.postura.motivo},
             "governador": self.governador,
+            "truque": self.truque,
         }
         tmp = p.with_name(p.name + ".tmp")
         tmp.write_text(json.dumps(dados, ensure_ascii=False), encoding="utf-8")
@@ -287,6 +293,7 @@ class Estado:
             pd = dados.get("postura") or {}
             postura = Postura(Fone(pd.get("fone", Fone.PESCOCO)), str(pd.get("motivo", "")))
             governador = dict(dados.get("governador") or {})
+            truque = dict(dados.get("truque") or {})
             salvo_em = float(dados["salvo_em"])
         except (OSError, ValueError, KeyError, TypeError):
             return cls(Humor(cfg))
@@ -294,4 +301,4 @@ class Estado:
         humor._decair(fechado, time.localtime(agora).tm_hour)
         humor.energia = humor.energia_nivel
         humor.ultimo_tick = agora
-        return cls(humor, postura, governador)
+        return cls(humor, postura, governador, truque)

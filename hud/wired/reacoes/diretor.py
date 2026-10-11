@@ -11,16 +11,25 @@ música viram roteiro, as outras ``ATIVA_SOLTA``. A família de uma cena cala a 
 
 Entradas do ``fmt`` do ``Disparo`` (todas opcionais): ``causa`` (o acontecimento: faixa, partida...),
 ``nota`` (-2..2), ``ado``, ``tocou_s`` (pulo), ``dur_s`` (Claude), ``primeiro``/``recuperou``
-(episódio), ``episodios``/``pedro_mal`` (jogo fechou), ``cochilou`` (Pedro voltou), ``fura``.
+(episódio), ``episodios``/``pedro_mal`` (jogo fechou), ``cochilou``/``fora_s`` (Pedro voltou), ``fura``.
+
+Truque de salão e volta orgulhosa (acordo-pj §2): o truque alterna os números de ``[vida.truque]
+numeros`` sem repetir o de ontem (``Estado.truque``), só piscadinha com ``mexe_no_fone = false``,
+nunca com jogo aberto; o fim (aplaudido/ignorado) chama os ``ganchos_truque`` (placar, V1.7). A volta
+conta as voltas em ``habituacao_janela_min``: 1ª = ``orgulhosa`` (``orgulhosa_longa`` com
+``fora_s`` ≥ ``passo_extra_fora_min``), 2ª = ``orgulhosa_2``, 3ª em diante = só olhar nele, sem cena.
 """
 
 from __future__ import annotations
 
 import random
+import re
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from . import catalogo
+from .atividade import dia_local
 from .contratos import Classe, Disparo
 from .estado import Estado
 from .governador import FILA_VALIDADE_S, FURA_TUDO, Governador, Pedido, Tipo
@@ -56,6 +65,7 @@ NEGATIVAS = frozenset({"suspiro", "beicinho", "soprando_franja"})  # acordo §4
 EM_JOGO = frozenset({"jogo", "jogo_fim", "pedro"})  # famílias que não são suprimidas em jogo
 NOTA_RAMO = {2: "2", 1: "1", 0: "0", -1: "-1", -2: "-2"}
 NOTA_NEGATIVA = {"-1": "faixa_nota_menos1"}
+FORA_H = re.compile(r"depois de ([\d.]+) h")  # ``sentiu_falta`` (det_tempo) pelo ``_adaptar``, sem fmt
 
 
 @dataclass
@@ -93,6 +103,8 @@ class Diretor:
         self.recolocar_em: float | None = None
         self.tirou_fone = False
         self.truque_em: float | None = None
+        self.ganchos_truque: list[Callable[[str, float], None]] = []  # (lado, agora): placar (V1.7)
+        self.voltas: list[float] = []  # voltas do Pedro (acordada) na janela de habituação
         self.log: list[tuple[float, str, str]] = []  # (em, tipo, chave/motivo)
         self.ctx: dict = {}
 
@@ -105,7 +117,7 @@ class Diretor:
             if not self.buffer:
                 self.janela_fim = agora + self.vida["coalescencia_s"]
             self.buffer.append(d)
-            if self._acontecimento(d).nivel == 1:
+            if self._acontecimento(d, agora).nivel == 1:
                 self.janela_fim = agora  # fala/volta do Pedro não esperam
 
     def _ctx_gov(self) -> dict:
@@ -118,7 +130,7 @@ class Diretor:
             return chave
         return next((f for c, f in FAMILIA_CLASSE if c in d.classes), chave)
 
-    def _acontecimento(self, d: Disparo) -> Acontecimento:
+    def _acontecimento(self, d: Disparo, agora: float | None = None) -> Acontecimento:
         fmt = d.fmt or {}
         tipo, ramo, familia = ANTIGAS.get(d.chave, (None, None, None))
         if d.chave in ROTEIROS:
@@ -141,7 +153,7 @@ class Diretor:
         elif tipo == "jogo_fechou":
             ramo = "pedro_mal" if fmt.get("pedro_mal") else ("episodios" if fmt.get("episodios") else "limpo")
         elif tipo == "pedro_voltou":
-            ramo = "cochilou" if fmt.get("cochilou") else "orgulhosa"
+            ramo = "cochilou" if fmt.get("cochilou") else self._ramo_volta(d, agora)
         elif tipo == "pedro_fala":
             ramo = "com_fone" if self.estado.postura.fone == Fone.CABECA else "sem_fone"
         elif tipo == "pulo" and float(fmt.get("tocou_s", 0)) >= 30:
@@ -192,7 +204,7 @@ class Diretor:
     def _resolver(self, lote: list[Disparo], agora: float) -> None:
         grupos: dict[str, Acontecimento] = {}
         for d in lote:
-            ac = self._acontecimento(d)
+            ac = self._acontecimento(d, agora)
             atual = grupos.get(ac.causa)
             if atual is None or (ac.nivel, ac.tipo is None) < (atual.nivel, atual.tipo is None):
                 grupos[ac.causa] = ac  # coalescência: uma causa, um acontecimento
@@ -227,6 +239,11 @@ class Diretor:
             if self.tirou_fone:
                 self.recolocar_em = agora + self.vida["pedro_fala_recoloca_fone_s"]
             return
+        if ac.tipo == "pedro_voltou" and ac.ramo != "cochilou":
+            self.voltas.append(agora)
+            if ac.ramo == "atencao":
+                self._olhar_pedro(ac, agora)
+                return
         if ac.so_atencao:
             self._atencao(ac, agora, "so_atencao")
             return
@@ -301,6 +318,8 @@ class Diretor:
                 return None
             return Cena(ac.chave, None, ac.causa, d.passos, ac.nivel)
         d = catalogo.CENAS.get((ac.tipo, ac.ramo)) or catalogo.CENAS.get((ac.tipo, None))
+        if (ac.tipo, ac.ramo) == ("pedro_voltou", "orgulhosa_longa"):
+            d = catalogo.VOLTA_LONGA
         if d is None:
             return None
         passos = d.passos
@@ -321,6 +340,31 @@ class Diretor:
             self.estado.postura.fone = fone
             self.estado.postura.motivo = cena.tipo
 
+    # -- volta orgulhosa ----------------------------------------------------------------------------
+    def _ramo_volta(self, d: Disparo, agora: float | None) -> str:
+        """1ª volta na janela: ``orgulhosa`` (``_longa`` se fora ≥ ``passo_extra_fora_min``); 2ª:
+        ``orgulhosa_2``; 3ª em diante: ``atencao`` (só olhar nele, sem cena)."""
+        cfg = self.vida["volta"]
+        if agora is not None:
+            janela = float(cfg["habituacao_janela_min"]) * 60
+            self.voltas = [t for t in self.voltas if agora - t < janela]
+        n = len(self.voltas)
+        if n >= 2:
+            return "atencao"
+        if n == 1:
+            return "orgulhosa_2"
+        fora_s = (d.fmt or {}).get("fora_s")
+        if fora_s is None and (m := FORA_H.search(d.motivo or "")):
+            fora_s = float(m.group(1)) * 3600
+        extra = float(cfg["passo_extra_fora_min"])
+        return "orgulhosa_longa" if extra > 0 and float(fora_s or 0) >= extra * 60 else "orgulhosa"
+
+    def _olhar_pedro(self, ac: Acontecimento, agora: float) -> None:
+        """3ª volta na janela: atenção dirigida para ele (``O1 B1 C10``), fora da cota de cenas."""
+        self.gov.registrar(Pedido(Tipo.ATENCAO, "atencao"), agora)
+        self.log.append((agora, "atencao", "pedro_voltou:habituacao"))
+        self.prontas.append(Cena("pedro_voltou", "atencao", ac.causa, catalogo.VOLTA_ATENCAO, 3))
+
     def _pendentes(self, agora: float) -> None:
         if self.recolocar_em is not None and agora >= self.recolocar_em:
             self.recolocar_em, self.tirou_fone = None, False
@@ -332,31 +376,59 @@ class Diretor:
             self.truque_em = None
             self.causas["truque_ignorado"] = agora
             self.estado.humor.aplicar(Evento("truque_ignorado", "pedro", agora), agora)
-            d = catalogo.CENAS[("truque", "ignorado")]  # continuação da cena: beicinho curto
+            d = catalogo.CENAS[("truque", "ignorado")]  # continuação da cena (vira a cara), sem cota
             self.prontas.append(Cena("truque", "ignorado", "truque", d.passos, 3))
+            self.truque_fim("ignorado", agora)
 
     # -- truque de salão e passivas --------------------------------------------------------------
+    def numero_truque(self, agora: float) -> str | None:
+        """O número de hoje: o 1º de ``[vida.truque] numeros`` que não foi o de ontem; ``None`` se
+        o de hoje já saiu. Sem ``mexe_no_fone``, só a piscadinha."""
+        cfg = self.vida["truque"]
+        numeros = [n for n in cfg["numeros"] if cfg["mexe_no_fone"] or n != "fone"] or ["piscadinha"]
+        hoje = dia_local(agora)
+        if self.estado.truque.get("dia") == hoje:
+            return None
+        ontem = self.estado.truque.get("numero")
+        return next((n for n in numeros if n != ontem), numeros[0])
+
     def truque(self, agora: float, ctx: dict | None = None) -> Cena | None:
-        """≤ 1/dia, só em À toa/Tédio, com o Pedro ativo (inatividade < 60 s)."""
+        """≤ 1/dia, só em À toa/Tédio, nunca com jogo aberto, com o Pedro ativo (< 60 s)."""
         if ctx is not None:
             self.ctx = ctx
-        if self.ctx.get("momento") not in (Momento.A_TOA, Momento.TEDIO):
+        if self.ctx.get("momento") not in (Momento.A_TOA, Momento.TEDIO) or self.ctx.get("jogo"):
             return None
         if float(self.ctx.get("inatividade_s", 1e9)) >= 60 or self.truque_em is not None:
             return None
-        ac = Acontecimento("truque", None, "truque", "truque", 2, "truque")
+        numero = self.numero_truque(agora)
+        if numero is None:
+            return None
+        if numero == "fone" and self.estado.postura.fone != Fone.CABECA:
+            numero = "fone_inverso"  # sem fone: E2 → E3, o caminho inverso
+        ac = Acontecimento("truque", numero, "truque", "truque", 2, "truque")
         if self._motivo(ac, agora) is not None:
             return None
         self._tocar(ac, agora)
-        return self.prontas.popleft()
+        self.estado.truque = {"numero": "fone" if numero == "fone_inverso" else numero,
+                              "dia": dia_local(agora)}
+        return self.prontas.pop()  # a que acabou de entrar (pode haver continuação pendente)
 
     def clique(self, agora: float) -> bool:
-        """Clique no rosto: dentro de ``truque_aplauso_s`` do truque é aplauso (+0,20)."""
+        """Clique no rosto: dentro de ``truque_aplauso_s`` do truque é aplauso (+0,20, ``B4 C6 rubor``)."""
         if self.truque_em is None or agora - self.truque_em > self.vida["truque_aplauso_s"]:
             return False
         self.truque_em = None
         self.estado.humor.aplicar(Evento("truque_aplauso", "pedro", agora), agora)
+        d = catalogo.CENAS[("truque", "aplaudido")]  # continuação da cena, sem cota
+        self.prontas.append(Cena("truque", "aplaudido", "truque", d.passos, 3))
+        self.truque_fim("aplaudido", agora)
         return True
+
+    def truque_fim(self, lado: str, agora: float) -> None:
+        """Fim da janela do truque (``aplaudido``/``ignorado``): avisa os ``ganchos_truque``."""
+        self.log.append((agora, "truque_fim", lado))
+        for gancho in self.ganchos_truque:
+            gancho(lado, agora)
 
     def sortear_passiva(self, chaves: list[str], agora: float, ctx: dict | None = None) -> str | None:
         """Sorteia por ``Governador.peso`` entre as que o governador deixa (negativas com causa)."""

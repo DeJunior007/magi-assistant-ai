@@ -302,3 +302,111 @@ def test_roteiros_validos():
         for p in d.passos:
             assert p.ms > 0 and (p.eyes is None or p.eyes[0] in "BF")
             assert p.look is None or p.look in {"player", "fps", "claude", "radio", "net", "magi"}
+
+
+# -- V1.3: truque (alternância, fone, jogo, janela) e volta orgulhosa (habituação, ≥ 2 h) ----------
+DIA = 86400.0
+CTX_TRUQUE = {"momento": Momento.A_TOA, "inatividade_s": 10}
+
+
+def test_truque_alterna_sem_repetir_o_de_ontem():
+    d = _dir()
+    d.estado.postura.fone = Fone.CABECA
+    numeros = []
+    for i in range(4):
+        c = d.truque(T0 + i * DIA, CTX_TRUQUE)
+        numeros.append(c.ramo)
+        assert d.truque(T0 + i * DIA + 60, CTX_TRUQUE) is None  # ≤ 1/dia
+        d.clique(T0 + i * DIA + 5)
+    assert numeros == ["fone", "piscadinha", "fone", "piscadinha"]
+    d2 = _dir()
+    d2.estado.truque = {"numero": "fone", "dia": "2000-01-01"}  # ontem foi o fone
+    assert d2.truque(T0, CTX_TRUQUE).ramo == "piscadinha"
+
+
+def test_truque_fone_inverso_sem_fone_e_sem_mexe_no_fone():
+    d = _dir()
+    d.estado.postura.fone = Fone.PESCOCO
+    c = d.truque(T0, CTX_TRUQUE)
+    assert c.ramo == "fone_inverso" and d.estado.postura.fone == Fone.PESCOCO  # E2 → E3
+    assert d.estado.truque["numero"] == "fone"
+    so_pisca = Diretor(Estado(), {"truque": {"mexe_no_fone": False}}, rng=random.Random(1))
+    for i in range(3):
+        assert so_pisca.truque(T0 + i * DIA, CTX_TRUQUE).ramo == "piscadinha"
+        so_pisca.clique(T0 + i * DIA + 5)
+
+
+def test_truque_nunca_com_jogo_aberto():
+    d = _dir()
+    assert d.truque(T0, {**CTX_TRUQUE, "jogo": True}) is None
+    assert d.truque(T0, {**CTX_TRUQUE, "momento": Momento.TEDIO}) is not None
+
+
+def test_truque_janela_15s_aplaudido_e_ganchos():
+    lados = []
+    d = _dir()
+    d.ganchos_truque.append(lambda lado, em: lados.append((lado, em - T0)))
+    d.truque(T0, CTX_TRUQUE)
+    antes = d.estado.humor.animo
+    assert d.clique(T0 + 14.9) is True
+    c = d.proxima(T0 + 15)
+    assert (c.tipo, c.ramo) == ("truque", "aplaudido")
+    assert (c.passos[0].eyes, c.passos[0].mouth) == ("B4", "C6")
+    assert d.estado.humor.animo - antes == pytest.approx(0.20, abs=0.01)
+    assert d.clique(T0 + 16) is False  # janela já fechou
+    d2 = _dir()
+    d2.ganchos_truque.append(lambda lado, em: lados.append((lado, em - T0)))
+    d2.truque(T0, CTX_TRUQUE)
+    assert d2.clique(T0 + 15.5) is False
+    gov_antes = _cenas_gov(d2)
+    c = d2.proxima(T0 + 16)
+    assert (c.tipo, c.ramo) == ("truque", "ignorado") and "C9" not in {p.mouth for p in c.passos}
+    assert _cenas_gov(d2) == gov_antes  # continuação: não gasta cota
+    assert [lado for lado, _ in lados] == ["aplaudido", "ignorado"]
+
+
+def _volta(d: Diretor, t: float, **fmt):
+    d.receber([Disparo("pedro_voltou", "teste", None, {"causa": "pedro_voltou", **fmt})], t)
+    return d.proxima(t)
+
+
+def test_volta_escada_de_habituacao():
+    d = _dir()
+    c1 = _volta(d, T0, fora_s=20 * 60)
+    c2 = _volta(d, T0 + 20 * 60, fora_s=16 * 60)
+    c3 = _volta(d, T0 + 40 * 60, fora_s=16 * 60)
+    assert (c1.ramo, len(c1.passos)) == ("orgulhosa", 4)
+    assert c2.ramo == "orgulhosa_2"
+    assert [(p.eyes, p.mouth) for p in c2.passos] == [("B1", "C10"), ("B4", "C5")]
+    assert c3.ramo == "atencao" and c3.passos == catalogo.VOLTA_ATENCAO and c3.nivel == 3
+    assert any(m == "pedro_voltou:habituacao" for _, _, m in d.log)
+    # fora da janela de 60 min (contando da 2ª), volta a orgulhosa
+    assert _volta(d, T0 + 81 * 60, fora_s=16 * 60).ramo == "orgulhosa_2"
+    assert _volta(d, T0 + 200 * 60, fora_s=16 * 60).ramo == "orgulhosa"
+
+
+def test_volta_passo_extra_fora_2h():
+    d = _dir()
+    c = _volta(d, T0, fora_s=2 * 3600)
+    assert c.ramo == "orgulhosa_longa" and len(c.passos) == 5
+    assert (c.passos[3].eyes, c.passos[3].mouth) == ("B5", "C6") and "tails" in c.passos[3].corpo
+    d2 = _dir()  # 62 adaptado pelo Reactor (sem fmt): o tempo fora vem do motivo
+    d2.receber([Disparo("pedro_voltou", "voltou depois de 2.5 h (clique)", None, {})], T0)
+    assert d2.proxima(T0).ramo == "orgulhosa_longa"
+    d3 = Diretor(Estado(), {"volta": {"passo_extra_fora_min": 0}}, rng=random.Random(1))
+    assert _volta(d3, T0, fora_s=5 * 3600).ramo == "orgulhosa"
+    assert _volta(_dir(), T0, fora_s=119 * 60).ramo == "orgulhosa"
+
+
+def test_cochilo_nao_conta_na_escada():
+    d = _dir()
+    for i in range(3):
+        assert _volta(d, T0 + i * 600, cochilou=True).ramo == "cochilou"
+    assert _volta(d, T0 + 1900).ramo == "orgulhosa"
+
+
+def test_estado_guarda_o_truque(tmp_path):
+    e = Estado()
+    e.truque = {"numero": "fone", "dia": "2026-10-10"}
+    e.salvar(T0, tmp_path / "e.json")
+    assert Estado.carregar(T0 + 60, path=tmp_path / "e.json").truque == e.truque
