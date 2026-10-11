@@ -207,7 +207,7 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   - Pronto: testes de cada fonte e teto, fechamento às 4h, semana, virada ≤ 2/dia, `ref` em todo ponto, teto 0 desliga a fonte; `tests/hud` verde; `ruff` limpo.
   - Paralelo: V1.2, V1.3, V1.5, V1.6
 
-- [ ] **V1.5 "Isso foi sem sentido" (módulo)** — `hud/wired/reacoes/sem_sentido.py`: `marcar(alvo,
+- [x] **V1.5 "Isso foi sem sentido" (módulo)** — `hud/wired/reacoes/sem_sentido.py`: `marcar(alvo,
   gesto, agora)` grava em `~/.local/state/magi/sem-sentido.jsonl` a linha de origem inteira + hora +
   gesto (`alvo: nenhum` quando não há expressão), desfazer em ≤ `desfazer_s` (linha `desfeito`),
   `fatores(momento, agora)` (×`fator` por marca em `janela_dias`, piso `piso`, por variante e momento;
@@ -439,3 +439,15 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   implementar sem ele): "pose de vitória" como 3º número do truque, "bebe água", linha do ânimo do
   dia no hover; (5) clique do meio no rosto para "a última, agora" (só a Asuka assinou) e "dia com
   ≥ 1 commit" +1 Pedro (só a Kurisu); (6) bis do truque: reavaliar com 1 semana de dados (Aqua).
+- **V1.5:** `sem_sentido.SemSentido(vida, caminho, negativas)` (passar `passivas.NEGATIVAS`):
+  `marcar(alvo, gesto, agora)` (alvo = linha do `reacoes.jsonl`; o mesmo alvo de novo em ≤
+  `desfazer_s` desfaz), `desfazer(agora)`, `fatores(momento, agora)` (chave = `alvo["chave"]`, que é o
+  que o sorteio pesa), `ajustes(agora)`, `pauta(agora, ocorrencias)` (a fração precisa das ocorrências
+  da variante na janela — quem chama conta no `reacoes.jsonl`) e `exportar(agora)` para o `Estado`.
+  Ajustável = `tipo` `gesto`/`passiva` fora das negativas; `cena` e negativas vão à pauta com 1 marca;
+  `ativa`/`atencao`/`repouso` só pela regra de marcas/fração. A reação é a constante `REACAO`
+  (`B7 C12 ?` 700, sem ânimo/placar/ritmo): falta o diretor tocá-la, o atalho (`atalho` vazio no
+  `[vida.sem_sentido]`), o ✗ do hover, a voz e o `semente` na linha de origem (o `_log` ainda não grava)
+  — V1.7/V1.8. Ao rodar, `test_reacoes_catalogo::test_113_itens_chaves_unicas` e
+  `test_vida_diretor::test_pedro_voltou_corta_e_escolhe_ramo[orgulhosa]` falhavam pelo `catalogo.py`
+  em edição (V1.2).

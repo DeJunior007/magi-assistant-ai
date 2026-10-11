@@ -35,6 +35,9 @@ def _reacoes_isoladas(tmp_path, monkeypatch):
     from wired.reacoes import estado
 
     monkeypatch.setattr(estado, "ESTADO_FILE", tmp_path / "reacoes" / "condessa-estado.json")
+    from wired.reacoes import sem_sentido
+
+    monkeypatch.setattr(sem_sentido, "SEM_SENTIDO_FILE", tmp_path / "reacoes" / "sem-sentido.jsonl")
     from wired.reacoes import det_tempo
 
     monkeypatch.setattr(det_tempo, "GIT", lambda: None)  # nunca o git do repositório real

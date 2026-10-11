@@ -114,12 +114,16 @@ def _usos(ctx: dict, agora: float) -> list[tuple[float, str]]:
     return usos
 
 
-def pesos(ctx: dict, agora: float | None = None) -> dict[str, float]:
-    """Peso de cada passiva sorteável agora: ×``passiva_peso_por_uso`` por uso na última hora."""
+def pesos(ctx: dict, agora: float | None = None,
+          fatores: dict[str, float] | None = None) -> dict[str, float]:
+    """Peso de cada passiva sorteável agora: ×``passiva_peso_por_uso`` por uso na última hora e
+    ×``fatores[chave]`` (ajuste do “sem sentido”, ``sem_sentido.fatores``; sem ele, 1)."""
     agora = float(ctx.get("agora", 0.0)) if agora is None else agora
     fator = _vida(ctx)["passiva_peso_por_uso"]
     usos = _usos(ctx, agora)
-    return {c: fator ** sum(1 for _, u in usos if u == c) for c in permitidas(ctx, agora)}
+    fatores = fatores or {}
+    return {c: fator ** sum(1 for _, u in usos if u == c) * fatores.get(c, 1.0)
+            for c in permitidas(ctx, agora)}
 
 
 def media_s(ctx: dict, m: Momento | None = None) -> float | None:
@@ -158,8 +162,10 @@ def piso_vencido(ctx: dict, agora: float, m: Momento) -> bool:
     return agora - ult > _vida(ctx)["piso_vida_min"] * 60.0
 
 
-def sortear(ctx: dict, agora: float, rng: random.Random) -> Disparo | None:
-    """A cada 10 s: na hora marcada (ou no piso de vida) devolve 1 passiva do grupo do momento."""
+def sortear(ctx: dict, agora: float, rng: random.Random,
+            fatores: dict[str, float] | None = None) -> Disparo | None:
+    """A cada 10 s: na hora marcada (ou no piso de vida) devolve 1 passiva do grupo do momento.
+    ``fatores`` (opcional) multiplica o peso de cada variante (ajuste do “sem sentido”)."""
     inicio = ctx.setdefault("_passivas_inicio", agora)
     if agora - inicio < AQUECIMENTO_S:
         return None
@@ -173,7 +179,7 @@ def sortear(ctx: dict, agora: float, rng: random.Random) -> Disparo | None:
     cheia = sum(1 for u in _usos(ctx, agora) if u[1] != ATENCAO) >= _vida(ctx)["passivas_hora"]
     if cheia and not piso:
         return None
-    ps = {} if cheia else pesos(ctx, agora)  # cota da hora cheia: o piso vira atenção (fora de cota)
+    ps = {} if cheia else pesos(ctx, agora, fatores)  # cota da hora cheia: o piso vira atenção (fora de cota)
     if not ps:
         if piso:
             ctx["_passivas_usos"].append((agora, ATENCAO))
