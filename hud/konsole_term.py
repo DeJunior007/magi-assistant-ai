@@ -392,7 +392,10 @@ class KonsoleSession:
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", self.rows, self.cols, 0, 0))
 
     def close(self, grace: float = 1.0) -> None:
-        """Encerra (persistente: só o cliente tmux, ou seja, desconecta): SIGTERM ao grupo, espera ``grace`` s, SIGKILL; colhe o filho e fecha o pty."""
+        """Encerra (persistente: só o cliente tmux, ou seja, desconecta).
+
+        SIGTERM ao grupo, espera ``grace`` s, SIGKILL; colhe o filho e fecha o pty.
+        """
         proc = self.proc
         if proc.poll() is None:
             _killpg(proc.pid, signal.SIGHUP)

@@ -263,3 +263,7 @@ E0.1 ─┬─ E1.1 ─────────┐
   `espera: lote n (k frases) em ms` conta do `EarlySpeech` criado. **Falta:** a linha nova da
   persona (acordo §3.5/§4.7) em `magi/agent/persona.md` (fora do Escreve; teto de 780 tokens do
   `test_prompt.py` precisa subir).
+- **E3.1b:** a linha da persona já estava: a E2.1 (a381b3e) trocou "Ferramenta demorada…" pelo
+  texto do acordo §3.5, palavra por palavra (`magi/agent/persona.md`, regra "Espera é do
+  sistema…"). Nada a mudar na persona nem no teto de 780 do `test_prompt.py`. Corrigido o E501 em
+  `hud/konsole_term.py` (docstring do `close` quebrada).
