@@ -63,7 +63,7 @@ O0.1 ─┬─ O1.1 ─┐
 
 ## Fase O1 — Peças
 
-- [ ] **O1.1 Gestos, snapshot leve e reações** — `Gestos` (spec §1, constantes copiadas do
+- [x] **O1.1 Gestos, snapshot leve e reações** — `Gestos` (spec §1, constantes copiadas do
   `gamerhud`), `snapshot_leve`, `DETECTORES_OVERLAY`, `hud_aberto` (flock não bloqueante, solta na
   hora; é a entrada `hud` do `decidir_lugar`, D2), `jogo_aberto` (entrada `gaming`, D3) (carrega `hud/gamerhud-watch.py` por `spec_from_file_location`, sem `main`;
   erro → False). *(R3, R6, R7, spec §1, §3)*
@@ -160,3 +160,9 @@ O0.1 ─┬─ O1.1 ─┐
   `doRegister`/`setShortcut` do KGlobalAccel antigos do `install_hud` continuam lá (fora do pacote;
   avaliar se tiram, dado o risco de derrubar a sessão). O teste de `hud/condessa_overlay.py` no
   CA-O7 só roda quando o arquivo existir (O1.3).
+- **O1.1:** `Gestos` usa os valores do spec (`LONG_S = 0,6`, `DRAG_PX = 18` px da janela), não os
+  do `gamerhud` (`FACE_LONG_S = 0,8`, `FACE_DRAG = 40` px base 1920): o comentário "copiados" do
+  stub não bate; ajustar se o Pedro quiser o mesmo toque do HUD. Longo vale no `release` (como no
+  HUD). `press` depois da espera sem `tick` solta o simples antes (não vira duplo). `hud_aberto`
+  não cria a trava (sem arquivo = `False`). `jogo_aberto` usa o helper `_carregar_watch` (cache do
+  módulo; os testes trocam ele) e o import dos 4 detectores fica no fim do `overlay.py` (E402).

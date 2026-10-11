@@ -12,7 +12,10 @@ aqui precisa de ``QApplication``.
 
 from __future__ import annotations
 
+import fcntl
+import importlib.util
 import logging
+import math
 import os
 import tomllib
 from collections.abc import Callable, Sequence
@@ -204,22 +207,50 @@ class Gestos:
     ) -> None:
         self.enviar_click = enviar_click
         self.enviar_hover = enviar_hover
+        self._press: tuple[float, float, float, bool, bool] | None = None  # (t, x, y, alto, arrastou)
+        self._espera: float | None = None  # prazo do 2º clique (duplo); None = sem espera
+        self._dentro = False
 
     def press(self, x: float, y: float, alto: bool, agora: float) -> None:
         """Botão esquerdo apertado; ``alto`` = metade de cima do rosto. (O1.1)"""
-        raise NotImplementedError("O1.1")
+        self.tick(agora)  # espera vencida sem tick: o simples sai antes deste novo press
+        if self._espera is not None:  # 2º clique dentro da espera: duplo, sem clique
+            self._espera = None
+            self._press = None
+            self.enviar_hover("dbl", agora)
+            return
+        self._press = (agora, x, y, alto, False)
 
     def move(self, x: float | None, y: float | None, dentro: bool, agora: float) -> None:
         """Mouse andou (``None`` = saiu da janela). (O1.1)"""
-        raise NotImplementedError("O1.1")
+        dentro = dentro and x is not None and y is not None
+        if dentro != self._dentro:
+            self._dentro = dentro
+            self.enviar_hover("in" if dentro else "out", agora)
+        elif dentro:
+            self.enviar_hover("move", agora)
+        p = self._press
+        if p is None or x is None or y is None or p[4] or not p[3]:
+            return
+        if math.hypot(x - p[1], y - p[2]) >= self.DRAG_PX:
+            self._press = (*p[:4], True)
+            self.enviar_hover("arrasto", agora)
 
     def release(self, agora: float) -> None:
         """Botão esquerdo solto. (O1.1)"""
-        raise NotImplementedError("O1.1")
+        p, self._press = self._press, None
+        if p is None or p[4]:  # arrastou: já reagiu
+            return
+        if agora - p[0] >= self.LONG_S:
+            self.enviar_hover("long", agora)
+            return
+        self._espera = agora + self.DBL_MS / 1000
 
     def tick(self, agora: float) -> None:
         """Vence a espera do duplo → ``on_click("face")``. (O1.1)"""
-        raise NotImplementedError("O1.1")
+        if self._espera is not None and agora >= self._espera:
+            self._espera = None
+            self.enviar_click("face", agora)
 
 
 def regiao_entrada(img: QImage, limiar: int = 76, grade: int = 8) -> list[QRect]:
@@ -277,20 +308,70 @@ def snapshot_leve(
 ) -> Snapshot:
     """``Snapshot`` só com ``magui_state``, ``mouth_level``, ``mood``, ``turn_tag``, ``track`` e
     ``gaming``; o resto no padrão. **Dona: O1.1** (spec §3, CA-O5)."""
-    raise NotImplementedError("O1.1")
+    from .main_screen import Snapshot
+
+    return Snapshot(
+        magui_state=magui, mouth_level=mouth, mood=mood, turn_tag=turn_tag, track=track,
+        gaming=gaming,
+    )
 
 
 def hud_aberto(lock: Path | None = None) -> bool:
     """Trava do HUD (``None`` = ``HUD_LOCK``) ocupada? ``flock(LOCK_EX | LOCK_NB)``: conseguiu →
     solta na hora e ``False``. Entrada ``hud`` do ``decidir_lugar`` (D2). **Dona: O1.1.**"""
-    raise NotImplementedError("O1.1")
+    lock = HUD_LOCK if lock is None else lock
+    try:
+        fd = os.open(lock, os.O_RDONLY)  # sem a trava no disco = HUD nunca abriu: não cria
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
 
 
 def jogo_aberto() -> bool:
     """``steam_game() or mango_game()`` do ``hud/gamerhud-watch.py`` (carregado por
     ``spec_from_file_location``, sem ``main``); erro → ``False``. Entrada ``gaming`` do
     ``decidir_lugar`` (D3). **Dona: O1.1.**"""
-    raise NotImplementedError("O1.1")
+    try:
+        w = _carregar_watch()
+        return bool(w.steam_game() or w.mango_game())
+    except Exception as e:  # noqa: BLE001 — vigia quebrado/ausente não derruba o overlay
+        log.debug("jogo_aberto: %s", e)
+        return False
 
 
-DETECTORES_OVERLAY: tuple = ()  # O1.1: det_tempo, det_musica, det_entrada, det_conversa (spec §3)
+_WATCH: Any = None  # módulo hud/gamerhud-watch.py, carregado uma vez
+
+
+def _carregar_watch() -> Any:
+    """Carrega ``hud/gamerhud-watch.py`` sem rodar o ``main`` (o nome não é ``__main__``)."""
+    global _WATCH  # noqa: PLW0603
+    if _WATCH is None:
+        caminho = Path(__file__).resolve().parents[1] / "gamerhud-watch.py"
+        spec = importlib.util.spec_from_file_location("gamerhud_watch_overlay", caminho)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"sem loader para {caminho}")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _WATCH = mod
+    return _WATCH
+
+
+# Só os detectores que não precisam dos sensores/threads do HUD (spec §3).
+from .reacoes import det_conversa, det_entrada, det_musica, det_tempo  # noqa: E402
+
+DETECTORES_OVERLAY: tuple = (
+    det_tempo.detectar,
+    det_musica.detectar,
+    det_entrada.detectar,
+    det_conversa.detectar,
+)
