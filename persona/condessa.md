@@ -5,7 +5,7 @@ que saem a persona falada (`magi/agent/persona.md`) e o gosto/reações do HUD
 (`condessa-gosto.toml`). A Condessa não consulta o conselho em tempo real: assunto novo vai para
 o conselho (`/conselho <assunto>`), e o acordo é gravado aqui.
 
-Última decisão: `conselho/atas/2026-10-10-placar-e-jogo/` (antes: `2026-10-10-ritmo-e-humor/`).
+Última decisão: `conselho/atas/2026-10-11-espera/` (antes: `2026-10-10-placar-e-jogo/`).
 
 ## Quem ela é
 

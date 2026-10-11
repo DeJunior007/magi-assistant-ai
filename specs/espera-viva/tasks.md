@@ -118,7 +118,7 @@ E0.1 ─┬─ E1.1 ─────────┐
 
 ## Fase E2 — Frase de espera
 
-- [ ] **E2.1 Catálogo pelo Conselho** — o agente roda o `/conselho` e grava; o Pedro veta depois
+- [x] **E2.1 Catálogo pelo Conselho** — o agente roda o `/conselho` e grava; o Pedro veta depois
   pelo gosto (`[espera] vetadas`, D4), sem bloquear o merge. Rodar `/conselho` com o
   assunto "frases de espera e respostas em lotes" (restrições: spec §3.1 e §4; D2, D3): ata em
   `persona/conselho/atas/<data>-espera/`, `acordo.md` com o catálogo e a regra dos lotes.
@@ -227,3 +227,17 @@ E0.1 ─┬─ E1.1 ─────────┐
   (`extra/D10.png` se houver; `DOTS_ASSET`), esmaece 0,2 s. `WiredUI.set_think(kind, tool, mono, n=0)`
   ignora mascote sem pose. `on_bridge_think` chama `caption_tick()` para o chip sair na hora;
   `snap.chip_tool` é posto em `wired_refresh`, `caption_tick` e zerado na queda do núcleo.
+- **E2.1:** ata em `persona/conselho/atas/2026-10-11-espera/` (aprovado 3/3, sem veto). O
+  `espera.yaml` traz duas chaves novas do acordo (§4): `sem_espera` (trava do desabafo: prefixos
+  sem acento; com acerto, `escolher` devolve `None` mesmo com sinal e a E3.1 não abre lote) e
+  `sinais_so_acompanhados` (`hoje`, `atual`: sozinhos não fazem o pedido demorado; na prática é só
+  não estarem em `sinais_demora`). `Catalogo.load` (E2.2) ignora as duas: ler e aplicar fica para a
+  E2.3 (`espera.py` fora do Escreve da E2.1). Também do acordo para a E2.2/E2.3: o sorteio não repete
+  a primeira palavra da última frase tocada; aviso (não reprovação) com > 40% de mesma abertura num
+  tópico; o teste "moldes com 3 jogos falsos" deve checar `honesta` no molde cru (`{jogo}` = 1
+  palavra; hoje já passa) e o preenchido só por `Phrases.cacheable` (nome com dígito, ex. "Persona
+  5", reprova no linter). Para a E3.1: frase local fora da conta das 6 do turno; lote não mexe na
+  folga da `Cota`. Moldes gravados em `phrases.yaml` `templates` com `{jogo}`. `persona.md` ficou em
+  779 tokens estimados (teto 780 do `test_prompt.py`): a próxima linha precisa subir o teto. Para o
+  Pedro: teste do pedido real e placar de espera (2+ assinaturas); `chefe`→`chefao` não aplicado
+  (1 assinatura firme).

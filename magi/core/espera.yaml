@@ -1,0 +1,69 @@
+# Frases de espera da Condessa (espera viva, R3/R4). Acordo do Conselho 2026-10-11 (E2.1).
+# Placeholders: {jogo} (jogo em foco), só em jogo.moldes. Toda frase passa no linter (spec §4).
+# O Pedro veta depois em ~/.config/magi/condessa-gosto.toml [espera] vetadas.
+topicos:
+  jogo:
+    palavras: [build, boss, chefe, conquista, nivel, level, mapa, patch, lore, dlc, personagem, arma, item]
+    frases:
+      - "Calma, tô montando isso na cabeça."          # S (autora), K; apoio A K S — 6
+      - "Isso tem nuance, deixa eu pensar."           # K; apoio A K S — 6
+      - "Hm, pergunta de quem tá jogando sério."      # K (ideia S); apoio K S — 7
+      - "Boa, deixa eu pensar como se deve."          # S (autora); apoio K — 7
+      - "Peraí, deixa eu lembrar direito."            # S; sem objeção — 5
+    moldes:
+      - "Hm, {jogo}… deixa eu lembrar."               # A; apoio K S — 4 + jogo
+      - "{jogo}, hein… deixa eu pensar."              # S; apoio K S — 4 + jogo
+      - "Ah, {jogo}, essa é das boas."                # A (autora); apoio S — 5 + jogo
+
+  noticia:                                            # neutras, sem piada (S, não abro mão)
+    palavras: [noticia, manchete, aconteceu, lancou, jornal, novidade, trailer]
+    frases:
+      - "Calma, essa pede cabeça fria."               # S; apoio A K S — 5
+      - "Hm, notícia eu não chuto, peraí."            # K; apoio K S — 6
+      - "Deixa eu pensar direito nisso."              # S (autora); apoio A — 5
+      - "Peraí, deixa eu juntar as peças."            # A; troca do "Hm," na votação (A S; K aceita) — 6
+
+  musica:
+    palavras: [musica, faixa, banda, album, artista, toca, cantor, discografia, playlist]
+    frases:
+      - "Peraí, tô cantarolando na cabeça."           # A e K (escreveram igual); apoio A K S — 5
+      - "Ah, música, agora você falou minha língua."  # K/S; apoio K S (A com outra forma) — 7
+      - "Hm, deixa eu lembrar dessa."                 # K (autora); apoio A S — 5
+      - "Hm, essa pede ouvido bom."                   # A (autora); apoio K S — 5
+      - "Boa, deixa eu pensar no som."                # K/A (autoras); apoio S — 6
+
+  pc:
+    palavras: [pc, gpu, cpu, vram, fps, memoria, ram, ssd, hd, cooler, driver, aquec, travando]
+    frases:
+      - "Essa é coisa de nerd, adoro."                # S; apoio A K S — 6
+      - "Peraí, hardware não se responde no chute."   # K; apoio A K [contra: S] — 7
+      - "Pergunta técnica merece cuidado, calma."     # S; apoio K S — 5
+      - "Boa, deixa eu raciocinar com calma."         # K (autora); apoio S — 6
+
+  conta:                                              # quase sempre toca por preço/cotação (sinal)
+    palavras: [quanto, quantos, calcula, converte, porcento, custa, vezes, dividido, raiz, media]
+    frases:
+      - "Hm, deixa eu fazer as contas."               # as três (autoras); apoio K S [contra: A] — 6
+      - "Calma, conta assim eu não chuto."            # S (autora); apoio K — 6
+      - "Peraí, cabeça de pesquisadora ligando."      # A (autora); apoio K — 5
+      - "Calma, essa eu quero acertar."               # A (autora); apoio A S — 5
+      - "Peraí, deixa eu pensar nos valores."         # S (autora); apoio A — 6
+
+  geral:
+    frases:
+      - "Hm, deixa eu pensar nessa."                  # espec; apoio A K S — 5
+      - "Peraí, tô juntando as ideias."               # espec/A/S; apoio A K S — 5
+      - "Boa pergunta, deixa eu pensar."              # A/S; apoio A K S — 5
+      - "Calma, cérebro trabalhando."                 # K; apoio A K S — 3
+      - "Peraí, não vou te responder qualquer coisa." # S; apoio A K S — 7
+      - "Ah, essa me fez pensar."                     # A; apoio A K S — 5
+      - "Ah, essa eu quero responder bem."            # S; apoio A S — 6
+      - "Essa é das boas, calma."                     # S; apoio K S — 5
+      - "Deixa eu organizar a cabeça aqui."           # S (autora); apoio A (S com "Hm,") — 6
+
+demorados: [jogo, noticia, musica, pc]
+sinais_demora: [pesquisa, procura, busca, noticia, ultimas, preco, custa, cotacao, dolar,
+                lancamento, lancou, steam, internet, clima, previsao, placar, review]
+sinais_so_acompanhados: [hoje, atual]   # só contam junto de outro sinal ou de tópico demorado (A; K S)
+sem_espera: [cansad, cansei, triste, chatead, estressad, ansios, sozinh, horrivel, sinto, chorei, desanimad]
+vetadas: []   # o Pedro também veta em ~/.config/magi/condessa-gosto.toml [espera] vetadas
