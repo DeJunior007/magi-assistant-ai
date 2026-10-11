@@ -105,7 +105,7 @@ E0.1 ─┬─ E1.1 ─────────┐
   - Pronto: testes antigos do retrato sem mudar asserção; etapas trocam nos tempos certos com relógio falso; `dots` desenha com e sem `extra/D10.png`; voz começa → pose sai (R1.3); `ThinkMsg` vinda da ponte muda chip e retrato (teste com `WiredUI` falso, `MAGI_NO_*` como nos testes atuais).
   - Paralelo: E2.3
 
-- [ ] **E1.4 Ferramentas: aviso e paralelo** — `_tools_node` chama `notify_tool(nome)` antes de
+- [x] **E1.4 Ferramentas: aviso e paralelo** — `_tools_node` chama `notify_tool(nome)` antes de
   cada ferramenta; `Tool.serial` (spec §7) nas ferramentas de mídia/PC; ferramentas não-`serial`
   da volta em `asyncio.gather` (atrás de `[espera] ferramentas_paralelo`, passado ao `GraphAgent`);
   confirmação e erro como na spec §7; log `espera: ferramentas … em paralelo`. *(R2, R5.5, R8)*
@@ -132,7 +132,7 @@ E0.1 ─┬─ E1.1 ─────────┐
   - Pronto: mínimo da spec §3.1 cumprido; toda frase checada à mão contra a tabela §4 (o linter de verdade é da E2.2); `tests/core/test_tts.py` verde; ata registra que o veto do Pedro vem depois pelo gosto.
   - Paralelo: E1.1, E1.3, E1.4, E2.2
 
-- [ ] **E2.2 Seletor da frase** — `espera.py`: `Catalogo.load` (+ `demorados`, `sinais_demora`,
+- [x] **E2.2 Seletor da frase** — `espera.py`: `Catalogo.load` (+ `demorados`, `sinais_demora`,
   vetadas do gosto, caminho injetável), `topico` (spec §3.2), `demorado` (§3.3, D2), `Cota` (§3.3),
   `escolher` (devolve `None` em pedido não demorado com `so_demorado`), `mesma_espera` (§3.4),
   `honesta` (§4). Puro, `rng` injetado. Testes com catálogo de teste (não depende do arquivo real).
@@ -202,3 +202,17 @@ E0.1 ─┬─ E1.1 ─────────┐
   `Thinking`. A ferramenta some quando a fase muda (a síntese mostra `Thinking` puro). Falta ligar
   o sinal `think` → `TurnPhase.on_think` e `snap.chip_tool = tp.chip_tool(now)` no gamerhud
   (fora do Escreve; fica para a E1.2).
+- **E1.4:** `GraphAgent(..., ferramentas_paralelo=False)` (padrão desligado; o `assemble` lê
+  `EsperaCfg.from_raw(raw["espera"])`, padrão ligado). `serial = True` como atributo de classe em
+  `ActionTool` (todas as de mídia/PC), `RememberTool`, `ForgetTool`, `ScreenshotTool`. Com o
+  paralelo ligado, exceção numa ferramenta vira `ActionResult(ok=False, speech=SAY_TOOL_ERROR)`
+  (mesma frase de `actions.SAY_FAILED`, já no cache); desligado, a exceção sobe como antes.
+  Ferramenta desconhecida não manda `notify_tool`.
+- **E2.2:** linter `honesta`: "um"/"uma" são artigo, não número por extenso (números contam só
+  como palavra inteira, então "dez" não acerta "dezembro"); "segundo" só é fonte quando não vem
+  depois de "um"/"num"/"só um"/"mais um" — "Um segundo de cérebro aqui." passa. "…"/"..." não
+  fecham frase (o molde "Hm, {jogo}… deixa eu pensar." passa); o exemplo da spec "Boa. Um segundo
+  de cérebro aqui." reprova por ter 2 frases. `Catalogo.load` com yaml ausente → catálogo vazio
+  (nunca há frase); tópico sem frases cai nas de `geral`; vetadas comparadas normalizadas (vale o
+  texto do molde ou a frase preenchida). `escolher` não roda o linter em tempo de execução (nome do
+  jogo com dígito, ex. "FIFA 23", entra no molde: o permitido da §4).
