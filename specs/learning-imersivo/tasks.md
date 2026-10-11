@@ -68,7 +68,7 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Pronto: CA-01; ida-e-volta JSON de todos os contratos (inclui `scores`); `decode_hud` aceita as 4 mensagens e recusa `lm_job` > 12 000; testes antigos de `tests/learning` (em especial `test_socket.py`, `test_bridge.py`, `test_contracts.py`) e `tests/hud/test_bridge.py` verdes.
   - Paralelo: —
 
-- [ ] **LI0.2 Banco e repositório** — migração `magi/memory/migrations/004_learning_jobs.sql` (spec
+- [x] **LI0.2 Banco e repositório** — migração `magi/memory/migrations/004_learning_jobs.sql` (spec
   §8, aditiva, `IF NOT EXISTS`), métodos novos no `LearningRepo` (Protocol), `PostgresRepo` e
   `JsonlRepo`; `store.py` como fachada fina (`save_post`, `profile_of(job_id)`, `recent(n)`,
   `save_run`, `load_active(session_id)`, `save_debrief`, `unseen`). *(R2.6, R5)*

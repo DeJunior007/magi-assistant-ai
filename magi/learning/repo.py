@@ -56,6 +56,13 @@ from magi.learning.contracts import (
     Topic,
     make_session_id,
 )
+from magi.learning.interview.contracts import (
+    InterviewDebrief,
+    InterviewRun,
+    JobPost,
+    JobProfile,
+    RunState,
+)
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +75,10 @@ RECENT_DEFAULT = 200
 #: Pasta padrão do backend JSONL (P4).
 DEFAULT_JSONL_DIR = Path.home() / ".local" / "share" / "magi" / "learning"
 SAVED_WORDS_FILE = "saved_words.jsonl"
+#: Vagas do backend JSONL (LI0.2, spec §8): linhas ``{"op": "job"|"profile"|"used", …}``.
+JOBS_FILE = "jobs.jsonl"
+#: Estados em que a simulação está encerrada (``ended_at`` preenchido).
+_RUN_ENDED = (RunState.DONE, RunState.ERROR)
 
 _DB_ERRORS = (psycopg.OperationalError, psycopg.InterfaceError, OSError, asyncio.TimeoutError)
 _EDGE_PUNCT = re.compile(r"^[\W_]+|[\W_]+$")
@@ -141,6 +152,30 @@ class StoredAction:
     sel_end: int
 
 
+@dataclass(frozen=True)
+class StoredJob:
+    """Linha de ``learning_jobs`` (LI0.2, spec §8). ``profile`` é ``None`` até a extração dar certo."""
+
+    post: JobPost
+    profile: JobProfile | None
+    last_used: datetime
+    model: str | None = None
+    cost_usd: float | None = None
+
+
+@dataclass
+class _IvRow:
+    """Linha de ``learning_interviews`` no backend em memória/JSONL."""
+
+    run: InterviewRun
+    started_at: datetime
+    ended_at: datetime | None = None
+    end_reason: str | None = None
+    debrief: InterviewDebrief | None = None
+    seen: bool = False
+    debrief_seq: int = 0
+
+
 @runtime_checkable
 class LearningRepo(Protocol):
     """Contrato do repositório (igual nos dois backends)."""
@@ -180,6 +215,18 @@ class LearningRepo(Protocol):
     async def unsave_word(self, norm: str, at: datetime | None = None) -> bool: ...
     async def saved_norms(self) -> set[str]: ...
     async def saved_words(self, session_id: str | None = None) -> list[SavedWord]: ...
+    # -- entrevista pela vaga (LI0.2, spec §8) --
+    async def save_job(self, post: JobPost, at: datetime | None = None) -> None: ...
+    async def get_job(self, job_id: str) -> StoredJob | None: ...
+    async def set_profile(self, job_id: str, profile: JobProfile, *, model: str | None = None,
+                          cost_usd: float | None = None) -> bool: ...
+    async def recent_jobs(self, n: int = 3) -> list[tuple[str, JobProfile]]: ...
+    async def save_interview(self, run: InterviewRun, end_reason: str | None = None,
+                             at: datetime | None = None) -> None: ...
+    async def active_interview(self, session_id: str) -> InterviewRun | None: ...
+    async def save_debrief(self, debrief: InterviewDebrief) -> bool: ...
+    async def unseen_debrief(self) -> InterviewDebrief | None: ...
+    async def mark_seen(self, run_id: str) -> bool: ...
 
 
 def _local_day(at: datetime) -> date:
@@ -223,6 +270,62 @@ class _Mem:
         self.next_msg = 1
         self.next_obs = 1
         self.next_word = 1
+        self.jobs: dict[str, StoredJob] = {}
+        self.interviews: dict[str, _IvRow] = {}
+        self.debrief_seq = 0
+
+    # -- entrevista pela vaga (LI0.2) -----------------------------------------------------------
+
+    def save_job(self, post: JobPost, at: datetime) -> None:
+        old = self.jobs.get(post.id)
+        self.jobs[post.id] = StoredJob(post, None, at) if old is None else replace(old, last_used=at)
+
+    def set_profile(self, job_id: str, profile: JobProfile, model: str | None,
+                    cost_usd: float | None) -> bool:
+        old = self.jobs.get(job_id)
+        if old is None:
+            return False
+        self.jobs[job_id] = replace(old, profile=profile, model=model, cost_usd=cost_usd)
+        return True
+
+    def recent_jobs(self, n: int) -> list[tuple[str, JobProfile]]:
+        done = [j for j in self.jobs.values() if j.profile is not None]
+        done.sort(key=lambda j: j.last_used, reverse=True)
+        return [(j.post.id, j.profile) for j in done[:max(n, 0)] if j.profile is not None]
+
+    def save_interview(self, run: InterviewRun, end_reason: str | None, at: datetime) -> None:
+        row = self.interviews.get(run.id)
+        if row is None:
+            row = self.interviews[run.id] = _IvRow(run, at)
+        row.run = run
+        if end_reason is not None:
+            row.end_reason = end_reason
+        if row.ended_at is None and (end_reason is not None or run.state in _RUN_ENDED):
+            row.ended_at = at
+
+    def active_interview(self, session_id: str) -> InterviewRun | None:
+        open_ = [r for r in self.interviews.values()
+                 if r.run.session_id == session_id and r.ended_at is None]
+        return max(open_, key=lambda r: (r.started_at, r.run.id)).run if open_ else None
+
+    def save_debrief(self, debrief: InterviewDebrief) -> bool:
+        row = self.interviews.get(debrief.run_id)
+        if row is None:
+            return False
+        self.debrief_seq += 1
+        row.debrief, row.seen, row.debrief_seq = debrief, False, self.debrief_seq
+        return True
+
+    def unseen_debrief(self) -> InterviewDebrief | None:
+        rows = [r for r in self.interviews.values() if r.debrief is not None and not r.seen]
+        return max(rows, key=lambda r: r.debrief_seq).debrief if rows else None
+
+    def mark_seen(self, run_id: str) -> bool:
+        row = self.interviews.get(run_id)
+        if row is None or row.debrief is None or row.seen:
+            return False
+        row.seen = True
+        return True
 
     def put_session(self, info: SessionInfo) -> None:
         self.sessions[info.id] = info
@@ -335,6 +438,24 @@ class JsonlRepo:
                         m.unsave_word(row["norm"], datetime.fromisoformat(row["at"]))
                 except (KeyError, ValueError, TypeError) as exc:
                     log.warning("linha ignorada em %s: %s", SAVED_WORDS_FILE, exc)
+        jobs = self.root / JOBS_FILE
+        if jobs.exists():
+            for row in self._rows(jobs):
+                try:
+                    self._apply_job(row)
+                except (KeyError, ValueError, TypeError) as exc:
+                    log.warning("linha ignorada em %s: %s", JOBS_FILE, exc)
+
+    def _apply_job(self, row: dict[str, Any]) -> None:
+        m = self._mem
+        op = row["op"]
+        if op == "job":
+            m.save_job(JobPost.from_dict(row["post"]), datetime.fromisoformat(row["at"]))
+        elif op == "used":
+            m.save_job(m.jobs[row["job_id"]].post, datetime.fromisoformat(row["at"]))
+        elif op == "profile":
+            m.set_profile(row["job_id"], JobProfile.from_dict(row["profile"]), row.get("model"),
+                          row.get("cost_usd"))
 
     def _apply(self, row: dict[str, Any]) -> None:
         m = self._mem
@@ -359,6 +480,13 @@ class JsonlRepo:
         elif kind == "summary":
             s = m.sessions[row["session_id"]]
             m.put_session(replace(s, summary=SessionSummary.from_dict(row["summary"])))
+        elif kind == "interview":  # LI0.2
+            m.save_interview(InterviewRun.from_dict(row["run"]), row.get("end_reason"),
+                             datetime.fromisoformat(row["at"]))
+        elif kind == "debrief":
+            m.save_debrief(InterviewDebrief.from_dict(row["debrief"]))
+        elif kind == "seen":
+            m.mark_seen(row["run_id"])
 
     def _write(self, session_id: str, row: dict[str, Any]) -> None:
         self._append(self._session_file(session_id), row)
@@ -490,6 +618,58 @@ class JsonlRepo:
     async def saved_words(self, session_id: str | None = None) -> list[SavedWord]:
         return [w for w in self._mem.words
                 if w.removed_at is None and (session_id is None or w.session_id == session_id)]
+
+    # -- entrevista pela vaga (LI0.2, spec §8) --------------------------------------------------
+
+    def _append_job(self, row: dict[str, Any]) -> None:
+        self._append(self.root / JOBS_FILE, row)
+        self._apply_job(row)
+
+    async def save_job(self, post: JobPost, at: datetime | None = None) -> None:
+        at = _aware(at)
+        if post.id in self._mem.jobs:
+            self._append_job({"op": "used", "job_id": post.id, "at": at.isoformat()})
+        else:
+            self._append_job({"op": "job", "post": post.to_dict(), "at": at.isoformat()})
+
+    async def get_job(self, job_id: str) -> StoredJob | None:
+        return self._mem.jobs.get(job_id)
+
+    async def set_profile(self, job_id: str, profile: JobProfile, *, model: str | None = None,
+                          cost_usd: float | None = None) -> bool:
+        if job_id not in self._mem.jobs:
+            return False
+        self._append_job({"op": "profile", "job_id": job_id, "profile": profile.to_dict(),
+                          "model": model, "cost_usd": cost_usd})
+        return True
+
+    async def recent_jobs(self, n: int = 3) -> list[tuple[str, JobProfile]]:
+        return self._mem.recent_jobs(n)
+
+    async def save_interview(self, run: InterviewRun, end_reason: str | None = None,
+                             at: datetime | None = None) -> None:
+        self._write(run.session_id, {"kind": "interview", "run": run.to_dict(),
+                                     "end_reason": end_reason, "at": _aware(at).isoformat()})
+
+    async def active_interview(self, session_id: str) -> InterviewRun | None:
+        return self._mem.active_interview(session_id)
+
+    async def save_debrief(self, debrief: InterviewDebrief) -> bool:
+        row = self._mem.interviews.get(debrief.run_id)
+        if row is None:
+            return False
+        self._write(row.run.session_id, {"kind": "debrief", "debrief": debrief.to_dict()})
+        return True
+
+    async def unseen_debrief(self) -> InterviewDebrief | None:
+        return self._mem.unseen_debrief()
+
+    async def mark_seen(self, run_id: str) -> bool:
+        row = self._mem.interviews.get(run_id)
+        if row is None or row.debrief is None or row.seen:
+            return False
+        self._write(row.run.session_id, {"kind": "seen", "run_id": run_id})
+        return True
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1002,6 +1182,96 @@ class PostgresRepo:
             except _DB_ERRORS as exc:
                 self._mark_down(exc)
         return []
+
+    # -- entrevista pela vaga (LI0.2, spec §8) --------------------------------------------------
+    # Sem buffer: com o banco fora, a gravação é perdida (com aviso) e a leitura devolve vazio.
+
+    async def _iv(self, what: str, op: Callable[[], Awaitable[Any]], default: Any) -> Any:
+        if await self._pre():
+            try:
+                return await op()
+            except _DB_ERRORS as exc:
+                self._mark_down(exc)
+        log.warning("banco do Learning Mode fora: %s sem efeito", what)
+        return default
+
+    async def save_job(self, post: JobPost, at: datetime | None = None) -> None:
+        at = _aware(at)
+        await self._iv("save_job", lambda: self._exec(
+            "INSERT INTO learning_jobs (id, created_at, last_used, source, text)"
+            " VALUES (%s, %s, %s, %s, %s)"
+            " ON CONFLICT (id) DO UPDATE SET last_used = EXCLUDED.last_used",
+            [post.id, post.created_at, at, post.source, post.text]), None)
+
+    async def get_job(self, job_id: str) -> StoredJob | None:
+        row = await self._iv("get_job", lambda: self._fetchone(
+            "SELECT id, text, source, created_at, profile, last_used, model, cost_usd"
+            " FROM learning_jobs WHERE id = %s", [job_id]), None)
+        if row is None:
+            return None
+        post = JobPost(row[0], row[1], row[2], row[3])
+        profile = JobProfile.from_dict(row[4]) if row[4] else None
+        return StoredJob(post, profile, row[5], row[6], float(row[7]) if row[7] is not None else None)
+
+    async def set_profile(self, job_id: str, profile: JobProfile, *, model: str | None = None,
+                          cost_usd: float | None = None) -> bool:
+        row = await self._iv("set_profile", lambda: self._fetchone(
+            "UPDATE learning_jobs SET profile = %s::jsonb, model = %s, cost_usd = %s"
+            " WHERE id = %s RETURNING id", [profile.to_json(), model, cost_usd, job_id]), None)
+        return row is not None
+
+    async def recent_jobs(self, n: int = 3) -> list[tuple[str, JobProfile]]:
+        rows = await self._iv("recent_jobs", lambda: self._fetchall(
+            "SELECT id, profile FROM learning_jobs WHERE profile IS NOT NULL"
+            " ORDER BY last_used DESC, id LIMIT %s", [max(n, 0)]), [])
+        return [(r[0], JobProfile.from_dict(r[1])) for r in rows]
+
+    async def save_interview(self, run: InterviewRun, end_reason: str | None = None,
+                             at: datetime | None = None) -> None:
+        at = _aware(at)
+        ended = at if end_reason is not None or run.state in _RUN_ENDED else None
+        progress = {k: v for k, v in run.to_dict().items() if k not in ("plan", "profile")}
+        await self._iv("save_interview", lambda: self._exec(
+            "INSERT INTO learning_interviews"
+            " (id, session_id, job_id, plan, state, progress, started_at, ended_at, end_reason)"
+            " VALUES (%s, %s, %s, %s::jsonb, %s, %s::jsonb, %s, %s, %s)"
+            " ON CONFLICT (id) DO UPDATE SET plan = EXCLUDED.plan, state = EXCLUDED.state,"
+            "   progress = EXCLUDED.progress,"
+            "   ended_at = COALESCE(learning_interviews.ended_at, EXCLUDED.ended_at),"
+            "   end_reason = COALESCE(EXCLUDED.end_reason, learning_interviews.end_reason)",
+            [run.id, run.session_id, run.job_id, run.plan.to_json(), run.state.value,
+             json.dumps(progress, ensure_ascii=False), at, ended, end_reason]), None)
+
+    async def active_interview(self, session_id: str) -> InterviewRun | None:
+        row = await self._iv("active_interview", lambda: self._fetchone(
+            "SELECT i.plan, i.state, i.progress, j.profile FROM learning_interviews i"
+            " JOIN learning_jobs j ON j.id = i.job_id"
+            " WHERE i.session_id = %s AND i.ended_at IS NULL"
+            " ORDER BY i.started_at DESC, i.id DESC LIMIT 1", [session_id]), None)
+        if row is None:
+            return None
+        if not row[3]:
+            log.warning("simulação ativa sem perfil da vaga na sessão %s", session_id)
+            return None
+        return InterviewRun.from_dict({**row[2], "plan": row[0], "state": row[1], "profile": row[3]})
+
+    async def save_debrief(self, debrief: InterviewDebrief) -> bool:
+        row = await self._iv("save_debrief", lambda: self._fetchone(
+            "UPDATE learning_interviews SET debrief = %s::jsonb, debrief_seen = false"
+            " WHERE id = %s RETURNING id", [debrief.to_json(), debrief.run_id]), None)
+        return row is not None
+
+    async def unseen_debrief(self) -> InterviewDebrief | None:
+        row = await self._iv("unseen_debrief", lambda: self._fetchone(
+            "SELECT debrief FROM learning_interviews WHERE debrief IS NOT NULL AND NOT debrief_seen"
+            " ORDER BY ended_at DESC NULLS LAST, started_at DESC, id DESC LIMIT 1"), None)
+        return InterviewDebrief.from_dict(row[0]) if row is not None else None
+
+    async def mark_seen(self, run_id: str) -> bool:
+        row = await self._iv("mark_seen", lambda: self._fetchone(
+            "UPDATE learning_interviews SET debrief_seen = true"
+            " WHERE id = %s AND debrief IS NOT NULL AND NOT debrief_seen RETURNING id", [run_id]), None)
+        return row is not None
 
 
 # ---------------------------------------------------------------------------------------------
