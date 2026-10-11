@@ -69,6 +69,7 @@ from magi.common.contracts import (
     StateMsg,
     StopPlayback,
     SttProvider,
+    SubtitleMsg,
     ThinkMsg,
     ToneMetadata,
     Transcript,
@@ -948,6 +949,7 @@ class TurnMachine:
                 await self._deliver(ActionResult(ok=True, speech=say))
             return
         early = self._early_speech()
+        self._lotes(early, transcript.final)
         token = EARLY_SPEECH.set(early)
         think_token = THINK_HUD.set(self._think_hud)
         cota = self._start_espera(transcript, ctx, early, followup=followup)
@@ -999,6 +1001,13 @@ class TurnMachine:
 
         self._espera = asyncio.get_running_loop().create_task(falar(), name="espera")
         return cota
+
+    def _lotes(self, early: EarlySpeech | None, text: str) -> None:
+        """Lotes (E3.1): liga pelo ``[espera] lotes``; desabafo (``sem_espera``) não vira lote."""
+        esp = self.pipeline.deps.espera
+        if early is None or esp is None or not esp.cfg.lotes or desabafo(esp.catalogo, text):
+            return
+        early.lotes_max, early.lotes_frases_max = esp.cfg.lotes_max, esp.cfg.lotes_frases_max
 
     def _end_espera(self, cota: Cota | None) -> None:
         """Cancela a tarefa da frase (R6) e registra o turno de agente na cota do satélite."""
@@ -1109,6 +1118,8 @@ class TurnMachine:
         for card in result.cards:
             await self.hud.send(card)
         if (sub := subtitle(result)) is not None:
+            if early is not None and early.lotes:  # R5.4: legenda completa = lotes + final
+                sub = SubtitleMsg(sub.text, early.full_text(sub.full or sub.text))
             await self.hud.send(sub)
         speaker = self.pipeline.deps.speaker
         if early is not None and early.started:

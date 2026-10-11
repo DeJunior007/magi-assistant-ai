@@ -46,8 +46,8 @@ from magi.common.contracts import (
     TurnContext,
     TurnRecord,
 )
-from magi.core.compose import SpeechDraft, compose, short_speech
-from magi.core.early import EARLY_SPEECH, EarlySpeech, notify_tool
+from magi.core.compose import SpeechDraft, compose, sentences, short_speech
+from magi.core.early import EARLY_SPEECH, EarlySpeech, notify_lote, notify_tool
 
 log = logging.getLogger(__name__)
 
@@ -415,6 +415,7 @@ class _Voice:
         self._held: list[str] | None = [] if held else None
         self._dead = False
         self._interim = False
+        self._lote = False  # esta chamada é um lote (E3.1, spec §6)
         self.said: list[str] = []
         self.draft = SpeechDraft()
 
@@ -431,7 +432,11 @@ class _Voice:
 
     def release(self) -> None:
         held, self._held = self._held, None
+        if self._lote and not self._early.open_lote():
+            self._lote = False
+            self.interim()
         self._say(held or [])
+        self.close()
 
     def discard(self) -> None:
         self._dead = True
@@ -440,6 +445,23 @@ class _Voice:
         """Esta chamada terminou em ferramenta: o que ela falou (e o que ainda falar) é de espera."""
         self._interim = True
         self._early.mark_interim(self.said)
+
+    def tools(self, text: str, after_tool: bool) -> None:
+        """Esta chamada terminou em ferramenta (spec §6): com texto numa volta que já tem resultado
+        de ferramenta, ou com 2+ frases na 1ª volta, é um **lote** (parte da resposta); senão,
+        interina. Sem lotes (``lotes_max = 0``) ou com o teto atingido, interina como antes."""
+        if text.strip() and (after_tool or len(sentences(text)) >= 2) and self._early.lotes_max > 0:
+            self._lote = self._held is not None or self._early.open_lote(self.said)
+        if not self._lote:
+            self.interim()
+
+    def close(self) -> None:
+        """Depois do ``finish``: fecha o lote desta chamada e avisa o HUD (``notify_lote``)."""
+        if not self._lote or self._held is not None or self._dead:
+            return
+        self._lote = False
+        if n := self._early.close_lote():
+            notify_lote(n)
 
     def _say(self, found: list[str]) -> None:
         if self._dead:
@@ -456,7 +478,7 @@ class _Voice:
                 continue
             if kept != sentence:
                 self._early.skipped.append(sentence)
-            self._early.say(kept)
+            self._early.say(kept, lote=self._lote)
             self.said.append(kept)
         if self._interim:
             self._early.mark_interim(found)
@@ -470,9 +492,10 @@ async def _call(
     if voice is None or stream is None:
         return await chat.chat(messages, tools=tools, personal=True)
     reply = await stream(messages, tools=tools, personal=True, on_text=voice.push)
-    if reply.tool_calls:
-        voice.interim()  # antes do finish: a frase sem ponto final também conta como de espera
+    if reply.tool_calls:  # antes do finish: a frase sem ponto final também conta (espera ou lote)
+        voice.tools(reply.text, any(m.role == "tool" for m in messages))
     voice.finish(reply.text)
+    voice.close()
     return reply
 
 

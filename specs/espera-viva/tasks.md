@@ -162,7 +162,7 @@ E0.1 ─┬─ E1.1 ─────────┐
 
 ## Fase E3 — Lotes
 
-- [ ] **E3.1 Respostas em lotes** — `EarlySpeech`: `lotes`, `open_lote`/`close_lote`,
+- [x] **E3.1 Respostas em lotes** — `EarlySpeech`: `lotes`, `open_lote`/`close_lote`,
   `say(lote=True)` com os tetos de `[espera]` (spec §5–§6), `missing` sem lotes, `full_text`;
   `_Voice`: classificação lote × interina (spec §6) e `notify_lote(n)` ao fechar um lote;
   `_deliver`: `SubtitleMsg.full` pelo `early.full_text` quando houve lote (R5.4); log de lote.
@@ -253,3 +253,13 @@ E0.1 ─┬─ E1.1 ─────────┐
   (`TurnContext` sem jogo em foco: moldes só quando houver). `peek_route` roda o roteador uma vez a
   mais por turno de voz. `drop_wait_echo` só vale antes da 1ª frase do modelo, uma vez. Coluna
   `primeiro_som` do `tools/perf.py` (spec §8) não feita (fora do Escreve).
+- **E3.1:** fora do Escreve: em `turn.py`, além do `_deliver`, `_think` chama `_lotes(early, texto)`
+  (liga `lotes_max`/`lotes_frases_max` do `[espera]`; desabafo `sem_espera` → sem lote) e entrou o
+  import de `SubtitleMsg`. `EarlySpeech(lotes_max=0)` por padrão = sem lotes (CA-10). `say` devolve
+  `bool`; a conta das 6 é lotes + final (interinas e frase local fora); `finish` corta a sobra só com
+  lote. "Volta com resultado de ferramenta" = há mensagem `tool` nas `messages` do `_call`; lote na
+  1ª volta = ≥ 2 frases (`compose.sentences`). Teto de lotes atingido → a volta vira interina. Caminho
+  retido (`held`, 1ª chamada com memórias) abre o lote no `release`, sem teste próprio. Log
+  `espera: lote n (k frases) em ms` conta do `EarlySpeech` criado. **Falta:** a linha nova da
+  persona (acordo §3.5/§4.7) em `magi/agent/persona.md` (fora do Escreve; teto de 780 tokens do
+  `test_prompt.py` precisa subir).
