@@ -8,7 +8,17 @@ from pathlib import Path
 import pytest
 
 from magi.common.config import ConfigError
-from magi.core.espera import Catalogo, Cota, demorado, escolher, honesta, mesma_espera, topico
+from magi.core.espera import (
+    Catalogo,
+    Cota,
+    aberturas_repetidas,
+    demorado,
+    desabafo,
+    escolher,
+    honesta,
+    mesma_espera,
+    topico,
+)
 
 YAML = """
 topicos:
@@ -25,13 +35,21 @@ topicos:
   vazio:
     palavras: [vazio]
   geral:
-    frases: ["Hm, deixa eu pensar.", "Boa. Um segundo de cérebro aqui", "Hm, essa é boa."]
+    frases:
+      ["Hm, deixa eu pensar.", "Boa. Um segundo de cérebro aqui", "Hm, essa é boa.", "Opa, deixa eu pensar."]
 demorados: [jogo, noticia, vazio]
 sinais_demora: [pesquisa, procura, hoje, preco, steam]
 vetadas: ["Essa é das boas."]
+sinais_so_acompanhados: [hoje]
+sem_espera: [cansad, cansei, triste]
 """
 
-GERAL = {"Hm, deixa eu pensar.", "Boa. Um segundo de cérebro aqui", "Hm, essa é boa."}
+GERAL = {
+    "Hm, deixa eu pensar.",
+    "Boa. Um segundo de cérebro aqui",
+    "Hm, essa é boa.",
+    "Opa, deixa eu pensar.",
+}
 JOGOS_FALSOS = ("Elden Ring", "Hollow Knight", "Stardew Valley")
 
 
@@ -260,3 +278,36 @@ def test_honesta_catalogo_de_teste_inteiro(cat: Catalogo) -> None:
     reprovadas = {f: honesta(f) for f in frases if f != "Boa. Um segundo de cérebro aqui"}
     assert all(not v for v in reprovadas.values()), reprovadas
     assert honesta("Boa. Um segundo de cérebro aqui") == ["tamanho: > 1 frase"]
+
+
+# --- ata 2026-10-11 §2/§4: sem_espera, sinais_so_acompanhados, abertura -------------------
+
+
+def test_load_chaves_do_acordo(cat: Catalogo) -> None:
+    assert cat.sem_espera == ("cansad", "cansei", "triste")
+    assert cat.sinais_so_acompanhados == ("hoje",)
+
+
+def test_sinal_so_acompanhado_sozinho_nao_e_demorado(cat: Catalogo) -> None:
+    assert not demorado(cat, "como foi seu dia hoje")
+    assert demorado(cat, "pesquisa o preço hoje")
+
+
+def test_desabafo_trava_frase(cat: Catalogo) -> None:
+    assert desabafo(cat, "tô cansada, pesquisa um jogo pra mim")
+    assert escolher(cat, "Cansei. Pesquisa o preço disso", Cota(), random.Random(1)) is None
+    assert escolher(cat, "pesquisa o preço disso", Cota(), random.Random(1)) is not None
+
+
+def test_sorteio_nao_repete_primeira_palavra(cat: Catalogo) -> None:
+    for seed in range(20):
+        cota = Cota(ultimas=["Hm, qualquer coisa."])
+        f = escolher(cat, "pesquisa o preço", cota, random.Random(seed))
+        assert f in {"Boa. Um segundo de cérebro aqui", "Opa, deixa eu pensar."}
+
+
+def test_aberturas_repetidas_avisa(cat: Catalogo) -> None:
+    avisos = aberturas_repetidas(cat)
+    assert "jogo: 2/4 começam com 'hm'" in avisos  # 3 frases + 1 molde
+    assert "geral: 2/4 começam com 'hm'" in avisos
+    assert not any(a.startswith("conta:") for a in avisos)  # 1 frase só: sem aviso

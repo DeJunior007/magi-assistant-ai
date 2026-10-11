@@ -144,7 +144,7 @@ E0.1 ─┬─ E1.1 ─────────┐
   - Pronto: CA-03 (com frases de teste) e CA-04 verdes; `ruff` limpo.
   - Paralelo: E1.1, E1.3, E1.4, E2.1
 
-- [ ] **E2.3 Frase de espera no turno** — `TurnPipeline.peek_route(text, ctx)` (`route` +
+- [x] **E2.3 Frase de espera no turno** — `TurnPipeline.peek_route(text, ctx)` (`route` +
   `_settle`, sem efeito); no `_think`, a tarefa `espera` do design §3 (só rota agente **e pedido demorado** — D2,
   `espera.demorado` / `[espera] so_demorado` —, `frase_apos_ms`,
   `early.started`, cota por satélite); `EarlySpeech.say_wait`, `waits`, `drop_wait_echo`,
@@ -241,3 +241,15 @@ E0.1 ─┬─ E1.1 ─────────┐
   779 tokens estimados (teto 780 do `test_prompt.py`): a próxima linha precisa subir o teto. Para o
   Pedro: teste do pedido real e placar de espera (2+ assinaturas); `chefe`→`chefao` não aplicado
   (1 assinatura firme).
+- **E2.3:** Escreve ampliado (anotado): `magi/core/espera.py` e `tests/core/test_espera.py` (sobras
+  da E0.1/E2.1/E2.2). `Catalogo` lê `sem_espera` (`desabafo(cat, texto)`; `escolher` → `None`) e
+  `sinais_so_acompanhados` (fora do `demorado`); `escolher` não repete a 1ª palavra da última frase
+  dita (estrito: pode dar `None`); `aberturas_repetidas(cat)` dá os avisos de > 40% (o teste do
+  catálogo real só emite `warnings`). Fixture `geral` de `test_espera.py` ganhou "Opa, deixa eu
+  pensar." (a regra da 1ª palavra secava a folga). No turno: `EsperaDeps(cfg, catalogo, cotas por
+  satélite, rng, sleep)` em `TurnDeps.espera`, montado por `assemble._espera` (gosto em
+  `config_path().parent / "condessa-gosto.toml"`; erro de config → aviso e sem frase). A `Cota`
+  registra todo turno de agente (sem frase → `None`, zera a sequência). `jogo=None` no turno
+  (`TurnContext` sem jogo em foco: moldes só quando houver). `peek_route` roda o roteador uma vez a
+  mais por turno de voz. `drop_wait_echo` só vale antes da 1ª frase do modelo, uma vez. Coluna
+  `primeiro_som` do `tools/perf.py` (spec §8) não feita (fora do Escreve).

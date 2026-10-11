@@ -448,6 +448,8 @@ class _Voice:
             self._held.extend(found)
             return
         for sentence in found:
+            if self._early.drop_wait_echo(sentence):  # eco da frase de espera local (R3.4)
+                continue
             kept = spoken_sentence(sentence, len(self._early.spoken), REF_CONTEXT.get())
             if kept is None:  # referência forçada ("bug de NERV"): não fala nem volta no fim
                 self._early.skipped.append(sentence)

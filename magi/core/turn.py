@@ -24,10 +24,11 @@ import contextlib
 import dataclasses
 import inspect
 import logging
+import random
 import time
 import unicodedata
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -83,6 +84,7 @@ from magi.common.contracts import (
 )
 from magi.core.compose import compose, subtitle
 from magi.core.early import EARLY_SPEECH, THINK_HUD, EarlySpeech
+from magi.core.espera import Catalogo, Cota, EsperaCfg, demorado, desabafo, escolher, topico
 from magi.core.i18n import tr_result
 from magi.core.utterance import UtteranceSaver, normalize_pcm16
 
@@ -142,6 +144,21 @@ _WAKE_WORDS = frozenset({"condessa", "magui", "hey", "oi", "ei"})
 
 
 @dataclass(slots=True)
+class EsperaDeps:
+    """Frase de espera local (espera viva, design §3): ``[espera]``, catálogo e cota por satélite.
+    ``rng`` e ``sleep`` injetáveis (testes)."""
+
+    cfg: EsperaCfg = field(default_factory=EsperaCfg)
+    catalogo: Catalogo = field(default_factory=Catalogo)
+    cotas: dict[str, Cota] = field(default_factory=dict)
+    rng: random.Random = field(default_factory=random.Random)
+    sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep
+
+    def cota(self, satellite: str) -> Cota:
+        return self.cotas.setdefault(satellite, Cota())
+
+
+@dataclass(slots=True)
 class TurnDeps:
     """Pontos de injeção do turno. Campo ``None`` = módulo ainda não existe; o turno degrada.
 
@@ -158,6 +175,8 @@ class TurnDeps:
     - ``learning`` (Learning Mode, LM1.3): chamado **depois** da entrega de um turno de voz com
       ``(transcript, ctx, result)``; síncrono, só agenda (``magi.learning.wiring``). Só existe com
       ``[learning] enabled``; ``None`` = nada muda.
+    - ``espera`` (espera viva E2.3): frase de espera local em pedido demorado ao agente; ``None``
+      ou ``[espera] frase = false`` = sem frase, como antes.
     - ``revive``: sem STT (ou agente) porque o keyring estava trancado na subida, tenta reler as
       chaves e remontar antes de responder "não peguei" (``Core.revive``, com intervalo mínimo).
     """
@@ -174,6 +193,20 @@ class TurnDeps:
     save_audio: UtteranceSaver | None = None
     learning: Callable[[Transcript, TurnContext, ActionResult], None] | None = None
     revive: Callable[[], Awaitable[bool]] | None = None
+    espera: EsperaDeps | None = None
+
+
+def _motivo_sem_frase(cat: Catalogo, text: str, cota: Cota, cfg: EsperaCfg, followup: bool) -> str:
+    """Motivo do log ``espera: sem frase (<motivo>)`` (spec §8), na ordem do ``escolher``."""
+    if desabafo(cat, text):
+        return "desabafo"
+    if cfg.so_demorado and not demorado(cat, text):
+        return "pedido não demorado"
+    if followup and len(text.split()) <= 3:
+        return "continuação curta"
+    if not cota.livre():
+        return "folga"
+    return "nenhuma frase livre"
 
 
 def _short(text: str, limit: int = 120) -> str:
@@ -363,6 +396,10 @@ class TurnPipeline:
         route = self._settle(self.route(text, ctx))
         return await self._dispatch(text, route, ctx), route
 
+    def peek_route(self, text: str, ctx: TurnContext) -> RouteResult:
+        """O destino que ``respond`` daria a ``text`` (``route`` + ``_settle``), sem efeito."""
+        return self._settle(self.route(text, ctx))
+
     def _settle(self, route: RouteResult) -> RouteResult:
         """Com agente, o "você quis dizer X?" vira pergunta ao agente, que tem as mesmas
         ferramentas e o contexto da conversa; só ação perigosa ainda pergunta (R4.2, R5.3).
@@ -496,6 +533,7 @@ class TurnMachine:
         self._followup = False  # a fala em curso abre a janela de continuação ao terminar
         self._state = TurnState.SLEEPING
         self._task: asyncio.Task[None] | None = None
+        self._espera: asyncio.Task[str | None] | None = None  # frase de espera local (E2.3)
         self._timer: asyncio.Task[None] | None = None
         self._source = WakeSource.WAKE
         self._started_at = datetime.now(UTC)
@@ -912,6 +950,7 @@ class TurnMachine:
         early = self._early_speech()
         token = EARLY_SPEECH.set(early)
         think_token = THINK_HUD.set(self._think_hud)
+        cota = self._start_espera(transcript, ctx, early, followup=followup)
         try:
             try:
                 result = await self.pipeline.respond(transcript, ctx)
@@ -925,8 +964,52 @@ class TurnMachine:
             await self._deliver(result, early=early)
             self.pipeline.after_delivery(transcript, ctx, result)
         finally:
+            self._end_espera(cota)
             if early is not None:
                 early.cancel()  # interrupção/erro no meio: para o envio (fim normal: já terminou)
+
+    def _start_espera(
+        self, transcript: Transcript, ctx: TurnContext, early: EarlySpeech | None, *, followup: bool
+    ) -> Cota | None:
+        """Espera viva (design §3, spec §3.3): em turno de agente com pedido demorado, agenda a
+        frase local para ``frase_apos_ms`` depois da transcrição. Devolve a cota do satélite se o
+        turno é de agente (para registrar no fim), senão ``None``."""
+        esp = self.pipeline.deps.espera
+        text = transcript.final
+        if esp is None or not esp.cfg.frase or early is None or transcript.is_empty or not text.strip():
+            return None
+        if self.pipeline.deps.agent is None:
+            return None
+        if self.pipeline.peek_route(text, ctx).kind is not RouteKind.AGENT:
+            return None
+        cat, cota = esp.catalogo, esp.cota(self.satellite)
+        frase = escolher(cat, text, cota, esp.rng, continuacao=followup, so_demorado=esp.cfg.so_demorado)
+        if frase is None:
+            log.info("espera: sem frase (%s)", _motivo_sem_frase(cat, text, cota, esp.cfg, followup))
+            return cota
+        nome, t0 = topico(cat, text), time.monotonic()
+
+        async def falar() -> str | None:
+            await esp.sleep(esp.cfg.frase_apos_ms / 1000)
+            if not early.say_wait(frase):
+                log.info("espera: sem frase (resposta já começou)")
+                return None
+            log.info('espera: frase "%s" (%s) em %d ms', frase, nome, (time.monotonic() - t0) * 1000)
+            return frase
+
+        self._espera = asyncio.get_running_loop().create_task(falar(), name="espera")
+        return cota
+
+    def _end_espera(self, cota: Cota | None) -> None:
+        """Cancela a tarefa da frase (R6) e registra o turno de agente na cota do satélite."""
+        task, self._espera = self._espera, None
+        frase = None
+        if task is not None:
+            if task.done() and not task.cancelled() and task.exception() is None:
+                frase = task.result()
+            task.cancel()
+        if cota is not None:
+            cota.registrar(frase)
 
     def _think_hud(self, msg: ThinkMsg) -> None:
         """Gancho ``THINK_HUD`` (espera viva): manda o aviso ao HUD numa tarefa, como ``_captions``."""
@@ -1074,6 +1157,8 @@ class TurnMachine:
                 self._reading.interrompida()
         self._narrate_next = None
         self._cancel_timer()
+        if self._espera is not None:  # frase de espera ainda não falada (R6)
+            self._espera.cancel()
         task, self._task = self._task, None
         if task is not None and task is not asyncio.current_task() and not task.done():
             task.cancel()

@@ -148,6 +148,8 @@ class Catalogo:
     demorados: frozenset[str] = frozenset()  # D2: tópicos que contam como pedido demorado
     sinais_demora: tuple[str, ...] = ()  # D2: prefixos de palavra que indicam ferramenta/demora
     vetadas: frozenset[str] = frozenset()  # do yaml ∪ ``condessa-gosto.toml [espera] vetadas``
+    sem_espera: tuple[str, ...] = ()  # trava do desabafo (ata §2): prefixos; com acerto, sem frase
+    sinais_so_acompanhados: tuple[str, ...] = ()  # sozinhos não fazem o pedido demorado (ata §4.5)
 
     @classmethod
     def load(cls, path: Path, gosto: Path | None = None) -> Catalogo:
@@ -185,6 +187,10 @@ class Catalogo:
             demorados=frozenset(_lista(raw.get("demorados"), "demorados")),
             sinais_demora=tuple(_norm(s) for s in _lista(raw.get("sinais_demora"), "sinais_demora")),
             vetadas=frozenset(_norm(v) for v in vetadas),
+            sem_espera=tuple(_norm(s) for s in _lista(raw.get("sem_espera"), "sem_espera")),
+            sinais_so_acompanhados=tuple(
+                _norm(s) for s in _lista(raw.get("sinais_so_acompanhados"), "sinais_so_acompanhados")
+            ),
         )
 
     def get(self, nome: str) -> Topico | None:
@@ -207,11 +213,44 @@ def topico(cat: Catalogo, texto: str) -> str:
 
 def demorado(cat: Catalogo, texto: str) -> bool:
     """D2: o pedido parece demorado? Tópico em ``cat.demorados`` ou sinal de ``cat.sinais_demora``
-    no texto (spec §3.3)."""
+    no texto (spec §3.3). Sinal de ``cat.sinais_so_acompanhados`` sozinho não conta (ata §4.5):
+    só vale junto de outro sinal ou de tópico demorado, que já bastam."""
     if topico(cat, texto) in cat.demorados:
         return True
     norm = _norm(texto)
-    return any(_tem_prefixo(norm, s) for s in cat.sinais_demora)
+    return any(
+        _tem_prefixo(norm, s) for s in cat.sinais_demora if s not in cat.sinais_so_acompanhados
+    )
+
+
+def desabafo(cat: Catalogo, texto: str) -> bool:
+    """Trava do desabafo (ata §2): o texto tem palavra de ``cat.sem_espera`` (prefixo, sem acento)?"""
+    norm = _norm(texto)
+    return any(_tem_prefixo(norm, s) for s in cat.sem_espera)
+
+
+def _primeira(frase: str) -> str:
+    palavras = _norm(frase).split()
+    return palavras[0] if palavras else ""
+
+
+ABERTURA_MAX = 0.4  # aviso quando > 40% das frases de um tópico abrem com a mesma palavra (ata §4.2)
+
+
+def aberturas_repetidas(cat: Catalogo) -> list[str]:
+    """Avisos (não reprovação) de tópico com > 40% das frases (+ moldes) começando igual."""
+    out: list[str] = []
+    for t in cat.topicos:
+        todas = [*t.frases, *t.moldes]
+        if len(todas) < 2:
+            continue
+        cont: dict[str, int] = {}
+        for f in todas:
+            cont[w] = cont.get(w := _primeira(f), 0) + 1
+        w, n = max(cont.items(), key=lambda kv: kv[1])
+        if n / len(todas) > ABERTURA_MAX:
+            out.append(f"{t.nome}: {n}/{len(todas)} começam com {w!r}")
+    return out
 
 
 @dataclass(slots=True)
@@ -247,8 +286,11 @@ def escolher(
     so_demorado: bool = True,
 ) -> str | None:
     """A frase de espera do turno, já preenchida (molde com ``{jogo}`` só no tópico ``jogo``), ou
-    ``None`` (pedido não demorado com ``so_demorado``, continuação curta, folga, tudo repetido ou
-    vetado). Não registra na cota. Tópico sem frases cai nas de ``geral``."""
+    ``None`` (desabafo, pedido não demorado com ``so_demorado``, continuação curta, folga, tudo
+    repetido ou vetado). Não registra na cota. Tópico sem frases cai nas de ``geral``. A sorteada
+    não abre com a mesma palavra da última dita (ata §4.3)."""
+    if desabafo(cat, texto):
+        return None
     if so_demorado and not demorado(cat, texto):
         return None
     if continuacao and len(_norm(texto).split()) <= CONTINUACAO_CURTA:
@@ -266,10 +308,14 @@ def escolher(
     if not candidatas and (g := cat.get(GERAL)) is not None:
         candidatas = [(f, f) for f in g.frases]
     recentes = {_norm(f) for f in cota.ultimas[-REPETE:]}
+    abertura = _primeira(cota.ultimas[-1]) if cota.ultimas else ""
     ok = [
         f
         for f, base in candidatas
-        if _norm(base) not in cat.vetadas and _norm(f) not in cat.vetadas and _norm(f) not in recentes
+        if _norm(base) not in cat.vetadas
+        and _norm(f) not in cat.vetadas
+        and _norm(f) not in recentes
+        and (not abertura or _primeira(f) != abertura)
     ]
     return rng.choice(ok) if ok else None
 
@@ -359,7 +405,9 @@ __all__: Sequence[str] = (
     "Cota",
     "EsperaCfg",
     "Topico",
+    "aberturas_repetidas",
     "demorado",
+    "desabafo",
     "escolher",
     "honesta",
     "mesma_espera",

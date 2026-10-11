@@ -457,6 +457,7 @@ async def assemble(
     i18n.configure_listen(speech_cfg.get("listen"))
     budget = SwitchBudget(NullBudget(config.budget.monthly_usd))
     core = Core(deps=TurnDeps(save_audio=utterance_saver(config)), budget=budget)
+    _espera(config, core)
 
     # Provedores
     try:
@@ -1018,3 +1019,20 @@ def _check(providers: Any, task: str) -> str | None:
         return why
     except Exception as e:
         return f"{type(e).__name__}: {e}"
+
+
+def _espera(config: Config, core: Core) -> None:
+    """Espera viva (E2.3): ``[espera]``, catálogo ``magi/core/espera.yaml`` (+ vetadas de
+    ``condessa-gosto.toml`` ao lado do ``config.toml``) e cotas por satélite no ``TurnDeps.espera``."""
+    from magi.common.config import config_path
+    from magi.core.espera import Catalogo, EsperaCfg
+    from magi.core.turn import EsperaDeps
+
+    try:
+        cfg = EsperaCfg.from_raw(config.raw.get("espera"))
+        gosto = config_path().parent / "condessa-gosto.toml"
+        cat = Catalogo.load(Path(__file__).with_name("espera.yaml"), gosto)
+    except ConfigError as e:
+        core.warn(f"espera viva desligada: {e}")
+        return
+    core.deps.espera = EsperaDeps(cfg=cfg, catalogo=cat)

@@ -27,6 +27,7 @@ from contextvars import ContextVar
 
 from magi.common.contracts import ThinkMsg
 from magi.core.compose import SPEECH_MAX_SENTENCES, sentences, speech_key
+from magi.core.espera import mesma_espera
 
 #: Fala antecipada do turno em curso (``None`` = falar só no fim).
 EARLY_SPEECH: ContextVar[EarlySpeech | None] = ContextVar("magi_early_speech", default=None)
@@ -49,6 +50,8 @@ class EarlySpeech:
         self.spoken: list[str] = []
         self.interim: list[str] = []  # das faladas, as de espera (não contam no limite)
         self.skipped: list[str] = []  # cortadas pelo filtro de referências: não voltam no fim
+        self.waits: list[str] = []  # frases de espera locais faladas (espera viva, fora das cotas)
+        self._echo_dropped = False
         self._queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._task: asyncio.Task[None] | None = None
         self._closed = False
@@ -68,6 +71,27 @@ class EarlySpeech:
             loop = asyncio.get_running_loop()
             self._task = loop.create_task(self._play(self._sentences()), name="early-speech")
 
+    def say_wait(self, sentence: str) -> bool:
+        """Frase de espera local (R3): fala só se nada começou; abre o envio como ``say`` e fica
+        fora de todas as cotas. Avisa o HUD (``notify_wait``). Devolve se falou."""
+        if self._closed or self.started or not sentence.strip():
+            return False
+        self.waits.append(sentence)
+        self._queue.put_nowait(sentence)
+        loop = asyncio.get_running_loop()
+        self._task = loop.create_task(self._play(self._sentences()), name="early-speech")
+        notify_wait()
+        return True
+
+    def drop_wait_echo(self, sentence: str) -> bool:
+        """R3.4: com a frase local já tocada, a 1ª frase do modelo que é só "espera vazia" é
+        descartada (vai para ``skipped``, não volta no fim). Só vale antes de o modelo falar."""
+        if not self.waits or self._echo_dropped or self.spoken or not mesma_espera(sentence):
+            return False
+        self._echo_dropped = True
+        self.skipped.append(sentence)
+        return True
+
     def mark_interim(self, said: Iterable[str]) -> None:
         """As frases ``said`` (já faladas) eram de espera: saem do limite da resposta final."""
         for sentence in said:
@@ -75,8 +99,8 @@ class EarlySpeech:
                 self.interim.append(sentence)
 
     def missing(self, speech: str) -> list[str]:
-        """Frases de ``speech`` que ainda não foram faladas."""
-        said = {speech_key(s) for s in (*self.spoken, *self.skipped)}
+        """Frases de ``speech`` que ainda não foram faladas (nem as de espera local)."""
+        said = {speech_key(s) for s in (*self.spoken, *self.skipped, *self.waits)}
         return [s for s in sentences(speech) if speech_key(s) not in said]
 
     async def finish(self, rest: Iterable[str] = ()) -> None:
