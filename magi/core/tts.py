@@ -20,6 +20,9 @@
   real, então o "começa a tocar" é estimado: fim das frases anteriores ou agora, o que vier depois.
   Duração conhecida antes de tocar = frase do cache ou provedor que sintetiza a frase inteira de uma
   vez (``whole_sentence``, ex.: Kokoro); TTS em streaming avisa sem duração (``None``).
+- ``say_parts`` (A2.1, audiolivro): fluxo de ``(texto, OpcoesVoz)``; cada parte vai ao provedor com
+  as opções dela (``com_opcoes``: voz, velocidade, idioma) e ``pausa_ms`` vira silêncio PCM depois
+  dela. ``on_sentence`` com índice contínuo; nada vai ao cache de frases.
 - Erro do TTS não trava o turno: o envio termina (``audio-stop``) com o que saiu até ali, para o
   satélite responder ``playback-done``; a legenda já foi para o HUD.
 """
@@ -35,6 +38,7 @@ import re
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 import yaml
@@ -221,6 +225,17 @@ class PhraseCache:
 ProviderSource = TtsProvider | Callable[[], TtsProvider]
 
 
+class VoiceOptions(Protocol):
+    """Opções de uma parte do ``say_parts`` (forma de ``magi.audiolivro.contratos.OpcoesVoz``)."""
+
+    pausa_ms: int
+
+    def tts(self) -> dict[str, object]: ...
+
+
+Part = tuple[str, VoiceOptions]
+
+
 class PhraseSpeaker:
     """``Speaker`` com cache de frases curtas e TTS em streaming (R12.1, R12.2).
 
@@ -296,6 +311,21 @@ class PhraseSpeaker:
         provider = self.provider()
         await link.play(self._speak_all(provider, texts, personal, on_sentence), provider.output_format)
 
+    async def say_parts(
+        self,
+        parts: AsyncIterable[Part] | Iterable[Part],
+        link: SatelliteLink,
+        *,
+        personal: bool,
+        on_sentence: OnSentence | None = None,
+        provider: TtsProvider | None = None,
+    ) -> None:
+        """Fala ``(texto, OpcoesVoz)`` num único envio (A2.1): cada parte com a voz/velocidade/
+        idioma dela (``provider.com_opcoes``) e ``pausa_ms`` de silêncio depois dela. ``provider``:
+        o TTS do livro (Kokoro, D1); sem ele, o da fala. Nada vai ao cache de frases."""
+        base = provider if provider is not None else self.provider()
+        await link.play(self._speak_parts(base, parts, personal, on_sentence), base.output_format)
+
     async def _speak_all(
         self,
         provider: TtsProvider,
@@ -304,43 +334,79 @@ class PhraseSpeaker:
         on_sentence: OnSentence | None = None,
     ) -> AsyncIterator[bytes]:
         clock = _Playhead(provider.output_format, on_sentence) if on_sentence is not None else None
-        whole = bool(getattr(provider, "whole_sentence", False))
         try:
             async for raw in texts:
                 text = _SPACES.sub(" ", raw).strip()
-                if not text:
-                    continue
-                audio = self._speak(provider, text, personal)
-                if clock is None:
-                    async for pcm in audio:
+                if text:
+                    async for pcm in self._sentence(provider, text, personal, clock, cache=True):
                         yield pcm
-                    continue
-                known: int | None = None
-                if whole or self._in_cache(provider, text):
-                    # o áudio da frase sai inteiro de uma vez: junta para saber a duração antes de tocar
-                    parts = [pcm async for pcm in audio]
-                    known = sum(map(len, parts))
-                    audio = _replay(parts)
-                first = True
-                async for pcm in audio:
-                    if first:
-                        clock.start(text, known)
-                        first = False
-                    clock.advance(len(pcm))
-                    yield pcm
         except BaseException:
             if clock is not None:
                 clock.cancel()  # interrompida: as frases que ainda iam "começar" não avisam mais
             raise
 
+    async def _speak_parts(
+        self,
+        base: TtsProvider,
+        parts: AsyncIterable[Part] | Iterable[Part],
+        personal: bool,
+        on_sentence: OnSentence | None,
+    ) -> AsyncIterator[bytes]:
+        fmt = base.output_format
+        clock = _Playhead(fmt, on_sentence) if on_sentence is not None else None
+        variants: dict[tuple[tuple[str, str], ...], TtsProvider] = {}
+        try:
+            async for raw, opts in _aiter(parts):
+                text = _SPACES.sub(" ", raw).strip()
+                if text:
+                    provider = _with_options(base, opts.tts(), variants)
+                    async for pcm in self._sentence(provider, text, personal, clock, cache=False):
+                        yield pcm
+                pause = _silence(fmt, opts.pausa_ms)
+                if pause:
+                    if clock is not None:
+                        clock.advance(len(pause))
+                    async for pcm in _chunks(pause, fmt):
+                        yield pcm
+        except BaseException:
+            if clock is not None:
+                clock.cancel()
+            raise
+
+    async def _sentence(
+        self, provider: TtsProvider, text: str, personal: bool, clock: _Playhead | None, *, cache: bool
+    ) -> AsyncIterator[bytes]:
+        """PCM de uma frase, avisando ``clock`` quando ela começa."""
+        audio = self._speak(provider, text, personal, cache=cache)
+        if clock is None:
+            async for pcm in audio:
+                yield pcm
+            return
+        known: int | None = None
+        whole = bool(getattr(provider, "whole_sentence", False))
+        if whole or (cache and self._in_cache(provider, text)):
+            # o áudio da frase sai inteiro de uma vez: junta para saber a duração antes de tocar
+            got = [pcm async for pcm in audio]
+            known = sum(map(len, got))
+            audio = _replay(got)
+        first = True
+        async for pcm in audio:
+            if first:
+                clock.start(text, known)
+                first = False
+            clock.advance(len(pcm))
+            yield pcm
+
     def _in_cache(self, provider: TtsProvider, text: str) -> bool:
         return self.phrases.cacheable(text) and self.key(text, provider) in self.cache
 
-    async def _speak(self, provider: TtsProvider, text: str, personal: bool) -> AsyncIterator[bytes]:
+    async def _speak(
+        self, provider: TtsProvider, text: str, personal: bool, *, cache: bool = True
+    ) -> AsyncIterator[bytes]:
         """PCM de uma frase: do cache se houver; senão do TTS (e vai para o cache se for frase
-        conhecida). Sem o silêncio inicial."""
+        conhecida). Sem o silêncio inicial. ``cache=False``: nunca lê nem grava o cache."""
         fmt = provider.output_format
-        cacheable = self.phrases.cacheable(text)
+        cacheable = cache and self.phrases.cacheable(text)
         key = self.key(text, provider) if cacheable else ""
         if cacheable and (pcm := self._cached(key, fmt)) is not None:
             async for chunk in _chunks(pcm, fmt):
@@ -441,6 +507,39 @@ async def _chunks(pcm: bytes, fmt: PcmFormat) -> AsyncIterator[bytes]:
 
 async def _one(text: str) -> AsyncIterator[str]:
     yield text
+
+
+async def _aiter(items: AsyncIterable[Part] | Iterable[Part]) -> AsyncIterator[Part]:
+    if isinstance(items, AsyncIterable):
+        async for item in items:
+            yield item
+    else:
+        for item in items:
+            yield item
+
+
+def _with_options(
+    base: TtsProvider, over: dict[str, object], memo: dict[tuple[tuple[str, str], ...], TtsProvider]
+) -> TtsProvider:
+    """``base.com_opcoes(**over)`` (uma cópia por combinação); sem opções ou sem ``com_opcoes``, ``base``."""
+    if not over:
+        return base
+    make = getattr(base, "com_opcoes", None)
+    if make is None:
+        return base
+    key = tuple(sorted((k, repr(v)) for k, v in over.items()))
+    if key not in memo:
+        memo[key] = make(**over)
+    return memo[key]
+
+
+def _silence(fmt: PcmFormat, ms: int) -> bytes:
+    """``ms`` de silêncio PCM, em quadros inteiros."""
+    if ms <= 0:
+        return b""
+    frame = fmt.width * fmt.channels
+    frames = fmt.rate * ms // 1000
+    return (b"\x80" if fmt.width == 1 else b"\x00") * (frames * frame)
 
 
 async def _replay(parts: list[bytes]) -> AsyncIterator[bytes]:

@@ -234,6 +234,15 @@ class GuardedTts(_Guarded):
         #: Voz de ``[tasks].tts.voice`` ("" = padrão do backend); entra na chave do cache de frases.
         self.voice = str(self._ctx.options.get("voice") or "")
 
+    def com_opcoes(self, **over: Any) -> GuardedTts:
+        """Cópia com ``over`` mesclado no ``CallCtx.options`` (A2.1: voz/velocidade/idioma por
+        trecho do audiolivro). Mesmo backend, pool, orçamento e cota; ``None`` é ignorado."""
+        over = {k: v for k, v in over.items() if v is not None}
+        if not over:
+            return self
+        ctx = dataclasses.replace(self._ctx, options={**self._ctx.options, **over})
+        return type(self)(self._backend, ctx, self._pool, self._budget, self.free_tier)
+
     @property
     def whole_sentence(self) -> bool:
         """O backend entrega cada frase inteira de uma vez (Kokoro): a duração do áudio é
@@ -410,9 +419,13 @@ class Registry:
             cls, task = ck
             tname = task.value if isinstance(task, ProviderTask) else str(task)
             deps = [tname]
+            extra = False
+            if tname == "audiolivro_tts":  # Kokoro do livro: segue o [tasks].tts (voz/idioma dela)
+                deps.append(ProviderTask.TTS.value)
+                extra = old.raw.get("speech") != config.raw.get("speech")
             if cls is GuardedEmbeddings and tname == ProviderTask.NEWS.value:
                 deps.append(ProviderTask.EMBEDDINGS.value)
-            stale = self._cache[ck].name in changed_providers or any(
+            stale = extra or self._cache[ck].name in changed_providers or any(
                 old.tasks.get(d) != config.tasks.get(d) for d in deps
             )
             if stale:
@@ -440,9 +453,10 @@ class Registry:
             del self._cache[ck]
         return gone
 
-    def pool(self, provider: str) -> KeyPool:
-        """KeyPool do provedor (criado na primeira vez, lendo o keyring)."""
-        cfg = self._config.providers.get(provider)
+    def pool(self, provider: str, cfg: ProviderConfig | None = None) -> KeyPool:
+        """KeyPool do provedor (criado na primeira vez, lendo o keyring). ``cfg``: provedor fora
+        do ``[providers]`` (o Kokoro implícito do audiolivro)."""
+        cfg = cfg if cfg is not None else self._config.providers.get(provider)
         if cfg is None:
             raise ConfigError(f"provedor '{provider}' não está em [providers]")
         if provider not in self._pools:
@@ -463,6 +477,26 @@ class Registry:
 
     def tts(self) -> GuardedTts:
         return self._get(GuardedTts, ProviderTask.TTS)
+
+    def tts_livro(self) -> GuardedTts:
+        """TTS do audiolivro (A2.1, D1): o ``[tasks].tts`` se já é Kokoro; senão um Kokoro montado
+        só para o livro, na voz/idioma dela. O livro nunca usa TTS pago."""
+        from magi.audiolivro.config import TAREFA_TTS_LIVRO, tts_livro
+
+        tcfg = tts_livro(self._config)
+        if tcfg.name != TAREFA_TTS_LIVRO:
+            return self.tts()
+        ck = (GuardedTts, TAREFA_TTS_LIVRO)
+        if ck not in self._cache:
+            pcfg = self._config.providers.get(tcfg.provider) or ProviderConfig(
+                name=tcfg.provider, keys=(), free_tier=True, options={"local": True}
+            )
+            ctx = CallCtx(provider=tcfg.provider, task=ProviderTask.TTS, model=tcfg.model,
+                          options=dict(tcfg.options))
+            self._cache[ck] = GuardedTts(
+                self._backend(pcfg), ctx, self.pool(pcfg.name, pcfg), self._budget, pcfg.free_tier
+            )
+        return self._cache[ck]  # type: ignore[return-value]
 
     def chat(self, task: ProviderTask = ProviderTask.AGENT) -> GuardedChat:
         if task not in (ProviderTask.AGENT, ProviderTask.NEWS):

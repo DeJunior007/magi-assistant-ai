@@ -130,7 +130,7 @@ onda 1) · **3)** A2.2 · **4)** A2.3. A3.1 é do Pedro (não implementar).
 
 ## Fase A2 — Voz e controle
 
-- [ ] **A2.1 TTS Kokoro com opções por trecho** — `GuardedTts.com_opcoes(**over)` (cópia com
+- [x] **A2.1 TTS Kokoro com opções por trecho** — `GuardedTts.com_opcoes(**over)` (cópia com
   `CallCtx` mesclado: `voice`, `speed`, `lang`; mesma pool, `whole_sentence` preservado) e
   `PhraseSpeaker.say_parts(parts, link, *, personal, on_sentence)` (fluxo de `(texto, OpcoesVoz)`;
   cada parte com as opções dela; `pausa_ms` vira silêncio PCM depois da parte; `on_sentence` com
