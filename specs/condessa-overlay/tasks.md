@@ -84,7 +84,7 @@ O0.1 ─┬─ O1.1 ─┐
   - Pronto: CA-O3 verde; com `fundo=False` os pixels dos cantos do quadro pintado ficam com alfa 0 (arte de teste); `tests/hud/test_wired_portrait.py` inteiro verde sem mudar asserção.
   - Paralelo: O1.1, O2.1
 
-- [ ] **O1.3 Janela e processo** — `hud/condessa_overlay.py`: `OverlayWindow` e `main()` (spec §3,
+- [x] **O1.3 Janela e processo** — `hud/condessa_overlay.py`: `OverlayWindow` e `main()` (spec §3,
   §5; design §3): trava `LOCK_FILE`, `setDesktopFileName("condessa-overlay")`, `is_parts` (R1.2),
   `PartsPortrait` com `fundo`/`renderer` do `Config`, `HudBridge` (`stateChanged`, `mouth`, `mood`,
   `turnTag`, `connectedChanged`), `Reactor` com `DETECTORES_OVERLAY`, `NowPlaying` próprio, laço de
@@ -166,3 +166,12 @@ O0.1 ─┬─ O1.1 ─┐
   HUD). `press` depois da espera sem `tick` solta o simples antes (não vira duplo). `hud_aberto`
   não cria a trava (sem arquivo = `False`). `jogo_aberto` usa o helper `_carregar_watch` (cache do
   módulo; os testes trocam ele) e o import dos 4 detectores fica no fim do `overlay.py` (E402).
+- **O1.3:** `OverlayWindow` recebe tudo injetado (portrait, ponte, `Reactor`, `NowPlaying`, relógio,
+  `jogo`/`hud`); `main()` só monta (sem teste de ponta a ponta: o `NowPlaying` real abriria o
+  MPRIS). Ordem do `main`: `ligado` → trava → `is_parts` → `setDesktopFileName` → janela. "Alto"
+  do `Gestos` = `y < 0,32 × altura` (`ROSTO_Y`, aproximado; o retrato não expõe o centro do rosto).
+  Posição guardada só ao sair do `normal` (`_volta`); ao voltar, `setScreen` + `move` nela (no
+  Wayland o `move` pode não valer: O3.1 mede). O offscreen tem um monitor só: o `jogo_oposto` com
+  2 monitores reais só foi testado via `aplicar(Lugar(..., "jogo_oposto"))`. Fechar emite
+  `fechada` (→ `app.quit`); SIGTERM/SIGINT fecham a janela (timer de 500 ms para o Python ver o
+  sinal). "Esconder 1 h" ganha do laço de 5 s até o `QTimer` vencer.
