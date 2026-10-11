@@ -8,19 +8,22 @@
 #   --dry-run   só mostra o que faria na parte da Magui (não escreve nada; pula o HUD)
 #   --no-hud    instala só a Magui
 #   --render-units DIR   só gera as units em DIR e sai (usado nos testes e no systemd-analyze)
+#   --overlay-rule       só escreve a regra do KWin do overlay da Condessa e sai (testes)
 set -euo pipefail
 
 START=0
 DRY=0
 HUD=1
 RENDER_ONLY=""
+OVERLAY_RULE_ONLY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --start) START=1 ;;
         --dry-run) DRY=1 ;;
         --no-hud) HUD=0 ;;
         --render-units) RENDER_ONLY="${2:?--render-units precisa de um diretório}"; shift ;;
-        -h|--help) sed -n '2,10p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        --overlay-rule) OVERLAY_RULE_ONLY=1 ;;
+        -h|--help) sed -n '2,11p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "opção desconhecida: $1" >&2; exit 2 ;;
     esac
     shift
@@ -36,6 +39,67 @@ LINK="$SHARE/gamerhud"
 render() {  # copia um template trocando @HOME@ pela home atual e @REPO@ pelo repositório
     mkdir -p "$(dirname "$2")"
     sed -e "s|@HOME@|$HOME|g" -e "s|@REPO@|$REPO_DIR|g" "$1" > "$2"
+}
+
+overlay_posicao() {  # x,y do canto do Config() padrão (D6) no monitor principal
+    # MAGI_OVERLAY_TELA="x,y,w,h" pula o Qt (testes); sem tela legível, assume 1920x1080.
+    python3 - "$HUD_DIR" <<'PYEOF'
+import os, sys
+sys.path.insert(0, sys.argv[1])
+from PySide6.QtCore import QRect
+from wired.overlay import Config, canto_para_posicao
+try:
+    t = os.environ.get("MAGI_OVERLAY_TELA")
+    if t:
+        tela = QRect(*(int(v) for v in t.split(",")))
+    else:
+        from PySide6.QtGui import QGuiApplication
+        app = QGuiApplication([])
+        tela = app.primaryScreen().geometry()
+except Exception:
+    tela = QRect(0, 0, 1920, 1080)
+p = canto_para_posicao(Config(), tela)
+print(f"{p.x()},{p.y()}")
+PYEOF
+}
+
+overlay_rule() {  # regra condessa-overlay-rule no kwinrulesrc (spec §4); sem D-Bus
+    local F="$HOME/.config/kwinrulesrc" RULE=condessa-overlay-rule rules nova=0 key value
+    rules="$(kreadconfig6 --file "$F" --group General --key rules 2>/dev/null || true)"
+    case ",$rules," in
+        *",$RULE,"*) ;;
+        *)
+            nova=1
+            rules="${rules:+$rules,}$RULE"
+            kwriteconfig6 --file "$F" --group General --key rules "$rules"
+            kwriteconfig6 --file "$F" --group General --key count "$(tr ',' '\n' <<<"$rules" | grep -c .)"
+            ;;
+    esac
+    while IFS='=' read -r key value; do
+        kwriteconfig6 --file "$F" --group "$RULE" --key "$key" "$value"
+    done <<'EOF'
+Description=Condessa (overlay pequeno por cima do desktop)
+wmclass=condessa-overlay
+wmclassmatch=1
+types=1
+above=true
+aboverule=2
+acceptfocus=false
+acceptfocusrule=2
+skippager=true
+skippagerrule=2
+skipswitcher=true
+skipswitcherrule=2
+skiptaskbar=true
+skiptaskbarrule=2
+noborder=true
+noborderrule=2
+positionrule=4
+EOF
+    # position só na regra nova: reinstalar não apaga a posição lembrada pelo KWin (positionrule=4)
+    if [ "$nova" = 1 ]; then
+        kwriteconfig6 --file "$F" --group "$RULE" --key position "$(overlay_posicao)"
+    fi
 }
 
 install_hud() {
@@ -57,6 +121,12 @@ render "$SYS/applications/gamerhud.desktop" "$SHARE/applications/gamerhud.deskto
 render "$SYS/applications/magi-view.desktop" "$SHARE/applications/magi-view.desktop"
 render "$SYS/applications/condessa-record.desktop" "$SHARE/applications/condessa-record.desktop"
 render "$SYS/autostart/gamerhud-watch.desktop" "$HOME/.config/autostart/gamerhud-watch.desktop"
+
+echo "== overlay da Condessa: comando, menu e autostart"
+render "$SYS/bin/condessa-overlay" "$HOME/.local/bin/condessa-overlay"
+chmod +x "$HOME/.local/bin/condessa-overlay"
+render "$SYS/applications/condessa-overlay.desktop" "$SHARE/applications/condessa-overlay.desktop"
+render "$SYS/autostart/condessa-overlay.desktop" "$HOME/.config/autostart/condessa-overlay.desktop"
 
 echo "== Steam aberta pelo MangoHud (FPS em todos os jogos)"
 if [ -f /usr/share/applications/steam.desktop ]; then
@@ -99,6 +169,8 @@ types=1
 wmclass=gamerhud
 wmclassmatch=1
 EOF
+echo "== regra do KWin do overlay (por cima, sem foco, fora do Alt+Tab; vale no próximo login)"
+overlay_rule
 dbus-send --session --type=method_call --dest=org.kde.KWin /KWin org.kde.KWin.reconfigure || true
 
 echo "== atalho Meta+M (tela de ociosidade)"
@@ -196,6 +268,11 @@ install_magui() {
         run systemctl --user start magi-ayanami.timer magi-clean.timer
     fi
 }
+
+if [ "$OVERLAY_RULE_ONLY" = 1 ]; then
+    overlay_rule
+    exit 0
+fi
 
 if [ -n "$RENDER_ONLY" ]; then
     render_units "$RENDER_ONLY"

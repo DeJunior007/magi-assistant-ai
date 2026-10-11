@@ -102,7 +102,7 @@ O0.1 ─┬─ O1.1 ─┐
 
 ## Fase O2 — Instalação
 
-- [ ] **O2.1 Comando, autostart e regra do KWin** — `hud/system/bin/condessa-overlay`,
+- [x] **O2.1 Comando, autostart e regra do KWin** — `hud/system/bin/condessa-overlay`,
   `hud/system/autostart/condessa-overlay.desktop`, `hud/system/applications/condessa-overlay.desktop`
   (spec §6) e um bloco novo no `install_hud` do `install.sh` (render dos três + regra
   `condessa-overlay-rule` do spec §4, escrita **antes** do `dbus-send … reconfigure` que já existe;
@@ -152,3 +152,11 @@ O0.1 ─┬─ O1.1 ─┐
   conflito esperado). Risco aberto para O1.3/O3.1: no Wayland o app pode não conseguir trocar de
   monitor (`setScreen`/`move`); se não der, esconder em jogo (como com um monitor só) e anotar.
   `tela_jogo` não é descoberta (exigiria D-Bus do KWin): padrão = monitor principal.
+- **O2.1:** `install.sh --overlay-rule` só escreve a regra (usado nos testes). A posição inicial
+  sai de `canto_para_posicao(Config(), primaryScreen())` por `python3` + `QGuiApplication`
+  (`MAGI_OVERLAY_TELA="x,y,w,h"` pula o Qt; falha → 1920×1080). Nenhuma chamada D-Bus nova: o bloco
+  do overlay só escreve o `kwinrulesrc` antes do `dbus-send … reconfigure` que já existia; a regra
+  vale com certeza no próximo login (O3.1: relogar depois do install). O `dbus-send` ao KWin e o
+  `doRegister`/`setShortcut` do KGlobalAccel antigos do `install_hud` continuam lá (fora do pacote;
+  avaliar se tiram, dado o risco de derrubar a sessão). O teste de `hud/condessa_overlay.py` no
+  CA-O7 só roda quando o arquivo existir (O1.3).

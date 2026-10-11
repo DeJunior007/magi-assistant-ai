@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Liga/desliga o overlay da Condessa (rosto pequeno por cima do desktop).
+OVERLAY="$HOME/.local/share/gamerhud/condessa_overlay.py"
+PATTERN='^python3 .*/condessa_overlay\.py$'
+if pkill -f "$PATTERN"; then
+    exit 0
+fi
+exec nohup python3 "$OVERLAY" >/dev/null 2>&1 &

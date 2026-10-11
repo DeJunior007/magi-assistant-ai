@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Condessa (overlay)
+Comment=Rosto da Condessa por cima do desktop (sai na hora com ligado = false no overlay.toml)
+Exec=python3 @HOME@/.local/share/gamerhud/condessa_overlay.py
+Icon=gamerhud
+X-KDE-autostart-after=panel
+NoDisplay=true

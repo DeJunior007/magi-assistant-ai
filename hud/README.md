@@ -36,6 +36,14 @@ assistente Magui vai morar (ver `specs/magi-assistant/`).
 
 `~/.local/share/gamerhud` vira um link para esta pasta, então editar aqui já vale.
 
+## Overlay da Condessa
+
+- Rosto pequeno por cima do desktop (`condessa_overlay.py`); sobe sozinho no login (autostart).
+- Ligar/desligar: `condessa-overlay` (ou "Condessa (overlay)" no menu); de vez: `ligado = false`.
+- Mover: arraste com o **botão do meio**; o KWin lembra a posição (regra `condessa-overlay-rule`).
+- Config: `~/.config/magi/overlay.toml`, tabela `[overlay]` (canto, margem, tamanho, fundo, ligado).
+- Some com o HUD aberto e, em jogo, vai para o outro monitor; a regra do KWin vale após relogar.
+
 ## Ajustes manuais fora do repo
 
 - Plugin do Wallpaper Engine para KDE: a pausa de 5 s ao carregar cena vira 0,5 s

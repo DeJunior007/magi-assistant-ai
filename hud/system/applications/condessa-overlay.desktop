@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Condessa (overlay)
+GenericName=Rosto da Condessa por cima do desktop
+Comment=Liga/desliga o rosto pequeno da Condessa no canto da tela
+Exec=condessa-overlay
+Icon=gamerhud
+Keywords=condessa;magi;magui;overlay;rosto;mascote;
+Categories=Utility;
+StartupNotify=false
