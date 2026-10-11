@@ -74,7 +74,7 @@ O0.1 ─┬─ O1.1 ─┐
   - Pronto: CA-O2 e CA-O5 verdes; `hud_aberto` testado com trava real num `tmp_path` (ocupada/livre).
   - Paralelo: O1.2, O2.1
 
-- [ ] **O1.2 Retrato sem fundo e região de entrada** — `PartsPortrait.fundo: bool = True` (com
+- [x] **O1.2 Retrato sem fundo e região de entrada** — `PartsPortrait.fundo: bool = True` (com
   `False`, o `paint` pula a chamada de `_backdrop`; nada mais muda); `regiao_entrada` (spec §1).
   *(R1.1, R2)*
   - Lê: spec §1, §5; `hud/wired/portrait.py` por trecho: `grep -n "_backdrop\|def __init__\|class PartsPortrait"` e as linhas 627–670 e ~1000–1006; `tests/hud/test_wired_portrait.py` só os helpers do topo (como montam a arte de teste)

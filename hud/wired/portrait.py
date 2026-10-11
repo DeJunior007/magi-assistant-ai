@@ -685,6 +685,7 @@ class PartsPortrait(Mascot):
         self._agua_at = self._now + self._rng.uniform(*AGUA_ABRE_EVERY)
         self._xf: dict[str, tuple[str, str, float]] = {}  # camada → (anterior, atual, desde)
         self._fx_seen: dict[str, tuple[float, float]] = {}  # efeito → (entrou, último quadro)
+        self.fundo: bool = True  # False: sem o fundo (brilho/hexágonos); o overlay usa assim
 
     def set_rest(self, repouso) -> None:
         """Rosto de repouso (spec §4). Olhos/boca/fundo novos entram dentro de uma piscada; o fone
@@ -1097,7 +1098,8 @@ class PartsPortrait(Mascot):
             return (1, top, max(60.0, b.bottom() - top), amp, phase, freq)
 
         self.accent = QColor(accent)
-        self._backdrop(p, now, -0.9 * hx - 0.8 * sway, -0.7 * hy - 0.5 * head_dy)
+        if self.fundo:
+            self._backdrop(p, now, -0.9 * hx - 0.8 * sway, -0.7 * hy - 0.5 * head_dy)
         if lk > 0.02:  # anéis de escuta saindo do fundo, atrás dela (nas duas vias: CPU e GPU)
             self._listen_rings(p, now, lk)
         # ordem: cabelo de trás, marias-chiquinhas, braços, corpo, cabeça; as mechas que caem na frente

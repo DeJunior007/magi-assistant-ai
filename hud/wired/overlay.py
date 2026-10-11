@@ -225,7 +225,51 @@ class Gestos:
 def regiao_entrada(img: QImage, limiar: int = 76, grade: int = 8) -> list[QRect]:
     """Retângulos da silhueta (alfa ≥ ``limiar`` numa grade de ``grade`` px, dilatada 1 célula,
     ≤ 64 retângulos). Imagem vazia → ``[]``. **Dona: O1.2** (spec §1, CA-O3)."""
-    raise NotImplementedError("O1.2")
+    if img.isNull() or img.width() <= 0 or img.height() <= 0:
+        return []
+    alfa = img.convertToFormat(QImage.Format.Format_Alpha8)
+    w, h, passo = alfa.width(), alfa.height(), alfa.bytesPerLine()
+    dados = bytes(alfa.constBits())[: passo * h]
+    grade = max(1, int(grade))
+    while True:
+        cols, lins = -(-w // grade), -(-h // grade)
+        cheia = [[False] * cols for _ in range(lins)]
+        for y in range(h):
+            linha, cel = dados[y * passo: y * passo + w], cheia[y // grade]
+            for c in range(cols):
+                if not cel[c] and max(linha[c * grade: (c + 1) * grade]) >= limiar:
+                    cel[c] = True
+        if not any(any(r) for r in cheia):
+            return []
+        # dilata 1 célula (o cabelo balança)
+        dil = [[any(cheia[j][i] for j in range(max(0, r - 1), min(lins, r + 2))
+                    for i in range(max(0, c - 1), min(cols, c + 2))) for c in range(cols)]
+               for r in range(lins)]
+        # trechos por linha; trechos iguais em linhas seguidas viram um retângulo só
+        rects: list[list[int]] = []  # [c0, c1, r0, r1]
+        abertos: dict[tuple[int, int], list[int]] = {}
+        for r in range(lins):
+            novos: dict[tuple[int, int], list[int]] = {}
+            c = 0
+            while c < cols:
+                if not dil[r][c]:
+                    c += 1
+                    continue
+                c0 = c
+                while c < cols and dil[r][c]:
+                    c += 1
+                k = (c0, c)
+                if k in abertos:
+                    abertos[k][3] = r
+                    novos[k] = abertos[k]
+                else:
+                    novos[k] = [c0, c, r, r]
+                    rects.append(novos[k])
+            abertos = novos
+        if len(rects) <= 64:
+            return [QRect(c0 * grade, r0 * grade, min(w, c1 * grade) - c0 * grade,
+                          min(h, (r1 + 1) * grade) - r0 * grade) for c0, c1, r0, r1 in rects]
+        grade *= 2  # recorte fino demais: grade mais grossa até caber
 
 
 def snapshot_leve(
