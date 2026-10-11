@@ -115,7 +115,7 @@ onda 1) · **3)** A2.2 · **4)** A2.3. A3.1 é do Pedro (não implementar).
   - Pronto: modelo falso com resposta boa, com índice inválido, com texto em vez de JSON, com timeout e com container que não sobe → resultado certo em cada caso; cache reaproveitado (0 chamadas na 2ª vez); `[tasks].audiolivro_marca` com `openai` → 0 chamadas.
   - Paralelo: A1.1, A2.1 (e A1.2, A1.4)
 
-- [ ] **A1.4 Biblioteca, marcador e tempo** — `biblioteca.py` (varre `[audiolivro] pasta`,
+- [x] **A1.4 Biblioteca, marcador e tempo** — `biblioteca.py` (varre `[audiolivro] pasta`,
   `~/Livros` por padrão, criando-a se não existir (D3); cache do índice em
   `cache_dir/indice.json` por mtime; `achar(fala) -> list[(Livro, nota)]` com
   normalização sem acento, sem artigos e casamento por tokens; ambíguo = 2 notas a < 0,1),
