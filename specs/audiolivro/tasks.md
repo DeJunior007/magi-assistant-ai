@@ -99,7 +99,7 @@ onda 1) · **3)** A2.2 · **4)** A2.3. A3.1 é do Pedro (não implementar).
   - Pronto: CA-A2 e CA-A3 verdes (elenco reaberto devolve as mesmas vozes; 5 personagens → 5 vozes distintas).
   - Paralelo: A1.4, A1.3, A2.1
 
-- [ ] **A1.3 Refino pelo Qwen local (D2; no caminho)** — `marcas_llm.py`: por capítulo, manda os
+- [x] **A1.3 Refino pelo Qwen local (D2; no caminho)** — `marcas_llm.py`: por capítulo, manda os
   parágrafos **numerados** e os trechos das regras ao Qwen local (`[tasks].audiolivro_marca`,
   provedor `qwen`; outro provedor → recusa e só regras); o modelo devolve só JSON de `Marca`
   `[{par, i, tipo, emocao, falante, genero, idade}]` (nunca texto); valida (índices existem, enums
