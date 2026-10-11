@@ -86,7 +86,7 @@ onda 1) · **3)** A2.2 · **4)** A2.3. A3.1 é do Pedro (não implementar).
   - Pronto: CA-A1 (fixtures geradas no teste); PDF escaneado → erro `SemTexto`; ≥ 25 casos de frases.
   - Paralelo: A2.1
 
-- [ ] **A1.2 Marcação por regras e elenco de vozes** — `marcas.py` (spec §2, inclusive idade),
+- [x] **A1.2 Marcação por regras e elenco de vozes** — `marcas.py` (spec §2, inclusive idade),
   `verbos.toml` (PT e EN), `vozes.py` + `vozes.toml` (spec §3, D1/D5): narração na voz dela;
   `Elenco` por livro (falante normalizado → voz Kokoro do grupo gênero × idade no idioma dela,
   ≠ voz dela, persistido em `estado_dir/audiolivro/elenco/<id>.json`, atômico); fala sem falante →
@@ -189,3 +189,7 @@ onda 1) · **3)** A2.2 · **4)** A2.3. A3.1 é do Pedro (não implementar).
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
+- (A1.2) Para a A2.2: `marcas.marcar` já tira as marcas `\x1e`/`\x1d` (`Trecho.texto` = `limpo` do
+  parágrafo; concatenação == `limpo(paragrafo.texto)`) e corta trechos por frase; use
+  `marcar_capitulo` (lembra gênero/idade do falante) e `vozes.partes(trechos, elenco, velocidade)`
+  para o `say_parts`. `opcoes` ficou com a assinatura do stub (sem `cfg`; o `Elenco` leva o cfg).

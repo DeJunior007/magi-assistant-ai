@@ -1,13 +1,79 @@
 # Verbos de elocução e gatilhos de emoção/gênero/idade da marcação por regras (A1.2; spec §2).
-# Formato (uma tabela por idioma do TEXTO do livro):
+# Uma tabela por idioma do TEXTO do livro ("pt" cobre pt-br/pt-pt; "en" cobre en-*).
 #
-# [pt]
-# elocucao = ["disse", "respondeu", ...]          # verbos que colam narração à fala
-# grito    = ["gritou", ...]                       # uma lista por emoção (nomes de Emocao)
-# feminino = ["ela", "a moça", ...]                # pronome/substantivo → gênero
-# masculino = ["ele", "o velho", ...]
-# crianca  = ["o menino", "a menina", ...]         # substantivo → idade
-# idoso    = ["o velho", "a velha", "o avô", ...]
-#
-# [en]
-# (mesmas chaves)
+# - elocucao: verbos que colam a narração à fala ("disse ela", "she said"). Os verbos das listas
+#   de emoção também contam como elocução.
+# - uma lista por emoção (nomes de Emocao, em minúsculas); "*" no fim = prefixo ("irritad*").
+#   carinho = verbos de carinho; só vale com um vocativo (lista "vocativo") dentro da fala.
+# - feminino/masculino: pronome ou substantivo colado ao verbo → gênero.
+# - crianca/jovem/idoso: substantivo colado ao verbo → idade.
+# - nao_nome: palavras com maiúscula que não são nome de personagem (antes do verbo).
+
+[pt]
+elocucao = [
+  "disse", "diz", "dizia", "respondeu", "responde", "perguntou", "pergunta", "indagou",
+  "falou", "fala", "continuou", "completou", "acrescentou", "explicou", "afirmou", "declarou",
+  "comentou", "observou", "retrucou", "replicou", "insistiu", "concordou", "admitiu", "pediu",
+  "ordenou", "chamou", "avisou", "anunciou", "interrompeu", "prosseguiu", "repetiu", "exclamou",
+  "suspirou", "começou", "terminou", "confessou", "garantiu", "lembrou", "murmura",
+]
+grito = ["gritou", "grita", "berrou", "berra", "urrou", "bradou", "esbravejou", "vociferou aos gritos"]
+sussurro = ["sussurrou", "sussurra", "murmurou", "cochichou", "segredou", "sussurrando", "murmurando"]
+raiva = ["rosnou", "vociferou", "explodiu", "irritad*", "furios*", "esbravejou", "rugiu", "zangad*"]
+medo = ["tremeu", "gaguejou", "apavorad*", "assustad*", "balbuciou", "aterrorizad*"]
+triste = ["soluçou", "chorou", "lamentou", "choramingou", "chorando", "soluçando"]
+alegre = ["riu", "sorriu", "gargalhou", "rindo", "sorrindo", "brincou"]
+ironia = ["ironizou", "zombou", "debochou", "caçoou", "escarneceu"]
+carinho = ["acariciou", "sorriu para", "afagou", "abraçou", "beijou"]
+vocativo = [
+  "querido", "querida", "meu amor", "amor", "meu bem", "filho", "filha", "meu filho",
+  "minha filha", "docinho", "querida minha", "meu anjo", "coração", "benzinho",
+]
+feminino = [
+  "ela", "a moça", "a mulher", "a menina", "a garota", "a velha", "a senhora", "a avó",
+  "a mãe", "a jovem", "a rainha", "a princesa", "a dama", "a criada", "a moçinha", "a tia",
+]
+masculino = [
+  "ele", "o rapaz", "o homem", "o menino", "o garoto", "o velho", "o senhor", "o avô", "o pai",
+  "o jovem", "o rei", "o príncipe", "o criado", "o tio", "o capitão", "o soldado",
+]
+crianca = ["o menino", "a menina", "o garoto", "a garota", "a criança", "o garotinho", "a garotinha"]
+jovem = ["o rapaz", "a moça", "o jovem", "a jovem", "a moçinha", "o adolescente", "a adolescente"]
+idoso = ["o velho", "a velha", "o avô", "a avó", "o ancião", "a anciã", "o idoso", "a idosa", "a velhinha", "o velhinho"]
+nao_nome = [
+  "Ela", "Ele", "Então", "Mas", "E", "Depois", "Quando", "Enquanto", "Agora", "Logo", "Ainda",
+  "Sim", "Não", "O", "A", "Os", "As", "Um", "Uma", "Eu", "Você", "Nós", "Eles", "Elas",
+]
+
+[en]
+elocucao = [
+  "said", "says", "asked", "asks", "replied", "answered", "told", "added", "continued",
+  "explained", "insisted", "agreed", "admitted", "called", "repeated", "began", "went on",
+  "interrupted", "declared", "remarked", "observed", "exclaimed", "sighed", "warned", "begged",
+  "demanded", "muttered", "cried",
+]
+grito = ["shouted", "yelled", "screamed", "bellowed", "roared", "hollered", "shrieked"]
+sussurro = ["whispered", "murmured", "breathed", "whispering", "murmuring"]
+raiva = ["snapped", "growled", "snarled", "barked", "hissed", "fumed", "angrily", "furious*"]
+medo = ["stammered", "trembled", "stuttered", "quavered", "terrified", "frightened"]
+triste = ["sobbed", "wept", "cried softly", "lamented", "sniffled", "sobbing", "weeping"]
+alegre = ["laughed", "grinned", "chuckled", "giggled", "smiled", "laughing", "grinning"]
+ironia = ["sneered", "mocked", "scoffed", "jeered", "smirked"]
+carinho = ["caressed", "smiled at", "stroked", "hugged", "kissed"]
+vocativo = ["darling", "honey", "sweetheart", "dear", "my love", "love", "sweetie", "my boy", "my girl"]
+feminino = [
+  "she", "the woman", "the girl", "the old woman", "the lady", "the mother", "the queen",
+  "the princess", "the young woman", "the maid", "her mother", "grandma", "the grandmother",
+]
+masculino = [
+  "he", "the man", "the boy", "the old man", "the gentleman", "the father", "the king",
+  "the prince", "the young man", "the lad", "the captain", "the soldier", "grandpa",
+  "the grandfather",
+]
+crianca = ["the boy", "the girl", "the child", "the kid", "the little boy", "the little girl"]
+jovem = ["the young man", "the young woman", "the lad", "the youth", "the teenager"]
+idoso = ["the old man", "the old woman", "the grandfather", "the grandmother", "grandpa", "grandma", "the elder"]
+nao_nome = [
+  "She", "He", "Then", "But", "And", "After", "When", "While", "Now", "Still", "Yes", "No",
+  "The", "A", "An", "I", "You", "We", "They", "It",
+]

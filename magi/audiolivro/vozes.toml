@@ -1,14 +1,32 @@
 # Grupos de vozes Kokoro por idioma DELA (A1.2; spec §3; D1/D5). Sobrepostos por
-# [audiolivro.vozes.<idioma>] do config. A narração é sempre a voz dela; personagens pegam a
-# primeira voz livre do grupo (≠ voz dela) e ficam no elenco do livro.
-# Formato:
+# [audiolivro.vozes.<idioma>] do config (cada chave do config substitui a lista daqui).
+# A narração é sempre a voz dela; cada personagem pega a primeira voz livre do grupo (≠ voz dela)
+# e fica no elenco do livro. Grupo esgotado → mistura "a:0.6,b:0.4" de duas vozes do grupo.
 #
-# [en-gb]
-# f      = ["bf_emma", "bf_alice", "bf_lily"]
-# m      = ["bm_george", "bm_lewis", "bm_daniel"]
-# jovem  = ["bf_lily", "af_nicole:0.5,bf_lily:0.5"]
-# idoso  = ["bm_fable", "bf_alice:0.6,bm_fable:0.4"]
-# sem_genero = "<voz_dela>:0.6,<f>:0.4"
-#
-# [emocao]   # fator de velocidade e pausa (ms) depois do trecho
-# tensa = { fator = 1.08, pausa_ms = 150 }
+# Chaves: f, m (adultos; f[0]/m[0] = voz da fala sem falante), jovem (jovem e criança), idoso;
+# opcionais por gênero, que têm precedência: jovem_f, jovem_m, idoso_f, idoso_m.
+# Voz = nome do arquivo de vozes do Kokoro ou mistura "a:peso,b:peso".
+
+[pt-br]
+f = ["pf_dora:0.5,af_bella:0.5", "pf_dora:0.4,bf_emma:0.6"]
+m = ["pm_alex", "pm_santa"]
+jovem = ["pf_dora:0.4,af_nicole:0.6"]
+jovem_m = ["pm_alex:0.6,am_puck:0.4"]
+idoso = ["pm_santa:0.6,bm_fable:0.4"]
+idoso_f = ["pf_dora:0.5,bf_alice:0.5"]
+
+[en-gb]
+f = ["bf_emma", "bf_alice", "bf_lily"]
+m = ["bm_george", "bm_lewis", "bm_daniel"]
+jovem = ["bf_lily", "af_nicole:0.5,bf_lily:0.5"]
+jovem_m = ["am_puck", "bm_lewis:0.5,am_puck:0.5"]
+idoso = ["bm_fable", "bf_alice:0.6,bm_fable:0.4"]
+idoso_f = ["bf_alice:0.6,bm_fable:0.4", "bf_isabella:0.5,bf_alice:0.5"]
+
+[en-us]
+f = ["af_bella", "af_sarah", "af_nicole"]
+m = ["am_adam", "am_michael", "am_eric"]
+jovem = ["af_sky", "af_nicole:0.5,af_sky:0.5"]
+jovem_m = ["am_puck", "am_echo"]
+idoso = ["am_santa", "bm_fable"]
+idoso_f = ["af_sarah:0.6,bf_alice:0.4"]
