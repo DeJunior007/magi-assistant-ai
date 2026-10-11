@@ -15,6 +15,10 @@ eventos vira uma fase estável:
   quadro); a troca atrasada vem em ``deadline``.
 - ``happy``/``confused``/``alert`` durante a fala com a boca mexendo (``MOUTH_HOLD_S``) seguem
   ``speaking``; ``alert`` depois da fala = confirmação = ``listening``.
+- Espera viva (``{"t":"think"}``, spec §2.4): ``on_think("tool", nome)`` durante ``thinking``
+  guarda a ferramenta para o rótulo do chip (``chip_tool``); ``on_think("lote")`` volta o chip a
+  ``thinking`` até o próximo som (boca ou ``speech``). A troca de rótulo também respeita
+  ``MIN_DWELL_S``.
 """
 
 from __future__ import annotations
@@ -37,7 +41,10 @@ class TurnPhase:
         self._audio = False
         self._wait_from = IDLE  # fase mostrada enquanto a voz não começa
         self._last_mouth: float | None = None
+        self._tool: str | None = None  # ferramenta rodando no thinking (rótulo do chip)
+        self._lote = False  # entre lotes: chip em thinking até o próximo som
         self._shown = IDLE
+        self._shown_tool: str | None = None
         self._shown_at = -1e9
 
     # -- eventos ---------------------------------------------------------------------------
@@ -50,6 +57,8 @@ class TurnPhase:
         if phase == SPEAKING and self.phase != SPEAKING:
             self._speak_at, self._audio = now, False
             self._wait_from = THINKING if self.phase == THINKING else SPEAKING
+        if phase != self.phase:
+            self._tool, self._lote = None, False
         self.phase = phase
 
     def on_state(self, expr: str, now: float) -> None:
@@ -72,33 +81,62 @@ class TurnPhase:
     def on_mouth(self, level: float, now: float) -> None:
         if level > MOUTH_MIN:
             self._last_mouth = now
-            if self.phase == SPEAKING:
-                self._audio = True
+            self._sound()
 
     def on_speech(self, now: float) -> None:
+        self._sound()
+
+    def _sound(self) -> None:
         if self.phase == SPEAKING:
             self._audio = True
+            if self._lote:
+                self._lote, self._tool = False, None
+
+    def on_think(self, kind: str, tool: str | None, now: float) -> None:
+        """Aviso de espera do núcleo (``ThinkMsg``): ``tool`` com a ferramenta, ``lote`` quando um
+        lote fechou e o modelo segue, ``wait`` (só a pose; o chip não muda)."""
+        self.chip(now)  # fixa o que estava no chip antes da troca (para o tempo mínimo)
+        if kind == "lote" and self.phase in (THINKING, SPEAKING):
+            self._tool = None
+            self._lote = self.phase == SPEAKING
+        elif kind == "tool" and (self.phase == THINKING or self._lote):
+            self._tool = tool
+        self.chip(now)
 
     # -- leitura ---------------------------------------------------------------------------
 
     def target(self, now: float) -> str:
         """Fase que o chip deveria mostrar agora (sem o tempo mínimo)."""
+        if self._lote:
+            return THINKING
         if self.phase == SPEAKING and not self._audio and now < self._speak_at + AUDIO_WAIT_S:
             return self._wait_from
         return self.phase
 
+    def _target_key(self, now: float) -> tuple[str, str | None]:
+        tgt = self.target(now)
+        return tgt, (self._tool if tgt == THINKING else None)
+
+    def _update(self, now: float) -> None:
+        key = self._target_key(now)
+        if key != (self._shown, self._shown_tool) and now >= self._shown_at + MIN_DWELL_S:
+            (self._shown, self._shown_tool), self._shown_at = key, now
+
     def chip(self, now: float) -> str:
         """Fase mostrada no chip agora (com o tempo mínimo de cada uma)."""
-        tgt = self.target(now)
-        if tgt != self._shown and now >= self._shown_at + MIN_DWELL_S:
-            self._shown, self._shown_at = tgt, now
+        self._update(now)
         return self._shown
+
+    def chip_tool(self, now: float) -> str | None:
+        """Ferramenta do rótulo do chip agora (só com ``thinking`` mostrado; ``None`` = sem)."""
+        self._update(now)
+        return self._shown_tool
 
     def deadline(self, now: float) -> float | None:
         """Próximo instante em que ``chip`` pode mudar sozinho (``None`` = parado)."""
-        tgt = self.target(now)
-        if tgt != self._shown:
+        if self._target_key(now) != (self._shown, self._shown_tool):
             return max(now, self._shown_at + MIN_DWELL_S)
-        if self.phase == SPEAKING and not self._audio and now < self._speak_at + AUDIO_WAIT_S:
+        waiting = self.phase == SPEAKING and not self._lote and not self._audio
+        if waiting and now < self._speak_at + AUDIO_WAIT_S:
             return self._speak_at + AUDIO_WAIT_S
         return None

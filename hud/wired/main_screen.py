@@ -141,6 +141,7 @@ class Snapshot:
     mouth_level: float = 0.0
     caption: str | None = None  # legenda da fala da Magui
     chip: str | None = None  # fase do turno (turn_phase) p/ o chip; None = pela expressão
+    chip_tool: str | None = None  # ferramenta da espera (turn_phase.chip_tool) p/ o rótulo do thinking
     mood: int | None = None  # termômetro de humor 0 (pega leve) .. 4 (pode zoar), R13.7; None = sem dado
     # medidor dela (acordo §6, spec §10): ânimo −1..+1 na cor do fundo, o momento e as 3 últimas causas
     mood_dela: float | None = None  # None = sem dado (cai no termômetro antigo)
@@ -186,12 +187,22 @@ def led_lit(snap: Snapshot) -> bool:
 # chip de estado da Condessa: ouvindo/pensando acendem na cor de foco (o Pedro vê quando ela ativou)
 CHIP_STATES = {"listening": "Listening · 聴取中", "thinking": "Thinking · 思考中",
                "speaking": "Speaking · 発話中"}
+# rótulo do thinking com ferramenta rodando (espera viva, spec §2.4); fora daqui = "Thinking"
+CHIP_TOOLS = {"Searching · 検索中": ("search", "news_query"),
+              "Checking · 確認中": ("steam_game", "game_help"),
+              "Working · 作業中": ("spotify_play", "spotify_pick", "spotify_control", "open_game",
+                                  "close_game", "volume", "rgb", "hud", "screenshot")}
+CHIP_TOOL_LABEL = {tool: lbl for lbl, tools in CHIP_TOOLS.items() for tool in tools}
 
 
 def chip_label(snap: Snapshot) -> tuple[str, str, bool]:
     """(texto, cor, aceso) do chip: ouvindo/pensando/falando, senão jogando (Active) ou Standby.
-    A fase vem de ``snap.chip`` (``turn_phase``, estável nas transições); sem ela, da expressão."""
-    lbl = CHIP_STATES.get(snap.chip if snap.chip is not None else snap.magui_state)
+    A fase vem de ``snap.chip`` (``turn_phase``, estável nas transições); sem ela, da expressão.
+    No ``thinking``, ``snap.chip_tool`` troca o rótulo (``CHIP_TOOL_LABEL``), mesma cor/aceso."""
+    state = snap.chip if snap.chip is not None else snap.magui_state
+    lbl = CHIP_STATES.get(state)
+    if state == "thinking" and snap.chip_tool is not None:
+        lbl = CHIP_TOOL_LABEL.get(snap.chip_tool, lbl)
     if lbl is not None:
         return lbl, FOCUS, True
     if snap.gaming:

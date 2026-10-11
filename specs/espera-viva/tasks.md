@@ -79,7 +79,7 @@ E0.1 ─┬─ E1.1 ─────────┐
   - Pronto: CA-02 verde; tabela §2.3 inteira testada; `ruff` limpo.
   - Paralelo: E1.3, E1.4, E2.1, E2.2
 
-- [ ] **E1.3 Chip da espera** — `TurnPhase.on_think(kind, tool, now)`: rótulo de ferramenta
+- [x] **E1.3 Chip da espera** — `TurnPhase.on_think(kind, tool, now)`: rótulo de ferramenta
   (spec §2.4) enquanto a fase é `thinking`; em `lote`, volta a fase mostrada a `thinking` até o
   próximo nível de boca/`speech` (respeitando `MIN_DWELL_S`); `TurnPhase.chip_tool(now)`.
   `Snapshot.chip_tool: str | None` e `chip_label` usando-o (rótulos novos ao lado de
@@ -197,3 +197,8 @@ E0.1 ─┬─ E1.1 ─────────┐
   `escolher(cat, texto, cota, rng, *, jogo, continuacao, so_demorado)`; `Cota.livre()` /
   `Cota.registrar(frase|None)`. `EsperaCfg.from_raw` recebe a seção `[espera]` (não o config
   inteiro) e recusa chave desconhecida. Sinal Qt da ponte: `think(str v, str tool, int n)`.
+- **E1.3:** `TurnPhase.chip_tool(now)` devolve o nome cru da ferramenta (o rótulo sai de
+  `CHIP_TOOL_LABEL` em `main_screen.py`); `self_info`/`remember`/`forget`/`other` ficam
+  `Thinking`. A ferramenta some quando a fase muda (a síntese mostra `Thinking` puro). Falta ligar
+  o sinal `think` → `TurnPhase.on_think` e `snap.chip_tool = tp.chip_tool(now)` no gamerhud
+  (fora do Escreve; fica para a E1.2).

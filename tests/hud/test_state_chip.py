@@ -102,3 +102,76 @@ def test_gamerhud_chip_segue_a_fase(make_hud, monkeypatch):  # noqa: F811 - fixt
     clock[0] = 108.0
     w.on_face_state("sleeping")
     assert chip_label(w.wired.snap)[0].startswith("Standby")
+
+
+# -- espera viva: rótulo da ferramenta e lotes (spec §2.4) -----------------------------------
+
+
+def test_ferramenta_vira_rotulo_do_thinking():
+    from wired.main_screen import Snapshot, chip_label
+
+    tp = TurnPhase()
+    seq(tp, [(0.0, "listening"), (1.0, "thinking")])
+    assert tp.chip_tool(1.0) is None
+    tp.on_think("tool", "search", 2.0)
+    assert (tp.chip(2.0), tp.chip_tool(2.0)) == ("thinking", "search")
+    labels = {}
+    for tool in ("search", "news_query", "steam_game", "spotify_play", "self_info", None):
+        lbl, fg, lit = chip_label(Snapshot(chip="thinking", chip_tool=tool))
+        labels[tool] = lbl
+        assert (fg, lit) == chip_label(Snapshot(chip="thinking"))[1:]  # mesma cor/aceso
+    assert labels["search"] == labels["news_query"] == "Searching · 検索中"
+    assert labels["steam_game"] == "Checking · 確認中"
+    assert labels["spotify_play"] == "Working · 作業中"
+    assert labels["self_info"] == labels[None] == "Thinking · 思考中"
+    # a ferramenta só vale no thinking: falando, o rótulo é o de sempre
+    assert chip_label(Snapshot(chip="speaking", chip_tool="search"))[0].startswith("Speaking")
+    # a fala começa: a ferramenta sai (thinking da síntese sem rótulo de ferramenta)
+    tp.on_state("speaking", 5.0)
+    assert (tp.chip(5.0), tp.chip_tool(5.0)) == ("thinking", None)
+
+
+def test_ferramenta_fora_do_thinking_e_ignorada():
+    tp = TurnPhase()
+    tp.on_state("listening", 0.0)
+    tp.on_think("tool", "search", 1.0)
+    assert (tp.chip(1.0), tp.chip_tool(1.0)) == ("listening", None)
+
+
+def test_lote_volta_a_thinking_ate_a_boca_mexer():
+    tp = TurnPhase()
+    chips = seq(tp, [(0.0, "thinking"), (1.0, "speaking"), (1.2, "mouth")])
+    assert chips[-1] == "speaking"
+    tp.on_think("lote", None, 3.0)
+    assert tp.chip(3.0) == "thinking"
+    assert tp.chip(3.0 + 2 * AUDIO_WAIT_S) == "thinking"  # sem som, segue pensando
+    assert tp.deadline(3.0 + 2 * AUDIO_WAIT_S) is None
+    tp.on_think("tool", "news_query", 4.0)  # ferramenta no meio dos lotes ganha rótulo
+    assert tp.chip_tool(4.0) == "news_query"
+    tp.on_mouth(0.5, 6.0)
+    assert (tp.chip(6.0), tp.chip_tool(6.0)) == ("speaking", None)
+
+
+def test_lote_por_speech_e_tempo_minimo():
+    tp = TurnPhase()
+    seq(tp, [(0.0, "thinking"), (1.0, "speaking"), (1.1, "speech")])
+    tp.on_think("lote", None, 1.2)  # speaking mostrado há pouco: segura o tempo mínimo
+    assert tp.chip(1.2) == "speaking"
+    assert tp.deadline(1.2) == 1.1 + MIN_DWELL_S
+    assert tp.chip(1.1 + MIN_DWELL_S) == "thinking"
+    tp.on_speech(2.0)
+    assert tp.chip(2.0) == "speaking"
+
+
+def test_troca_de_rotulo_sem_piscar():
+    tp = TurnPhase()
+    tp.on_state("thinking", 0.0)
+    tp.chip(0.0)
+    tp.on_think("tool", "search", 1.0)
+    assert tp.chip_tool(1.0) == "search"
+    tp.on_think("tool", "rgb", 1.1)  # rajada de ferramentas: segura o rótulo mostrado
+    assert tp.chip_tool(1.1) == "search"
+    assert tp.deadline(1.1) == 1.0 + MIN_DWELL_S
+    assert tp.chip_tool(1.0 + MIN_DWELL_S) == "rgb"
+    tp.on_think("wait", None, 2.0)  # wait não mexe no chip
+    assert (tp.chip(2.0), tp.chip_tool(2.0)) == ("thinking", "rgb")
