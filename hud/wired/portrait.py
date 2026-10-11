@@ -483,7 +483,7 @@ IRIS_EASE = 0.35  # a íris anda rápido (sacada), a cabeça vem atrás
 SACCADE_EVERY = (0.7, 2.2)  # microssacadas parada: ±1 px de vez em quando
 SYLLABLE_RISE = 0.15  # subida do volume depois de um vale = sílaba nova (troca o formato da boca)
 SHAPES_DEFAULT = {"low": ["C2", "V2", "V5"], "mid": ["V1", "C2", "V3"], "high": ["C3", "V1", "V3"]}
-DOTS_AFTER = 0.8  # s pensando até as reticências aparecerem
+DOTS_ASSET = "D10"  # ``extra/D10.png``: reticências em arte (estático, como os D* das reações)
 # ouvindo (gravando a fala do Pedro): acorda, chega para a frente, olhar fixo no centro e anéis de "escuta"
 LISTEN_LEAN = 7.0  # px que a cabeça desce (inclinada para a frente, atenta)
 LISTEN_TILT = -1.6  # graus: cabeça um pouco de lado, como quem presta atenção
@@ -665,6 +665,14 @@ class PartsPortrait(Mascot):
         self._voice_at = -math.inf  # última vez que a voz passou do ruído
         self._think_since: float | None = None
         self._think_k = 0.0  # 0..1, suaviza a entrada e a saída da cara de pensando
+        # espera viva (``pensando.pose``): relógio do turno, ferramenta em curso e último lote
+        self._turn_think_at: float | None = None  # 1º "pensando" do turno (ou o aviso do lote)
+        self._think_tool: str | None = None
+        self._think_tool_at = -math.inf
+        self._think_lote = 0
+        self._think_tilt = THINK_TILT  # inclinação da última pose (fica durante a saída)
+        self._dots_at = -math.inf  # última vez que a pose pediu as reticências (esmaecem 0,2 s)
+        self._dots_period = 0.9
         self._iris = [0.0, 0.0]  # deslocamento atual da íris (olhar livre)
         self._gl = None
         if assets.renderer == "gl":
@@ -757,8 +765,34 @@ class PartsPortrait(Mascot):
             self._gaze = None
         elif expr != "listening":
             self._listen_since = None
+        if expr in ("sleeping", "listening"):  # turno acabou/novo: a pose de pensar recomeça do "hm"
+            self._turn_think_at = None
+            self._think_tool, self._think_tool_at, self._think_lote = None, -math.inf, 0
 
     set_state = set_expression
+
+    def set_think(self, kind: str, tool: str | None, now: float | None = None, n: int = 0) -> None:
+        """Aviso de espera do núcleo (``ThinkMsg``, espera viva): ``tool`` vira olhar de painel por
+        ``pensando.OLHAR_PAINEL_S``; ``lote`` recomeça a pose na etapa "pensando"; ``wait`` nada muda."""
+        now = self._now if now is None else now
+        if kind == "tool":
+            self._think_tool, self._think_tool_at = tool or None, now
+        elif kind == "lote":
+            self._think_lote = max(self._think_lote + 1, int(n))
+            self._turn_think_at = now
+            self._think_tool = None
+
+    def think_pose(self, now: float):
+        """``pensando.Pose`` agora (``None`` fora do pensar). Sem relógio do turno ainda (nenhum tick
+        desde que começou a pensar), vale a etapa "pensando"."""
+        if not self.thinking(now):
+            return None
+        from . import pensando
+
+        base = self._turn_think_at
+        desde = pensando.HM_ATE_S if base is None else max(0.0, now - base)
+        tool = self._think_tool if now - self._think_tool_at < pensando.OLHAR_PAINEL_S else None
+        return pensando.pose(desde, tool, self._think_lote, self.assets.has)
 
     def _fast(self, now: float, head_target: tuple[float, float]) -> bool:
         """Precisa de 60 fps agora? (fala, ouvindo, pensando, piscada, reação ou olhar/cabeça em trânsito)"""
@@ -775,13 +809,22 @@ class PartsPortrait(Mascot):
         return self.state == "speaking" and self.level < 0.05 and now - self._voice_at > PONDER_AFTER
 
     def _think_look(self, now: float) -> tuple[str, float, float] | None:
-        if not self.thinking(now):
+        pose = self.think_pose(now)
+        if pose is None:
             return None
-        for _ in THINK_CYCLE:  # pula olhares sem arte
-            eyes, dx, dy = THINK_CYCLE[int(now / THINK_STEP) % len(THINK_CYCLE)]
+        if pose.look:  # ferramenta com painel: olha para ele (1,5 s), depois volta ao ciclo
+            from .reactions import LOOK_DIRS
+
+            name = LOOK_DIRS.get(self.layout, LOOK_DIRS["main"]).get(pose.look)
+            gaze = self.assets.gaze_by_name.get(name) if name else None
+            if gaze is not None and self.assets.has(f"eyes/{gaze.get('eyes', '')}.png"):
+                return str(gaze["eyes"]), float(gaze.get("dx", 0)), float(gaze.get("dy", 0))
+        cycle, step = pose.ciclo, pose.passo_s
+        for _ in cycle:  # pula olhares sem arte
+            eyes, dx, dy = cycle[int(now / step) % len(cycle)]
             if self.assets.has(f"eyes/{eyes}.png"):
                 return eyes, dx, dy
-            now += THINK_STEP
+            now += step
         return None
 
     def _reacting(self, now: float):
@@ -966,6 +1009,8 @@ class PartsPortrait(Mascot):
             self._think_since = now
         elif think is None:
             self._think_since = None
+        if think is not None and self._turn_think_at is None:
+            self._turn_think_at = now  # 1º "pensando" do turno: a pose começa do "hm"
         if dt:
             self._think_k += ((1.0 if think else 0.0) - self._think_k) * (1 - math.exp(-dt / 0.35))
             want = 1.0 if self.state == "listening" else 0.0
@@ -1012,7 +1057,20 @@ class PartsPortrait(Mascot):
         head_dy = 2.0 * breath + 3.0 * talk  # falando, a cabeça acompanha a voz
         tilt = 0.6 * math.sin(now * 0.5) + 0.25 * math.sin(now * 1.3 + 0.7)  # inclinação lenta
         sway = 1.5 * math.sin(now * 0.35)  # o corpo balança de leve para os lados
-        tilt += THINK_TILT * self._think_k  # pensando: cabeça de lado
+        pose = self.think_pose(now)
+        if pose is not None:
+            self._think_tilt = pose.tilt
+            if "dots" in pose.efeitos:
+                self._dots_at = now
+                self._dots_period = 0.6 if pose.etapa == "concentrada" else 0.9
+        tilt += self._think_tilt * self._think_k  # pensando: cabeça de lado
+        tk = self._think_k
+        if self._extra(pose, "sway") is not None:  # pensando: o corpo vai e vem de leve
+            sway += 3.0 * tk * math.sin(now * 0.9)
+        if self._extra(pose, "bob_lento") is not None:  # concentrada: a cabeça marca um ritmo lento
+            beat = math.sin(math.pi * 0.8 * now)
+            tilt += 0.8 * tk * beat
+            head_dy += 1.5 * tk * abs(beat)
         lk = self._listen_k
         if lk:  # ouvindo: o balanço some (atenta) e a cabeça fica um pouco de lado
             tilt = tilt * (1 - 0.7 * lk) + LISTEN_TILT * lk
@@ -1121,6 +1179,8 @@ class PartsPortrait(Mascot):
             draw(f"parts/{name}_tip.png", *args, child=(tip - 0.6 * swing) if gl is None else 0.0,
                  deform=tail_def)
         arm = self._extra(r, "braco") if r is not None else (self._rest_extra("braco") if rest else None)
+        if not arm and r is None:  # concentrada: mão no queixo (P14), se houver a arte
+            arm = self._extra(pose, "braco")
         arm = arm if arm and self.assets.has(f"extra/{arm}.png") else None  # sem a arte, braço da base
         skip = arms_replaced(arm)
         if gl is not None:  # braços acompanham a respiração; o peito deforma
@@ -1182,8 +1242,9 @@ class PartsPortrait(Mascot):
 
             for kind in [EFEITO.get(k, k) for k in rest.efeitos if ":" not in k and k != "olhando_pedro"][:3]:
                 self._reaction_effect(p, now, kind, hx, hy + head_dy, alpha=1.0)
-        if self._think_since is not None and now - self._think_since >= DOTS_AFTER:
-            self._dots(p, now, hx, hy + head_dy)
+        dots_a = 1.0 - (now - self._dots_at) / 0.2  # some em 0,2 s quando a pose sai
+        if dots_a > 0:
+            self._reaction_effect(p, now, "dots", hx, hy + head_dy, alpha=min(1.0, dots_a))
         if lk > 0.02:
             self._listen_meter(p, now, lk, hx, hy + head_dy)
         p.restore()
@@ -1306,12 +1367,13 @@ class PartsPortrait(Mascot):
             p.drawRoundedRect(QRectF(x, 250 + hy - h / 2, 13, h), 6.5, 6.5)
         p.restore()
 
-    def _dots(self, p: QPainter, now: float, hx: float, hy: float) -> None:
-        """Reticências pulsando ao lado da cabeça (pensando / esperando a ferramenta)."""
+    def _dots(self, p: QPainter, now: float, hx: float, hy: float, period: float = 0.9) -> None:
+        """Reticências acima da cabeça (pensando / esperando a ferramenta): cada ponto acende em
+        sequência, uma volta a cada ``period`` s (0,9 pensando, 0,6 concentrada)."""
         p.save()
         p.setPen(Qt.PenStyle.NoPen)
         for i in range(3):
-            ph = (now * 1.6 - i * 0.22) % 1.0
+            ph = (now / period - i * 0.22) % 1.0
             lift = 10 * math.sin(math.pi * ph) if ph < 0.5 else 0.0
             c = QColor(self.tint())
             c.setAlphaF(0.45 + 0.55 * (lift / 10))
@@ -1339,10 +1401,12 @@ class PartsPortrait(Mascot):
             alpha = max(0.0, min(1.0, (self.reaction_until - now) / 0.6))
         p.save()
         p.setOpacity(alpha)
-        ident = next((k for k, v in EFEITO.items() if v == kind), None)
+        ident = DOTS_ASSET if kind == "dots" else next((k for k, v in EFEITO.items() if v == kind), None)
         pm = self.assets.pix(f"extra/{ident}.png") if ident else None
         if pm is not None:  # quadro inteiro de 1024, acompanha a cabeça
             p.drawPixmap(QRectF(hx, hy, 1024, 1024), pm, QRectF(pm.rect()))
+        elif kind == "dots":  # reticências da espera (período pela etapa da pose)
+            self._dots(p, now, hx, hy, self._dots_period)
         else:
             pop = self._fx_pop(kind, now) if hasattr(self, "_fx_seen") else 1.0
             draw = _FX.get(kind)

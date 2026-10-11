@@ -91,7 +91,7 @@ E0.1 ─┬─ E1.1 ─────────┐
   - Pronto: testes atuais do `TurnPhase` sem mudar asserção; ferramenta → rótulo; lote → `Thinking` até a boca mexer; troca de rótulo sem piscar (< `MIN_DWELL_S`).
   - Paralelo: E1.1, E1.4, E2.1, E2.2
 
-- [ ] **E1.2 Retrato e ponte do HUD** — `PartsPortrait.set_think(kind, tool, now)`; `_think_look`
+- [x] **E1.2 Retrato e ponte do HUD** — `PartsPortrait.set_think(kind, tool, now)`; `_think_look`
   e o `tilt` passam a vir de `pensando.pose` (`desde_s` do 1º `thinking` do turno; zera no
   `sleeping`/`listening`); efeito `dots` (spec §2.2) no `_reaction_effect`; corpo `sway`/
   `bob_lento`/`braco:P14` pelo mesmo caminho dos extras das reações (asset ausente → ignora). Ligação:
@@ -220,3 +220,10 @@ E0.1 ─┬─ E1.1 ─────────┐
   painel; quem cronometra os 1,5 s é o retrato (E1.2), com `pensando.OLHAR_PAINEL_S`. Constantes
   `THINK_*` copiadas em `pensando.py` (sem Qt); teste confere contra `portrait.py` via `ast`.
   Efeito `dots` é o mesmo nas duas etapas; o período (0,9/0,6 s) sai de `Pose.etapa` (E1.2).
+- **E1.2:** `PartsPortrait.set_think(kind, tool, now, n=0)` e `think_pose(now)` (sem tick desde que
+  começou a pensar, vale a etapa "pensando": os testes antigos do ciclo seguem iguais). O relógio do
+  turno começa no 1º tick pensando e zera em `sleeping`/`listening`; `lote` recomeça a contagem.
+  `dots` saiu do `DOTS_AFTER` (removido) para `pose.efeitos`, desenhado por `_reaction_effect("dots")`
+  (`extra/D10.png` se houver; `DOTS_ASSET`), esmaece 0,2 s. `WiredUI.set_think(kind, tool, mono, n=0)`
+  ignora mascote sem pose. `on_bridge_think` chama `caption_tick()` para o chip sair na hora;
+  `snap.chip_tool` é posto em `wired_refresh`, `caption_tick` e zerado na queda do núcleo.

@@ -1122,7 +1122,9 @@ class HUD(QWidget):
         snap = w.build(self.sensors.data, spec=self.spec, pads=self.pads,
                        gaming=(self.steam_game or self.fpsrc.name) is not None)
         if getattr(self, "turn_phase", None) is not None:   # chip pela fase do turno (estável)
-            snap.chip = self.turn_phase.chip(time.monotonic())
+            now = time.monotonic()
+            snap.chip = self.turn_phase.chip(now)
+            snap.chip_tool = self.turn_phase.chip_tool(now)   # rótulo da ferramenta (espera viva)
         if not (self.isVisible() and self.width() > 1) or self.trans:
             return
         for r in w.screen(self.view).dirty_regions(snap, size=self.size()):
@@ -1197,6 +1199,7 @@ class HUD(QWidget):
         b.detail.connect(self.on_bridge_detail)
         b.mood.connect(self.on_bridge_mood)
         b.turnTag.connect(self.on_bridge_turn_tag)
+        b.think.connect(self.on_bridge_think)
         b.vote.connect(self.on_bridge_vote)
         b.card.connect(self.on_bridge_card)
         b.connectedChanged.connect(self.on_bridge_connected)
@@ -1281,9 +1284,9 @@ class HUD(QWidget):
         if self.wired:
             rects = self.wired.caption_rects(txt, self.view, self.size())
             main = self.wired.main
-            chip = self.turn_phase.chip(now)
-            if chip != self.wired.snap.chip:   # chip mudou (fase do turno / tempo mínimo)
-                self.wired.snap.chip = chip
+            chip, tool = self.turn_phase.chip(now), self.turn_phase.chip_tool(now)
+            if (chip, tool) != (self.wired.snap.chip, self.wired.snap.chip_tool):  # fase/ferramenta
+                self.wired.snap.chip, self.wired.snap.chip_tool = chip, tool
                 rects = rects or self.wired.screen(self.view).group_rects("talk", self.size())
             if main.caption_feed(self.wired.snap.caption, now) and self.view not in ("idle", "learning"):
                 rects = rects or main.group_rects("talk", self.size())   # rolagem suave da legenda
@@ -1319,7 +1322,7 @@ class HUD(QWidget):
             self.speech_caption = SpeechCaption()
             self.turn_phase = TurnPhase()
             if self.wired:
-                self.wired.snap.chip = None
+                self.wired.snap.chip = self.wired.snap.chip_tool = None
             self.caption_timer.stop()
             if self.wired:
                 self.wired.on_connected(False)
@@ -1330,6 +1333,14 @@ class HUD(QWidget):
         """Tag do turno do Pedro (elogio, zoeira…): as reações da Condessa leem no próximo tick."""
         if self.wired:
             self.wired.set_turn_tag(tag)
+
+    def on_bridge_think(self, v, tool, n):
+        """Espera viva (``ThinkMsg``): o chip troca o rótulo e o retrato muda a pose de pensar."""
+        now = time.monotonic()
+        self.turn_phase.on_think(v, tool or None, now)
+        if self.wired:
+            self.wired.set_think(v, tool or None, now, n=n)
+        self.caption_tick()   # o chip sai pelo mesmo caminho da fase do turno
 
     def on_bridge_mood(self, v):
         self.magui_mood = v

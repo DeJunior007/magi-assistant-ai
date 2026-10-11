@@ -484,3 +484,84 @@ def test_braco_da_reacao_substitui_o_da_base(tmp_path, monkeypatch, arte):
     m.tick(1.0)
     assert render(m, 1.2) is not None
     assert pedidos and pedidos[-1] == (("arm_l", "arm_r") if arte else ())
+
+
+# ── espera viva (E1.2): pose de pensar pelo ``pensando.pose`` ─────────────────────────────────
+
+def _thinker(tmp_path, extra=("eyes/F4.png", "eyes/B13.png", "eyes/F6.png", "eyes/F7.png", "eyes/B18.png")):
+    from wired.portrait import PartsAssets, PartsPortrait
+
+    write_parts(tmp_path)
+    for rel in extra:
+        img = QImage(16, 16, QImage.Format.Format_ARGB32)
+        img.fill(QColor(200, 100, 100))
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        assert img.save(str(tmp_path / rel))
+    m = PartsPortrait(PartsAssets(tmp_path), "listening", now=0.0)
+    m.hour = lambda: 14
+    m._blink_at = 1e9
+    return m
+
+
+def test_pensando_etapas_pelo_relogio_e_zera_no_turno(tmp_path):
+    m = _thinker(tmp_path)
+    m.set_expression("thinking")
+    m.tick(10.0)  # 1º "pensando" do turno
+    assert m.think_pose(10.5).etapa == "hm" and m.eyes_id(10.5) == "F4"  # olhar para cima, fixo
+    assert m.think_pose(12.0).etapa == "pensando"
+    assert m.think_pose(14.0).etapa == "concentrada" and m.eyes_id(14.0) in ("B18", "B13")
+    render(m, 14.0)
+    assert m._think_tilt == pytest.approx(1.5) and m._dots_period == pytest.approx(0.6)
+    m.set_expression("listening")  # turno novo: recomeça do "hm"
+    m.set_expression("thinking")
+    m.tick(20.0)
+    assert m.think_pose(20.5).etapa == "hm"
+    m.set_think("lote", None, 30.0, n=1)  # lote fechou: volta à "pensando", sem "hm"
+    assert m.think_pose(30.1).etapa == "pensando"
+
+
+def test_pensando_ferramenta_olha_o_painel_por_1_5s(tmp_path):
+    from wired import pensando
+
+    m = _thinker(tmp_path)
+    m.set_expression("thinking")
+    m.tick(10.0)
+    assert m.eyes_id(11.6) == "B13"  # ciclo da etapa
+    m.set_think("tool", "rgb", 11.5)  # rgb -> painel "led" -> gaze "left" (F1)
+    assert m._think_look(11.6) == ("F1", -6.0, 0.0)
+    assert m.think_pose(11.5 + pensando.OLHAR_PAINEL_S - 0.1).look == "led"
+    assert m.think_pose(11.5 + pensando.OLHAR_PAINEL_S + 0.1).look is None  # volta ao ciclo
+    m.set_think("tool", "search", 12.0)  # sem painel: segue o ciclo
+    assert m.think_pose(12.1).look is None
+
+
+def test_pensando_voz_comeca_e_a_pose_sai(tmp_path):
+    m = _thinker(tmp_path)
+    m.set_expression("thinking")
+    m.tick(10.0)
+    assert m.think_pose(12.0) is not None
+    m.set_expression("speaking")
+    m.set_level(0.6)
+    m.tick(12.0)
+    assert m.think_pose(12.0) is None and m._think_look(12.0) is None  # R1.3
+
+
+@pytest.mark.parametrize("arte", [False, True])
+def test_pensando_dots_com_e_sem_d10(tmp_path, arte):
+    extra = ("eyes/F4.png", "eyes/B13.png") + (("extra/D10.png",) if arte else ())
+    m = _thinker(tmp_path, extra)
+    chamadas = []
+    m._dots = lambda p, now, hx, hy, period=0.9: chamadas.append(period)
+    m.set_expression("thinking")
+    m.tick(10.0)
+    render(m, 10.5)  # "hm": sem reticências
+    assert not chamadas
+    m.tick(12.0)
+    assert render(m, 12.0) is not None  # "pensando": dots (código ou D10.png)
+    assert chamadas == ([] if arte else [0.9])
+    m.set_expression("listening")
+    m.tick(12.1)
+    n = len(chamadas)
+    render(m, 12.1)  # esmaecendo (0,2 s)
+    render(m, 12.5)  # já sumiu
+    assert len(chamadas) == (n if arte else n + 1)

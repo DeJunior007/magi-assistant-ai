@@ -476,6 +476,13 @@ class WiredUI:
         self.turn_tag = None if not tag else (str(tag), time.monotonic() if mono is None else mono)
         self.snap.turn_tag = self.turn_tag
 
+    def set_think(self, kind: str, tool: str | None, mono: float | None = None, n: int = 0) -> None:
+        """Aviso de espera do núcleo (``ThinkMsg``, espera viva): repassa ao retrato (pose de pensar).
+        Retrato sem pose de pensar (quadros, mascote simples) ignora."""
+        set_think = getattr(self.mascot, "set_think", None)
+        if set_think is not None:
+            set_think(kind, tool or None, time.monotonic() if mono is None else mono, n=n)
+
     def on_card(self, card: dict, wall: float | None = None) -> None:
         title = card.get("title")
         if card.get("source") == RADIO_SOURCE and title:
