@@ -269,7 +269,7 @@ def test_pedro_voltou_corta_e_escolhe_ramo(cochilou, ramo, olhos):
     assert (c.tipo, c.ramo, c.nivel) == ("pedro_voltou", ramo, 1)
     assert c.passos[1].eyes == olhos  # passos[0] é a saída B1 C1 200
     if not cochilou:
-        assert [(p.eyes, p.mouth) for p in c.passos[-2:]] == [("B1", "C10"), ("B4", "C5")]
+        assert [(p.eyes, p.mouth) for p in c.passos[-3:]] == [("B1", "C10"), ("B4", "C5"), ("F1", "C10")]
 
 
 def test_claude_terminou_longo_brilho():

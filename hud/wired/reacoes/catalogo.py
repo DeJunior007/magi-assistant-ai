@@ -1,12 +1,12 @@
 # ruff: noqa: E501  (tabela de dados: uma reação por linha)
-"""Catálogo das 113 reações (90 da planilha + I1–I23): só dados. Dono: R0.4.
+"""Catálogo das 115 reações (90 da planilha + I1–I25): só dados. Dono: R0.4.
 
 Fontes: sequências de ``reacoes.md`` e acordo §1–§2 (ajustes aplicados), classes do spec §3 mais a
 classe do detector (spec §5), sinais condicionados do spec §5. Reações de variante (spec §1) usam a
 chave atual + ``variante``: em ``DEFS`` a chave é ``chave`` (sem variante) ou ``(chave, variante)``,
 como o governador procura (``_achar``).
 
-``TODAS``: as 113 ``Def`` em ordem. ``DEFS``: por chave. ``ATIVAS``: chaves de ``DEFS`` sem sinal
+``TODAS``: as 115 ``Def`` em ordem. ``DEFS``: por chave. ``ATIVAS``: chaves de ``DEFS`` sem sinal
 pendente e não substituídas (R8, CA-05). Sinal de arte (``ARTE``, hoje só ``P13`` da I20): conta como
 pronto se o PNG existe na pasta do retrato montada (``$MAGI_PORTRAIT_DIR`` ou
 ``~/.local/share/magi/condessa``), checado uma vez na importação — depois de rodar o
@@ -15,13 +15,15 @@ pronto se o PNG existe na pasta do retrato montada (``$MAGI_PORTRAIT_DIR`` ou
 Notação das sequências: passos separados por ``|``; em cada passo, ``B*``/``F*`` = olhos,
 ``C*``/``V*`` = boca, ``D*`` = efeito (``contratos.EFEITO``), ``E2`` = fone na cabeça (``fone_on``),
 ``E3`` = fone no pescoço (``fone_off``), ``P*`` = braço (``braco:P*``), ``iris:<olhar>`` = sacada do
-O1, ``bob``/``sway``/``tails`` = corpo, número = ms.
+O1, ``bob``/``sway``/``tails`` = corpo, número = ms. Apelidos da notação do Conselho: ``O1`` = olhar
+de frente, para ele (``iris:B1``), ``rubor`` = ``D1``, ``!`` = ``D5``, ``?`` = ``D4``.
 """
 
 from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from .contratos import EFEITO, Classe, Def, Passo
@@ -31,11 +33,14 @@ _SONO, _RARA, _DIA, _NOT = Classe.SONO, Classe.RARA, Classe.DIARIA, Classe.NOTUR
 _ZOE, _COB, _VIT, _VOL = Classe.ZOEIRA, Classe.COBRANCA, Classe.VITORIA, Classe.VOLTA
 
 
+_APELIDO = {"O1": "iris:B1", "rubor": "D1", "!": "D5", "?": "D4"}  # notação do acordo placar-e-jogo
+
+
 def _passos(seq: str) -> tuple[Passo, ...]:
     out = []
     for parte in seq.split("|"):
         ms, eyes, mouth, look, efeitos, corpo = 0, None, None, None, [], []
-        for t in parte.split():
+        for t in (_APELIDO.get(t, t) for t in parte.split()):
             if t.isdigit():
                 ms = int(t)
             elif t[0] in "BF":
@@ -175,6 +180,9 @@ _LINHAS: tuple = (
     ("I21", "mao_no_queixo", None, "Mão no queixo", "B1 C1 P10 2500 | F1 C1 P10 1500 | B1 C1 400", {_P}, None, 600.0, {}),
     ("I22", "sacada_player", None, "Sacada ao player", "B1 C1 look:player 1400 | B3 80 | B1 C1 400", {_P, _M}, None, 300.0, {}),
     ("I23", "flagra_no_forum", None, "Flagra no fórum", "B1 C1 look:history 2000 | B1 C1 D2 iris:B1 900 | B1 C10 800", {_P, _ZOE}, None, 600.0, {}),
+    # V1.2 (acordo-pj §1): torcida, positiva do grupo Jogando (Δ ânimo em [vida.torcida]); sem texto
+    ("I24", "torcida", None, "Torcida (tela do jogo)", "B1 C10 look:fps 700 | B4 C10 tails look:fps 800", {_P}, None, _PASSIVA_CD, {}),
+    ("I25", "torcida", "punho", "Torcida (punho)", "P12 B4 C10 tails 900 | B4 C10 600", {_P}, None, _PASSIVA_CD, {}),
 )
 
 TODAS: tuple[Def, ...] = tuple(
@@ -203,6 +211,15 @@ def ativas(tem: Callable[[str], bool] = tem_arte) -> frozenset[str | tuple[str, 
 
 
 ATIVAS: frozenset[str | tuple[str, str]] = ativas()
+TORCIDA: tuple[str | tuple[str, str], ...] = ("torcida", ("torcida", "punho"))  # as 2 variantes
+
+
+def com_suor(d: Def) -> Def:
+    """``D2`` em todos os passos ("aguenta firme"): a ``torcida`` com episódio FPS/calor aberto."""
+    suor = EFEITO["D2"]
+    return replace(d, passos=tuple(
+        p if suor in p.efeitos else replace(p, efeitos=(suor, *p.efeitos)[:3]) for p in d.passos
+    ))
 
 
 # -- Roteiros de cena (acordo §5, spec §8): classe CENA (``governador.Tipo.CENA``), por ramo --------
@@ -213,6 +230,9 @@ _CLIMAX = {
     "-1": "B7 C9 1200", "-2": "B7 C9 P13 2000",
 }
 _CHEGA = "look:player 600 | B1 C1 P11 E2 700"
+_PISCADINHA = "B4 C10 800 | B16 C10 D9 1200 | P9 B5 C6 1500"
+_VOLTA = ("F1 C12 P13 1000", "B1 C10 800", "B4 C5 rubor 800", "F1 C10 400")
+_CONTINUACAO = ("ignorado", "aplaudido")  # continuação de cena: não define o nível do tipo
 _LINHAS_CENA: tuple = (
     *(("musica_comecou", r, "Música começou", f"{_CHEGA} | {c}", {_M}, "musica", 2)
       for r, c in _CLIMAX.items() if r not in ("-1", "-2")),
@@ -226,16 +246,24 @@ _LINHAS_CENA: tuple = (
     ("pedro_fala", "sem_fone", "Pedro fala", "B1 C1 iris:B1 600", {_E}, "pedro", 1),
     ("recoloca_fone", None, "Recoloca o fone", "B1 C1 P11 E2 700", {_M}, "fone", 3),
     ("jogo_abriu", None, "Cockpit", "B1 C10 P12 800", {_S}, "jogo", 2),
-    ("episodio", "cobranca", "Episódio de jogo", "look:fps 600 | B9 C7 D2 600 | B7 C8 D2 1200", {_S, _COB}, "jogo", 2),
-    ("episodio", "recuperou", "Recuperou", "look:fps 600 | B4 C10 1200", {_S}, "jogo", 2),
+    # acordo-pj §2: susto e "você viu isso?" de frente (O1), sem a desconfiada para a parede (B7 C8)
+    ("episodio", "cobranca", "Episódio de jogo", "look:fps B1 C1 600 | B9 C7 D2 ! 500 | O1 B7 C12 D2 1000", {_S, _COB}, "jogo", 2),
+    ("episodio", "recuperou", "Recuperou", "look:fps B1 C1 600 | B4 C10 800 | O1 P12 B1 C5 600", {_S}, "jogo", 2),
     ("jogo_fechou", "limpo", "Relatório: limpo", "B4 C5 P12 1500", {_S, _VIT}, "jogo_fim", 2),
     ("jogo_fechou", "episodios", "Relatório: eu avisei", "B6 C1 800 | B4 C10 1800", {_S, _ZOE}, "jogo_fim", 2),
     ("jogo_fechou", "pedro_mal", "Relatório: desconfiada suave", "B7 C12 1200 | B1 C1 600", {_S}, "jogo_fim", 2),
     ("pedro_voltou", "cochilou", "Voltou: sobressalto e tsundere", "B9 C7 D5 500 | B2 C9 iris:B1 500 | B6 C9 D1 1500 | F1 C12 600", {_E, _VOL}, "pedro", 1),
-    ("pedro_voltou", "orgulhosa", "Voltou: sorriso que escapa", "F1 C12 1000 | B1 C10 800 | B4 C5 1000", {_E, _VOL}, "pedro", 1),
+    # volta orgulhosa (acordo-pj §2): braços cruzados → escapa o rubor → disfarce; 2ª volta < 1 h: curta
+    ("pedro_voltou", "orgulhosa", "Voltou: sorriso que escapa", f"{_VOLTA[0]} | {_VOLTA[1]} | {_VOLTA[2]} | {_VOLTA[3]}", {_E, _VOL}, "pedro", 1),
+    ("pedro_voltou", "orgulhosa_2", "Voltou de novo: sorriso curto", "B1 C10 600 | B4 C5 800", {_E, _VOL}, "pedro", 1),
     ("claude_terminou", None, "Claude terminou", "look:claude 400 | B1 C10 D9 1000", {_E}, "claude", 3),
-    ("truque", None, "Truque de salão", "B4 C10 tails 1200 | B5 C6 D9 sway 1500", {_RARA}, "truque", 2),
-    ("truque", "ignorado", "Truque ignorado", "B1 C9 800", {_ZOE}, "truque", 3),
+    # truque (acordo-pj §2): 2 números alternados; o aceno P9 no fim é o "pode bater palma"
+    ("truque", None, "Truque: piscadinha", _PISCADINHA, {_RARA}, "truque", 2),
+    ("truque", "piscadinha", "Truque: piscadinha", _PISCADINHA, {_RARA}, "truque", 2),
+    ("truque", "fone", "Truque: o fone", "P11 B1 C10 600 | E3 B16 C10 600 | E2 B5 C6 D9 tails 900 | P9 B4 C5 900", {_RARA}, "truque", 2),
+    ("truque", "fone_inverso", "Truque: o fone (sem fone)", "P11 B1 C10 600 | E2 B16 C10 600 | E3 B5 C6 D9 tails 900 | P9 B4 C5 900", {_RARA}, "truque", 2),
+    ("truque", "aplaudido", "Truque aplaudido", "B4 C6 rubor 1000", {_RARA}, "truque", 3),
+    ("truque", "ignorado", "Truque ignorado", "F1 C12 800", {_ZOE}, "truque", 3),  # vira a cara, sem beicinho
     ("de_novo", None, "De novo?", "B7 C12 1000", {_ZOE}, "de_novo", 3),
 )
 CENAS: dict[tuple[str, str | None], Def] = {
@@ -244,5 +272,12 @@ CENAS: dict[tuple[str, str | None], Def] = {
     for tipo, ramo, nome, seq, cls, _fam, _niv in _LINHAS_CENA
 }
 FAMILIA_CENA: dict[str, str] = {t: f for t, _r, _n, _s, _c, f, _v in _LINHAS_CENA}
-NIVEL_CENA: dict[str, int] = {t: v for t, _r, _n, _s, _c, _f, v in _LINHAS_CENA if _r != "ignorado"}
+NIVEL_CENA: dict[str, int] = {t: v for t, _r, _n, _s, _c, _f, v in _LINHAS_CENA if _r not in _CONTINUACAO}
 SAIDA: tuple[Passo, ...] = _passos("B1 C1 200")  # saída de uma cena interrompida (spec §8)
+# Fora de ``CENAS`` (que vai até 4 passos): volta com o Pedro fora ≥ ``passo_extra_fora_min`` (passo
+# extra antes do disfarce) e a 3ª volta em < 1 h, que é só atenção dirigida (olhar nele), sem cena.
+VOLTA_LONGA: Def = replace(
+    CENAS[("pedro_voltou", "orgulhosa")], variante="orgulhosa_longa",
+    passos=_passos(f"{_VOLTA[0]} | {_VOLTA[1]} | {_VOLTA[2]} | B5 C6 tails 700 | {_VOLTA[3]}"),
+)
+VOLTA_ATENCAO: tuple[Passo, ...] = _passos("O1 B1 C10 600")

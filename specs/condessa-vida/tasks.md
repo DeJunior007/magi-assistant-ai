@@ -165,7 +165,7 @@ V0.9 ── V1.1 ─┬─ V1.2 (cenas + torcida) ─┬─ V1.3 (truque + volta
 Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`, `[vida.placar]` e
 `[vida.sem_sentido]` (e no `VIDA_PADRAO`); `truque_aplauso_s` já é 15. Ler sempre do `[vida]`.
 
-- [ ] **V1.2 Cenas novas e a passiva `torcida` no catálogo** — `torcida` (2 variantes "tela do jogo"
+- [x] **V1.2 Cenas novas e a passiva `torcida` no catálogo** — `torcida` (2 variantes "tela do jogo"
   e "punho", `D2` em todos os passos com episódio aberto, positiva, Δ +0,03) e no grupo Jogando com o
   peso do `cabeca_ritmo`; roteiros: episódio (3 passos, `O1` de frente no fim, sai `B7 C8`),
   recuperou (`C5` no fim), truque "fone" (com o caminho inverso sem fone) e "piscadinha", aplaudido
@@ -461,3 +461,18 @@ Os números estão no gosto em `[vida.torcida]`, `[vida.truque]`, `[vida.volta]`
   do acordo — revisar. Ao fechar: `test_vida_diretor::test_pedro_voltou_corta_e_escolhe_ramo[False-
   orgulhosa-F1]` e `test_vida_simulacao::test_escada_encarando_aos_15_min_sem_musica` vermelhos pelos
   arquivos em edição da V1.2/V1.5 (não tocados aqui).
+- **V1.2:** `torcida` = `I24` (tela do jogo; "íris para o lado do jogo" virou `look:fps`, o painel do
+  jogo — o Conselho pode trocar) e `I25` (`("torcida", "punho")`); `catalogo.TORCIDA` lista as 2 e
+  `catalogo.com_suor(d)` põe `D2` em todos os passos (quem sabe do episódio aberto chama: V1.6/V1.7).
+  O Δ +0,03 e o `no_sorteio` do `[vida.torcida]` não são lidos aqui (governador/passivas, V1.6/V1.7);
+  a lista de positivas do `test_vida_simulacao` ainda não tem `torcida` (V1.10). Notação do acordo
+  no `_passos`: `O1` = `iris:B1` (testado no retrato num passo de cena: funciona, `contratos.py`
+  intocado), `rubor` = `D1`, `!` = `D5`, `?` = `D4`. Truque: `("truque", None)` = piscadinha (o
+  diretor de hoje pega esse), mais `fone`, `fone_inverso`, `piscadinha`, `aplaudido` (nível 3, como
+  o ignorado) — a alternância e o `mexe_no_fone` são da V1.3. Volta: `orgulhosa` (4 passos),
+  `orgulhosa_2` (2ª volta); a de ≥ 2 h tem 5 passos e ficou fora de `CENAS` (o
+  `test_vida_diretor::test_roteiros_validos` limita a 4) como `catalogo.VOLTA_LONGA`, e a 3ª volta
+  como `catalogo.VOLTA_ATENCAO` (`O1 B1 C10` 600 — duração do agente). Fora do *Escreve*:
+  `test_vida_diretor::test_pedro_voltou_corta_e_escolhe_ramo` conferia o roteiro antigo da volta
+  (ajustado para o novo). `test_vida_simulacao::test_escada_encarando_aos_15_min_sem_musica` falha
+  também no HEAD limpo, sem a V1.2 (não mexi).

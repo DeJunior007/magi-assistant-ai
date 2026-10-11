@@ -27,7 +27,7 @@ IMEDIATOS = frozenset({Momento.CONVERSA, Momento.ALERTA, Momento.JOGANDO})
 GRUPOS: dict[Momento, tuple[str, ...]] = {
     Momento.CONVERSA: (),
     Momento.ALERTA: (),
-    Momento.JOGANDO: ("sacada_olhar", "piscada_dupla", "cabeca_ritmo"),
+    Momento.JOGANDO: ("sacada_olhar", "piscada_dupla", "cabeca_ritmo", "torcida"),  # acordo-pj §1
     Momento.ESPERANDO: ("impaciente", "encarando", "soprando_franja"),
     Momento.NO_FLOW: ("cabeca_ritmo", "piscada_gato", "observando_hud"),
     Momento.TRABALHANDO_JUNTO: (
