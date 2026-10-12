@@ -231,7 +231,7 @@ class OverlayWindow(QWidget):
         self.setWindowTitle("Condessa")
         self.resize(*tamanho_quadro(cfg))
 
-        self.gestos = Gestos(reactor.on_click, self._hover)
+        self.gestos = Gestos(reactor.on_click, self._hover, lado=cfg.tamanho)  # O4.5
 
         bridge.stateChanged.connect(self.on_state)
         bridge.mouth.connect(self.on_mouth)
@@ -710,6 +710,7 @@ class OverlayWindow(QWidget):
     def mudar_tamanho(self, delta: int) -> None:
         self.cfg.tamanho = max(TAMANHO_MIN, min(TAMANHO_MAX, self.cfg.tamanho + delta))
         self.cfg.gravar()
+        self.gestos.redimensionar(self.cfg.tamanho)  # O4.5: limiar de arraste segue o card
         self.resize(*tamanho_quadro(self.cfg))
 
     def esconder_1h(self) -> None:

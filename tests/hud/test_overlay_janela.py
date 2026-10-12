@@ -184,6 +184,15 @@ def test_esconder_1h_e_tamanho(janela):
     assert nomes == ["Mover", "Tamanho +", "Tamanho −", "Esconder 1 h", "Sair"]
 
 
+def test_tamanho_muda_o_limiar_de_arraste(janela):  # O4.5
+    w = janela
+    assert w.gestos.drag_px == overlay.Gestos.limiar_arraste(w.cfg.tamanho) == 16
+    w.mudar_tamanho(+260)  # preso em 480
+    assert w.cfg.tamanho == 480 and w.gestos.drag_px == 36
+    w.mudar_tamanho(-400)  # preso em 120
+    assert w.cfg.tamanho == 120 and w.gestos.drag_px == 12
+
+
 def test_laco_alimenta_o_reactor(janela, monkeypatch):
     w = janela
     vistos = []

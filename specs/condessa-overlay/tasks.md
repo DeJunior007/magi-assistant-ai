@@ -210,6 +210,17 @@ O0.1 ─┬─ O1.1 ─┐
   - Pronto: `uv run pytest -q tests/hud` verde; 0,7 s é simples (não longo); limiar 12/16/36 nos lados 120/220/480.
   - Paralelo: —
 
+- [x] **O4.5 Limiar de arraste da janela pelo tamanho do card** — sobra da O4.4: a janela criava
+  `Gestos` sem `lado` (valia 16 px mesmo com outro `tamanho`). Agora `Gestos(..., lado=cfg.tamanho)`
+  e `mudar_tamanho` (menu Tamanho ±) chama `gestos.redimensionar(cfg.tamanho)`. As chaves
+  `[overlay] toque_longo_s`/`arraste_px` ficaram de fora (ver *Sobras*). *(spec §1, CA-O2)*
+  - Lê: `hud/condessa_overlay.py`, `hud/wired/overlay.py` (`Gestos`), `tests/hud/test_overlay_janela.py`
+  - Escreve: `hud/condessa_overlay.py`, `tests/hud/test_overlay_janela.py`, SDD
+  - Depende de: O4.4
+  - Orçamento: ~15k
+  - Pronto: `uv run pytest -q tests/hud` verde; Tamanho ± leva o limiar a 36 px (480) e 12 px (120).
+  - Paralelo: —
+
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
@@ -269,3 +280,6 @@ O0.1 ─┬─ O1.1 ─┐
   `Gestos(reactor.on_click, self._hover, lado=cfg.tamanho)` e `self.gestos.redimensionar(...)` no
   `mudar_tamanho`. Chaves em `[overlay]` (`toque_longo_s`, `arraste_px`) não foram criadas: só
   valeriam com essa ligação; fica para a mesma tarefa, se o Pedro quiser ajustar na mão.
+- **O4.5:** `toque_longo_s`/`arraste_px` em `[overlay]` não criadas: o `Gestos` não aceita
+  `LONG_S` por instância nem limiar fixo; exigiriam mudar o `Gestos` (fora do Escreve). Só vale se o
+  Pedro quiser ajustar na mão.
