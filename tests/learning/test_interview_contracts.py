@@ -142,10 +142,11 @@ def test_debrief_scores_by_aspect_no_overall() -> None:
 
 
 def test_stubs_have_final_signatures() -> None:
-    # LI1.1 (extract), LI1.2 (plan) e LI1.3 (run) já implementados: só os stubs restantes.
+    # Todos os stubs implementados (LI1.1–LI1.3, LI2.3): sobram as constantes e os prompts.
     assert callable(extract.extract) and callable(plan.build_plan) and callable(run.block)
-    assert debrief.MIN_ANSWERS == 3 and store.InterviewStore(None).repo is None
-    assert "TODO" in (extract.PROMPT.parent / "debrief.md").read_text()
+    assert callable(debrief.debrief) and debrief.MIN_ANSWERS == 3
+    assert store.InterviewStore(None).repo is None
+    assert "No overall score" in (extract.PROMPT.parent / "debrief.md").read_text()
 
 
 # --- socket (spec §7) ---------------------------------------------------------------------

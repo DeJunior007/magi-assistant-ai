@@ -38,7 +38,8 @@ Fluxos (spec §4):
   ``<topic_context>`` é ``run.block(now)`` (``_topic_block``); depois de cada turno ``run.observe``
   (+ ``lm_interview`` e gravação). Comandos: ``lm_interview {"cmd"}`` (botão), texto que casa com
   ``run.command_of`` e intents ``learning.interview.*`` (voz). Troca de tema pausa a run; sessão
-  retomada volta à run (R5.3); fim (``end``/WRAP) chama ``_finish_interview`` (retorno: LI2.3).
+  retomada volta à run (R5.3); fim (``end``/WRAP) chama ``_finish_interview``,
+  que agenda o retorno (LI2.3, ``debrief``) sem segurar o turno.
 
 Fora do modo nada é gravado nem publicado. ``install`` só liga tudo com ``[learning] enabled``;
 com ``enabled = false`` devolve ``None`` e o núcleo fica exatamente como antes.
@@ -63,6 +64,7 @@ from magi.common.contracts import (
     LearningHudMsg,
     LmActionMsg,
     LmCfgMsg,
+    LmDebriefMsg,
     LmInterviewMsg,
     LmJobMsg,
     LmJobRef,
@@ -95,11 +97,18 @@ from magi.learning.contracts import (
 )
 from magi.learning.contracts import ActionResult as LmActionResult
 from magi.learning.engine import UNAVAILABLE_ERROR, LearningEngine
+from magi.learning.interview import debrief as iv_debrief
 from magi.learning.interview import extract as iv_extract
 from magi.learning.interview import jobtext
 from magi.learning.interview import plan as iv_plan
 from magi.learning.interview import run as iv_run
-from magi.learning.interview.contracts import InterviewRun, JobPost, RunState, make_run_id
+from magi.learning.interview.contracts import (
+    InterviewDebrief,
+    InterviewRun,
+    JobPost,
+    RunState,
+    make_run_id,
+)
 from magi.learning.interview.store import InterviewStore
 from magi.learning.model import LearningModel, ModelError, ModelFailure
 from magi.learning.repo import DEFAULT_JSONL_DIR, LearningRepo, make_repo, normalize_term
@@ -141,6 +150,13 @@ INTERVIEW_LABEL = "INTERVIEW // {title}"
 LABEL_TITLE_MAX = 60
 _RUN_LIVE = (RunState.READY, RunState.RUNNING, RunState.PAUSED)
 OPENING_WAIT_S = 120.0
+#: Retorno da entrevista (LI2.3, R4.2/R4.4, spec §10): falas curtas e título sem perfil conhecido.
+DEBRIEF_READY = "Your interview feedback is on the screen. Take a look when you're ready."
+DEBRIEF_TOO_SHORT = "No feedback this time: I need at least {n} answers from you to judge."
+DEBRIEF_FAILED = "feedback not generated — {code}"
+DEBRIEF_TITLE = "MOCK INTERVIEW"
+#: Mensagens lidas para montar a transcrição da run (a sessão tem bem menos que isso).
+DEBRIEF_MESSAGES_MAX = 2000
 
 #: Handler de uma ``lm_*`` vinda do HUD.
 Handler = Callable[[Any], Awaitable[None]]
@@ -202,6 +218,8 @@ class LearningWiring:
         self._jobs: tuple[LmJobRef, ...] = ()
         self._run_n: tuple[str, int] = ("", 0)
         self._cmd_turn = False  # o turno de voz foi um comando da entrevista: não conta resposta
+        #: LI2.3: título/empresa/hora de cada retorno gerado neste processo (o repo não guarda).
+        self._debrief_meta: dict[str, tuple[str, str | None, datetime]] = {}
 
     def _handlers(self) -> dict[type[LearningHudMsg], Handler]:
         """**Único ponto de registro** dos handlers ``lm_*`` (as próximas tarefas acrescentam aqui)."""
@@ -236,6 +254,7 @@ class LearningWiring:
         if self.engine is not None:
             await self.engine.aclose()
         await self._close_run("shutdown")
+        await self.wait_idle()  # LI2.3: o retorno em segundo plano grava antes de desligar
         if self.session.active:
             try:
                 await self.session.end("shutdown")
@@ -365,8 +384,10 @@ class LearningWiring:
                 await self._refresh_jobs()
                 if resumed:
                     await self._resume_run(info.id)
+                unseen = await self._unseen_debrief()
                 await self.hud.send(LmModeMsg(True))
-                await self.hud.send(self._session_msg())
+                await self.hud.send(dataclasses.replace(self._session_msg(),
+                                                        debrief_unseen=unseen is not None))
                 if resumed:
                     for m in await self.session.recent():
                         await self.hud.send(self._msg(m))
@@ -374,6 +395,8 @@ class LearningWiring:
                 await self._restore_topic()
                 if (run := self.live_run()) is not None:
                     await self.hud.send(self._iv_msg(run))
+                if unseen is not None:
+                    await self._send_debrief(unseen)  # R5.2: uma vez, na abertura
                 return
             self._cancel_opening()
             await self._close_run(reason)
@@ -776,8 +799,8 @@ class LearningWiring:
                 log.warning("learning: simulação %s não gravada", run.id, exc_info=True)
 
     async def _close_run(self, reason: str) -> None:
-        """Sessão fechando (``button|voice|idle|shutdown``) com run viva: fecha e grava sem
-        publicar (o retorno em segundo plano é da LI2.3)."""
+        """Sessão fechando (``button|voice|idle|shutdown``) com run viva: fecha e grava; com
+        ≥ 3 respostas o retorno sai em segundo plano, gravado e não publicado (R4.5)."""
         run, self.run = self.live_run(), None
         if run is None:
             return
@@ -786,10 +809,13 @@ class LearningWiring:
             await self.interviews.save_run(run, reason)
         except Exception:
             log.warning("learning: simulação %s não gravada no fechamento", run.id, exc_info=True)
+        if run.answers >= iv_debrief.MIN_ANSWERS:  # R4.5: gera e grava, não publica
+            self._spawn(self._debrief_run(run, publish=False), "retorno da entrevista")
 
     async def _finish_interview(self, reason: str) -> None:
-        """Fim da simulação (``end`` ou WRAP): fecha a run, manda o ``lm_interview`` final e volta
-        o tema a ``free`` (design §6). O retorno (``debrief``) entra aqui na LI2.3."""
+        """Fim da simulação (``end`` ou WRAP): fecha a run, manda o ``lm_interview`` final, volta
+        o tema a ``free`` (design §6) e agenda o retorno (LI2.3) — o turno não espera por ele.
+        Com < 3 respostas do Pedro não há retorno, só uma linha (R4.4)."""
         run, self.run = self.run, None
         if run is None:
             return
@@ -797,12 +823,89 @@ class LearningWiring:
         iv_run.finish(run, reason, self._now())  # WRAP já fechou: não faz nada
         await self._push_run(run, reason)
         async with self._lock:
+            active = self.session.active
+            if active:
+                ctx = TopicContext(Topic.FREE, Topic.FREE, LABELS[Topic.FREE], None, None)
+                await self.session.set_topic(ctx)
+                await self.hud.send(self._topic_msg(ctx))
+        log.info("learning: entrevista %s encerrada (%s)", run.id, reason)
+        if run.answers < iv_debrief.MIN_ANSWERS:
+            if active:
+                await self._line(DEBRIEF_TOO_SHORT.format(n=iv_debrief.MIN_ANSWERS))
+            return
+        self._spawn(self._debrief_run(run, publish=active), "retorno da entrevista")
+
+    async def _debrief_run(self, run: InterviewRun, *, publish: bool) -> None:
+        """Gera o retorno (uma chamada, spec §6), grava e, com ``publish`` e a mesma sessão
+        aberta, manda ``lm_debrief`` + a linha curta da Condessa (R4.2). Falha: só a linha
+        ``feedback not generated — <código>`` (spec §10)."""
+        try:
+            if self.job_model is None:
+                raise ModelFailure("sem modelo para o retorno da entrevista")
+            msgs = await self.repo.recent_messages(run.session_id, DEBRIEF_MESSAGES_MAX)
+            obs = await self.repo.observations(run.session_id)
+            result = await iv_debrief.debrief(run, msgs, obs, self.job_model,
+                                              explain_language=self.cfg.explain_language)
+        except ModelError as e:
+            log.warning("learning: retorno da entrevista %s não gerado (%s): %s", run.id, e.code, e)
+            await self._run_done(run, publish)
+            if publish and self._same_session(run):
+                await self._line(DEBRIEF_FAILED.format(code=e.code), speak=False)
+            return
+        self._debrief_meta[run.id] = (run.profile.title, run.profile.company, self.clock())
+        await self.interviews.save_debrief(result)
+        await self._run_done(run, publish)
+        if publish and self._same_session(run):
+            await self._send_debrief(result)
+            await self._line(DEBRIEF_READY)
+
+    async def _run_done(self, run: InterviewRun, publish: bool) -> None:
+        """``DEBRIEFING`` → ``DONE`` gravado; ``lm_interview`` só com a mesma sessão aberta."""
+        if run.state is RunState.DEBRIEFING:
+            run.state = RunState.DONE
+        try:
+            await self.interviews.save_run(run)
+        except Exception:
+            log.warning("learning: simulação %s não gravada após o retorno", run.id, exc_info=True)
+        if publish and self._same_session(run):
+            await self.hud.send(self._iv_msg(run))
+
+    def _same_session(self, run: InterviewRun) -> bool:
+        info = self.session.info
+        return info is not None and info.id == run.session_id
+
+    async def _unseen_debrief(self) -> InterviewDebrief | None:
+        try:
+            return await self.interviews.unseen()
+        except Exception:
+            log.warning("learning: retorno pendente indisponível", exc_info=True)
+            return None
+
+    async def _send_debrief(self, result: InterviewDebrief) -> None:
+        """``lm_debrief`` e marca como visto (a tela mostra uma vez, R5.2)."""
+        title, company, at = self._debrief_meta.get(
+            result.run_id, (DEBRIEF_TITLE, None, self.clock()))
+        await self.hud.send(LmDebriefMsg(debrief=result, title=title, company=company, at=at))
+        try:
+            await self.interviews.mark_seen(result.run_id)
+        except Exception:
+            log.warning("learning: retorno %s não marcado como visto", result.run_id, exc_info=True)
+
+    async def _line(self, text: str, *, speak: bool = True) -> None:
+        """Linha curta da Condessa no histórico (falada se ``speak_replies``)."""
+        async with self._lock:
             if not self.session.active:
                 return
-            ctx = TopicContext(Topic.FREE, Topic.FREE, LABELS[Topic.FREE], None, None)
-            await self.session.set_topic(ctx)
-            await self.hud.send(self._topic_msg(ctx))
-        log.info("learning: entrevista %s encerrada (%s)", run.id, reason)
+            her = await self.session.add_message(Author.CONDESSA, Source.TEXT, text)
+        if her is None:
+            return
+        spoken = False
+        if speak and self.session.speak_replies and self.speak is not None:
+            try:
+                spoken = await self.speak(ActionResult(ok=True, speech=text))
+            except Exception:
+                log.exception("learning: falha ao falar a linha do retorno")
+        await self.hud.send(self._msg(her, speaking=spoken))
 
     # -- conversa -------------------------------------------------------------------------------
 

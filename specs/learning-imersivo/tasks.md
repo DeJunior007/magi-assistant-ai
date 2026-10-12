@@ -155,7 +155,7 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Pronto: CA-07 (parte da tela) com `lm_interview` falsos em todos os estados; captura offscreen em 2560×1440; `tests/learning/test_learning_screen.py` verde.
   - Paralelo: LI0.2, LI1.x, LI2.1
 
-- [ ] **LI2.3 Retorno no núcleo** — `debrief.debrief(run, messages, observations, model)` (spec §6,
+- [x] **LI2.3 Retorno no núcleo** — `debrief.debrief(run, messages, observations, model)` (spec §6,
   prompt `prompts/interview/debrief.md`, prazo 40 s, idioma por D7), com **notas 0–100 por aspecto**
   (D3: fluência, gramática, vocabulário, aderência à vaga, clareza; pós-checagem da spec §6 — preso
   em 0..100, aspecto desconhecido cai, sem nota geral); no wiring, `_finish_interview`
@@ -315,3 +315,17 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   núcleo vai como `state = error` com a linha do `jobtext`. Sessão retomada após reinício conta o
   tempo parado como tempo da etapa (pode avançar no 1º `tick`). Fechar a sessão com run viva só
   fecha e grava (`_close_run`); o retorno em segundo plano é da LI2.3.
+- **LI2.3 (2026-10-12):** `debrief.debrief(…, *, explain_language="en")` (kw novo, D7: `en` →
+  inglês simples; `pt-br` → textos em português simples, evidência e reescritas em inglês). Sem
+  `job_model` → linha `feedback not generated — model`. Depois do retorno (ou da falha) a run passa
+  de `DEBRIEFING` a `DONE` e sai um `lm_interview` final. O núcleo marca o retorno como visto ao
+  mandar o `lm_debrief` (o HUD não avisa). O repo não tem busca `run_id → título/empresa/fim`: o
+  retorno pendente depois de reiniciar o núcleo sai com `title = "MOCK INTERVIEW"`, sem empresa e
+  `at` = hora da abertura (no mesmo processo usa um cache em memória) — falta
+  `repo.interview_of(run_id)` + `store` (fora do *Escreve*). Fechar a sessão por botão/voz com
+  ≥ 3 respostas também gera em segundo plano sem publicar (como `idle`/`shutdown`). Retry do
+  retorno no painel (spec §10) não existe (LI2.5/HUD). Fora do trecho listado do wiring: `aclose`
+  ganhou `await self.wait_idle()` depois de `_close_run("shutdown")` e `_close_run` agenda o
+  retorno (pedido nas *Sobras* da LI1.4). `test_interview_contracts.py::test_stubs_have_final_signatures`
+  atualizado (fora do *Escreve*, pedido do orquestrador): confere `debrief.debrief`/`MIN_ANSWERS`
+  e o prompt pronto no lugar do `TODO`.
