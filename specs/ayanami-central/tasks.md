@@ -183,7 +183,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y28 verde (5 casos + exemplo válido); `uv sync` resolve com e sem os grupos; `ayanami --help` lista os subcomandos; suíte atual inteira verde (`uv run pytest -q`); `ruff` limpo.
   - Paralelo: Y0.1
 
-- [ ] **Y0.3 Banco da Ayanami e migração do PC** — `ayanami/migrations/001_base.sql` e
+- [x] **Y0.3 Banco da Ayanami e migração do PC** — `ayanami/migrations/001_base.sql` e
   `002_noticias.sql` (spec §3, cópia das `news_*`/`franchise_prefs`/`progress` do `001_init.sql`
   com o mesmo renderizador de `{{NEWS_DIM}}`, `uid`, `atualizado`, índice e gatilho);
   `ayanami/db.py` (pool `psycopg`, `Db` protocolo mínimo, transação); `ayanami/migrar.py`
@@ -1007,3 +1007,16 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   traz `ffmpeg`. Sem `postgresql-client` (o do Debian é 15): backup do pg por `docker exec ayanami-pg
   pg_dump` (Y4.2). (5) `ayanami-modelos` em `/modelos` (`HF_HOME=/modelos/hf`, `AYANAMI_MODELOS`);
   `ayanami-pg` tem `container_name: ayanami-pg`. Imagem leve ≈ 1,2 GB (build local ok).
+- **Y0.3:** (1) A 005 faz `tests/learning/test_interview_store.py::test_migracao_no_fixture_nao_muda_tabelas_003`
+  (`db`) falhar: a linha 266 espera `== ["004"]` e agora vem `["004", "005"]`. Arquivo fora do
+  *Escreve*; correção de uma linha: `== ["004", "005"]`. (2) `ayanami.db.dsn_padrao()` usa
+  `AYANAMI_DB_DSN`, senão `POSTGRES_PASSWORD` + `PGHOST`/`PGPORT`/`PGUSER`/`PGDATABASE` (as do
+  Compose da Y1.1). `ayanami.db.recusar_magi(dsn)` (porta 54329 ou base `magi`) vale para o
+  `ayanami migrar` e o fixture. (3) `001_base.sql` ganhou `costs_at_idx` (o `costs` do PC tem). (4)
+  Fixtures em `tests/ayanami/conftest.py`: `pg_dsn`, `pg_nova_base()` (fábrica de bases vazias),
+  `pg_base` (001–002), `pg_base_pc` (migrações do PC até a 005, para a Y3.3) e `pg` (conexão). (5)
+  `psycopg_pool` (extra `ayanami`) só é importado em `abrir_pool`; o teste do pool roda com
+  `uv run --extra ayanami` ou `--with psycopg-pool` e pula sem ele. (6) A 005 foi validada numa
+  cópia só-esquema (`pg_dump -s`) do `magi-pg` restaurada no `ayanami-pg-teste`: aplica só a `005`,
+  2ª vez não faz nada. Os testes `db` de `tests/memory/` rodaram com `MAGI_DB_DSN` no
+  `ayanami-pg-teste` (verdes), sem tocar no `magi-pg`.
