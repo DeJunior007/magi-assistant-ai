@@ -1297,6 +1297,7 @@ class HUD(QWidget):
                 deadlines.append(self.wired.learning.overlay.deadline())   # timeout do balão (LM3.4)
                 deadlines.append(self.wired.learning.overlay.frame_deadline(now))  # barra ~5 q/s
                 deadlines.append(self.wired.learning.topic_picker.deadline())  # lista de temas fecha em 10 s (LM1.9)
+                deadlines.append(self.wired.learning.interview_deadline(now))  # faixa (LI2.2)
                 rects = list(rects or []) + self.learning_dirty()
                 if not self.trans and self.isVisible() and self.width() > 1:   # só a linha da barra
                     rects += self.wired.learning.overlay_anim_rects(self.size())
@@ -1871,6 +1872,7 @@ class HUD(QWidget):
             return
         scr = self.wired.learning
         scr.topic_picker.on_job = self.learning_job_pick   # sublinhas da vaga (LI2.1)
+        scr.on_paste_answer = self.learning_paste_answer   # [ YES ] [ NO ] no rodapé (LI2.5)
         s = scr.scale(self.size())
         r = scr.entry_rect()
         e.setGeometry(round(r.x() * s), round(r.y() * s), round(r.width() * s), round(r.height() * s))
@@ -1932,14 +1934,10 @@ class HUD(QWidget):
         if self.lm_paste_ask:
             yes = ev.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Y)
             no = ev.key() in (Qt.Key_Escape, Qt.Key_N)
-            self.lm_paste_ask = False
             if not (yes or no):   # outra tecla: a pergunta some e a tecla segue para o campo
-                self.learning_footer(None)
+                self.learning_paste_answer(False)
                 return False
-            if yes:
-                self.learning_paste_job()
-            else:
-                self.learning_footer(None)
+            self.learning_paste_answer(yes)
             return True
         if not ev.matches(QKeySequence.StandardKey.Paste):
             return False
@@ -1952,6 +1950,16 @@ class HUD(QWidget):
         self.lm_paste_ask = True
         self.learning_footer(wtopic.PASTE_QUESTION)
         return True
+
+    def learning_paste_answer(self, yes):
+        """Resposta da pergunta da colagem longa (tecla ou clique em ``[ YES ]``/``[ NO ]``)."""
+        if not self.lm_paste_ask:
+            return
+        self.lm_paste_ask = False
+        if yes:
+            self.learning_paste_job()
+        else:
+            self.learning_footer(None)
 
     def learning_dirty(self):
         """Retângulos da tela learning cujos grupos mudaram (vazio fora da view)."""
@@ -1977,8 +1985,8 @@ class HUD(QWidget):
             self.summary_schedule()
         if msg.get("t") == "lm_job_req":   # "treinar para a vaga que eu copiei" (R1.4, D1)
             self.learning_paste_job(source="voice")
-        if msg.get("t") == "lm_msg":
-            self.caption_tick()   # prazo da revelação da fala + repintura do histórico
+        if msg.get("t") in ("lm_msg", "lm_interview"):
+            self.caption_tick()   # prazo da revelação da fala / da faixa da entrevista + repintura
         else:
             self.learning_refresh()
 

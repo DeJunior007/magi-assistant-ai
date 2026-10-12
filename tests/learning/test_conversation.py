@@ -566,6 +566,31 @@ async def test_servico_monta_o_engine_com_observacao(sock_dir, tmp_path, monkeyp
             await w.aclose()
 
 
+async def test_servico_passa_o_modelo_da_vaga_com_o_registro(sock_dir, tmp_path, monkeypatch) -> None:
+    """LI2.5: ``job_model`` montado pelo serviço com ``registry=core.providers`` e o mesmo
+    orçamento do engine (antes o ``install`` montava sem registro e só o provedor fake servia)."""
+    seen = {}
+
+    def fake_build(config, **kw):
+        seen.update(kw)
+        return "job-model"
+
+    _jsonl_here(monkeypatch, tmp_path)
+    monkeypatch.setattr("magi.learning.interview.extract.build_job_model", fake_build)
+    hud_server = HudServer(sock_dir / "h.sock")
+    service = CoreService(TurnDeps(), hud_server, port=0)
+    core = _Core()
+    core.providers = object()
+    w = _install_learning(_learning_config(tmp_path), core, hud_server, service)
+    try:
+        assert isinstance(w, LearningWiring) and w.job_model == "job-model"
+        assert seen["registry"] is core.providers
+        assert w.engine is not None and seen["budget"] is w.engine.budget
+    finally:
+        if w is not None:
+            await w.aclose()
+
+
 async def test_servico_sem_modelo_segue_sem_engine(sock_dir, tmp_path, monkeypatch) -> None:
     _jsonl_here(monkeypatch, tmp_path)
     hud_server = HudServer(sock_dir / "h.sock")

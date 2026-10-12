@@ -182,11 +182,13 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Pronto: pinta com `lm_debrief` falso cheio (5 notas), com notas faltando e vazio (offscreen 2560×1440); Esc fecha; drawer de observações volta igual.
   - Paralelo: LI1.4, LI2.3
 
-- [ ] **LI2.5 Integração tela ↔ núcleo** — orquestrador ou agente: liga as pontas que caíram em
+- [x] **LI2.5 Integração tela ↔ núcleo** — orquestrador ou agente: liga as pontas que caíram em
   *Sobras* das LI2.x (sinais do `hud_bridge` para `lm_interview`/`lm_debrief`/`lm_job_req` no
   `gamerhud`, prazos no `caption_tick`), roda `tests/learning`, `tests/hud`, `tests/core` inteiros.
   - Lê: *Sobras* desta lista; `hud/gamerhud.py` por trecho (`on_bridge_learning`, `caption_tick`)
-  - Escreve: `hud/gamerhud.py`, `hud/hud_bridge.py` (só o `_dispatch` das mensagens novas)
+  - Escreve: `hud/gamerhud.py`, `hud/hud_bridge.py` (só o `_dispatch` das mensagens novas);
+    acrescentados pelo orquestrador: `hud/wired/learning_screen.py`, `magi/core/service.py`,
+    `tests/hud/test_learning_core_flow.py`, `tests/learning/test_conversation.py`
   - Depende de: LI2.1, LI2.3, LI2.4
   - Orçamento: ~35k
   - Pronto: as três suítes verdes; fluxo vaga → ready → `end` → painel do retorno com núcleo falso no teste de integração do LM.
@@ -329,3 +331,13 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   retorno (pedido nas *Sobras* da LI1.4). `test_interview_contracts.py::test_stubs_have_final_signatures`
   atualizado (fora do *Escreve*, pedido do orquestrador): confere `debrief.debrief`/`MIN_ANSWERS`
   e o prompt pronto no lugar do `TODO`.
+- **LI2.5 (2026-10-12):** o `hud_bridge` já entregava todo `lm_*` (inclusive `lm_interview`/
+  `lm_debrief`) ao `LearningModel.feed` antes do sinal — nada mudou nele. `gamerhud`: `caption_tick`
+  soma `interview_deadline(now)` e `lm_interview` chama o `caption_tick` (agenda a barra/relógio);
+  `learning_paste_answer(yes)` serve tecla e clique. `learning_screen`: `list_rect(…, n_jobs)` e
+  `paste_buttons()` (`[ YES ]`/`[ NO ]` clicáveis no rodapé, `on_paste_answer`). `service.py`:
+  um `LearningBudget` só para engine e `job_model` (`build_job_model(…, registry=core.providers)`).
+  Falta: retry do retorno no painel (spec §10) pede comando novo no núcleo (ex.:
+  `lm_interview {"cmd":"debrief"}` + enum do contrato e `wiring.py`, ocupado pela LI4.2); Esc com a
+  lista de temas aberta (sessão nova) fecha a lista antes do painel do retorno. `tests/learning`
+  tinha 13 falhas de `wiring._scenario_list` (`pipeline` `None`) vindas da LI4.2 em andamento.

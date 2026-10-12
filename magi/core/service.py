@@ -307,12 +307,14 @@ def _install_learning(
 
     repos = core.repos if core is not None else None
     conn = getattr(repos, "conn", None)
+    budget = _learning_budget(config, core)
     try:
         return install(config, hud, service.pipeline, conn=conn,
                        speak=speak_via(lambda: service.satellites.values()),
                        engine_factory=lambda cfg, repo: _learning_engine(config, core, service, cfg, repo,
-                                                                         runtime=runtime),
-                       runtime=runtime)
+                                                                         runtime=runtime, budget=budget),
+                       runtime=runtime,
+                       job_model=_learning_job_model(config, core, budget))
     except Exception:
         log.exception("learning: falha ao ligar o Learning Mode; seguindo sem ele")
         return None
@@ -323,8 +325,38 @@ def _install_learning(
 LEARNING_TIMEOUT_MARGIN_S = 2.0
 
 
+def _learning_budget(config: Config, core: Core | None) -> Any:
+    """Orçamento do Learning Mode sobre o do núcleo, um só para o engine e o modelo da vaga
+    (LI2.5). ``None`` sem núcleo ou com ``[learning]`` inválido (o engine monta o seu)."""
+    if core is None:
+        return None
+    from magi.learning.budget import LearningBudget
+    from magi.learning.config import learning_config
+
+    try:
+        return LearningBudget.from_config(core.budget, learning_config(config))
+    except Exception as e:  # noqa: BLE001 - o install loga e desliga o modo com config inválida
+        log.debug("learning: orçamento não montado (%s)", e)
+        return None
+
+
+def _learning_job_model(config: Config, core: Core | None, budget: Any) -> Any:
+    """Modelo da extração da vaga e do retorno (LI1.1/LI2.3, D8) com ``registry=core.providers``
+    (provedor real em produção). ``None``: o ``install`` cai no modelo de ações do engine."""
+    if core is None or budget is None:
+        return None
+    from magi.learning.interview.extract import build_job_model
+
+    try:
+        return build_job_model(config, budget=budget, registry=core.providers)
+    except Exception as e:  # noqa: BLE001 - sem modelo a vaga responde error = "model"
+        log.warning("learning: modelo da vaga indisponível (%s); usa o das ações", e)
+        return None
+
+
 def _learning_engine(
     config: Config, core: Core | None, service: CoreService, cfg: Any, repo: Any, *, runtime: Any = None,
+    budget: Any = None,
 ) -> Any:
     """``LearningEngine`` de produção: modelo de ``[tasks] learning_actions`` e, com
     ``[learning] observe``, de ``learning_observe``; orçamento sobre o do núcleo; gate de estado
@@ -341,7 +373,8 @@ def _learning_engine(
     from magi.learning.engine import LearningEngine, state_gate
     from magi.learning.model import build_model
 
-    budget = LearningBudget.from_config(core.budget, cfg)
+    if budget is None:
+        budget = LearningBudget.from_config(core.budget, cfg)
     tasks = learning_tasks(config)
     try:
         model = build_model(config, LearningCostTask.ACTIONS, budget=budget, registry=core.providers)

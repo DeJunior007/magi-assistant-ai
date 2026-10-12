@@ -146,6 +146,8 @@ class LearningScreen(Screen):
         self._iv_shown: list[QRectF] = []          # painel já pintado (a apagar ao fechar)
         # LI2.4: retorno da entrevista (no lugar do drawer de observações)
         self.debrief_view = dbv.DebriefView()
+        # LI2.5: [ YES ] [ NO ] da pergunta da colagem longa (R1.2); o gamerhud liga
+        self.on_paste_answer = None                # Callable[[bool], None]
 
     # ---------------------------------------------------------------- estático
 
@@ -498,6 +500,8 @@ class LearningScreen(Screen):
             if self.L.end_btn.contains(point):
                 self.clear_selection()
                 return "learning"
+            if self._paste_press(point):
+                return None
             if self._interview_press(point):
                 return None
             if self._debrief_press(point):
@@ -605,7 +609,8 @@ class LearningScreen(Screen):
     def _topic_list(self) -> Rect | None:
         if not self.topic_picker.is_open:
             return None
-        return tp.list_rect(self.L.topic, self.L.history, bool(tp.hints(self.info.session)))
+        return tp.list_rect(self.L.topic, self.L.history, bool(tp.hints(self.info.session)),
+                            n_jobs=len(self.topic_picker.jobs))
 
     def _topic_now(self) -> list[QRectF]:
         lst = self._topic_list()
@@ -902,6 +907,30 @@ class LearningScreen(Screen):
             self._tp_shown = self._topic_now()
         if self._keys.get("interview") == self._interview_key():
             self._iv_shown = self._interview_now()
+
+    def paste_buttons(self) -> dict[str, QRectF]:
+        """``[ YES ]``/``[ NO ]`` da pergunta da colagem longa no rodapé (vazio sem a pergunta)."""
+        msg = self.info.log
+        if msg != tp.PASTE_QUESTION or not self.info.connected:
+            return {}
+        r = self._footer_rect()
+
+        def w(t: str) -> float:
+            return width(t, "mono", 12, spacing=0.08)
+
+        x0 = r.center().x() - w(msg) / 2
+        out = {}
+        for name, tag in (("yes", "[ YES ]"), ("no", "[ NO ]")):
+            i = msg.index(tag)
+            out[name] = QRectF(x0 + w(msg[:i]) - 4, r.top(), w(tag) + 8, r.height())
+        return out
+
+    def _paste_press(self, point: Point) -> bool:
+        for name, rect in self.paste_buttons().items():
+            if rect.contains(QPointF(*point)) and self.on_paste_answer is not None:
+                self.on_paste_answer(name == "yes")
+                return True
+        return False
 
     def _g_footer(self, p, snap, now, s):
         r = self._footer_rect()
