@@ -1,9 +1,12 @@
 # Próximos passos
 
-O MVP está implementado (ver [`README.md`](../README.md)). Nada novo vai ser implementado agora; isto
-é o que fica para depois, cada item com **por quê**, **o que falta** e **como validar**. Fontes:
-`specs/magi-assistant/tasks.md` (itens `[ ]`), [`docs/perf/fase1.md`](perf/fase1.md),
-[`docs/spikes/S4.md`](spikes/S4.md) e os relatórios das tarefas.
+O MVP está implementado (ver [`README.md`](../README.md)). Na rodada de 2026-10-10/12 entraram a vida
+da Condessa (placar e jogo), o overlay, o audiolivro, a espera viva e o learning imersivo (entrevista
+por vaga + roleplay), e ficou pronto o SDD da Ayanami central; isto é o que falta, cada item com
+**por quê**, **o que falta** e **como validar**. Fontes: `specs/magi-assistant/tasks.md` (itens
+`[ ]`), [`specs/DECISOES-2026-10-10.md`](../specs/DECISOES-2026-10-10.md), os `specs/<sdd>/tasks.md`
+(itens `[ ]` e *Sobras*), [`docs/perf/fase1.md`](perf/fase1.md), [`docs/spikes/S4.md`](spikes/S4.md)
+e os relatórios das tarefas. A ordem está na [seção 15](#15-ordem-sugerida).
 
 ## 1. Wake word "Condessa" — resolvido no uso (2026-10-07)
 
@@ -93,6 +96,13 @@ de teste e "aplica o conserto" para ver o vigia reiniciar (e desfazer, se quebra
 | FIFA 22 por voz | "Bora bater uma bola": abre o `fifaconfig` centralizado no monitor principal; FPS do MangoHud aparece no HUD e trava em 188. |
 | Faxina do SSD | O timer diário (`magi-clean`) roda, a Magui avisa e a Condessa sorri no HUD. |
 | Rádio Ayanami | Notícias em PT, "quer ouvir outra?", "conta mais dessa" com resumo local. |
+| **Reabrir o HUD** | Antes de tudo abaixo: o HUD aberto ainda roda o código de antes da rodada (vida, espera, learning). Fechar e abrir de novo (e reiniciar o `magi-core`). |
+| Overlay O3.1 | Rodar `hud/install.sh`, sair e entrar na sessão. Aparece em ≤ 10 s no canto superior direito; clique fora da silhueta atravessa; arrasto move e a posição volta após relogar; fora do Alt+Tab; some com o HUD aberto e volta ao fechá-lo (D2); em jogo vai para o outro monitor (D3). Se a máscara não atravessar no Wayland: `MAGI_OVERLAY_XCB=1`. Anotar em `docs/perf/overlay.md` com a CPU. |
+| Overlay O3.2 | Uma semana com o overlay; relatório de `reacoes-overlay.jsonl`; confirmar D2 (esconde com o HUD) ou trocar por espelho. |
+| Audiolivro A3.1 | Pôr 2 livros (1 EPUB em PT, 1 PDF) em `~/Livros` e reiniciar o `magi-core`. "Lê o livro X", "volta um parágrafo", "mais devagar", pergunta outra coisa no meio, "continua", "para", reinicia e "continua o livro"; `costs` sem linha nova (Kokoro); voz por personagem estável em ~50 falas. |
+| Espera viva E4.1 | Medida antes/depois (`tools/perf.py latency --turns 20`, frase/lotes desligados × ligados; p90 do primeiro som ≤ 1,8 s) e uma semana de uso olhando o log `espera:`. Frase que soar falsa ou chata: pôr em `[espera] vetadas` (ou voltar ao Conselho). Decidir se os lotes ficam ligados no dia a dia (`[espera] lotes_max`, `lotes_frases_max`). |
+| Learning imersivo LIF.1 | **Gasta API.** 3 vagas reais (backend, full-stack, dados): perfil conferido à mão, uma simulação de 30 min por voz e uma por texto, o retorno (notas 0–100 fazem sentido?), um roleplay, o custo em `costs`. Conferir o Ctrl+V da vaga no Wayland real. Relatório em `docs/perf/learning-imersivo.md`. |
+| Vida: placar e jogo | Escolher a tecla do "isso foi sem sentido" (`[vida.sem_sentido] atalho`) e se ela precisa ser global; conferir o hover do medidor maior (até 11 linhas) com o ✗, o `O1` de frente nas cenas e os roteiros novos; depois de 7 dias de log, calibrar o placar (o Pedro deve ganhar 40–60 % dos dias, senão mexer nos tetos de `[vida.placar]`; roteiro em `docs/perf/reacoes.md` §0b). |
 
 ## 10. Decisões em aberto
 
@@ -103,6 +113,20 @@ de teste e "aplica o conserto" para ver o vigia reiniciar (e desfazer, se quebra
   (F5-TTS/XTTS em PT-BR; medir latência na RX 9060 XT ou CPU) ou o Kokoro, já baixado em
   `~/.cache/magi/kokoro` (leve, voz `pf_dora`, mais robótica). Também abre a porta para a Ayanami
   ter voz própria no rádio.
+- **Chamadas D-Bus antigas do `hud/install.sh`:** o `dbus-send` de `reconfigure` ao KWin e o
+  `doRegister`/`setShortcut` do KGlobalAccel do `install_hud` continuam lá (Sobras O2.1). Remover,
+  dado o risco de derrubar a sessão? O overlay não depende deles (a regra vale no próximo login).
+- **Ideias recomendadas pelas três delegadas** (não implementar sem o "ok"): "pose de vitória" como
+  3º número do truque, "bebe água" e a linha do ânimo do dia no hover (Conselho placar-e-jogo,
+  `specs/condessa-vida/tasks.md`); teste do pedido real e placar de espera (Conselho da espera,
+  Sobras E2.1). Também: `mexe_no_fone` no truque, clique do meio para "a última, agora" (só a
+  Asuka), "dia com ≥ 1 commit" +1 Pedro (só a Kurisu), `chefe`→`chefao` (1 assinatura).
+- **Fixture de teste com schema temporário no `magi-pg`:** liberar um fixture que cria e apaga um
+  schema próprio por teste (hoje os testes `db` evitam mexer no banco real)? Destrava testes de
+  migração e de repositório contra Postgres de verdade.
+- **Ayanami central:** as D1–D15 de [`specs/ayanami-central/requirements.md`](../specs/ayanami-central/requirements.md)
+  (rede, fila, app do celular, memória, storage do backup, a TCL, quem roda o `magi-casa`, gasto,
+  canal de aviso, escopos do MCP, voz, retenção). Até ele decidir valem os padrões (a).
 - **Voz:** decidida — `gpt-4o-mini-tts` com a voz `marin` e instruções de voz jovem
   (`~/.config/magi/config.toml`). Alternativas locais ficaram em `~/Music/magi-vozes/`.
 
@@ -153,7 +177,19 @@ Próximos passos, do mais rápido ao mais trabalhoso:
 
 ## 13. Ideias para desenvolver (Pedro, 2026-10-09)
 
-Ainda não são tarefas: cada uma vira SDD quando for a vez. Primeira leitura de viabilidade:
+Cada uma virou SDD (decisões em [`specs/DECISOES-2026-10-10.md`](../specs/DECISOES-2026-10-10.md)).
+Estado em 2026-10-12:
+
+| Ideia | Estado | O que entrou / o que falta |
+| --- | --- | --- |
+| **Ebook como audiolivro** | **feito (2026-10-11/12)** — `specs/audiolivro/` | EPUB/PDF (`pymupdf`), marcação por regras + Qwen local, elenco de vozes Kokoro, marcador de onde parou, intents `book.*`. Falta a validação do Pedro (A3.1, seção 9). |
+| **Learning Mode mais imersivo** | **feito (2026-10-11/12)** — `specs/learning-imersivo/` | Entrevista pela vaga colada (perfil, roteiro de 30 min, condução, retorno 0–100 por aspecto, painéis no HUD) e roleplay (4 cenários). Falta a validação do Pedro (LIF.1, gasta API). |
+| **Overlay só da Condessa** | **feito (2026-10-11/12)** — `specs/condessa-overlay/` | Janela própria (`hud/condessa_overlay.py`), retrato sem fundo, gestos, autostart e regra do KWin; esconde com o HUD e foge do jogo. Falta a validação do Pedro (O3.1/O3.2). |
+| **FIFA 22: reagir a lances** | SDD pronto, não começado — `specs/fifa-lances/` | 12 tarefas (OCR do placar primeiro; narrador só com o "vai" do Pedro). |
+| **Retrato com ângulos de verdade** | SDD pronto, não começado — `specs/condessa-angulos/` | 9 tarefas; o código (A0–A2) anda sem o Pedro, a arte (A3.1) é dele. |
+| **Ayanami central + casa + celular** (nova) | SDD pronto, não começado — `specs/ayanami-central/` | Ayanami como API central no node 2 (fila, notícias, backup, MCP, modo nuvem), `magi-casa` para as TVs (Samsung, Roku, Android TV) e PWA no Android. 54 tarefas em 10 ondas. Trava: o Pedro confirmar o node 2 e dar acesso SSH, o Tailscale (PC, node 2, celular) e as decisões D1–D15 (seção 10). As ondas 1–3 andam sem ele. |
+
+Primeira leitura de viabilidade (2026-10-09, mantida como histórico):
 
 | Ideia | O que é | Primeira leitura |
 | --- | --- | --- |
@@ -162,3 +198,35 @@ Ainda não são tarefas: cada uma vira SDD quando for a vez. Primeira leitura de
 | **FIFA 22: reagir a lances** | Ela reage a gol, entrada forte etc. e comenta o jogo ("PSG x Barcelona"). | O jogo não expõe eventos. Caminhos, do mais simples ao mais caro: (1) ler o placar na tela (OCR de um recorte, a cada segundo) para gol/fim de jogo; (2) transcrever o áudio do narrador (monitor do PipeWire só do jogo + STT local) e casar palavras-chave ("goal", "what a tackle"); (3) ler a memória do processo (frágil e arriscado). Começar pelo (1), que já dá gol, placar e times. |
 | **Overlay só da Condessa** | Só o retrato dela, pequeno, por cima do desktop, ligado no login, como Siri/Alexa, sem o HUD inteiro. | Viável: uma janela Qt sem moldura, sempre no topo e transparente a cliques fora do rosto, reaproveitando o `PartsPortrait` e o `Reactor`. Autostart no login. Clique no rosto = falar (já existe no núcleo). |
 | **Retrato com ângulos de verdade** | Usar a folha de 16 rostos (frente, 3/4, perfil, olhando para cima/baixo, mão no queixo/boca) para ela virar a cabeça e mexer o corpo, mesmo sem animação de verdade. | Viável em "2.5D de troca": cada ângulo vira um conjunto de camadas próprio (como a A1 hoje), e a troca entre ângulos é uma transição curta (dissolve + leve deslocamento/escala na direção do giro) em vez de animação. Usos: olhar para o lado do painel que reagiu, virar de perfil ao pensar, mão no queixo no "Ideia!". O custo maior é a arte: cada ângulo precisa das suas bocas/olhos para falar e piscar (ou fala só no ângulo de frente). |
+
+## 14. Sobras desta rodada (para uma rodada de limpeza)
+
+Coisas técnicas que um agente resolve sem o Pedro, anotadas nas *Sobras* dos `tasks.md`. Uma tarefa
+de limpeza por grupo, cada uma com testes.
+
+| Item | O que conferir |
+| --- | --- |
+| Roleplay não volta ao cenário após reiniciar | O id do cenário fica só em memória (`LearningWiring._scenario_of`); a sessão retomada cai em `free`. Gravar o `scenario` na entrada de `topics` (`repo.set_topic`, `SessionInfo.scenario`, `session.set_topic`). *(LI4.2)* |
+| Retorno da entrevista depois de reiniciar | Sem `repo.interview_of(run_id)`: o retorno pendente sai como "MOCK INTERVIEW", sem empresa. *(LI2.3)* |
+| Retry do retorno no painel | A spec §10 pede; falta comando no núcleo (ex.: `lm_interview {"cmd":"debrief"}` + enum + `wiring.py`) e o botão. Esc com a lista de temas aberta fecha a lista antes do painel. *(LI2.3, LI2.5)* |
+| Rótulo de custo `learning_job` | `LearningCostTask` não tem `learning_job`: a extração da vaga sai como `learning_actions` em `costs`; `config.example.toml` sem `[tasks.learning_job]`. *(LI1.1)* |
+| Faixa da entrevista por cima do histórico | `strip_rect` (60 px) cobre o topo de `L.history`; reservar `STRIP_H` no layout durante a simulação, se incomodar. *(LI2.2)* |
+| Moldes `{jogo}` da espera nunca usados | `TurnContext` não tem jogo em foco, então o turno passa `jogo=None` e os moldes com `{jogo}` não saem. Pôr o jogo em foco no contexto. *(E0.1, E2.3)* |
+| Coluna `primeiro_som` no `tools/perf.py` | Não feita (fora do Escreve); a E4.1 precisa dela antes da medida. *(E2.3)* |
+| Teto de 780 tokens do `persona.md` | A persona está em 779 tokens estimados; a próxima linha quebra o `test_prompt.py`. Subir o teto (ou enxugar) antes da próxima mudança. *(E2.1, E3.1b)* |
+| `registrar_sessao` do audiolivro | O registro A10 não é chamado por ninguém. *(A2.3)* |
+| Música volta antes do fim do áudio | O gerador da leitura acaba antes do áudio das últimas frases (o `say_parts` pré-sintetiza); esperar o fim do áudio. *(A2.3)* |
+| Frases soltas do audiolivro | Sem leitura, "chega" vira pergunta de `book.stop` e "lê mais rápido" vira `book.read` ("não achei esse livro"); legenda de call sem en-gb. *(A2.2, A2.3)* |
+| Gestos do overlay diferentes do HUD | `Gestos` usa `LONG_S = 0,6` / `DRAG_PX = 18`; o HUD usa `0,8` / `40`. Igualar (o comentário "copiados" não bate). *(O1.1)* |
+| Overlay sem descobrir o monitor do jogo | `tela_jogo` = monitor principal (descobrir exigiria D-Bus do KWin); `reacoes_relatorio.py` pode não aceitar caminho do `reacoes-overlay.jsonl`. *(O0.1, O3.2)* |
+| `magi-elo parear` sem script | O design da Ayanami fala em `magi-elo parear`, mas a Y6.6 só prevê `uv run python -m magi.elo.parear` (sem script no `pyproject`). Alinhar o design/GUIA ou criar o script quando a Y6.6 entrar. *(Y6.6, design §12)* |
+
+## 15. Ordem sugerida
+
+1. **Pedro valida o que está pronto** e reabre o HUD (seção 9): overlay, audiolivro, espera viva,
+   learning imersivo e o placar da vida; decide o que está na seção 10.
+2. **Rodada de limpeza** das sobras (seção 14), por agentes, sem o Pedro.
+3. **Ayanami ondas 1–3** (sem o Pedro: contratos, esqueleto, spikes locais, drivers das TVs com
+   dublês) enquanto ele confirma o node 2 (SSH) e o Tailscale.
+4. Depois, **`condessa-angulos`** (o código; a arte é do Pedro) e, com o "ok" dele,
+   **`condessa-engine`** e **FIFA** (`fifa-lances`).
