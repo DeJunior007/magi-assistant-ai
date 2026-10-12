@@ -105,6 +105,8 @@ class LearningModel:
     interview_at: float | None = None        # instante (monotônico) em que ele chegou
     debrief: dict[str, Any] | None = None    # último lm_debrief do núcleo (LI2.4)
     debrief_at: float | None = None
+    debriefing_runs: set[str] = field(default_factory=set)  # runs vistas em debriefing (LI5.2)
+    debrief_retry: dict[str, Any] | None = None  # retry do retorno: run_id, sent_at, error (LI5.2)
     saved: dict[str, dict[str, Any]] = field(default_factory=dict)  # lm_saved por norm
     summary: dict[str, Any] | None = None    # último lm_summary
     summary_at: float | None = None          # instante (monotônico) em que ele chegou
@@ -144,7 +146,8 @@ class LearningModel:
             self.pending_actions.clear()
             self.action_running = False
             self.interview = self.interview_at = None
-        return {"header", "condessa", "history", "input", "footer", "interview"}
+            self.debrief_retry = None
+        return {"header", "condessa", "history", "input", "footer", "interview", "debrief"}
 
     def _on_lm_session(self, m: dict[str, Any], now: float) -> set[str]:
         sid = str(m["id"])
@@ -171,6 +174,8 @@ class LearningModel:
         self.obs_count = 0
         self.topic = {}
         self.interview = self.interview_at = None
+        self.debrief_retry = None
+        self.debriefing_runs.clear()
         self.scroll = 0.0
         self.action_running = False
         self._finish_speech()
@@ -220,11 +225,26 @@ class LearningModel:
 
     def _on_lm_interview(self, m: dict[str, Any], now: float) -> set[str]:
         """Estado da entrevista pela vaga (LI2.2). Comando (``{"cmd"}``, UI → núcleo): ignorado."""
-        if m.get("state") is None:
+        state = m.get("state")
+        if state is None:
             return set()
+        rid = m.get("run_id")
+        if state == "error" and rid and "job_id" not in m:
+            # LI5.2: recusa do {"cmd":"debrief"} — fica no painel do retorno, não na faixa
+            self.debrief_retry = {"run_id": str(rid), "sent_at": None,
+                                  "error": str(m.get("error") or "feedback not retried")}
+            if (self.interview or {}).get("run_id") != rid:
+                self.log = self.debrief_retry["error"]  # run fora da tela: só o rodapé
+                return {"debrief", "footer"}
+            return {"debrief"}
+        if rid and state == "debriefing":
+            self.debriefing_runs.add(str(rid))
+        r = self.debrief_retry
+        if r is not None and r.get("run_id") == rid and (state == "done" or r.get("error")):
+            self.debrief_retry = None  # o núcleo respondeu ao pedido (debriefing de novo ou fim)
         self.interview = {k: v for k, v in m.items() if k != "t"}
         self.interview_at = now
-        return {"interview"}
+        return {"interview", "debrief"} if state in ("debriefing", "error", "done") else {"interview"}
 
     def _on_lm_debrief(self, m: dict[str, Any], now: float) -> set[str]:
         """Retorno da entrevista (LI2.4): ``InterviewDebrief`` + ``title``/``company``/``at``.
@@ -233,7 +253,14 @@ class LearningModel:
             return set()
         self.debrief = {k: v for k, v in m.items() if k != "t"}
         self.debrief_at = now
+        if (self.debrief_retry or {}).get("run_id") == m["run_id"]:
+            self.debrief_retry = None
         return {"debrief"}
+
+    def begin_debrief_retry(self, run_id: str, now: float | None = None) -> None:
+        """``[ RETRY FEEDBACK ]`` mandado (LI5.2): ``generating…`` até o núcleo responder."""
+        self.debrief_retry = {"run_id": str(run_id), "error": None,
+                              "sent_at": self.clock() if now is None else now}
 
     def _on_lm_saved(self, m: dict[str, Any], now: float) -> set[str]:
         self.saved[str(m["norm"])] = {"saved": bool(m["saved"]), "id": m.get("id"), "at": now}

@@ -252,3 +252,122 @@ def test_obs_drawer_comes_back_the_same():
     p.end()
     after = img.copy(*[round(v * S) for v in (sc.L.obs.x, sc.L.obs.y, sc.L.obs.w, sc.L.obs.h)])
     assert after == before
+
+
+# ====================================================================== retry (LI5.2)
+
+def iv_msg(state, run_id="IR-0007", **kw):
+    return {"t": "lm_interview", "state": state, "run_id": run_id, "job_id": "J-1",
+            "title": "Data Engineer", "company": "Initech", **kw}
+
+
+def retry_screen(*states, debrief_msg=None):
+    sent = []
+    sc = screen_with(debrief_msg)
+    sc.send_lm = lambda t, f: sent.append((t, f)) or True
+    for st in states:
+        sc.info.feed(iv_msg(st))
+    return sc, sent
+
+
+def test_retry_target_rules():
+    t = dbv.retry_target
+    assert t(None, None) is None
+    assert t(iv_msg("running"), None) is None
+    assert t(iv_msg("done"), None) is None                       # curta: nunca teve retorno
+    assert t(iv_msg("done"), None, {"IR-0007"})["status"] == "available"
+    assert t(iv_msg("done"), None, {"IR-0007"})["text"] == dbv.TXT_FAILED
+    assert t(iv_msg("error"), None)["text"] == dbv.TXT_ERROR
+    assert t(iv_msg("debriefing"), None)["status"] == "generating"
+    assert t(iv_msg("debriefing"), {"run_id": "IR-0007"}) is None  # já tem retorno
+    pend = {"run_id": "IR-0007", "sent_at": 10.0, "error": None}
+    assert t(iv_msg("error"), None, retry=pend, now=20.0)["status"] == "pending"
+    assert t(iv_msg("error"), None, retry=pend, now=10.0 + dbv.RETRY_PENDING_S)["status"] == \
+        "available"                                              # sem resposta: o botão volta
+    ref = {"run_id": "IR-0007", "sent_at": None, "error": "feedback already generated"}
+    r = t(iv_msg("done"), None, {"IR-0007"}, ref)
+    assert (r["status"], r["text"]) == ("refused", "feedback already generated")
+    assert dbv.retry_deadline(pend, 20.0) == 10.0 + dbv.RETRY_PENDING_S
+    assert dbv.retry_deadline(ref, 20.0) is None
+
+
+def test_button_in_place_of_panel_sends_run_id_and_shows_generating():
+    sc, sent = retry_screen("debriefing", "done")              # falhou: debriefing → done
+    k = key(sc)
+    assert k[0] is True and k[3] == ("IR-0007", "available", dbv.TXT_FAILED)
+    assert sc.mouse("press", center(dbv.retry_button(sc.L.obs))) is None
+    assert sent == [("lm_interview", {"cmd": "debrief", "run_id": "IR-0007"})]
+    assert key(sc)[3][1:] == ("pending", dbv.TXT_GENERATING)
+    sc.mouse("press", center(dbv.retry_button(sc.L.obs)))      # botão apagado: não reenvia
+    assert len(sent) == 1
+    assert sc.interview_deadline() == sc.info.clock() + dbv.RETRY_PENDING_S
+    sc.info.feed(iv_msg("debriefing"))                         # o núcleo aceitou
+    assert key(sc)[3][1] == "pending"
+    sc.info.feed(debrief(run_id="IR-0007"))                    # chegou: some a faixa
+    assert sc.debrief_retry() is None and key(sc)[0] is True and key(sc)[3] is None
+
+
+def test_refusal_goes_to_panel_not_to_interview_strip():
+    sc, sent = retry_screen("debriefing", "done")
+    sc.retry_debrief("IR-0007")
+    before = dict(sc.info.interview)
+    groups = sc.info.feed({"t": "lm_interview", "state": "error", "run_id": "IR-0007",
+                           "error": "feedback already being generated"})
+    assert groups == {"debrief"}
+    assert sc.info.interview == before                         # faixa da vaga intocada
+    r = sc.debrief_retry()
+    assert (r["status"], r["text"]) == ("refused", "feedback already being generated")
+    sc.mouse("press", center(dbv.retry_button(sc.L.obs)))      # recusado: pode tentar de novo
+    assert len(sent) == 2
+    # recusa de uma run que não está na tela: só o rodapé
+    sc.info.feed({"t": "lm_interview", "state": "error", "run_id": "IR-0099", "error": "nope"})
+    assert sc.info.log == "nope"
+
+
+def test_button_inside_existing_debrief_panel_for_newer_run():
+    sc, sent = retry_screen("error", debrief_msg=CASES["full"])  # retorno antigo IR-0001
+    assert key(sc)[0] is True and sc.debrief_view.is_open
+    body = dbv.body_rect(sc.L.obs, bar=True)
+    assert body.bottom <= dbv.retry_rect(sc.L.obs).y
+    sc.mouse("press", center(dbv.retry_button(sc.L.obs)))
+    assert sent == [("lm_interview", {"cmd": "debrief", "run_id": "IR-0007"})]
+
+
+def test_not_connected_keeps_button_and_logs():
+    sc, _ = retry_screen("error")
+    sc.send_lm = lambda t, f: False
+    sc.mouse("press", center(dbv.retry_button(sc.L.obs)))
+    assert sc.info.log == "feedback retry not sent — not connected"
+    assert sc.debrief_retry()["status"] == "available"
+
+
+def test_closed_while_generating_reopens_on_failure():
+    sc, _ = retry_screen("debriefing")
+    assert key(sc)[0] is True
+    assert sc.key("esc") and key(sc) == (False,)
+    sc.info.feed(iv_msg("done"))
+    assert key(sc)[0] is True                                  # falhou: volta a mostrar o botão
+
+
+def test_esc_closes_debrief_before_topic_list():
+    sc = screen_with(None)
+    sc.topic_picker.clock = sc.info.clock
+    sc.topic_picker.open(auto=True)                            # sessão nova: a lista abre
+    sc.info.feed(CASES["full"])                                # chegou depois: está por cima
+    key(sc)
+    assert sc.debrief_view.is_open and sc.topic_picker.is_open
+    assert sc.key("esc")
+    assert not sc.debrief_view.is_open and sc.topic_picker.is_open
+    assert sc.key("esc") and not sc.topic_picker.is_open
+
+
+@pytest.mark.parametrize("states", [("error",), ("debriefing",)])
+def test_retry_paints_offscreen(states, tmp_path):
+    sc, _ = retry_screen(*states)
+    img = render(sc)
+    btn = dbv.retry_button(sc.L.obs)
+    crop = img.copy(*[round(v * S) for v in (btn.x, btn.y, btn.w, btn.h)])
+    lilac = sum(1 for x in range(crop.width()) for y in range(crop.height())
+                if (c := QColor(crop.pixel(x, y))).blue() > 180 and c.red() > 120)
+    assert lilac > 50                                          # botão aceso (borda + rótulo)
+    assert img.save(str(tmp_path / f"retry_{states[0]}.png"))

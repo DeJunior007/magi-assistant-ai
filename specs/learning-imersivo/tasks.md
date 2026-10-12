@@ -259,8 +259,11 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Escreve: `magi/learning/*`, `config.example.toml` (só `learning_job`), `tests/learning/*`
   - Pronto: `tests/learning` verde (jsonl e Postgres de teste).
 
-- [ ] **LI5.2 Botão de retry do retorno no HUD** — `[ RETRY ]` no painel do retorno/erro manda
-  `lm_interview {"cmd":"debrief","run_id"}` (núcleo pronto na LI5.1).
+- [x] **LI5.2 Botão de retry do retorno no HUD** — `[ RETRY FEEDBACK ]` no painel do retorno/erro
+  manda `lm_interview {"cmd":"debrief","run_id"}` (núcleo pronto na LI5.1); recusa e
+  `generating feedback…` num texto curto no painel; Esc fecha o retorno antes da lista de temas.
+  - Escreve: `hud/wired/learning_debrief.py`, `hud/wired/learning_model.py`,
+    `hud/wired/learning_screen.py`, `tests/hud/test_learning_debrief_view.py`
 
 ## Sobras
 
@@ -380,3 +383,16 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   `magi/common/contracts.py` ainda lista só `next|skip_stage|pause|end` (a validação usa
   `INTERVIEW_CMDS`, já com `debrief`). `build_job_model` agora monta a tarefa como `learning_job`
   (custo com rótulo próprio, mesmo caindo em `learning_actions`).
+- **LI5.2 (2026-10-12):** a faixa `[ RETRY FEEDBACK ]` fica no pé do painel do retorno
+  (`learning_debrief.retry_target`): última run em `debriefing`/`error`, ou `done` depois de passar
+  por `debriefing` sem `lm_debrief` (falha; a curta, < 3 respostas, não mostra). Sem retorno
+  nenhum o painel abre só com cabeçalho + faixa; com um retorno antigo, a faixa vai embaixo dele.
+  Recusa = `lm_interview` `error` com `run_id` e **sem** `job_id` → `LearningModel.debrief_retry`
+  (não toca a faixa da vaga; run fora da tela → só o rodapé). `generating feedback…` some com o
+  `done`/`lm_debrief` da run ou em 60 s (`RETRY_PENDING_S`, prazo somado em `interview_deadline`).
+  Esc: retorno antes da lista de temas — não se sobrepõem, e só ficam abertos juntos sem clique
+  (clique fora fecha o retorno), com o retorno chegando depois do `lm_session`: o mais novo.
+  `gamerhud.py` não precisou mudar (repintura por chave). O retry só alcança runs da sessão
+  aberta (o núcleo só publica `lm_interview`/`lm_debrief` na mesma sessão; `lm_session` não traz
+  a última run). `tests/learning/test_interview_store.py::test_migracao_no_fixture_nao_muda_tabelas_003`
+  falha com a migração `005` do commit Y0.3 (não é da LI5.2).

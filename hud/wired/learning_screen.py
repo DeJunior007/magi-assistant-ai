@@ -534,7 +534,7 @@ class LearningScreen(Screen):
             self._drag = self.sel is not None  # o release que vem depois reabre o menu
         elif kind == "wheel":
             if delta and self.debrief_view.is_open and self.L.obs.contains(point):
-                self.debrief_view.wheel(delta, self.L.obs, self.info.debrief)
+                self.debrief_view.wheel(delta, self.L.obs, self.info.debrief, self.debrief_retry())
             elif delta and self.L.history.contains(point):
                 if self.info.scroll_by(delta * WHEEL_STEP, self.max_scroll()):
                     self.clear_selection()  # rolagem fecha menu e balão (spec §11)
@@ -688,7 +688,10 @@ class LearningScreen(Screen):
     def interview_deadline(self, now: float | None = None) -> float | None:
         """Próximo instante em que a faixa muda sozinha (barra de preparo, relógio)."""
         i = self.info
-        return iv.deadline(i.interview, i.interview_at, i.clock() if now is None else now)
+        now = i.clock() if now is None else now
+        ts = [t for t in (iv.deadline(i.interview, i.interview_at, now),
+                          dbv.retry_deadline(i.debrief_retry, now)) if t is not None]
+        return min(ts) if ts else None  # + o fim do "generating…" do retry (LI5.2)
 
     def _interview_press(self, point: Point) -> bool:
         """Clique na faixa (chip, END INTERVIEW, RETRY) ou no painel. ``True`` = consumido;
@@ -721,24 +724,47 @@ class LearningScreen(Screen):
 
     # ---------------------------------------------------------------- retorno (LI2.4)
 
+    def debrief_retry(self) -> dict | None:
+        """Run que pede ``[ RETRY FEEDBACK ]`` agora (LI5.2) ou ``None``."""
+        i = self.info
+        return dbv.retry_target(i.interview, i.debrief, i.debriefing_runs, i.debrief_retry,
+                                i.clock())
+
     def _debrief_key(self) -> tuple:
         v = self.debrief_view
-        v.sync(self.info.debrief)
+        retry = self.debrief_retry()
+        v.sync(self.info.debrief, retry)
         if not v.is_open or self.L.obs.h <= 0:
             return (False,)
-        return (True, v.seen, round(v.scroll, 1))
+        rk = None if retry is None else (retry["run_id"], retry["status"], retry["text"])
+        return (True, v.seen, round(v.scroll, 1), rk)
 
     def _debrief_press(self, point: Point) -> bool:
-        """Clique com o retorno aberto: ✕ fecha, dentro é consumido (o drawer por baixo não
-        recebe), fora fecha e o clique segue."""
+        """Clique com o retorno aberto: ✕ fecha, ``[ RETRY FEEDBACK ]`` manda
+        ``lm_interview {"cmd":"debrief","run_id"}`` (LI5.2), dentro é consumido (o drawer por
+        baixo não recebe), fora fecha e o clique segue."""
         if self.L.obs.h <= 0:
             return False
-        return self.debrief_view.press(point, self.L.obs, self.info.debrief) in ("close", "inside")
+        retry = self.debrief_retry()
+        what = self.debrief_view.press(point, self.L.obs, self.info.debrief, retry)
+        if what == "retry" and retry is not None:
+            self.retry_debrief(retry["run_id"])
+        return what in ("close", "inside", "retry")
+
+    def retry_debrief(self, run_id: str) -> bool:
+        """Pede o retorno de novo ao núcleo, sempre com o ``run_id`` (depois de reiniciar o
+        núcleo não sabe qual foi a última run)."""
+        ok = self.send_core("lm_interview", {"cmd": "debrief", "run_id": run_id},
+                            "feedback retry not sent — not connected")
+        if ok:
+            self.info.begin_debrief_retry(run_id)
+        return ok
 
     def _g_debrief(self, p, snap, now, s):
         if self.L.obs.h > 0:
-            self.debrief_view.sync(self.info.debrief)
-            dbv.paint(p, self.L.obs, self.info.debrief, self.debrief_view)
+            retry = self.debrief_retry()
+            self.debrief_view.sync(self.info.debrief, retry)
+            dbv.paint(p, self.L.obs, self.info.debrief, self.debrief_view, retry)
 
     # ---------------------------------------------------------------- seleção e overlay (LM2.2)
 
@@ -767,11 +793,16 @@ class LearningScreen(Screen):
         """Tecla da view learning: ``up``/``down``/``enter``/``esc``. ``True`` = consumida (o
         gamerhud não repassa ao campo). ``typing`` = o campo tem texto: Enter fica com ele
         (``lm_say``); ↑↓/Esc continuam no menu. Esc sem menu apaga a seleção, se houver."""
+        # Esc: o retorno primeiro (LI5.2). Lista de temas e painel do retorno não se sobrepõem
+        # (coluna da conversa × coluna direita); "por cima" = o aberto por último. Os dois só
+        # ficam abertos juntos sem clique (qualquer clique fora fecha o retorno): na sessão nova a
+        # lista abre com o ``lm_session`` e o retorno pendente chega depois (ou o do retry), então
+        # o retorno é sempre o mais novo — e o que cobre o drawer de observações.
+        if self.debrief_view.key(name):
+            return True
         if self.topic_picker.key(name):
             return True
         if self.interview_view.key(name):
-            return True
-        if self.debrief_view.key(name):
             return True
         if name == "enter" and typing:
             self.topic_picker.close()   # o Pedro digitou: a lista fecha (spec §11)
