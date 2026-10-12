@@ -896,12 +896,25 @@ from mcp.server.auth.settings import AuthSettings
 class VerificadorAyanami(TokenVerifier):
     async def verify_token(self, token: str) -> AccessToken | None   # tipo "mcp", não revogado; scopes = escopos
 
+from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.transport_security import TransportSecuritySettings
+
 mcp = MCPServer("ayanami", token_verifier=VerificadorAyanami(db),
-                auth=AuthSettings(issuer_url=URL_BASE, resource_server_url=f"{URL_BASE}/mcp",
-                                  required_scopes=["ler"]),
-                streamable_http_path="/")
-app.mount("/mcp", mcp.streamable_http_app())     # S3 confirma montagem e caminho
-def exigir(escopo: str) -> None                  # get_access_token(); falta → erro MCP "escopo"
+                auth=AuthSettings(issuer_url=URL_BASE, resource_server_url=f"{URL_BASE}/mcp/",
+                                  required_scopes=["ler"],          # sem "ler" → 403 no HTTP
+                                  validate_token_resource=False))   # S3: sem isto, aviso na 2.3
+sub = mcp.streamable_http_app(                   # S3: o caminho vai aqui, não no construtor
+    streamable_http_path="/",
+    transport_security=TransportSecuritySettings(  # S3: senão Host do tailnet → 421
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[HOST_TAILNET, "127.0.0.1", "127.0.0.1:*", "localhost:*"],
+        allowed_origins=[f"https://{HOST_TAILNET}", "http://127.0.0.1:*", "http://localhost:*"]))
+app.mount("/mcp", sub)       # S3: responde em /mcp/; /mcp → 307 (clientes usam a URL com barra)
+# S3: o Mount não roda o lifespan do sub-app → o lifespan do FastAPI entra em
+#     `async with mcp.session_manager.run(): ...` (senão "Task group is not initialized")
+def exigir(escopo: str) -> AccessToken           # get_access_token(); falta → ToolError("escopo: …")
+                                                 # (is_error no resultado) + auditoria ok=false
 ```
 
 | Tool | Escopo | Parâmetros | Retorno |
@@ -1710,7 +1723,7 @@ Valores acima valem até a bancada confirmar; o que mudar volta a esta spec ante
 | --- | --- | --- |
 | S1 (node 2) | RTF do Kokoro int8 `pf_dora` ≤ 0,5 (§5.4); faster-whisper `small` int8 RTF ≤ 0,4 e RAM ≤ 2 GB (§5.5); vazão do e5-small; repouso do Compose dentro do RNF-A6 (§9.3) | modo nuvem só texto quando a OpenAI falhar; baixar limites/concorrência da fila `lenta` |
 | S2 (TVs reais) | TCL é Roku ou Google TV (§12.2); portas Samsung por ano (8001/8002, §11.1) e `PowerState`; WOL Wi-Fi/cabo; Roku "Acesso à rede" e *Fast TV start* (§11.2); `androidtvremote2` em 6466/6467, reconexão e HDMI por keycode (§11.3); ids `[S2]` do `apps.yaml`; latência por driver (critério 1) | ajustar §11/§12.5 e a matriz §11.4 |
-| S3 (`mcp` 2.3) | montagem do `MCPServer` no FastAPI em `/mcp` (`streamable_http_app`, `streamable_http_path`), `AuthSettings`/`token_verifier` com escopos, `get_access_token()`; `claude mcp add` pelo tailnet e ponte `mcp-remote` (§8) | servir o MCP em processo/porta própria atrás do mesmo `tailscale serve` |
+| S3 (`mcp` 2.3) | montagem do `MCPServer` no FastAPI em `/mcp` (`streamable_http_app`, `streamable_http_path`), `AuthSettings`/`token_verifier` com escopos, `get_access_token()`; `claude mcp add` pelo tailnet e ponte `mcp-remote` (§8) — **local feito (Y0.5)**: montagem, verificador, escopos e `get_access_token()` confirmados; bloco da §8 corrigido (caminho no `streamable_http_app`, lifespan, `allowed_hosts`, URL `/mcp/`); falta o tailnet (Y1.6) | servir o MCP em processo/porta própria atrás do mesmo `tailscale serve` |
 | S4 (Android do Pedro) | `tailscale serve` + WebAPK; `MediaRecorder` opus; autoplay após o PTT; Web Push via FCM saindo do node 2 com a tela bloqueada (§14–§15) | gravar em WAV via `AudioWorklet`; tocar só após toque |
 | S5 (`procrastinate` 3.10) | API exata da 3.10: `retry_stalled_jobs` (nome), `cancel_job_by_id_async(abort=True)` com parada ≤ 10 s, `queueing_lock` + `AlreadyEnqueued`, `on_job_status`, job de 30 min sobrevivendo a restart, LISTEN/NOTIFY → API (§4); cron das `periodic` segue o `TZ` do contêiner [DS9] | converter crons para UTC; ajustar nomes no §4 |
 | S6 (turno remoto) | `RemoteLink` no `CoreService`: webm → PCM 16 kHz (ffmpeg ≤ 2 s) → turno → PCM 24 kHz → opus; ponto do `on_turn_done` [DS6]; p90 no 4G (voz ≤ 4 s) — **local feito (Y0.6)**: transcodificação e gancho confirmados (§6.3); falta o p90 no 4G (F.x) | ajustar o gancho e os prazos da §6.2 |

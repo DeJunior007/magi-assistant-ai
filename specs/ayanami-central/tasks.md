@@ -212,7 +212,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: cada pergunta da linha S5 da §17 com "confirmado"/"mudou para …" e a evidência (saída do script); spec atualizada quando mudou.
   - Paralelo: Y0.5, Y0.6, Y2.1, Y3.3
 
-- [ ] **Y0.5 Spike S3 — MCP 2.3 (parte local)** — `MCPServer` montado num FastAPI em `/mcp`
+- [x] **Y0.5 Spike S3 — MCP 2.3 (parte local)** — `MCPServer` montado num FastAPI em `/mcp`
   (`streamable_http_app`, `streamable_http_path="/"`), `TokenVerifier` com escopos,
   `get_access_token()` dentro da tool, `AuthSettings` com `required_scopes`; cliente MCP da própria
   lib contra o ASGI em memória e contra `uvicorn` em `127.0.0.1` (porta efêmera) listando e chamando
@@ -1036,3 +1036,11 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   cópia com `@REPO@` trocado. (5) As deps da casa entraram em `dependencies` (o PC roda a casa);
   um `uv sync` puro remove os extras `ayanami`/`ayanami-ml` do `.venv` — use
   `uv sync --extra ayanami --extra ayanami-ml`.
+- **Y0.5:** (1) Montagem no próprio `ayanami-api` confirmada (28/28 em `spikes/ayanami_s3_mcp.py`,
+  detalhes em `docs/perf/ayanami-s3.md`); bloco da §8 corrigido. (2) Fora do *Escreve*: a nota da
+  §8 (`claude mcp add … https://ayanami.<tailnet>.ts.net/mcp`) deve usar **`/mcp/`** (com barra):
+  `/mcp` leva 307 e, atrás do `tailscale serve`, o `Location` sai `http://` e o cliente recusa o
+  downgrade (ou uvicorn com `--proxy-headers --forwarded-allow-ips=127.0.0.1`) — a Y1.6 confere e
+  corrige a nota/design §4.5. (3) Y5.1: lifespan do FastAPI entra em `mcp.session_manager.run()`;
+  `allowed_hosts` precisa do host do tailnet (`[ayanami]` dá a URL base); `mcp` 2.3.0 já está no
+  `uv.lock` (sem `--with`).
