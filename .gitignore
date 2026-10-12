@@ -10,3 +10,6 @@ secrets/
 keys.txt
 *.kate-swp
 scratch/
+# Ayanami (node 2): segredos e dados nunca no git
+deploy/ayanami/.env
+deploy/ayanami/dados/

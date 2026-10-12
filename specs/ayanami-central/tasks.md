@@ -159,7 +159,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y1, CA-Y2, CA-Y3, CA-Y4, CA-Y5 verdes; schema gerado é determinístico (teste compara com o arquivo); `ruff` limpo; nenhum import de rede em `magi/elo/{ids,mensagens,quadros,converte,receptor,schema}.py` (teste por `ast`).
   - Paralelo: Y0.2
 
-- [ ] **Y0.2 Esqueleto da Ayanami e config** — pacote `ayanami/` com `config.py` (`ler(caminho) ->
+- [x] **Y0.2 Esqueleto da Ayanami e config** — pacote `ayanami/` com `config.py` (`ler(caminho) ->
   AyanamiConfig`, dataclasses `frozen`, `ConfigError` com caminho da chave, faixas e regras da §9.2,
   [DS8]; leitura dos segredos do `.env` só por nome, com lista `faltando`), `relogio.py` (`Relogio`
   protocolo + real + falso para testes), `cli.py` (`ayanami <sub>` com `argparse`: `migrar`,
@@ -978,3 +978,14 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
+
+- **Y0.2:** (1) `ayanami-ml` fixa `kokoro-onnx==0.6.1` e `onnxruntime==1.30.0` (as do PC), não
+  `0.4.7`/`1.31.0`: o `uv.lock` é um só e os pinos da spec rebaixariam o Kokoro do PC (audiolivro).
+  A Y3.5 usa a API do 0.6.1. (2) Sem `tests/ayanami/__init__.py`: com `--import-mode=importlib` ele
+  vira o pacote `ayanami` e esconde o pacote real; `tests/ayanami/` fica sem `__init__` (as próximas
+  tarefas não criam um). (3) `ayanami batimento` despacha para `ayanami.worker:cli_batimento(args)`
+  (Y3.1), não `cli`; todos os donos recebem a lista crua de argumentos depois do subcomando e
+  devolvem `int | None`. (4) Extras via `[project.optional-dependencies]`: `uv sync --extra ayanami
+  [--extra ayanami-ml]`. (5) Segredos: `config.ler_segredos(cfg, arquivo=None, env=None)` →
+  `Segredos` (`faltando` por fase: `OPENAI_API_KEY` só com nuvem ligada e `teto_nuvem_usd > 0`;
+  B2/restic só com `[backup] ligado`). `[noticias]` aceita `fontes`, `timeout_s`, `embedder`.

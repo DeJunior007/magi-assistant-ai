@@ -1,0 +1,55 @@
+# Config da Ayanami (spec §9.2). No node 2: /opt/ayanami/ayanami.toml, montado só-leitura em
+# /etc/ayanami/ayanami.toml. Segredos NÃO entram aqui (vão no .env, ver env.example).
+# Chave desconhecida, tipo errado ou fora da faixa = erro na subida (DS8).
+
+[geral]
+url_base = "https://ayanami.exemplo.ts.net"   # obrigatório; https://
+fuso = "America/Sao_Paulo"
+
+[rede]
+batimento_s = 10          # 5..30
+offline_apos_s = 30       # ≥ 3 × batimento_s
+longpoll_s = 25           # 10..55
+
+[fila]
+rapida_concorrencia = 8   # 1..16
+agendada_concorrencia = 2 # 1..4
+lenta_concorrencia = 1    # 1..2
+
+[budget]
+teto_nuvem_usd = 2.0      # 0..teto_geral_usd (0 = modo nuvem sem LLM, D11c)
+teto_geral_usd = 5.0
+
+[nuvem]
+ligado = true
+stt_modelo = "gpt-transcribe"   # mesmo do PC ([tasks] stt do config.toml); trocar aqui se o PC trocar
+tts_voz = "marin"
+kokoro_reserva = true
+contexto_turnos = 20      # 0..50
+
+[noticias]
+ligado = true
+dim = 768                 # tem de ser igual ao NEWS_DIM do PC (magi/memory/migrate.py, padrão 768)
+# demais chaves = as de [news] do config.toml do PC (fontes, timeout_s, embedder)
+
+[backup]
+ligado = true
+restore_teste = true
+alerta_sem_snapshot_h = 36
+
+[push]
+max_hora = 10             # 1..60, por dispositivo (§15)
+noticias_dia = 3          # 0..10
+silencio_padrao = "23:00-07:30"
+
+[mcp]
+escopos = ["ler", "tarefas"]   # subconjunto de {"ler","tarefas","casa","memoria-escrever"}
+memoria_ler = false
+
+[voz]
+modelo = "kokoro-v1.0.int8.onnx"
+voz = "pf_dora"
+descarregar_apos_s = 600
+
+[embeddings]
+ligado = false            # só com a A8
