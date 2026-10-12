@@ -1,0 +1,44 @@
+# Catálogo fixo de apps da casa (spec §12.5, design §5.5; dono: C1.1).
+# id canônico → por driver. Samsung: app_id Tizen. Roku: channel id (ausente = busca por nome em
+# /query/apps). androidtv: deep link + pacote (o pacote só reconhece o app atual).
+# Ids marcados [S2] só valem depois de abrir o app de verdade uma vez (spike C1.S2).
+# Driver sem entrada → APP_DESCONHECIDO ("não conheço esse app nessa TV").
+# Override do usuário: ~/.config/magi/casa-apps.yaml, mesmo formato, ganha por id.
+apps:
+  - id: netflix
+    nome: "Netflix"
+    apelidos: ["netflix", "netiflix"]
+    samsung: "3201907018807"
+    roku: "12"
+    androidtv: {link: "https://www.netflix.com/title", pacote: "com.netflix.ninja"}
+  - id: youtube
+    nome: "YouTube"
+    apelidos: ["youtube", "iutubi"]
+    samsung: "111299001912"
+    roku: "837"
+    androidtv: {link: "https://www.youtube.com", pacote: "com.google.android.youtube.tv"}
+  - id: prime
+    nome: "Prime Video"
+    apelidos: ["prime", "prime video", "amazon"]
+    samsung: "3201910019365"  # [S2]
+    roku: "13"
+    androidtv: {link: "https://app.primevideo.com", pacote: "com.amazon.amazonvideo.livingroom"}
+  # Os demais só com nome e apelidos até o spike S2 trazer os ids de cada driver.
+  - id: disney
+    nome: "Disney+"
+    apelidos: ["disney", "disney plus", "disney mais"]
+  - id: max
+    nome: "Max"
+    apelidos: ["max", "hbo", "hbo max"]
+  - id: globoplay
+    nome: "Globoplay"
+    apelidos: ["globoplay", "globo play", "globo"]
+  - id: spotify
+    nome: "Spotify"
+    apelidos: ["spotify", "spotifai"]
+  - id: twitch
+    nome: "Twitch"
+    apelidos: ["twitch", "tuitch"]
+  - id: crunchyroll
+    nome: "Crunchyroll"
+    apelidos: ["crunchyroll", "crunchy", "cranchiroll"]

@@ -42,6 +42,13 @@ dependencies = [
     "PySide6>=6.7",
     "kokoro-onnx>=0.4",
     "pymupdf>=1.28.2",
+    # casa (magi-casa, TVs; specs/ayanami-central C1.1): versões fixas da spec §11
+    "samsungtvws[async]==3.0.6",
+    "wakeonlan==4.0.0",
+    "rokuecp==0.19.5",
+    "androidtvremote2==0.3.2",
+    "async-upnp-client==0.49.0",
+    "zeroconf==0.151.5",
 ]
 
 [project.scripts]
@@ -56,6 +63,7 @@ magi-spotify-login = "magi.cli.spotify_login:main"
 ayanami = "ayanami.cli:main"  # API central no node 2 (specs/ayanami-central, Y0.2)
 magi-news-sync = "magi.elo.news_sync:main"  # PC puxa notícias da Ayanami (spec §5.2)
 magi-backup = "magi.elo.backup:main"  # backup do PC para a Ayanami (spec §7.1)
+magi-casa = "magi.casa.__main__:main"  # TVs da casa (specs/ayanami-central §10, C1.1)
 
 [project.optional-dependencies]
 # Nuvem (Ayanami, node 2). Fora do `uv sync` padrão do PC: `uv sync --extra ayanami`.

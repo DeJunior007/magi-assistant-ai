@@ -6,6 +6,15 @@ requires-python = "==3.12.*"
 overrides = [{ name = "tflite-runtime", marker = "python_full_version < '3.12'" }]
 
 [[package]]
+name = "aiofiles"
+version = "25.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/41/c3/534eac40372d8ee36ef40df62ec129bee4fdb5ad9706e58a29be53b2c970/aiofiles-25.1.0.tar.gz", hash = "sha256:a8d728f0a29de45dc521f18f07297428d56992a742f0cd2701ba86e44d23d5b2", size = 46354, upload-time = "2025-10-09T20:51:04.358Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bc/8a/340a1555ae33d7354dbca4faa54948d76d89a27ceef032c8c3bc661d003e/aiofiles-25.1.0-py3-none-any.whl", hash = "sha256:abe311e527c862958650f9438e859c1fa7568a141b22abcd015e120e86a85695", size = 14668, upload-time = "2025-10-09T20:51:03.174Z" },
+]
+
+[[package]]
 name = "aiohappyeyeballs"
 version = "2.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -65,6 +74,20 @@ wheels = [
 ]
 
 [[package]]
+name = "androidtvremote2"
+version = "0.3.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiofiles" },
+    { name = "cryptography" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/88/ba/25b1cd1071bb57fb18c86856a578d100e748cd6344a4d7224994dfe45df0/androidtvremote2-0.3.2.tar.gz", hash = "sha256:68fa96ca25ac8ddcb20a64c4c61481a37539b301b899f733f3fb1fc134ea8763", size = 58353, upload-time = "2026-09-01T15:54:52.7Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/42/3f/3abd350acc7a442157e45881243f8c175dbd277f0d26b25516bce476d770/androidtvremote2-0.3.2-py3-none-any.whl", hash = "sha256:b3818c316d8416912f46aac489dbd2bc277814a72b6fb1c4c45c71b6424fc13c", size = 48077, upload-time = "2026-09-01T15:54:51.59Z" },
+]
+
+[[package]]
 name = "annotated-doc"
 version = "0.0.5"
 source = { registry = "https://pypi.org/simple" }
@@ -105,6 +128,21 @@ wheels = [
 ]
 
 [[package]]
+name = "async-upnp-client"
+version = "0.49.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "defusedxml" },
+    { name = "python-didl-lite" },
+    { name = "voluptuous" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/be/b3/289d447e1e393dd03a5bae0847886687553ab1eae87842cd8996205a8b57/async_upnp_client-0.49.0.tar.gz", hash = "sha256:b2306b2277471f3d3544d688159aa98ee656306af7f203a9e48386e9a94bfbd0", size = 121794, upload-time = "2026-10-11T15:45:30.216Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b7/43/929954a67bbf372cb26c39a55b91a114b930290a721eca2fea2c7088d483/async_upnp_client-0.49.0-py3-none-any.whl", hash = "sha256:c9be3bb327a73a7c096cde4164926d4c3b2c317205d11397d10136bf560e95d6", size = 108196, upload-time = "2026-10-11T15:45:28.445Z" },
+]
+
+[[package]]
 name = "attrs"
 version = "26.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -128,6 +166,24 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/7a/41/b9af863f635f64abaf5eb734521306487fc79447f5d55d792339a81c8a4d/av-19.0.1-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:935a6b6386a6994964e324eb02af4dab01eedbcbbde23b4b21bf1dc59b004244", size = 36008899, upload-time = "2026-10-03T01:47:44.13Z" },
     { url = "https://files.pythonhosted.org/packages/e6/dc/a87a5a5e3ac462734f9befd8bad1447301e5802d8c111e22bf708fba7af3/av-19.0.1-cp312-abi3-win_amd64.whl", hash = "sha256:906fc3db09288319a75ea23ffefb59961c7dbe0d1c074601507a89de7d8593d8", size = 28149519, upload-time = "2026-10-03T01:47:47.372Z" },
     { url = "https://files.pythonhosted.org/packages/a5/78/16864f1aa2c3ac5017f15132b85c6d3c74bb85caca8c45ce836ad30dfe20/av-19.0.1-cp312-abi3-win_arm64.whl", hash = "sha256:e9e1b0cae6cebd2adc2c5c6691fc890112f8f6c846b76a9135307617db1e32e9", size = 20706822, upload-time = "2026-10-03T01:47:50.72Z" },
+]
+
+[[package]]
+name = "awesomeversion"
+version = "25.8.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4e/3a/c97ef69b8209aa9d7209b143345fe49c1e20126f62a775038ab6dcd78fd5/awesomeversion-25.8.0.tar.gz", hash = "sha256:e6cd08c90292a11f30b8de401863dcde7bc66a671d8173f9066ebd15d9310453", size = 70873, upload-time = "2025-08-03T08:54:07.854Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/99/b3/c6be343010721bfdd3058b708eb4868fa1a207534a3b6c80de74d35fb568/awesomeversion-25.8.0-py3-none-any.whl", hash = "sha256:1c314683abfcc3e26c62af9e609b585bbcbf2ec19568df2f60ff1034fb1dae28", size = 15919, upload-time = "2025-08-03T08:54:06.265Z" },
+]
+
+[[package]]
+name = "backoff"
+version = "2.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/d7/5bbeb12c44d7c4f2fb5b56abce497eb5ed9f34d85701de869acedd602619/backoff-2.2.1.tar.gz", hash = "sha256:03f829f5bb1923180821643f8753b0502c3b682293992485b0eef2807afa5cba", size = 17001, upload-time = "2022-10-05T19:19:32.061Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/73/b6e24bd22e6720ca8ee9a85a0c4a2971af8497d8f3193fa05390cbd46e09/backoff-2.2.1-py3-none-any.whl", hash = "sha256:63579f9a0628e06278f7e47b7d7d5b6ce20dc65c5e96a6f3ca99a6adca0396e8", size = 15148, upload-time = "2022-10-05T19:19:30.546Z" },
 ]
 
 [[package]]
@@ -315,6 +371,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ce/45/6a40fbe886d60a8c26f480e7d12535502b5ba123814b3b9a0b002ebca198/dbus_next-0.2.3.tar.gz", hash = "sha256:f4eae26909332ada528c0a3549dda8d4f088f9b365153952a408e28023a626a5", size = 71112, upload-time = "2021-07-25T22:11:28.398Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d2/fc/c0a3f4c4eaa5a22fbef91713474666e13d0ea2a69c84532579490a9f2cc8/dbus_next-0.2.3-py3-none-any.whl", hash = "sha256:58948f9aff9db08316734c0be2a120f6dc502124d9642f55e90ac82ffb16a18b", size = 57885, upload-time = "2021-07-25T22:11:25.466Z" },
+]
+
+[[package]]
+name = "defusedxml"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/d5/c66da9b79e5bdb124974bfe172b4daf3c984ebd9c2a06e2b8a4dc7331c72/defusedxml-0.7.1.tar.gz", hash = "sha256:1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69", size = 75520, upload-time = "2021-03-08T10:59:26.269Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/6c/aa3f2f849e01cb6a001cd8554a88d4c77c5c1a31c95bdf1cf9301e6d9ef4/defusedxml-0.7.1-py2.py3-none-any.whl", hash = "sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61", size = 25604, upload-time = "2021-03-08T10:59:24.45Z" },
 ]
 
 [[package]]
@@ -680,6 +745,15 @@ wheels = [
 ]
 
 [[package]]
+name = "ifaddr"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/ac/fb4c578f4a3256561548cd825646680edcadb9440f3f68add95ade1eb791/ifaddr-0.2.0.tar.gz", hash = "sha256:cc0cbfcaabf765d44595825fb96a99bb12c79716b73b44330ea38ee2b0c4aed4", size = 10485, upload-time = "2022-06-15T21:40:27.561Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9c/1f/19ebc343cc71a7ffa78f17018535adc5cbdd87afb31d7c34874680148b32/ifaddr-0.2.0-py3-none-any.whl", hash = "sha256:085e0305cfe6f16ab12d72e2024030f5d52674afad6911bb1eee207177b8a748", size = 12314, upload-time = "2022-06-15T21:40:25.756Z" },
+]
+
+[[package]]
 name = "iniconfig"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1013,6 +1087,8 @@ name = "magi-assistant"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "androidtvremote2" },
+    { name = "async-upnp-client" },
     { name = "dbus-next" },
     { name = "evdev" },
     { name = "feedparser" },
@@ -1035,11 +1111,15 @@ dependencies = [
     { name = "pyside6" },
     { name = "pyyaml" },
     { name = "rapidfuzz" },
+    { name = "rokuecp" },
+    { name = "samsungtvws", extra = ["async"] },
     { name = "selectolax" },
     { name = "sounddevice" },
     { name = "spotipy" },
+    { name = "wakeonlan" },
     { name = "watchfiles" },
     { name = "wyoming" },
+    { name = "zeroconf" },
 ]
 
 [package.optional-dependencies]
@@ -1071,6 +1151,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "androidtvremote2", specifier = "==0.3.2" },
+    { name = "async-upnp-client", specifier = "==0.49.0" },
     { name = "dbus-next", specifier = ">=0.2.3" },
     { name = "evdev", specifier = ">=1.7" },
     { name = "fastapi", marker = "extra == 'ayanami'", specifier = ">=0.115" },
@@ -1103,13 +1185,17 @@ requires-dist = [
     { name = "pywebpush", marker = "extra == 'ayanami'", specifier = "==2.5.0" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "rapidfuzz", specifier = ">=3.9" },
+    { name = "rokuecp", specifier = "==0.19.5" },
+    { name = "samsungtvws", extras = ["async"], specifier = "==3.0.6" },
     { name = "selectolax", specifier = ">=0.3" },
     { name = "sounddevice", specifier = ">=0.4.7" },
     { name = "spotipy", specifier = ">=2.24" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'ayanami'", specifier = ">=0.30" },
+    { name = "wakeonlan", specifier = "==4.0.0" },
     { name = "watchfiles", specifier = ">=0.21" },
     { name = "websockets", marker = "extra == 'ayanami'", specifier = ">=13" },
     { name = "wyoming", specifier = ">=1.5" },
+    { name = "zeroconf", specifier = "==0.151.5" },
 ]
 provides-extras = ["ayanami", "ayanami-ml"]
 
@@ -1776,6 +1862,18 @@ wheels = [
 ]
 
 [[package]]
+name = "python-didl-lite"
+version = "1.5.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "defusedxml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5d/1a/01752557edb9a1b7f627b26c04f8642700f4cfc596d7941df027852b1aff/python_didl_lite-1.5.1.tar.gz", hash = "sha256:0cdb41ee962acb369d1afb72880cab8774fc1f812ada001016346ea13e0f27b7", size = 14511, upload-time = "2026-08-21T08:30:55.153Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/82/ff9c71874617e70208eb2910fd1b55018143fffde81df856a76a8e694431/python_didl_lite-1.5.1-py3-none-any.whl", hash = "sha256:ca2e965f3154018a9256caaed80930f89530484354ba62f15f91d2f7e84c4521", size = 9724, upload-time = "2026-08-21T08:30:54.107Z" },
+]
+
+[[package]]
 name = "python-dotenv"
 version = "1.2.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1944,6 +2042,22 @@ wheels = [
 ]
 
 [[package]]
+name = "rokuecp"
+version = "0.19.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "awesomeversion" },
+    { name = "backoff" },
+    { name = "xmltodict" },
+    { name = "yarl" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/80/ff/dfa2d238d66500d48ceab446f99bd0540cce00469a1dd02ec3ec09e2b058/rokuecp-0.19.5.tar.gz", hash = "sha256:70514bf2e09c3223a94a1b42c7621b9dd789263e75cec86e6ca9a61f4fa5b4ee", size = 12437, upload-time = "2025-06-14T01:37:43.128Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ee/8c/aa525121136d20e0e6d03021afb29504562f3930b1d5235cb468d152e05b/rokuecp-0.19.5-py3-none-any.whl", hash = "sha256:423eda5526ff9ed08aa1697533c41d7fc93fe34d9114f55cd9e62698146afc01", size = 13011, upload-time = "2025-06-14T01:37:41.928Z" },
+]
+
+[[package]]
 name = "rpds-py"
 version = "2026.9.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2001,6 +2115,26 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/78/fa/0f9c2020dc316c53d983be011720b8157cc052b97e3f4dfa7db6d0f880a6/ruff-0.16.10-py3-none-win32.whl", hash = "sha256:2a12e01cb9156c10c466f63b46eaae5ecea28dfbd21b5836353ae498e7d1349a", size = 10139176, upload-time = "2026-10-01T18:03:13.267Z" },
     { url = "https://files.pythonhosted.org/packages/99/29/cfb0df9448d4d4ad48c2de029ada9ebd71baa6da983a6c77ee6c6cd0fe82/ruff-0.16.10-py3-none-win_amd64.whl", hash = "sha256:97f2015c92aa97105b0eab19eb5d224884399281cfc5da86a92db4ab5e7fb2ca", size = 10584734, upload-time = "2026-10-01T18:03:16.006Z" },
     { url = "https://files.pythonhosted.org/packages/fc/05/c16957eb287c3fc062e032619a25868d93d408a844b725bcf514f7a378ff/ruff-0.16.10-py3-none-win_arm64.whl", hash = "sha256:25a65fe998c4e6861ec079ada5826a2fc605e6cbccbe9dcd7fac1f54e791621b", size = 10366440, upload-time = "2026-10-01T18:03:19.04Z" },
+]
+
+[[package]]
+name = "samsungtvws"
+version = "3.0.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "websocket-client" },
+    { name = "yarl" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/35/10/83c2d17e8643c262acc8b9e24581a44699862bb6c0ef0683b4bf682ee53a/samsungtvws-3.0.6.tar.gz", hash = "sha256:166111d8370443cd2021b74cdfac9495896dfc41e3a87ea023289f24f922bb91", size = 48757, upload-time = "2026-09-11T22:41:04.031Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/49/60b2993a26e78f5d2716b4df1c3fb8fae54d19acf79197280df9088ddc15/samsungtvws-3.0.6-py3-none-any.whl", hash = "sha256:6e3a1b23f928b3035570cc976b64b8c2a218b06022a333855fd7cd02dc74891d", size = 48791, upload-time = "2026-09-11T22:41:02.375Z" },
+]
+
+[package.optional-dependencies]
+async = [
+    { name = "aiohttp" },
+    { name = "websockets" },
 ]
 
 [[package]]
@@ -2345,6 +2479,27 @@ wheels = [
 ]
 
 [[package]]
+name = "voluptuous"
+version = "0.16.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/f4/0738e6849858deae22218be3bbb8207ba83a96e9d0ec7e8e8cd67b30e5ca/voluptuous-0.16.0.tar.gz", hash = "sha256:006535e22fed944aec17bef6e8725472476194743c87bd233e912eb463f8ff05", size = 54238, upload-time = "2025-12-18T23:18:46.08Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/00/0e0da784245c93cf346150ab67634177bf277f93b7a162bb56c928c39c04/voluptuous-0.16.0-py3-none-any.whl", hash = "sha256:ee342095263e1b5afbd4d418cb5adc92810eebfd07696bb033a261210df33db4", size = 31931, upload-time = "2025-12-18T23:18:44.694Z" },
+]
+
+[[package]]
+name = "wakeonlan"
+version = "4.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8f/16/69e4cdcce1be240667dfa2607f12e00d1c79e4606656327c4f1fb88fea40/wakeonlan-4.0.0.tar.gz", hash = "sha256:1cb30c4ae60f85ef289f4f7d4f703382ed19ba84103206dc5e2b1e51bec9f456", size = 5079, upload-time = "2026-06-28T09:23:15.711Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5c/80/ecebf7b1b32ebe4a10d72a09e21c4c76a2460fac159752ec9ab88508b7d0/wakeonlan-4.0.0-py3-none-any.whl", hash = "sha256:82c50fe0c8dbc4848b8398f48fd2d2ed5d4af363f3006279372d76513ef84505", size = 5882, upload-time = "2026-06-28T09:23:14.577Z" },
+]
+
+[[package]]
 name = "watchfiles"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2390,6 +2545,15 @@ wheels = [
 ]
 
 [[package]]
+name = "websocket-client"
+version = "1.9.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/cb/a5abcc2891249f393827c650c6296660ce40374ac22d99ab9aea41f9d2a2/websocket_client-1.9.2.tar.gz", hash = "sha256:0fcb57545848be86992e128218fd96dd87a6769ffdb1a968dff79632b85604d0", size = 84110, upload-time = "2026-08-31T14:08:40.964Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/d2/cc4dc1271e464942db7ee278baae2daa99ee77cb2af744025c04da585a3e/websocket_client-1.9.2-py3-none-any.whl", hash = "sha256:e1a673830a9c7bfa47b1cd3d5e4178f4c9651d80a4eab02c9c23a1c3ec6250ce", size = 95786, upload-time = "2026-08-31T14:08:39.899Z" },
+]
+
+[[package]]
 name = "websockets"
 version = "16.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2431,6 +2595,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/de/37/bfc5d51c916c4bdab16cb7eb62556d3eaaa8b5f8eba33dbe992780dc4a46/wyoming-1.10.2.tar.gz", hash = "sha256:2a84035d9e51f4be68b27c9791273c5bce29f79f0c37137ea49cc417294f9080", size = 45540, upload-time = "2026-08-27T16:30:49.154Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/08/98/512f8d7d95eeedbf157994c39572822e3f8ae724ccbb5ae027caa09cf707/wyoming-1.10.2-py3-none-any.whl", hash = "sha256:08aec17ccad4d72fc3f919ab741beacf3f23a1df24c8b9a317ebc6e02d2b227c", size = 44869, upload-time = "2026-08-27T16:30:47.72Z" },
+]
+
+[[package]]
+name = "xmltodict"
+version = "1.0.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/70/80f3b7c10d2630aa66414bf23d210386700aa390547278c789afa994fd7e/xmltodict-1.0.4.tar.gz", hash = "sha256:6d94c9f834dd9e44514162799d344d815a3a4faec913717a9ecbfa5be1bb8e61", size = 26124, upload-time = "2026-02-22T02:21:22.074Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/34/98a2f52245f4d47be93b580dae5f9861ef58977d73a79eb47c58f1ad1f3a/xmltodict-1.0.4-py3-none-any.whl", hash = "sha256:a4a00d300b0e1c59fc2bfccb53d7b2e88c32f200df138a0dd2229f842497026a", size = 13580, upload-time = "2026-02-22T02:21:21.039Z" },
 ]
 
 [[package]]
@@ -2495,6 +2668,26 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/bb/cc/51a7b4abf4ac593b8e7eb3794b28e5a35ae26eed8bc04787628d215af82f/yarl-1.25.1-cp312-cp312-win_amd64.whl", hash = "sha256:7d575b54cb3863ef9bc290ea4b009999d55dc237326131e4853cf33e888fee03", size = 102593, upload-time = "2026-09-15T19:31:33.329Z" },
     { url = "https://files.pythonhosted.org/packages/9d/21/0941a6b93a58b59a1ec75e5333bf06929b671309c43c0cd201c172d9c39f/yarl-1.25.1-cp312-cp312-win_arm64.whl", hash = "sha256:bc3ac7bf569f6b64dad04dd7808c7872dae8a97df657856eac05e9b7e3614a85", size = 97697, upload-time = "2026-09-15T19:31:35.855Z" },
     { url = "https://files.pythonhosted.org/packages/54/22/318c7980066769c6bcd9221ed2248294f5698811da099013098c670565ed/yarl-1.25.1-py3-none-any.whl", hash = "sha256:681c758b0490f9e96b78e5fa8e8dc6e648e9185bb6eaebe73183c33ea0c445f3", size = 63617, upload-time = "2026-09-15T19:34:59.616Z" },
+]
+
+[[package]]
+name = "zeroconf"
+version = "0.151.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ifaddr" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/93/20/69744d9de9d375dae2639dda9add7dae85d52d690b68c61b23b8a6468434/zeroconf-0.151.5.tar.gz", hash = "sha256:28c2ec9d772007eedf11b41a9c9fd3d5c684c17b00721ff8f1ee31b20ad286a1", size = 223583, upload-time = "2026-09-28T14:42:06.073Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b5/21/c5b7df0ffb5e5681b246dbd3529a5ff6a773ef2dd7d63945e37aee1f35e2/zeroconf-0.151.5-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:f13dfaa9091daf9c30198149b5d414bc1e92f25aceb0d8d9c9ca3f7ea7a239f8", size = 1204527, upload-time = "2026-09-28T14:58:19.644Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/8f/4cf62347212bfa156280a2e48e7a30e2ee0e9958e7c79645b32558f58dc3/zeroconf-0.151.5-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:8905f5ccf8cfa7e767dc9b0dd009e2787f8d8e5595f2a6d9c3e956cbb1a397cb", size = 1367281, upload-time = "2026-09-28T14:58:21.162Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/a7/c96b2d9f1f1e4f16c02454a183d191eb804bbfc8fb5bff6479f94785f638/zeroconf-0.151.5-cp312-cp312-manylinux2014_armv7l.manylinux_2_17_armv7l.manylinux_2_31_armv7l.whl", hash = "sha256:137f3c5cf600fccd100513e6d22a265d1b0301278607b84b9eb2de1e54c72fde", size = 1317798, upload-time = "2026-09-28T14:58:22.709Z" },
+    { url = "https://files.pythonhosted.org/packages/31/c4/e54512d343c4c177e92c45ec16852abe63945b924274c692a5a1867db011/zeroconf-0.151.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:2e843fdb7249cbf612cf0bdb729d4581d057b78c45423bd46a6bf377832b4ffc", size = 1424565, upload-time = "2026-09-28T14:58:24.217Z" },
+    { url = "https://files.pythonhosted.org/packages/35/21/8fd07251410c96d4e84e7865dda06df9c0b06403b802881d7ebc18f26cb2/zeroconf-0.151.5-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:849c312c7c2f23f1e681ad8d3d2ca4189fb4df9cf426ad1933b3ad0403a5b4f8", size = 1386674, upload-time = "2026-09-28T14:58:25.886Z" },
+    { url = "https://files.pythonhosted.org/packages/d6/7c/5e2a099114bb295f48a2227cfcded908f3d452da36c901060de554fcfcdf/zeroconf-0.151.5-cp312-cp312-musllinux_1_2_armv7l.whl", hash = "sha256:be010daad6e60fbdbbd085c6873dd9b491b2cd1e93f64e4a58722b2db72c2b9b", size = 1328929, upload-time = "2026-09-28T14:58:27.428Z" },
+    { url = "https://files.pythonhosted.org/packages/07/08/a1cbb3199fa7ee54b4d6461bd73789012df39437d36ba69eac5db28c8fe1/zeroconf-0.151.5-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:92dc32ac2ce69967d288091106581da063136441bd22ad8efd5bb611d692b890", size = 1441075, upload-time = "2026-09-28T14:58:29.099Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/6a/e8c8830a3f20361e195b1b799cf512af72afeba49352d8387e529c28553b/zeroconf-0.151.5-cp312-cp312-win32.whl", hash = "sha256:b2c0ec31fd0195b3f32dcfb4b6133189278ad18fb27f88a20857adaa8d1589ad", size = 949337, upload-time = "2026-09-28T14:58:30.675Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/a2/dda37c8efb5649785eda26e2cdc9b502961e8ec2f367879c9962911eef1c/zeroconf-0.151.5-cp312-cp312-win_amd64.whl", hash = "sha256:244d853ec76620cd31c5c4657cff22fb34e181826d833134244135202f92888f", size = 1074546, upload-time = "2026-09-28T14:58:32.198Z" },
 ]
 
 [[package]]

@@ -652,7 +652,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
 
 ## Fase C1 — `magi-casa`
 
-- [ ] **C1.1 Esqueleto e contrato da casa** — pacote `magi/casa/` com o contrato puro
+- [x] **C1.1 Esqueleto e contrato da casa** — pacote `magi/casa/` com o contrato puro
   `driver.py` (`Cap`, `Key`, `Motivo`, `Capacidades.pode`, `ResTv`, `TvDriver`, spec §10.5,
   assinaturas finais), `falso.py` (`DriverFalso(capacidades, script)` que grava chamadas e responde
   do script, relógio injetado), `config.py` (`casa.toml` §12.4: leitura, validação, escrita
@@ -1020,3 +1020,19 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   cópia só-esquema (`pg_dump -s`) do `magi-pg` restaurada no `ayanami-pg-teste`: aplica só a `005`,
   2ª vez não faz nada. Os testes `db` de `tests/memory/` rodaram com `MAGI_DB_DSN` no
   `ayanami-pg-teste` (verdes), sem tocar no `magi-pg`.
+- **C1.1:** (1) Fábrica dos drivers: cada `magi/casa/drivers/<nome>.py` expõe
+  `criar(tv: TvConfig, ctx: ContextoDriver) -> TvDriver`; `TvConfig` (uma `[[tv]]`) e
+  `ContextoDriver` (`broadcast`, `apps`, `dir_pareamento`, `relogio`) moram em `driver.py`, que as
+  C1.2–C1.4 já leem. `drivers.criar_driver(tv, ctx)`; módulo ausente ou sem `criar` → `DriverAusente`.
+  (2) `RelogioFalso` (`relogio()`, `avancar`, `async dormir`) está em `magi/casa/falso.py`, não no
+  conftest, para as C1.1b/C1.1c/C1.x importarem. `DriverFalso` levanta a exceção do script (quem
+  converte é o chamador) e aceita lista (consumida, a última repete) ou chamável sync/async.
+  (3) Config da casa: `magi.casa.config.CasaConfig`/`ler`/`salvar`/`validar`/`tv_info`/`normaliza` e
+  os caminhos (`caminho_casa`, `caminho_token_local`, `dir_pareamento`, `caminho_estado`…), via
+  `XDG_*` com recaída em `~`; não confundir com o `CasaConfig` da C2.2 em `magi/common/config.py`
+  (seção `[casa]` do `config.toml` do PC). `padrao` numa TV ignorada vira `""` com log.
+  (4) Fora do *Escreve*: `hud/install.sh` não instala `magi-casa.service` (lista `UNIT_FILES` fixa);
+  a unit não foi instalada nem habilitada. Verificada com `systemd-analyze --user verify` numa
+  cópia com `@REPO@` trocado. (5) As deps da casa entraram em `dependencies` (o PC roda a casa);
+  um `uv sync` puro remove os extras `ayanami`/`ayanami-ml` do `.venv` — use
+  `uv sync --extra ayanami --extra ayanami-ml`.

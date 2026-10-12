@@ -1,0 +1,22 @@
+# Casa da Condessa (magi-casa, specs/ayanami-central §10.1): API local das TVs em 127.0.0.1:10760.
+# Template: @REPO@ é trocado pelo caminho real do repositório na instalação (gera a unit em
+# ~/.config/systemd/user/). Não depende de internet: sobe sem rede e sem a Ayanami; sem
+# ExecStartPre de rede. Meta de recursos (R6.8): ≤ 1% CPU e ≤ 80 MB RSS em repouso.
+[Unit]
+Description=Magui: casa (magi-casa, TVs)
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO@
+ExecStart="@REPO@/.venv/bin/magi-casa" servir
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=3
+Nice=10
+MemoryMax=120M
+TimeoutStopSec=5
+
+[Install]
+WantedBy=default.target
