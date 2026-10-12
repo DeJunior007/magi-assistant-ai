@@ -1,0 +1,16 @@
+# Contexto do build da Ayanami (deploy/ayanami/Dockerfile): só pyproject, uv.lock, README, magi/, ayanami/.
+# Tudo o mais fica fora, e segredos nunca entram na imagem.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!.gitignore
+!magi/
+!ayanami/
+
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.*
+**/*.key
+**/secrets/

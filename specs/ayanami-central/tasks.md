@@ -263,7 +263,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
 
 ## Fase Y1 — Infra como código
 
-- [ ] **Y1.1 Imagem e Compose** — `deploy/ayanami/Dockerfile` (multi-stage com `uv`, usuário não
+- [x] **Y1.1 Imagem e Compose** — `deploy/ayanami/Dockerfile` (multi-stage com `uv`, usuário não
   root, `TZ`, grupo `ayanami`; variante com `ayanami-ml` para `worker-lento`/`ayanami-voz` por
   `--build-arg`), `deploy/ayanami/compose.yml` exatamente como a §9.3 (7 serviços, `migrar` em
   `profiles: ["ops"]`, limites, healthchecks, volumes, `docker.sock` só no `worker-agendado`, portas só
@@ -994,3 +994,16 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   [--extra ayanami-ml]`. (5) Segredos: `config.ler_segredos(cfg, arquivo=None, env=None)` →
   `Segredos` (`faltando` por fase: `OPENAI_API_KEY` só com nuvem ligada e `teto_nuvem_usd > 0`;
   B2/restic só com `[backup] ligado`). `[noticias]` aceita `fontes`, `timeout_s`, `embedder`.
+- **Y1.1:** (1) DSN: o compose dá `PGHOST=ayanami-pg`, `PGPORT`, `PGUSER=ayanami`, `PGDATABASE=ayanami`
+  e o `.env` dá `POSTGRES_PASSWORD`; quem monta o DSN (Y0.3 `ayanami/db.py`, Y3.1 `fila.py`) usa
+  essas variáveis libpq + `POSTGRES_PASSWORD` (sem `PGPASSWORD` no compose, para a senha não sair no
+  `docker compose config`). (2) Imagem: `${AYANAMI_IMAGEM:-ayanami}:${AYANAMI_TAG:-local}` (leve) e
+  `…-ml` (lento/voz, `--build-arg AYANAMI_ML=1`), com `build: ../..` para a A1; a Y1.2 (`deploy.sh`)
+  usa `docker compose pull --ignore-buildable` (ou `build`) enquanto não houver ghcr, e a Y1.4 publica
+  as duas tags. (3) A imagem pula `pyside6*`, `shiboken6` e `evdev` (`--no-install-package`): são do
+  PC e o `evdev` não tem wheel. (4) `docker.sock` no `worker-agendado` com `group_add:
+  ${DOCKER_GID:-988}`; a Y1.2 (`preparar.sh`) grava o GID real do grupo `docker` em `DOCKER_GID` no
+  `.env`. A imagem traz o binário `docker` (CLI, de `docker:27.5.1-cli`), `restic`, `curl`; a `-ml`
+  traz `ffmpeg`. Sem `postgresql-client` (o do Debian é 15): backup do pg por `docker exec ayanami-pg
+  pg_dump` (Y4.2). (5) `ayanami-modelos` em `/modelos` (`HF_HOME=/modelos/hf`, `AYANAMI_MODELOS`);
+  `ayanami-pg` tem `container_name: ayanami-pg`. Imagem leve ≈ 1,2 GB (build local ok).

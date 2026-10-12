@@ -1,0 +1,173 @@
+# Ayanami no node 2 (spec §9.3, design §3.1/§4.4/§11). Fica em /opt/ayanami/compose.yml, ao lado de
+# .env (0600, só segredos, §9.1), ayanami.toml (§9.2) e dados/.
+# Deploy: git pull && docker compose pull && docker compose --profile ops run --rm migrar
+#         && docker compose up -d && curl -fsS http://127.0.0.1:8740/saude
+# Nenhuma porta em 0.0.0.0 (o Docker ignora o ufw): só 127.0.0.1; a API sai pelo `tailscale serve`.
+# Limites: soma dos mem_limit = 12 GB (≤ 13 GB); worker-lento + ayanami-voz = 6 vCPU (RNF-A6).
+name: ayanami
+
+x-logs: &logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-saude: &saude
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 30s
+
+# Base dos serviços da imagem da Ayanami (leve). A A1 constrói aqui (`build: ../..`); com CI, a
+# imagem vem do ghcr.io (AYANAMI_IMAGEM=ghcr.io/<dono>/ayanami, AYANAMI_TAG=<sha>).
+x-ayanami: &ayanami
+  image: ${AYANAMI_IMAGEM:-ayanami}:${AYANAMI_TAG:-local}
+  build:
+    context: ../..
+    dockerfile: deploy/ayanami/Dockerfile
+    args:
+      AYANAMI_ML: "0"
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    TZ: America/Sao_Paulo
+    # DSN montado pela aplicação com POSTGRES_PASSWORD (do .env) + estas variáveis libpq.
+    PGHOST: ayanami-pg
+    PGPORT: "5432"
+    PGUSER: ayanami
+    PGDATABASE: ayanami
+  networks: [ayanami]
+  logging: *logs
+  volumes:
+    - ./dados:/dados
+    - ./ayanami.toml:/etc/ayanami/ayanami.toml:ro
+
+# Variante com o extra `ayanami-ml` (Kokoro, faster-whisper, fastembed, ffmpeg).
+x-ayanami-ml: &ayanami-ml
+  <<: *ayanami
+  image: ${AYANAMI_IMAGEM:-ayanami}:${AYANAMI_TAG:-local}-ml
+  build:
+    context: ../..
+    dockerfile: deploy/ayanami/Dockerfile
+    args:
+      AYANAMI_ML: "1"
+  volumes:
+    - ./dados:/dados
+    - ./ayanami.toml:/etc/ayanami/ayanami.toml:ro
+    - ayanami-modelos:/modelos
+
+services:
+  ayanami-pg:
+    image: pgvector/pgvector:pg16
+    container_name: ayanami-pg
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_connections=40"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: America/Sao_Paulo
+      POSTGRES_USER: ayanami
+      POSTGRES_DB: ayanami
+    ports:
+      - "127.0.0.1:54339:5432"
+    cpus: 2
+    mem_limit: 2g
+    healthcheck:
+      <<: *saude
+      test: ["CMD", "pg_isready", "-U", "ayanami"]
+    volumes:
+      - ayanami-pgdata:/var/lib/postgresql/data
+    networks: [ayanami]
+    logging: *logs
+
+  migrar:
+    <<: *ayanami
+    profiles: ["ops"]
+    restart: "no"
+    command: ["sh", "-c", "ayanami migrar && procrastinate --app=ayanami.fila.app schema --apply"]
+    depends_on:
+      ayanami-pg:
+        condition: service_healthy
+
+  ayanami-api:
+    <<: *ayanami
+    command: ["uvicorn", "ayanami.api:app", "--host", "0.0.0.0", "--port", "8740", "--workers", "1"]
+    ports:
+      - "127.0.0.1:8740:8740"
+    cpus: 1
+    mem_limit: 1g
+    healthcheck:
+      <<: *saude
+      test: ["CMD", "curl", "-fsS", "localhost:8740/saude"]
+    depends_on:
+      ayanami-pg:
+        condition: service_healthy
+
+  worker-rapido:
+    <<: *ayanami
+    command: ["ayanami", "worker", "rapida"]
+    cpus: 1
+    mem_limit: 512m
+    stop_grace_period: 40s
+    healthcheck:
+      <<: *saude
+      test: ["CMD", "ayanami", "batimento", "rapida", "--max", "90"]
+    depends_on:
+      ayanami-pg:
+        condition: service_healthy
+
+  worker-agendado:
+    <<: *ayanami
+    command: ["ayanami", "worker", "agendada"]
+    cpus: 1.5
+    mem_limit: 1g
+    stop_grace_period: 40s
+    # Único com o docker.sock (ex.: `docker exec ayanami-pg pg_dump` nos backups). O GID do grupo
+    # `docker` do host vem de DOCKER_GID (no .env de /opt/ayanami); 988 é só o padrão.
+    group_add:
+      - "${DOCKER_GID:-988}"
+    volumes:
+      - ./dados:/dados
+      - ./ayanami.toml:/etc/ayanami/ayanami.toml:ro
+      - ./ayanami.toml:/opt-config/ayanami.toml:ro
+      - ./compose.yml:/opt-config/compose.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      <<: *saude
+      test: ["CMD", "ayanami", "batimento", "agendada", "--max", "90"]
+    depends_on:
+      ayanami-pg:
+        condition: service_healthy
+
+  worker-lento:
+    <<: *ayanami-ml
+    command: ["ayanami", "worker", "lenta"]
+    cpus: 4
+    mem_limit: 6g
+    cpu_shares: 512
+    stop_grace_period: 40s
+    healthcheck:
+      <<: *saude
+      test: ["CMD", "ayanami", "batimento", "lenta", "--max", "90"]
+    depends_on:
+      ayanami-pg:
+        condition: service_healthy
+
+  ayanami-voz:
+    <<: *ayanami-ml
+    command: ["ayanami", "voz", "--port", "8741"]
+    expose: ["8741"]
+    cpus: 2
+    mem_limit: 1536m
+    healthcheck:
+      <<: *saude
+      test: ["CMD", "curl", "-fsS", "localhost:8741/saude"]
+
+networks:
+  ayanami:
+    name: ayanami
+
+volumes:
+  ayanami-pgdata:
+    name: ayanami-pgdata
+  ayanami-modelos:
+    name: ayanami-modelos
