@@ -755,6 +755,14 @@ class PonteTurnos:
   `PonteTurnos` registra um que, para `ctx.satellite == "celular"`, envia `TurnoFim`
   (`resultado_de_action` + `card_de_cardmsg`). Para outros satélites é no-op. A resposta nunca vai
   ao headset (R8.1).
+- **S6 (Y0.6, `docs/perf/ayanami-s6.md`):** o gancho fica em `TurnMachine._deliver`, logo após
+  `tr_result(compose(result))` e antes de cards/legenda/fala (`announce`/`narrate` não passam por
+  ele). O registro precisa de um método público novo `CoreService.anexar(link, …) -> TurnMachine`
+  (espelha `_serve` sem socket; `followup_ms=None`). Texto = `TurnPipeline` do celular com as
+  mesmas `deps` cujo `transcribe` devolve o texto pronto, entrando pelo mesmo PTT com um quadro
+  mudo. O celular não manda `playback-done`: `RemoteLink.play` o injeta no `TurnMachine` no fim.
+  `ffmpeg` local: webm 15 s → PCM 16 kHz p90 119 ms; PCM 24 kHz → ogg/opus 32k exige
+  `-flush_packets 1 -page_duration 20000` (1º byte p90 100 ms).
 
 ### 6.4 Gasto e sub-teto (D11a)
 
@@ -1705,4 +1713,4 @@ Valores acima valem até a bancada confirmar; o que mudar volta a esta spec ante
 | S3 (`mcp` 2.3) | montagem do `MCPServer` no FastAPI em `/mcp` (`streamable_http_app`, `streamable_http_path`), `AuthSettings`/`token_verifier` com escopos, `get_access_token()`; `claude mcp add` pelo tailnet e ponte `mcp-remote` (§8) | servir o MCP em processo/porta própria atrás do mesmo `tailscale serve` |
 | S4 (Android do Pedro) | `tailscale serve` + WebAPK; `MediaRecorder` opus; autoplay após o PTT; Web Push via FCM saindo do node 2 com a tela bloqueada (§14–§15) | gravar em WAV via `AudioWorklet`; tocar só após toque |
 | S5 (`procrastinate` 3.10) | API exata da 3.10: `retry_stalled_jobs` (nome), `cancel_job_by_id_async(abort=True)` com parada ≤ 10 s, `queueing_lock` + `AlreadyEnqueued`, `on_job_status`, job de 30 min sobrevivendo a restart, LISTEN/NOTIFY → API (§4); cron das `periodic` segue o `TZ` do contêiner [DS9] | converter crons para UTC; ajustar nomes no §4 |
-| S6 (turno remoto) | `RemoteLink` no `CoreService`: webm → PCM 16 kHz (ffmpeg ≤ 2 s) → turno → PCM 24 kHz → opus; ponto do `on_turn_done` [DS6]; p90 no 4G (voz ≤ 4 s) | ajustar o gancho e os prazos da §6.2 |
+| S6 (turno remoto) | `RemoteLink` no `CoreService`: webm → PCM 16 kHz (ffmpeg ≤ 2 s) → turno → PCM 24 kHz → opus; ponto do `on_turn_done` [DS6]; p90 no 4G (voz ≤ 4 s) — **local feito (Y0.6)**: transcodificação e gancho confirmados (§6.3); falta o p90 no 4G (F.x) | ajustar o gancho e os prazos da §6.2 |

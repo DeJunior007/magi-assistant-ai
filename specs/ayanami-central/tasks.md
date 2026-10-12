@@ -225,7 +225,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: montagem, verificador e escopos confirmados ou a alternativa da §17 ("processo/porta própria") escolhida e anotada; spec atualizada.
   - Paralelo: Y0.3, Y0.4, Y0.6, Y0.7
 
-- [ ] **Y0.6 Spike S6 — turno remoto (parte local)** — no PC, sem Ayanami: `ffmpeg` webm/opus →
+- [x] **Y0.6 Spike S6 — turno remoto (parte local)** — no PC, sem Ayanami: `ffmpeg` webm/opus →
   PCM 16 kHz (prazo ≤ 2 s para 15 s de áudio) e PCM 24 kHz → ogg/opus 32k em streaming; achar o
   ponto do `on_turn_done` [DS6] no `TurnMachine` (depois do `compose`, antes de falar) e como um
   segundo `SatelliteLink` entra no `CoreService` (PTT e texto pronto), com um protótipo de
