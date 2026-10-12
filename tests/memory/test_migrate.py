@@ -21,6 +21,7 @@ TABLES = {
     "taste_effective",  # view (002, tarefa 2.4)
     "learning_sessions", "learning_messages", "learning_observations",  # 003 (LM1.1)
     "learning_action_results", "learning_saved_words",
+    "learning_jobs", "learning_interviews",  # 004 (LI0.2)
 }
 
 
