@@ -50,5 +50,6 @@ def _reacoes_isoladas(tmp_path, monkeypatch):
         ("HUD_LOCK", "hud.lock"),
         ("REGISTRO_FILE", "reacoes-overlay.jsonl"),
         ("ATIVIDADE_FILE", "atividade-overlay.json"),
+        ("POS_FILE", "overlay-pos.json"),
     ):
         monkeypatch.setattr(overlay, name, tmp_path / "overlay" / rel)

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import fcntl
 import importlib.util
+import json
 import logging
 import math
 import os
@@ -36,6 +37,7 @@ LOCK_FILE = Path.home() / ".cache/gamerhud/overlay.lock"
 HUD_LOCK = Path.home() / ".cache/gamerhud/hud.lock"
 REGISTRO_FILE = Path.home() / ".local/state/magi/reacoes-overlay.jsonl"
 ATIVIDADE_FILE = Path.home() / ".local/state/magi/atividade-overlay.json"
+POS_FILE = Path.home() / ".local/state/magi/overlay-pos.json"  # O4.1: x, y e tela ao soltar
 
 TAMANHO_MIN, TAMANHO_MAX = 120, 480
 MARGEM_MAX = 400
@@ -45,6 +47,7 @@ CANTOS = ("sup_esq", "sup_dir", "inf_esq", "inf_dir")
 RENDERERS = ("cpu", "gl")
 EM_JOGO = ("oposto", "esconde", "fica")  # D3
 COM_HUD = ("esconde", "independente")  # D2
+ESTILOS = ("card", "solto")  # O4.1: card com moldura (padrão) | só o rosto solto (antigo)
 
 
 @dataclass
@@ -55,7 +58,8 @@ class Config:
     tela: str | None = None  # QScreen.name(); None = principal
     canto: str = "sup_dir"  # sup_esq | sup_dir | inf_esq | inf_dir      (D6)
     margem: int = 24  # px da borda da tela até o quadro                (D6)
-    fundo: bool = False  # True = desenha o fundo de hexágonos do retrato
+    fundo: bool = False  # True = desenha o fundo de hexágonos do retrato (no card é sempre True)
+    estilo: str = "card"  # "card" | "solto"                             (O4.1)
     renderer: str = "cpu"  # "cpu" | "gl" (sobrepõe o portrait.toml só no overlay)
     em_jogo: str = "oposto"  # "oposto" | "esconde" | "fica"            (D3)
     tela_jogo: str | None = None  # monitor do jogo; None = principal     (D3)
@@ -129,6 +133,7 @@ _VALIDA: dict[str, Callable[[Any], tuple[bool, Any]]] = {
     "canto": _escolha(CANTOS),
     "margem": lambda v: (_inteiro(v), min(MARGEM_MAX, max(0, v)) if _inteiro(v) else v),
     "fundo": lambda v: (isinstance(v, bool), v),
+    "estilo": _escolha(ESTILOS),
     "renderer": _escolha(RENDERERS),
     "em_jogo": _escolha(EM_JOGO),
     "tela_jogo": _texto_ou_nada,
@@ -142,6 +147,33 @@ _VALIDA: dict[str, Callable[[Any], tuple[bool, Any]]] = {
 def tamanho_quadro(cfg: Config) -> tuple[int, int]:
     """Largura e altura do quadro da janela (px lógicos)."""
     return cfg.tamanho, round(cfg.tamanho * ALTURA_FATOR)
+
+
+def fundo_efetivo(cfg: Config) -> bool:
+    """No ``card`` o fundo do retrato é sempre ligado (O4.1); no ``solto`` vale ``cfg.fundo``."""
+    return True if cfg.estilo == "card" else cfg.fundo
+
+
+def gravar_posicao(x: int, y: int, tela: str | None, caminho: Path | None = None) -> None:
+    """Posição ao soltar o arraste (O4.1), escrita atômica em ``POS_FILE``."""
+    caminho = POS_FILE if caminho is None else caminho
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    tmp = caminho.with_name(caminho.name + ".tmp")
+    tmp.write_text(json.dumps({"x": int(x), "y": int(y), "tela": tela}), encoding="utf-8")
+    os.replace(tmp, caminho)
+
+
+def ler_posicao(caminho: Path | None = None) -> tuple[int, int, str | None] | None:
+    """``(x, y, tela)`` gravados por ``gravar_posicao``; ausente/ilegível → None."""
+    caminho = POS_FILE if caminho is None else caminho
+    try:
+        d = json.loads(caminho.read_text(encoding="utf-8"))
+        x, y, tela = d["x"], d["y"], d.get("tela")
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+    if not (_inteiro(x) and _inteiro(y)) or not (tela is None or isinstance(tela, str)):
+        return None
+    return x, y, tela
 
 
 def canto_para_posicao(cfg: Config, tela: QRect) -> QPoint:

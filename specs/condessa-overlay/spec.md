@@ -22,6 +22,7 @@ class Config:
     canto: str = "sup_dir"        # sup_esq | sup_dir | inf_esq | inf_dir      (D6)
     margem: int = 24              # px da borda da tela até o quadro
     fundo: bool = False           # True = desenha o fundo de hexágonos do retrato
+    estilo: str = "card"          # "card" | "solto" (O4.1; no card o fundo é sempre True)
     renderer: str = "cpu"         # "cpu" | "gl" (sobrepõe o portrait.toml só no overlay)
     em_jogo: str = "oposto"       # "oposto" | "esconde" | "fica"  (D3)
     tela_jogo: str | None = None  # monitor do jogo (QScreen.name()); None = principal
@@ -80,6 +81,7 @@ tamanho = 220
 canto = "sup_dir"
 margem = 24
 fundo = false
+estilo = "card"
 renderer = "cpu"
 em_jogo = "oposto"
 # tela_jogo = "DP-1"   # opcional; sem a chave = monitor principal
@@ -146,7 +148,13 @@ regra ainda não existir (reinstalar não apaga a posição lembrada). Sem chama
   atributos `WA_TranslucentBackground`, `WA_ShowWithoutActivating`; `setMouseTracking(True)`.
 - Quadro: `QRectF(0, 0, tamanho, tamanho * 1.15)` (o retrato é `TALL`); `paintEvent` limpa com
   transparente e chama `portrait.paint(p, rect, accent, now)`.
-- `portrait.fundo = cfg.fundo`; com `renderer = "cpu"`, `PartsAssets.renderer` é sobrescrito.
+- **O4.1 card** (`estilo = "card"`, padrão): mesmo quadro, com painel chanfrado + scanlines, borda
+  fina e cantos marcados na cor do humor (`Reactor.medidor` → `estado.COR_FAIXA`, recaída
+  `#b392f0`), retrato recortado com cantos arredondados e fundo ligado, placa `CONDESSA` + estado
+  (ouvindo/pensando/falando/dormindo); as camadas ficam em cache e só são refeitas quando
+  tamanho/humor/estado mudam. Máscara = retângulo todo; esquerdo arrastado ≥ `DRAG_PX` →
+  `startSystemMove` (recusado → move manual); posição gravada ao soltar em `POS_FILE`.
+- `portrait.fundo = fundo_efetivo(cfg)` (`cfg.fundo` no solto); com `renderer = "cpu"`, `PartsAssets.renderer` é sobrescrito.
 - Máscara: `regiao_entrada` de um quadro desenhado num `QImage` fora da tela, refeita no `show`,
   no resize, ao mudar `react` (início/fim de reação com `corpo` de braço) e no máximo 1×/s.
 - Mouse: esquerdo → `Gestos` (alto = `y < centro do rosto`); meio pressionado →

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Condessa overlay: o retrato dela solto na área de trabalho (specs/condessa-overlay, spec §3, §5).
+"""Condessa overlay: o retrato dela na área de trabalho (specs/condessa-overlay, spec §3, §5).
 
-Processo próprio (D1), mais um cliente do socket do HUD. Sem fundo (``fundo = false``), sempre
-acima, sem foco; o clique no rosto só faz reação (nunca liga a escuta). A cada 5 s
+Processo próprio (D1), mais um cliente do socket do HUD. Estilo ``card`` (O4.1, padrão): o retrato
+com fundo num cartão com moldura na cor do humor, cantos marcados e uma placa ``CONDESSA`` + estado;
+a máscara é o retângulo todo e o botão esquerdo arrasta. Estilo ``solto``: só o rosto, sem fundo,
+máscara recortada. Sempre acima, sem foco; o clique no rosto só faz reação (nunca liga a escuta). A cada 5 s
 ``decidir_lugar`` diz onde ficar (D2: HUD aberto → some; D3: em jogo → monitor oposto, um monitor
 só → some) e a janela só aplica, guardando a posição antes de sair para voltar a ela.
 
@@ -22,18 +24,19 @@ from pathlib import Path
 from typing import IO, Any
 
 from PySide6.QtCore import QPoint, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QRegion
+from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPainterPath, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # wired/ e hud_bridge ao lado
 
-from wired import overlay  # noqa: E402
+from wired import fonts, kit, overlay, theme  # noqa: E402
 from wired.overlay import (  # noqa: E402
     Config,
     Gestos,
     Lugar,
     canto_para_posicao,
     decidir_lugar,
+    fundo_efetivo,
     tamanho_quadro,
 )
 
@@ -48,6 +51,92 @@ GLITCH_MS = 2000  # núcleo caiu: interferência por 2 s
 ROSTO_Y = 0.32  # centro do rosto (fração da altura do quadro): acima = "alto" (arrasto)
 TAMANHO_PASSO = 20
 TAMANHO_MIN, TAMANHO_MAX = 120, 480
+POS_SALVAR_MS = 600  # sem release depois do startSystemMove: grava quando a janela parar
+
+# -- card (O4.1) ------------------------------------------------------------------------------
+CARD_PAD = 7.0  # da borda do card ao retrato
+CARD_GAP = 3.0  # entre o retrato e a placa
+PLACA_H = 22.0
+CARD_CHANFRO = 12.0  # cantos cima-direita/baixo-esquerda chanfrados (kit.panel_path)
+RETRATO_RAIO = 6.0  # cantos arredondados do retrato
+CANTO_L, CANTO_E = 16, 2  # cantos marcados: comprimento e espessura (px)
+COR_HUMOR = theme.CPU  # recaída da borda: o acento #b392f0 (estado.COR_FAIXA das faixas calmas)
+ESTADO_CURTO = {"sleeping": "dormindo", "listening": "ouvindo", "thinking": "pensando",
+                "speaking": "falando"}
+
+
+def estado_curto(s: str) -> str:
+    """Texto da placa; reações (happy/confused/alert) contam como acordada."""
+    return ESTADO_CURTO.get(s, "acordada")
+
+
+def card_retangulos(w: float, h: float) -> tuple[QRectF, QRectF]:
+    """(retrato, placa) dentro de um card ``w``×``h``."""
+    placa = QRectF(CARD_PAD, h - CARD_PAD - PLACA_H, w - 2 * CARD_PAD, PLACA_H)
+    retrato = QRectF(CARD_PAD, CARD_PAD, w - 2 * CARD_PAD, placa.top() - CARD_GAP - CARD_PAD)
+    return retrato, placa
+
+
+def _pixmap(w: int, h: int, dpr: float) -> QPixmap:
+    pm = QPixmap(max(1, round(w * dpr)), max(1, round(h * dpr)))
+    pm.setDevicePixelRatio(dpr)
+    pm.fill(Qt.GlobalColor.transparent)
+    return pm
+
+
+def card_fundo(w: int, h: int, cor: str, estado: str, dpr: float = 1.0) -> QPixmap:
+    """Camada de baixo do card: painel chanfrado, scanlines e a placa (nome + estado)."""
+    pm = _pixmap(w, h, dpr)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    contorno = kit.panel_path(QRectF(0, 0, w, h), CARD_CHANFRO)
+    p.fillPath(contorno, theme.alpha(theme.PANEL, 240))
+    kit.draw_scanlines(p, QRectF(0, 0, w, h), contorno)
+    _, placa = card_retangulos(w, h)
+    p.fillRect(placa, theme.alpha(cor, 26))
+    p.fillRect(QRectF(placa.left(), placa.top(), placa.width(), 1), theme.alpha(cor, 110))
+    texto = placa.adjusted(7, 0, -7, 0)
+    p.setFont(fonts.font("cond", 13, 600, 0.22))
+    p.setPen(theme.color(theme.TEXT))
+    p.drawText(texto, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "CONDESSA")
+    p.setFont(fonts.font("mono", 9.5, 400, 0.04))
+    acordada = estado != "dormindo"
+    p.setPen(theme.color(theme.TEXT if acordada else theme.TEXT_DIM))
+    larg = p.fontMetrics().horizontalAdvance(estado)
+    p.drawText(texto, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, estado)
+    led = QRectF(texto.right() - larg - 10, placa.center().y() - 2.5, 5, 5)  # LED do estado
+    p.fillRect(led, theme.color(cor) if acordada else theme.alpha(cor, 90))
+    p.end()
+    return pm
+
+
+def card_moldura(w: int, h: int, cor: str, dpr: float = 1.0) -> QPixmap:
+    """Camada de cima do card: borda fina na cor do humor, contorno do retrato e cantos marcados."""
+    pm = _pixmap(w, h, dpr)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.setPen(theme.alpha(cor, 170))
+    p.drawPath(kit.panel_path(QRectF(0.5, 0.5, w - 1, h - 1), CARD_CHANFRO))
+    retrato, _ = card_retangulos(w, h)
+    p.setPen(theme.color(theme.LINE_STRONG))
+    p.drawRoundedRect(retrato.adjusted(-0.5, -0.5, 0.5, 0.5), RETRATO_RAIO, RETRATO_RAIO)
+    c = min(CARD_CHANFRO, w / 2, h / 2)  # chanfros: traço grosso na diagonal
+    pen = p.pen()
+    pen.setColor(theme.color(cor))
+    pen.setWidthF(CANTO_E)
+    p.setPen(pen)
+    p.drawLine(QPoint(round(w - c), 1), QPoint(w - 1, round(c)))
+    p.drawLine(QPoint(1, round(h - c)), QPoint(round(c), h - 1))
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+    q = theme.color(cor)
+    L, E = CANTO_L, CANTO_E  # noqa: N806
+    p.fillRect(0, 0, L * 2, E, q)  # topo-esquerdo: traço longo (o acento do kit) e a perna
+    p.fillRect(0, 0, E, L, q)
+    p.fillRect(w - L, h - E, L, E, q)  # baixo-direito
+    p.fillRect(w - E, h - L, E, L, q)
+    p.end()
+    return pm
 
 
 def travar(caminho: Path) -> IO[str] | None:
@@ -92,7 +181,8 @@ class OverlayWindow(QWidget):
         self.jogo = jogo
         self.hud = hud
         self.xcb = xcb
-        portrait.fundo = cfg.fundo
+        self.card = cfg.estilo == "card"
+        portrait.fundo = fundo_efetivo(cfg)
 
         self.magui = "sleeping"
         self.mouth_level = 0.0
@@ -104,6 +194,11 @@ class OverlayWindow(QWidget):
         self._pausa = False
         self._reacao: Any = None
         self._mascara_t = -1e18
+        self.cor_humor = COR_HUMOR
+        self._card_cache: tuple[tuple, QPixmap, QPixmap] | None = None
+        self._movendo = False  # arraste pelo usuário em curso (grava a posição ao soltar)
+        self._arrasto: QPoint | None = None  # arraste manual (sem startSystemMove): deslocamento
+        self._press_global = QPoint()
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -117,7 +212,7 @@ class OverlayWindow(QWidget):
         self.setWindowTitle("Condessa")
         self.resize(*tamanho_quadro(cfg))
 
-        self.gestos = Gestos(reactor.on_click, reactor.on_hover)
+        self.gestos = Gestos(reactor.on_click, self._hover)
 
         bridge.stateChanged.connect(self.on_state)
         bridge.mouth.connect(self.on_mouth)
@@ -131,6 +226,7 @@ class OverlayWindow(QWidget):
         self._t_pausa = self._timer(True, self._fim_pausa, PAUSA_MS)
         self._t_glitch = self._timer(True, self._fim_glitch, GLITCH_MS)
         self._t_gesto = self._timer(True, lambda: self.gestos.tick(self.clock()), Gestos.DBL_MS + 10)
+        self._t_pos = self._timer(True, self._fim_movimento, POS_SALVAR_MS)
 
     def _timer(self, unico: bool, alvo: Callable[[], None], ms: int = 0) -> QTimer:
         t = QTimer(self)
@@ -141,10 +237,15 @@ class OverlayWindow(QWidget):
 
     # -- ciclo -----------------------------------------------------------------------------
 
-    def iniciar(self) -> None:
-        """Posição inicial, ponte, laços; mostra conforme o ``decidir_lugar``."""
+    def iniciar(self, pos: tuple[int, int, str | None] | None = None) -> None:
+        """Posição inicial, ponte, laços; mostra conforme o ``decidir_lugar``.
+
+        ``pos`` = ``overlay.ler_posicao()`` (O4.1): vale antes do canto D6 se cair numa tela.
+        """
         if self.xcb and self.cfg.x is not None and self.cfg.y is not None:
             self.move(self.cfg.x, self.cfg.y)  # recaída D4: o app escolhe a posição
+        elif pos is not None and self._pos_valida(pos):
+            self._ir_para(pos[2], QPoint(pos[0], pos[1]))
         else:
             tela = self._tela(self.cfg.tela)
             if tela is not None:
@@ -155,6 +256,10 @@ class OverlayWindow(QWidget):
         self._t_laco.start()
         self._t_lugar.start()
         self.quadro()
+
+    def _pos_valida(self, pos: tuple[int, int, str | None]) -> bool:
+        tela = self._tela(pos[2])
+        return tela is not None and tela.geometry().contains(QPoint(pos[0], pos[1]))
 
     def quadro(self) -> None:
         """Redesenho no ritmo do ``portrait.tick`` (60/40/6 fps), timer de disparo único."""
@@ -190,6 +295,21 @@ class OverlayWindow(QWidget):
         if ativa is not self._reacao:  # início/fim de reação: a silhueta pode mudar (braço)
             self._reacao = ativa
             self.remascarar(now)
+        cor = self._cor_do_humor(now)
+        if cor != self.cor_humor:
+            self.cor_humor = cor
+            if self.card:
+                self.update()
+
+    def _cor_do_humor(self, now: float) -> str:
+        """Cor do medidor (``estado.COR_FAIXA``) pelo ``Reactor.medidor``; sem ela → o acento."""
+        medidor = getattr(self.reactor, "medidor", None)
+        try:
+            cor = medidor(now)[1] if medidor is not None else None
+        except Exception:  # noqa: BLE001 — o humor é enfeite: nunca derruba o laço
+            log.debug("medidor do humor falhou", exc_info=True)
+            cor = None
+        return cor if isinstance(cor, str) and QColor.isValidColorName(cor) else COR_HUMOR
 
     # -- lugar (D2/D3) ----------------------------------------------------------------------
 
@@ -245,8 +365,11 @@ class OverlayWindow(QWidget):
     # -- ponte ------------------------------------------------------------------------------
 
     def on_state(self, s: str) -> None:
+        mudou = estado_curto(s) != estado_curto(self.magui)
         self.magui = s
         self.portrait.set_expression(s)
+        if self.card and mudou:
+            self.update()  # placa
 
     def on_mouth(self, v: float) -> None:
         self.mouth_level = v
@@ -275,8 +398,34 @@ class OverlayWindow(QWidget):
         p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
         p.fillRect(self.rect(), Qt.GlobalColor.transparent)
         p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-        self.portrait.paint(p, QRectF(self.rect()), ACCENT, self.clock())
+        if self.card:
+            self.pintar_card(p)
+        else:
+            self.portrait.paint(p, QRectF(self.rect()), ACCENT, self.clock())
         p.end()
+
+    def camadas_card(self) -> tuple[QPixmap, QPixmap]:
+        """Fundo e moldura do card em cache; refeitas só quando tamanho/humor/estado mudam."""
+        dpr = self.devicePixelRatioF()
+        chave = (self.width(), self.height(), self.cor_humor, estado_curto(self.magui), dpr)
+        if self._card_cache is None or self._card_cache[0] != chave:
+            w, h = self.width(), self.height()
+            self._card_cache = (chave, card_fundo(w, h, self.cor_humor, chave[3], dpr),
+                                card_moldura(w, h, self.cor_humor, dpr))
+        return self._card_cache[1], self._card_cache[2]
+
+    def pintar_card(self, p: QPainter) -> None:
+        fundo, moldura = self.camadas_card()
+        p.drawPixmap(0, 0, fundo)
+        retrato, _ = card_retangulos(self.width(), self.height())
+        recorte = QPainterPath()
+        recorte.addRoundedRect(retrato, RETRATO_RAIO, RETRATO_RAIO)
+        p.save()
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setClipPath(recorte)
+        self.portrait.paint(p, retrato, ACCENT, self.clock())
+        p.restore()
+        p.drawPixmap(0, 0, moldura)
 
     def imagem(self, now: float | None = None) -> QImage:
         """Um quadro do retrato num ``QImage`` fora da tela (base da região de entrada)."""
@@ -289,7 +438,15 @@ class OverlayWindow(QWidget):
         return img
 
     def remascarar(self, now: float | None = None, forcar: bool = False) -> QRegion:
-        """``setMask`` com a ``regiao_entrada`` (≤ 1×/s fora de show/resize); vazia → quadro todo."""
+        """``setMask`` com a ``regiao_entrada`` (≤ 1×/s fora de show/resize); vazia → quadro todo.
+
+        No ``card`` a máscara é o retângulo inteiro (O4.1: dá para pegar em qualquer ponto).
+        """
+        if self.card:
+            reg = QRegion(self.rect())
+            if self.mask() != reg:
+                self.setMask(reg)
+            return reg
         now = self.clock() if now is None else now
         if not forcar and now - self._mascara_t < 1.0:
             return self.mask()
@@ -315,24 +472,36 @@ class OverlayWindow(QWidget):
     def mousePressEvent(self, ev) -> None:  # noqa: N802
         b = ev.button()
         pos = ev.position()
+        self._press_global = ev.globalPosition().toPoint()
         if b == Qt.MouseButton.LeftButton:
-            self.gestos.press(pos.x(), pos.y(), pos.y() < self.height() * ROSTO_Y, self.clock())
+            alto = self.card or pos.y() < self.height() * ROSTO_Y  # card: arrasta de qualquer ponto
+            self.gestos.press(pos.x(), pos.y(), alto, self.clock())
         elif b == Qt.MouseButton.MiddleButton:
-            self.mover()
+            self.arrastar()  # dentro do press: o Wayland exige o serial do clique
         elif b == Qt.MouseButton.RightButton:
             self.menu().popup(ev.globalPosition().toPoint())
 
     def mouseMoveEvent(self, ev) -> None:  # noqa: N802
+        if self._arrasto is not None:  # recaída: o compositor não aceitou o startSystemMove
+            self.move(ev.globalPosition().toPoint() - self._arrasto)
+            return
         pos = ev.position()
-        self.gestos.move(pos.x(), pos.y(), True, self.clock())
+        self.gestos.move(pos.x(), pos.y(), True, self.clock())  # arrasto → _hover → arrastar()
 
     def mouseReleaseEvent(self, ev) -> None:  # noqa: N802
         b = ev.button()
         if b == Qt.MouseButton.LeftButton:
             self.gestos.release(self.clock())
             self._t_gesto.start()  # vence a espera do duplo
-        elif b == Qt.MouseButton.MiddleButton and self.xcb:
-            self.lembrar_posicao()
+        if b in (Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton) and self._movendo:
+            self._fim_movimento()
+
+    def _hover(self, ev: str, agora: float) -> None:
+        """Hover do ``Gestos``; no card o ``arrasto`` move a janela em vez de virar reação."""
+        if ev == "arrasto" and self.card:
+            self.arrastar()
+            return
+        self.reactor.on_hover(ev, agora)
 
     def leaveEvent(self, ev) -> None:  # noqa: N802
         self.gestos.move(None, None, False, self.clock())
@@ -341,11 +510,42 @@ class OverlayWindow(QWidget):
     def wheelEvent(self, ev) -> None:  # noqa: N802
         ev.ignore()
 
-    def mover(self) -> None:
+    def mover(self) -> bool:
         """Movimento interativo pelo compositor (R4); a regra do KWin lembra a posição."""
         h = self.windowHandle()
-        if h is not None:
-            h.startSystemMove()
+        if h is None:
+            return False
+        return bool(h.startSystemMove())
+
+    def arrastar(self) -> None:
+        """Começa um arraste do usuário (chamado dentro do press/move do mouse)."""
+        self._movendo = True
+        if not self.mover():  # compositor recusou: move na mão com o mouse (X11/XWayland)
+            log.info("startSystemMove recusado; arraste manual")
+            self._arrasto = self._press_global - self.pos()
+
+    def moveEvent(self, ev) -> None:  # noqa: N802
+        super().moveEvent(ev)
+        if self._movendo:  # o compositor pode engolir o release do arraste: grava quando parar
+            self._t_pos.start()
+
+    def _fim_movimento(self) -> None:
+        self._t_pos.stop()
+        self._arrasto = None
+        if self._movendo:
+            self._movendo = False
+            self.salvar_posicao()
+
+    def salvar_posicao(self) -> None:
+        """Grava ``x, y, tela`` no ``overlay-pos.json`` (O4.1) e, na recaída XCB, no toml (D4).
+
+        No Wayland nativo o app não sabe onde está (``pos()`` não é a posição real): não grava;
+        quem lembra é a regra do KWin.
+        """
+        if self.xcb:
+            self.lembrar_posicao()
+        if QGuiApplication.platformName() != "wayland":
+            overlay.gravar_posicao(self.x(), self.y(), self._nome_tela())
 
     def lembrar_posicao(self) -> None:
         """Recaída XWayland (D4 = b): grava ``x``/``y`` no ``overlay.toml``."""
@@ -382,7 +582,7 @@ class OverlayWindow(QWidget):
 
     def closeEvent(self, ev) -> None:  # noqa: N802
         for t in (self._t_quadro, self._t_laco, self._t_lugar, self._t_pausa, self._t_glitch,
-                  self._t_gesto):
+                  self._t_gesto, self._t_pos):
             t.stop()
         self.bridge.stop()
         if self.trava is not None:
@@ -438,7 +638,7 @@ def main(argv: list[str] | None = None) -> int:
     pulso = QTimer()  # deixa o Python atender os sinais com o laço do Qt rodando
     pulso.timeout.connect(lambda: None)
     pulso.start(500)
-    win.iniciar()
+    win.iniciar(overlay.ler_posicao())  # O4.1: a posição do último arraste, antes do canto D6
     return app.exec()
 
 

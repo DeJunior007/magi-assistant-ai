@@ -35,22 +35,27 @@ boca pela voz) e reage como no HUD, sem pegar foco nem atrapalhar cliques no que
 
 **R1 — Janela.** O overlay DEVE ser uma janela sem moldura, de fundo transparente, sempre acima
 das janelas comuns, fora do Alt+Tab, da barra de tarefas e do pager, que não aceita foco.
-- R1.1 O overlay DEVE desenhar só o retrato (sem o fundo de hexágonos do HUD, ONDE
-  `fundo = false`, padrão) num quadro de `tamanho` px (padrão 220, de 120 a 480).
+- R1.1 O overlay DEVE desenhar o retrato num quadro de `tamanho` px (padrão 220, de 120 a 480).
+  ONDE `estilo = "card"` (padrão, O4.1): num card com moldura na cor do humor, cantos marcados,
+  retrato com fundo (`fundo` forçado) e placa `CONDESSA` + estado; ONDE `estilo = "solto"`: só o
+  retrato (sem o fundo de hexágonos, ONDE `fundo = false`).
 - R1.2 SE a pasta do retrato não tiver a arte em partes (`portrait.is_parts`), ENTÃO o overlay
   DEVE avisar no log e sair com código 0 (não mostra o mascote vetorial).
 
-**R2 — Cliques atravessam.** O overlay DEVE aceitar mouse só dentro da silhueta dela (região de
-entrada); fora dela o clique e a roda DEVEM chegar à janela de trás.
+**R2 — Cliques atravessam.** No `solto`, o overlay DEVE aceitar mouse só dentro da silhueta dela
+(região de entrada); fora dela o clique e a roda DEVEM chegar à janela de trás. No `card` (O4.1) a
+região de entrada é o retângulo inteiro do card.
 
 **R3 — Gestos no rosto = reação.** QUANDO o Pedro clica, clica duas vezes, segura ou arrasta (com o
 botão esquerdo) no rosto, o overlay DEVE mandar ao `Reactor` os mesmos eventos do HUD
 (`on_click("face")`, `on_hover("dbl"|"long"|"arrasto"|"in"|"move"|"out")`). O clique NÃO DEVE
 ligar a escuta (decisão de 2026-10-10).
 
-**R4 — Mover e lembrar.** QUANDO o Pedro arrasta com o botão do meio (ou usa "Mover" no menu do
-botão direito), o overlay DEVE pedir ao compositor o movimento interativo da janela; a posição DEVE
-ser lembrada entre sessões (regra do KWin, spec §4).
+**R4 — Mover e lembrar.** QUANDO o Pedro arrasta com o botão do meio, com o esquerdo no `card`
+(O4.1; no card o arrasto move em vez de virar reação), ou usa "Mover" no menu do botão direito, o
+overlay DEVE pedir ao compositor o movimento interativo da janela (recusado → move na mão); a
+posição DEVE ser lembrada entre sessões (regra do KWin, spec §4; fora do Wayland nativo também em
+`~/.local/state/magi/overlay-pos.json`, restaurada antes do canto D6).
 
 **R5 — Estado da Magui.** O overlay DEVE ligar-se ao núcleo como mais um cliente do socket do HUD
 (`HudBridge`) e refletir `state`, `mouth`, `mood` e `turn_tag`, como o HUD.
@@ -75,7 +80,7 @@ e um comando `condessa-overlay` que liga/desliga (como `hud/system/bin/gamerhud`
 instância única.
 
 **R9 — Configuração.** O overlay DEVE ler `~/.config/magi/overlay.toml` (`tamanho`, `tela`,
-`canto`, `margem`, `fundo`, `renderer`, `em_jogo`, `tela_jogo`, `com_hud`, `ligado`); arquivo
+`canto`, `margem`, `fundo`, `estilo`, `renderer`, `em_jogo`, `tela_jogo`, `com_hud`, `ligado`); arquivo
 ausente ou inválido → padrões do spec §2. Posição inicial (D6): canto **superior direito** do
 monitor principal, margem 24 px.
 
@@ -97,6 +102,8 @@ Valem acima do texto antigo; aplicadas neste SDD na O0.1.
   descobrir a janela do jogo exigiria D-Bus do KWin, proibido pelo R10).
 - **D4 — Plataforma.** ✔ Confirmada (padrão): Wayland nativo + regra do KWin; recaída XWayland por
   `MAGI_OVERLAY_XCB=1`.
-- **D5 — Legenda.** ✔ Confirmada (padrão): só o rosto, sem balão de texto.
+- **D5 — Legenda e moldura.** ✔ Revista pelo Pedro em 2026-10-12 (O4.1): card com moldura
+  ("ela tinha que ter um quadradinho pra ela"); só o rosto, sem balão de texto, continua. O estilo
+  antigo fica em `estilo = "solto"`.
 - **D6 — Canto inicial.** ⚠ **Mudou:** monitor principal, canto **superior direito**
   (`canto = "sup_dir"`), margem 24 px.

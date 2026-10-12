@@ -38,10 +38,14 @@ assistente Magui vai morar (ver `specs/magi-assistant/`).
 
 ## Overlay da Condessa
 
-- Rosto pequeno por cima do desktop (`condessa_overlay.py`); sobe sozinho no login (autostart).
+- Card pequeno com o rosto dela por cima do desktop (`condessa_overlay.py`): moldura na cor do
+  humor e placa `CONDESSA` + estado; sobe sozinho no login (autostart).
 - Ligar/desligar: `condessa-overlay` (ou "Condessa (overlay)" no menu); de vez: `ligado = false`.
-- Mover: arraste com o **botão do meio**; o KWin lembra a posição (regra `condessa-overlay-rule`).
-- Config: `~/.config/magi/overlay.toml`, tabela `[overlay]` (canto, margem, tamanho, fundo, ligado).
+- Mover: arraste com o **botão esquerdo** (no card) ou do meio; clique simples continua reação.
+  O KWin lembra a posição (regra `condessa-overlay-rule`); fora do Wayland nativo ela também fica
+  em `~/.local/state/magi/overlay-pos.json`.
+- Config: `~/.config/magi/overlay.toml`, tabela `[overlay]` (canto, margem, tamanho, fundo,
+  `estilo = "card" | "solto"`, ligado). `solto` = só o rosto, sem moldura (o antigo).
 - Some com o HUD aberto e, em jogo, vai para o outro monitor; a regra do KWin vale após relogar.
 
 ## Ajustes manuais fora do repo

@@ -142,6 +142,24 @@ O0.1 ─┬─ O1.1 ─┐
   - Pronto: relatório da semana e decisão D2 registrados.
   - Paralelo: —
 
+## Fase O4 — Ajustes ao vivo
+
+- [x] **O4.1 Card com moldura e arraste pelo botão esquerdo** — feedback do Pedro em 2026-10-12
+  ("não gostei dela flutuando; ela tinha que ter um quadradinho pra ela" / "não consigo arrastar
+  ela"). `Config.estilo = "card" | "solto"` (padrão `card`, validado no `ler`; no card
+  `fundo_efetivo` = True). Card no mesmo quadro do `tamanho`: painel chanfrado + scanlines, borda e
+  cantos marcados na cor do humor (`Reactor.medidor`, recaída `#b392f0`), retrato recortado de
+  cantos arredondados, placa `CONDESSA` + estado curto; camadas em cache (refeitas só quando
+  tamanho/humor/estado mudam). Máscara = retângulo; esquerdo arrastado → `startSystemMove` dentro
+  do move (recusado → move manual); meio igual; posição em `POS_FILE` ao soltar (ou quando a janela
+  para), restaurada no `main()` antes do canto D6. D5 revista. *(R1.1, R2, R4, R9)*
+  - Lê: `hud/condessa_overlay.py`, `hud/wired/overlay.py` (Config, Gestos), `hud/wired/kit.py` (painel), `hud/wired/theme.py`, `hud/wired/reacoes/estado.py` (`COR_FAIXA`)
+  - Escreve: `hud/condessa_overlay.py`, `hud/wired/overlay.py`, `tests/hud/test_overlay_janela.py`, `tests/hud/conftest.py`, SDD, `hud/README.md`
+  - Depende de: O1.3
+  - Orçamento: ~70k
+  - Pronto: `uv run pytest -q tests/hud` verde; card com cantos na cor da borda e texto na placa; `solto` com as asserções antigas; máscara = retângulo; esquerdo chama `startSystemMove`; posição gravada e restaurada.
+  - Paralelo: —
+
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
@@ -175,3 +193,11 @@ O0.1 ─┬─ O1.1 ─┐
   2 monitores reais só foi testado via `aplicar(Lugar(..., "jogo_oposto"))`. Fechar emite
   `fechada` (→ `app.quit`); SIGTERM/SIGINT fecham a janela (timer de 500 ms para o Python ver o
   sinal). "Esconder 1 h" ganha do laço de 5 s até o `QTimer` vencer.
+- **O4.1:** por que o botão do meio não moveu não deu para reproduzir aqui (offscreen, sem KWin):
+  o `startSystemMove` já era chamado dentro do press; suspeitas: a máscara recortada (o clique
+  caía fora da silhueta) ou o compositor recusar (`startSystemMove` devolve `False`, antes
+  ignorado). Agora: no card a máscara é o retângulo todo, o retorno é checado e, recusado, a
+  janela anda na mão com o mouse (vale em X11/XWayland; no Wayland nativo o `move` do app não
+  vale). No Wayland nativo o app não sabe a própria posição: o `overlay-pos.json` só é gravado fora
+  dele (o KWin lembra pela regra depois do relogin). O arrasto do card não vira reação `arrasto`
+  (no `solto` continua virando).

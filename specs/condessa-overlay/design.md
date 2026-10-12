@@ -42,7 +42,8 @@ carregar o HUD inteiro).
 
 1. `main()`: `QGuiApplication.setDesktopFileName("condessa-overlay")` (vira o `app_id` do Wayland
    que a regra do KWin casa), trava `~/.cache/gamerhud/overlay.lock`, lê `Config`, confere
-   `is_parts`, cria `PartsPortrait` com `fundo=False`, `HudBridge`, `Reactor` reduzido.
+   `is_parts`, cria `PartsPortrait` com `fundo=False` (`True` no card, O4.1), `HudBridge`,
+   `Reactor` reduzido; `iniciar(ler_posicao())` restaura o último arraste antes do canto D6.
 2. Sinais da ponte → `portrait.set_expression`, `set_level`; `mood`/`turn_tag` guardados para o
    `snapshot_leve`.
 3. A 1 Hz: `snapshot_leve(magui, mouth, mood, turn_tag, track, gaming)` → `Reactor.observe` →
