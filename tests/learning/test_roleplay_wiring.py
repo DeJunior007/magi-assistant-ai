@@ -141,6 +141,31 @@ async def test_retomada_volta_ao_mesmo_cenario(rig) -> None:
     assert last.topic is Topic.ROLEPLAY and last.label == "ROLEPLAY // SUPPORT CALL"
 
 
+async def test_li51_cenario_volta_depois_de_reiniciar_o_nucleo(rig, tmp_path) -> None:
+    """LI5.1: o id do cenário vai na entrada de ``topics``; o núcleo novo (mesma pasta, sessão
+    ainda aberta) retoma o roleplay no mesmo cenário em vez de cair em free."""
+    _, w, _, _ = rig
+    await w.set_mode(True)
+    await w.set_topic(Topic.ROLEPLAY, scenario="doctor_visit")
+    w._cancel_opening()
+    sid = w.session.id
+    hud2 = SinkHud()
+    deps = TurnDeps(router=LocalRouter(None), agent=FakeAgent())
+    w2 = install(LearningConfig(storage="jsonl"), hud2, TurnPipeline(deps),
+                 repo=JsonlRepo(tmp_path), clock=_clock, start=False)
+    assert w2 is not None
+    w2.listening = lambda: False
+    await w2.set_mode(True)
+    assert w2.session.id == sid
+    last = hud2.of(LmTopicMsg)[-1]
+    assert last.topic is Topic.ROLEPLAY and last.label == "ROLEPLAY // DOCTOR VISIT"
+    assert last.detail is None
+    # o mesmo cenário de novo só confirma (não reabre a cena nem grava outra entrada)
+    n = len((await w2.repo.get_session(sid)).topics)
+    await w2.set_topic(Topic.ROLEPLAY, scenario="doctor_visit")
+    assert len((await w2.repo.get_session(sid)).topics) == n
+
+
 async def test_voz_so_com_sessao_e_abre_o_cenario(rig) -> None:
     pipeline, w, hud, agent = rig
     await _say(pipeline, "let's roleplay a hotel check-in")  # sem sessão: vai ao agente

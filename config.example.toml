@@ -43,6 +43,9 @@ news       = { provider = "gemini", model = "gemini-3.5-flash-lite", embedding_m
 # é só aqui (ENG-002). Sem timeout_s: 8 s nas ações e 20 s nas observações.
 learning_actions = { provider = "openai", model = "gpt-5.4-mini", reasoning_effort = "none", timeout_s = 8 }
 learning_observe = { provider = "openai", model = "gpt-5.4-mini", reasoning_effort = "none", timeout_s = 20 }
+# Entrevista pela vaga (specs/learning-imersivo, D8): extração do perfil e retorno. Ausente → usa
+# learning_actions (com prazo de 20 s); o custo sai como learning_job em costs.
+# learning_job   = { provider = "openai", model = "gpt-5.4-mini", reasoning_effort = "none", timeout_s = 40 }
 
 [budget]
 monthly_usd = 5.0                       # teto mensal; "aumenta o teto pra 8 dólares" ajusta por voz

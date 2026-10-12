@@ -45,7 +45,14 @@ from magi.learning.interview.plan import build_plan
 from magi.learning.interview.run import start
 from magi.learning.model import FakeModel, ModelBudget, ModelInvalid
 from magi.learning.repo import JsonlRepo
-from magi.learning.wiring import DEBRIEF_FAILED, DEBRIEF_READY, DEBRIEF_TOO_SHORT, install
+from magi.learning.wiring import (
+    DEBRIEF_FAILED,
+    DEBRIEF_READY,
+    DEBRIEF_RETRY_DONE,
+    DEBRIEF_RETRY_NONE,
+    DEBRIEF_TOO_SHORT,
+    install,
+)
 
 AT = datetime(2026, 10, 11, 9, 0, tzinfo=UTC)
 DKEY = "interview_debrief:*"
@@ -332,3 +339,66 @@ async def test_idle_gera_em_segundo_plano(tmp_path) -> None:
     await w.set_mode(False, "idle")
     await w.wait_idle()
     assert not hud.of(LmDebriefMsg) and await w.interviews.unseen() is not None
+
+
+# ---------------------------------------------------------------------------------------------
+# LI5.1: título do retorno pendente depois de reiniciar e ``{"cmd":"debrief"}`` (retry)
+# ---------------------------------------------------------------------------------------------
+
+
+async def test_li51_retorno_pendente_depois_de_reiniciar_tem_titulo(tmp_path) -> None:
+    model = FakeModel({"job_profile:*": _job_answer(), DKEY: _answer()})
+    w, hud = _make(tmp_path, model)
+    await _interview(w, hud)
+    await w.aclose()
+    w2, hud2 = _make(tmp_path, model)  # núcleo novo: sem o cache em memória
+    await w2.set_mode(True)
+    (msg,) = hud2.of(LmDebriefMsg)
+    assert msg.title == "Senior Backend Engineer (Python)" and msg.company == "Quillfeather Payments"
+    assert msg.at == AT
+
+
+def _refusals(hud) -> list[str | None]:
+    return [m.error for m in hud.of(LmInterviewMsg) if m.state is RunState.ERROR]
+
+
+async def test_li51_retry_do_retorno_depois_da_falha(tmp_path) -> None:
+    model = FakeModel({"job_profile:*": _job_answer(), DKEY: ModelBudget("teto")})
+    w, hud = _make(tmp_path, model)
+    await w.set_mode(True)
+    await w.on_learning(LmInterviewMsg(cmd="debrief"))  # nada encerrado ainda
+    assert _refusals(hud) == [DEBRIEF_RETRY_NONE]
+    await _interview(w, hud)
+    await w.on_learning(LmInterviewMsg(cmd="end"))
+    await w.wait_idle()
+    assert not hud.of(LmDebriefMsg) and hud.lines()[-1] == DEBRIEF_FAILED.format(code="budget")
+    w.job_model = FakeModel({DKEY: _answer()})  # teto liberado
+    await w.on_learning(LmInterviewMsg(cmd="debrief"))
+    await w.wait_idle()
+    (msg,) = hud.of(LmDebriefMsg)
+    assert msg.title == "Senior Backend Engineer (Python)"
+    assert hud.of(LmInterviewMsg)[-1].state is RunState.DONE
+    states = [m.state for m in hud.of(LmInterviewMsg)]
+    assert states[-2:] == [RunState.DEBRIEFING, RunState.DONE]
+    await w.on_learning(LmInterviewMsg(cmd="debrief"))  # já tem retorno
+    assert _refusals(hud)[-1] == DEBRIEF_RETRY_DONE
+    assert len(hud.of(LmDebriefMsg)) == 1
+
+
+async def test_li51_retry_pelo_run_id_depois_de_reiniciar(tmp_path) -> None:
+    model = FakeModel({"job_profile:*": _job_answer(), DKEY: ModelInvalid("ruim")})
+    w, hud = _make(tmp_path, model)
+    await _interview(w, hud)
+    rid = w.run.id
+    await w.on_learning(LmInterviewMsg(cmd="end"))
+    await w.wait_idle()
+    assert not hud.of(LmDebriefMsg)
+    w2, hud2 = _make(tmp_path, FakeModel({DKEY: _answer()}))
+    await w2.set_mode(True)
+    await w2.on_learning(LmInterviewMsg(cmd="debrief"))  # sem run_id: nada neste processo
+    assert _refusals(hud2) == [DEBRIEF_RETRY_NONE]
+    await w2.on_learning(LmInterviewMsg(cmd="debrief", run_id=rid))
+    await w2.wait_idle()
+    (msg,) = hud2.of(LmDebriefMsg)
+    assert msg.debrief.run_id == rid and msg.company == "Quillfeather Payments"
+    assert hud2.lines()[-1] == DEBRIEF_READY

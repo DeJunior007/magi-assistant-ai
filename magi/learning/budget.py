@@ -7,8 +7,9 @@ embrulha o ``Budget`` do núcleo (``magi.core.budget.MonthlyBudget``):
 - ``ensure_allowed(label)`` levanta ``BudgetExceeded`` com gasto >= teto. O ``MonthlyBudget`` só
   bloqueia ``BUDGET_BLOCKED_TASKS`` (agent/vision/search), por isso o teto é conferido aqui pelo
   ``status()``. Observações também param ao chegar em ``observe_daily_max`` chamadas no dia.
-- ``record(usage, label)`` grava em ``costs`` com ``task`` = ``learning_actions`` ou
-  ``learning_observe`` (os rótulos de ``LearningCostTask``) e devolve o custo em USD.
+- ``record(usage, label)`` grava em ``costs`` com ``task`` = ``learning_actions``,
+  ``learning_observe`` ou ``learning_job`` (os rótulos de ``LearningCostTask``) e devolve o custo
+  em USD.
 
 Os rótulos não estão em ``magi.common.contracts.ProviderTask``: a coluna ``costs.task`` é texto
 livre e ``CostsRepo.add`` grava ``str(usage.task)``, então um ``StrEnum`` próprio basta.
@@ -25,7 +26,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from magi.common.contracts import Budget, BudgetExceeded, BudgetStatus, Usage
-from magi.learning.config import TASK_ACTIONS, TASK_OBSERVE, LearningConfig
+from magi.learning.config import TASK_ACTIONS, TASK_JOB, TASK_OBSERVE, LearningConfig
 
 TZ = ZoneInfo("America/Sao_Paulo")
 
@@ -35,6 +36,7 @@ class LearningCostTask(StrEnum):
 
     ACTIONS = TASK_ACTIONS
     OBSERVE = TASK_OBSERVE
+    JOB = TASK_JOB  # extração e retorno da vaga (learning-imersivo D8, LI5.1)
 
 
 #: Linha curta para o balão quando o teto estoura (design §12).

@@ -45,8 +45,8 @@ DEBRIEF_TIMEOUT_S = 40.0
 JOB_SOURCES = ("clipboard", "voice", "last")
 REQ_KINDS = ("must", "nice")
 REMOTES = ("remote", "hybrid", "onsite")
-#: Comandos da UI em ``lm_interview {"cmd"}`` (spec §7).
-INTERVIEW_CMDS = ("next", "skip_stage", "pause", "end")
+#: Comandos da UI em ``lm_interview {"cmd"}`` (spec §7); ``debrief`` refaz o retorno (LI5.1).
+INTERVIEW_CMDS = ("next", "skip_stage", "pause", "end", "debrief")
 
 STACK_MAX = 12
 REQUIREMENTS_MAX = 14

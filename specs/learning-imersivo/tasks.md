@@ -245,6 +245,23 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Pronto: relatório com os 5 critérios e a nota do Pedro.
   - Paralelo: —
 
+## Fase LI5 — Limpeza
+
+- [x] **LI5.1 Limpeza do núcleo** — *Sobras* de LI1.1, LI2.3, LI2.5 e LI4.2: (1) o cenário do
+  roleplay vai na entrada de `topics` (`repo.set_topic(…, *, scenario=None)` nos três backends,
+  dedup por tema + cenário, `SessionInfo.scenario` da última entrada, `session.set_topic(…,
+  scenario=)`; `_restore_topic` usa) — sem coluna nem migração; (2) `repo.interview_of(run_id)` +
+  `InterviewStore.interview_of` (título/empresa/fim/run) para o retorno pendente depois de
+  reiniciar; (3) `lm_interview {"cmd":"debrief"[,"run_id"]}` (`INTERVIEW_CMDS`) refaz o retorno de
+  uma run encerrada sem retorno (`wiring.retry_debrief`); (4) `LearningCostTask.JOB`
+  (`learning_job` em `costs`) e `learning_job` comentado em `[tasks]` do `config.example.toml`.
+  - Lê: *Sobras* desta lista; `magi/learning/repo.py`, `session.py`, `wiring.py`, `budget.py` por trecho
+  - Escreve: `magi/learning/*`, `config.example.toml` (só `learning_job`), `tests/learning/*`
+  - Pronto: `tests/learning` verde (jsonl e Postgres de teste).
+
+- [ ] **LI5.2 Botão de retry do retorno no HUD** — `[ RETRY ]` no painel do retorno/erro manda
+  `lm_interview {"cmd":"debrief","run_id"}` (núcleo pronto na LI5.1).
+
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
@@ -354,3 +371,12 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   constante `text` das frases (sem `SlotName` novo). O seletor sempre reserva 4 sublinhas de
   cenário (`SCENARIOS_MAX`, a geometria não depende da tela); a linha "Roleplay ▸" não manda nada.
   O `lm_topic` de confirmação não traz `scenario` (o chip usa o `label`).
+- **LI5.1 (2026-10-12):** recusa do `{"cmd":"debrief"}` sai como `lm_interview {"state":"error",
+  "run_id","error"}` (`DEBRIEF_RETRY_NONE|BUSY|LIVE|DONE` ou `DEBRIEF_TOO_SHORT`) — a LI5.2 decide
+  como o HUD mostra (hoje cai no mesmo caminho do erro da vaga). Sem `run_id` o alvo é a última run
+  encerrada **neste processo**; depois de reiniciar o HUD precisa mandar o `run_id` (o `lm_debrief`
+  e o `lm_interview` já trazem). Com retorno já gravado o retry recusa (não há busca do retorno por
+  id para reenviar). Fora do *Escreve*, não tocado: a docstring de `LmInterviewMsg` em
+  `magi/common/contracts.py` ainda lista só `next|skip_stage|pause|end` (a validação usa
+  `INTERVIEW_CMDS`, já com `debrief`). `build_job_model` agora monta a tarefa como `learning_job`
+  (custo com rótulo próprio, mesmo caindo em `learning_actions`).

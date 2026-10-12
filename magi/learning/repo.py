@@ -127,6 +127,7 @@ class SessionInfo:
     topic: Topic
     topics: list[tuple[Topic, datetime]] = field(default_factory=list)
     summary: SessionSummary | None = None
+    scenario: str | None = None  # cenário do roleplay da última entrada de ``topics`` (LI5.1)
 
 
 @dataclass(frozen=True)
@@ -163,6 +164,28 @@ class StoredJob:
     cost_usd: float | None = None
 
 
+@dataclass(frozen=True)
+class InterviewInfo:
+    """Uma simulação pelo id (LI5.1): título/empresa/fim do retorno pendente depois de reiniciar
+    o núcleo e a run inteira para refazer o retorno (``run`` = ``None`` se a vaga sumiu)."""
+
+    run_id: str
+    session_id: str
+    job_id: str
+    title: str | None
+    company: str | None
+    started_at: datetime
+    ended_at: datetime | None = None
+    end_reason: str | None = None
+    has_debrief: bool = False
+    run: InterviewRun | None = None
+
+
+def _same_topic(s: SessionInfo, topic: Topic, scenario: str | None) -> bool:
+    """O tema (e o cenário) de agora já é o da última entrada: ``set_topic`` só confirma."""
+    return bool(s.topics) and s.topics[-1][0] == topic and s.scenario == (scenario or None)
+
+
 @dataclass
 class _IvRow:
     """Linha de ``learning_interviews`` no backend em memória/JSONL."""
@@ -188,7 +211,8 @@ class LearningRepo(Protocol):
     async def get_session(self, session_id: str) -> SessionInfo | None: ...
     async def open_session_last(self) -> SessionInfo | None: ...
     async def end_session(self, session_id: str, reason: str, at: datetime | None = None) -> None: ...
-    async def set_topic(self, session_id: str, topic: Topic, at: datetime | None = None) -> bool: ...
+    async def set_topic(self, session_id: str, topic: Topic, at: datetime | None = None, *,
+                        scenario: str | None = None) -> bool: ...
     async def session_stats(self, session_id: str) -> SessionStats | None: ...
     async def save_summary(self, session_id: str, summary: SessionSummary) -> None: ...
     # mensagens
@@ -224,6 +248,7 @@ class LearningRepo(Protocol):
     async def save_interview(self, run: InterviewRun, end_reason: str | None = None,
                              at: datetime | None = None) -> None: ...
     async def active_interview(self, session_id: str) -> InterviewRun | None: ...
+    async def interview_of(self, run_id: str) -> InterviewInfo | None: ...
     async def save_debrief(self, debrief: InterviewDebrief) -> bool: ...
     async def unseen_debrief(self) -> InterviewDebrief | None: ...
     async def mark_seen(self, run_id: str) -> bool: ...
@@ -249,8 +274,22 @@ def _topics_from_json(raw: Any) -> list[tuple[Topic, datetime]]:
     return out
 
 
-def _topics_to_json(topics: list[tuple[Topic, datetime]]) -> list[dict[str, str]]:
-    return [{"topic": t.value, "at": at.isoformat()} for t, at in topics]
+def _topics_to_json(topics: list[tuple[Topic, datetime]],
+                    scenario: str | None = None) -> list[dict[str, str]]:
+    out = [{"topic": t.value, "at": at.isoformat()} for t, at in topics]
+    if out and scenario:
+        out[-1]["scenario"] = scenario
+    return out
+
+
+def _scenario_from_json(raw: Any) -> str | None:
+    """Cenário gravado na última entrada de ``topics`` (``None`` se não houver)."""
+    try:
+        last = (raw or [])[-1]
+    except (IndexError, TypeError, KeyError):
+        return None
+    sc = last.get("scenario") if isinstance(last, dict) else None
+    return sc if isinstance(sc, str) and sc else None
 
 
 # ---------------------------------------------------------------------------------------------
@@ -339,12 +378,23 @@ class _Mem:
         if obs.id is not None:
             self.next_obs = max(self.next_obs, obs.id + 1)
 
-    def set_topic(self, session_id: str, topic: Topic, at: datetime) -> bool:
+    def set_topic(self, session_id: str, topic: Topic, at: datetime,
+                  scenario: str | None = None) -> bool:
         s = self.sessions[session_id]
-        if s.topics and s.topics[-1][0] == topic:
+        if _same_topic(s, topic, scenario):
             return False
-        self.sessions[session_id] = replace(s, topic=topic, topics=[*s.topics, (topic, at)])
+        self.sessions[session_id] = replace(s, topic=topic, topics=[*s.topics, (topic, at)],
+                                            scenario=scenario or None)
         return True
+
+    def interview_of(self, run_id: str) -> InterviewInfo | None:
+        row = self.interviews.get(run_id)
+        if row is None:
+            return None
+        r = row.run
+        return InterviewInfo(r.id, r.session_id, r.job_id, r.profile.title, r.profile.company,
+                             row.started_at, row.ended_at, row.end_reason,
+                             row.debrief is not None, r)
 
     def stats(self, session_id: str) -> SessionStats | None:
         s = self.sessions.get(session_id)
@@ -473,7 +523,8 @@ class JsonlRepo:
             res = ActionResult.from_dict(row["result"])
             m.actions[res.id] = StoredAction(res, row["message_id"], row["sel_start"], row["sel_end"])
         elif kind == "topic":
-            m.set_topic(row["session_id"], Topic(row["topic"]), datetime.fromisoformat(row["at"]))
+            m.set_topic(row["session_id"], Topic(row["topic"]), datetime.fromisoformat(row["at"]),
+                        row.get("scenario"))
         elif kind == "end":
             s = m.sessions[row["session_id"]]
             m.put_session(replace(s, ended_at=datetime.fromisoformat(row["at"]), end_reason=row["reason"]))
@@ -516,12 +567,16 @@ class JsonlRepo:
         self._write(session_id, {"kind": "end", "session_id": session_id, "reason": reason,
                                  "at": _aware(at).isoformat()})
 
-    async def set_topic(self, session_id: str, topic: Topic, at: datetime | None = None) -> bool:
+    async def set_topic(self, session_id: str, topic: Topic, at: datetime | None = None, *,
+                        scenario: str | None = None) -> bool:
         s = self._mem.sessions[session_id]
-        if s.topics and s.topics[-1][0] == topic:
+        if _same_topic(s, topic, scenario):
             return False
-        self._write(session_id, {"kind": "topic", "session_id": session_id,
-                                 "topic": Topic(topic).value, "at": _aware(at).isoformat()})
+        row = {"kind": "topic", "session_id": session_id, "topic": Topic(topic).value,
+               "at": _aware(at).isoformat()}
+        if scenario:
+            row["scenario"] = scenario
+        self._write(session_id, row)
         return True
 
     async def session_stats(self, session_id: str) -> SessionStats | None:
@@ -654,6 +709,9 @@ class JsonlRepo:
     async def active_interview(self, session_id: str) -> InterviewRun | None:
         return self._mem.active_interview(session_id)
 
+    async def interview_of(self, run_id: str) -> InterviewInfo | None:
+        return self._mem.interview_of(run_id)
+
     async def save_debrief(self, debrief: InterviewDebrief) -> bool:
         row = self._mem.interviews.get(debrief.run_id)
         if row is None:
@@ -699,7 +757,7 @@ def _word(row: Any) -> SavedWord:
 def _session(row: Any) -> SessionInfo:
     summary = SessionSummary.from_dict(row[8]) if row[8] else None
     return SessionInfo(row[0], row[1], row[2], row[3], row[4], row[5], Topic(row[6]),
-                       _topics_from_json(row[7]), summary)
+                       _topics_from_json(row[7]), summary, _scenario_from_json(row[7]))
 
 
 @dataclass
@@ -799,7 +857,7 @@ class PostgresRepo:
             o: Observation = a["obs"]
             await self._insert_obs(replace(o, message_id=self._real(o.message_id)), a["model"], a["at"])
         elif item.kind == "topic":
-            await self._db_set_topic(a["session_id"], a["topic"], a["at"])
+            await self._db_set_topic(a["session_id"], a["topic"], a["at"], a.get("scenario"))
         elif item.kind == "end":
             await self._db_end(a["session_id"], a["reason"], a["at"])
         elif item.kind == "summary":
@@ -839,7 +897,7 @@ class PostgresRepo:
         if conflict_ok:
             q += " ON CONFLICT (id) DO NOTHING"
         await self._exec(q, [info.id, info.started_at, info.level, info.track, info.topic.value,
-                             json.dumps(_topics_to_json(info.topics))])
+                             json.dumps(_topics_to_json(info.topics, info.scenario))])
 
     async def _insert_message(self, session_id: str, author: Author, source: Source, text: str,
                               text_final: str | None, turn_id: int | None, at: datetime) -> LearningMessage:
@@ -860,14 +918,19 @@ class PostgresRepo:
         )
         return _obs(row)
 
-    async def _db_set_topic(self, session_id: str, topic: Topic, at: datetime) -> bool:
+    async def _db_set_topic(self, session_id: str, topic: Topic, at: datetime,
+                            scenario: str | None = None) -> bool:
+        # O cenário (LI5.1) vai no JSON da entrada (sem coluna nova); dedup por tema + cenário.
+        scenario = scenario or None
         row = await self._fetchone(
             "UPDATE learning_sessions SET topic = %s,"
-            " topics = topics || jsonb_build_array(jsonb_build_object('topic', %s::text, 'at', %s::text))"
+            " topics = topics || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object("
+            "   'topic', %s::text, 'at', %s::text, 'scenario', %s::text)))"
             " WHERE id = %s AND (jsonb_array_length(topics) = 0"
-            "   OR topics -> (jsonb_array_length(topics) - 1) ->> 'topic' IS DISTINCT FROM %s)"
+            "   OR topics -> (jsonb_array_length(topics) - 1) ->> 'topic' IS DISTINCT FROM %s"
+            "   OR topics -> (jsonb_array_length(topics) - 1) ->> 'scenario' IS DISTINCT FROM %s)"
             " RETURNING id",
-            [topic.value, topic.value, at.isoformat(), session_id, topic.value],
+            [topic.value, topic.value, at.isoformat(), scenario, session_id, topic.value, scenario],
         )
         return row is not None
 
@@ -954,18 +1017,21 @@ class PostgresRepo:
             self._mem.put_session(replace(s, ended_at=at, end_reason=reason))
         self._buffer(_Pending("end", {"session_id": session_id, "reason": reason, "at": at}))
 
-    async def set_topic(self, session_id: str, topic: Topic, at: datetime | None = None) -> bool:
+    async def set_topic(self, session_id: str, topic: Topic, at: datetime | None = None, *,
+                        scenario: str | None = None) -> bool:
         at = _aware(at)
         topic = Topic(topic)
         if await self._pre():
             try:
-                return await self._db_set_topic(session_id, topic, at)
+                return await self._db_set_topic(session_id, topic, at, scenario)
             except _DB_ERRORS as exc:
                 self._mark_down(exc)
         self._mirror_session(session_id)
-        changed = self._mem.set_topic(session_id, topic, at) if session_id in self._mem.sessions else True
+        changed = (self._mem.set_topic(session_id, topic, at, scenario)
+                   if session_id in self._mem.sessions else True)
         if changed:
-            self._buffer(_Pending("topic", {"session_id": session_id, "topic": topic, "at": at}))
+            self._buffer(_Pending("topic", {"session_id": session_id, "topic": topic, "at": at,
+                                            "scenario": scenario}))
         return changed
 
     async def session_stats(self, session_id: str) -> SessionStats | None:
@@ -1254,6 +1320,26 @@ class PostgresRepo:
             log.warning("simulação ativa sem perfil da vaga na sessão %s", session_id)
             return None
         return InterviewRun.from_dict({**row[2], "plan": row[0], "state": row[1], "profile": row[3]})
+
+    async def interview_of(self, run_id: str) -> InterviewInfo | None:
+        row = await self._iv("interview_of", lambda: self._fetchone(
+            "SELECT i.id, i.session_id, i.job_id, j.profile, i.started_at, i.ended_at, i.end_reason,"
+            " i.debrief IS NOT NULL, i.plan, i.state, i.progress"
+            " FROM learning_interviews i LEFT JOIN learning_jobs j ON j.id = i.job_id"
+            " WHERE i.id = %s", [run_id]), None)
+        if row is None:
+            return None
+        profile = JobProfile.from_dict(row[3]) if row[3] else None
+        run = None
+        if row[3]:
+            try:
+                run = InterviewRun.from_dict({**row[10], "plan": row[8], "state": row[9],
+                                              "profile": row[3]})
+            except (KeyError, TypeError, ValueError):
+                log.warning("simulação %s não reconstruída", run_id, exc_info=True)
+        return InterviewInfo(row[0], row[1], row[2], profile.title if profile else None,
+                             profile.company if profile else None, row[4], row[5], row[6],
+                             bool(row[7]), run)
 
     async def save_debrief(self, debrief: InterviewDebrief) -> bool:
         row = await self._iv("save_debrief", lambda: self._fetchone(

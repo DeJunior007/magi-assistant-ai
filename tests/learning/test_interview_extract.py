@@ -233,11 +233,14 @@ def test_build_job_model_prazo_da_extracao(monkeypatch: pytest.MonkeyPatch) -> N
     seen: list[Config] = []
     monkeypatch.setattr(ex, "build_model", lambda cfg, name, **kw: seen.append(cfg) or name)
     cfg = _config({"learning_actions": {"provider": "openai", "model": "gpt-a"}})
-    assert ex.build_job_model(cfg, budget=None, registry=None) == "learning_actions"
-    assert learning_tasks(seen[-1]).actions.timeout_s == 20.0
+    # LI5.1: a tarefa escolhida vira ``learning_job`` (rótulo próprio em ``costs``).
+    assert ex.build_job_model(cfg, budget=None, registry=None) == "learning_job"
+    assert learning_tasks(seen[-1]).job.timeout_s == 20.0
+    from magi.learning.budget import LearningCostTask
+    assert LearningCostTask("learning_job") is LearningCostTask.JOB
     cfg = _config({"learning_job": {"provider": "openai", "model": "gpt-j", "timeout_s": 12}})
     ex.build_job_model(cfg, budget=None)
-    t = learning_tasks(seen[-1]).actions
+    t = learning_tasks(seen[-1]).job
     assert (t.model, t.timeout_s) == ("gpt-j", 12.0)
 
 

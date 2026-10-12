@@ -195,13 +195,13 @@ def build_job_model(config: Config, **kwargs: Any) -> LearningModel:
     """Modelo da tarefa ``learning_job`` ou, sem ela, de ``learning_actions`` (D8).
 
     Usa o ``build_model`` existente (``kwargs``: ``budget``, ``registry``) com a tarefa escolhida
-    no lugar de ``learning_actions``; sem ``timeout_s`` explícito o prazo é o da extração (20 s),
-    não os 8 s das ações. O custo sai com o rótulo ``learning_actions`` (o ``LearningCostTask``
-    não tem rótulo próprio da vaga)."""
+    como ``learning_job``; sem ``timeout_s`` explícito o prazo é o da extração (20 s), não os 8 s
+    das ações. O custo sai com o rótulo ``learning_job`` (LI5.1), mesmo caindo em
+    ``learning_actions``."""
     task = config.tasks.get(TASK_JOB) or config.tasks.get(TASK_ACTIONS)
     if task is None:
         raise ConfigError(f"nem '{TASK_JOB}' nem '{TASK_ACTIONS}' configuradas em [tasks]")
     options = {"timeout_s": EXTRACT_TIMEOUT_S, **task.options}
-    chosen = TaskConfig(name=TASK_ACTIONS, provider=task.provider, model=task.model, options=options)
-    derived = dataclasses.replace(config, tasks={**config.tasks, TASK_ACTIONS: chosen})
-    return build_model(derived, TASK_ACTIONS, **kwargs)
+    chosen = TaskConfig(name=TASK_JOB, provider=task.provider, model=task.model, options=options)
+    derived = dataclasses.replace(config, tasks={**config.tasks, TASK_JOB: chosen})
+    return build_model(derived, TASK_JOB, **kwargs)

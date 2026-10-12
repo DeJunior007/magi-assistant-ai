@@ -348,3 +348,61 @@ async def test_postgres_buffer_limite(pg_schema):
     for i in range(5):
         await repo.add_message(s.id, Author.YOU, Source.TEXT, f"m{i}")
     assert repo.pending == 3
+
+
+# ---------------------------------------------------------------------------------------------
+# LI5.1: cenário do roleplay na entrada de ``topics`` e ``interview_of``
+# ---------------------------------------------------------------------------------------------
+
+
+async def test_li51_cenario_na_entrada_de_topics(repo):
+    s = await repo.open_session(level="B2", track="CONVERSATION", at=T0)
+    assert s.scenario is None
+    t = [T0 + timedelta(minutes=i) for i in range(1, 6)]
+    assert await repo.set_topic(s.id, Topic.ROLEPLAY, t[0], scenario="hotel_checkin") is True
+    assert await repo.set_topic(s.id, Topic.ROLEPLAY, t[1], scenario="hotel_checkin") is False
+    assert await repo.set_topic(s.id, Topic.ROLEPLAY, t[2], scenario="doctor_visit") is True
+    got = await repo.get_session(s.id)
+    assert got.scenario == "doctor_visit"
+    assert [x for x, _ in got.topics] == [Topic.FREE, Topic.ROLEPLAY, Topic.ROLEPLAY]
+    assert (await repo.open_session_last()).scenario == "doctor_visit"
+    assert await repo.set_topic(s.id, Topic.NEWS, t[3]) is True
+    assert (await repo.get_session(s.id)).scenario is None
+
+
+async def test_li51_cenario_sobrevive_ao_recarregar_jsonl(tmp_path):
+    r = JsonlRepo(tmp_path / "learning")
+    s = await r.open_session(level="B2", track="CONVERSATION", at=T0)
+    await r.set_topic(s.id, Topic.ROLEPLAY, T0 + timedelta(minutes=1), scenario="support_call")
+    again = JsonlRepo(tmp_path / "learning")  # núcleo reiniciado
+    assert (await again.open_session_last()).scenario == "support_call"
+
+
+def _li51_profile():
+    from magi.learning.interview.contracts import JobProfile, Requirement, Seniority
+    return JobProfile(
+        title="Data Engineer", company="Acme", seniority=Seniority.MID, language="en",
+        stack=("python",), requirements=(Requirement("Python", "must", "python", "Python"),),
+        responsibilities=(), domain=None, remote=None)
+
+
+async def test_li51_interview_of(repo):
+    from magi.learning.interview.contracts import JobPost, RunState
+    from magi.learning.interview.plan import build_plan
+    from magi.learning.interview.run import start
+    s = await repo.open_session(level="B2", track="CONVERSATION", at=T0)
+    p = _li51_profile()
+    await repo.save_job(JobPost("JOB-0a1b2c3d", "Data Engineer at Acme. " * 12, "clipboard", T0), T0)
+    await repo.set_profile("JOB-0a1b2c3d", p)
+    run = start(build_plan(p, 30, job_id="JOB-0a1b2c3d"), p, s.id, 0.0, run_id="IV-20261007-01")
+    await repo.save_interview(run, at=T0)
+    assert await repo.interview_of("IV-NADA") is None
+    info = await repo.interview_of(run.id)
+    assert (info.title, info.company, info.ended_at, info.has_debrief) == (
+        "Data Engineer", "Acme", None, False)
+    run.state = RunState.DEBRIEFING
+    await repo.save_interview(run, "end", at=T0 + timedelta(minutes=30))
+    info = await repo.interview_of(run.id)
+    assert info.ended_at == T0 + timedelta(minutes=30) and info.end_reason == "end"
+    assert info.run is not None and info.run.state is RunState.DEBRIEFING
+    assert info.session_id == s.id and info.job_id == "JOB-0a1b2c3d"

@@ -156,6 +156,11 @@ DEBRIEF_READY = "Your interview feedback is on the screen. Take a look when you'
 DEBRIEF_TOO_SHORT = "No feedback this time: I need at least {n} answers from you to judge."
 DEBRIEF_FAILED = "feedback not generated — {code}"
 DEBRIEF_TITLE = "MOCK INTERVIEW"
+#: LI5.1: recusas do ``{"cmd":"debrief"}`` (vão no ``error`` do ``lm_interview``).
+DEBRIEF_RETRY_NONE = "no finished interview to give feedback on"
+DEBRIEF_RETRY_BUSY = "feedback already being generated"
+DEBRIEF_RETRY_LIVE = "the interview is still running"
+DEBRIEF_RETRY_DONE = "feedback already generated"
 #: Mensagens lidas para montar a transcrição da run (a sessão tem bem menos que isso).
 DEBRIEF_MESSAGES_MAX = 2000
 
@@ -219,10 +224,15 @@ class LearningWiring:
         self._jobs: tuple[LmJobRef, ...] = ()
         self._run_n: tuple[str, int] = ("", 0)
         self._cmd_turn = False  # o turno de voz foi um comando da entrevista: não conta resposta
-        #: LI2.3: título/empresa/hora de cada retorno gerado neste processo (o repo não guarda).
+        #: LI2.3: título/empresa/hora de cada retorno gerado neste processo; depois de reiniciar
+        #: vem do repo (``interview_of``, LI5.1).
         self._debrief_meta: dict[str, tuple[str, str | None, datetime]] = {}
-        #: LI4.2: cenário de roleplay atual de cada sessão (só em memória: o repo ainda não grava o
-        #: id com o tema; retomada depois de reiniciar cai em free) e a lista do seletor (lida 1×).
+        #: LI5.1: última run encerrada neste processo (alvo do ``{"cmd":"debrief"}`` sem
+        #: ``run_id``) e as runs com retorno sendo gerado agora (não gera duas vezes).
+        self._last_ended: str | None = None
+        self._debriefing: set[str] = set()
+        #: LI4.2: cenário de roleplay atual de cada sessão (cache; o repo grava o id na entrada de
+        #: ``topics`` desde a LI5.1) e a lista do seletor (lida 1×).
         self._scenario_of: dict[str, str] = {}
         self._scenario_refs: tuple[LmScenarioRef, ...] | None = None
 
@@ -522,7 +532,7 @@ class LearningWiring:
                 self._scenario_of[sid] = scenario
             else:
                 self._scenario_of.pop(sid, None)
-            await self.session.set_topic(ctx)
+            await self.session.set_topic(ctx, scenario=self._scenario_of.get(sid))
             await self.hud.send(self._topic_msg(ctx))
         log.info("learning: tema %s (pedido %s, %s)", ctx.topic.value, requested.value, via)
         if ctx.topic is not Topic.FREE and (ctx.topic != previous or current is None
@@ -538,7 +548,11 @@ class LearningWiring:
         ctx = self.session.topic_context
         if ctx is None:
             topic = self.session.topic
-            scenario = self._scenario_of.get(self.session.id or "")  # roleplay: mesmo cenário
+            sid = self.session.id or ""
+            info = self.session.info  # roleplay: mesmo cenário, gravado em ``topics`` (LI5.1)
+            scenario = self._scenario_of.get(sid) or (info.scenario if info is not None else None)
+            if topic is Topic.ROLEPLAY and scenario:
+                self._scenario_of[sid] = scenario
             ctx = await self._builder().build(topic, scenario) if topic is not Topic.FREE else None
             if ctx is None:
                 ctx = TopicContext(Topic.FREE, Topic.FREE, "FREE TALK", None, None)
@@ -780,7 +794,9 @@ class LearningWiring:
         return True
 
     async def _on_interview(self, msg: LmInterviewMsg) -> None:
-        if msg.cmd is not None:
+        if msg.cmd == "debrief":
+            await self.retry_debrief(msg.run_id, "button")
+        elif msg.cmd is not None:
             await self.interview_command(msg.cmd, "button")
 
     async def _say_command(self, text: str, cmd: str) -> None:
@@ -791,7 +807,10 @@ class LearningWiring:
 
     async def interview_command(self, cmd: str, via: str) -> bool:
         """Comando da spec §5.3 (``next|skip_stage|pause|end``; ``via`` = ``button|voice|text``).
-        ``next``/``skip_stage`` pedem a pergunta seguinte num turno do agente. Sem run: ``False``."""
+        ``next``/``skip_stage`` pedem a pergunta seguinte num turno do agente. Sem run: ``False``.
+        ``debrief`` (LI5.1) refaz o retorno da última run encerrada (``retry_debrief``)."""
+        if cmd == "debrief":
+            return await self.retry_debrief(None, via)
         run = self.live_run()
         if run is None:
             return False
@@ -837,6 +856,7 @@ class LearningWiring:
         run, self.run = self.live_run(), None
         if run is None:
             return
+        self._last_ended = run.id
         iv_run.finish(run, reason, self._now())
         try:
             await self.interviews.save_run(run, reason)
@@ -852,6 +872,7 @@ class LearningWiring:
         run, self.run = self.run, None
         if run is None:
             return
+        self._last_ended = run.id
         self._cancel_opening()
         iv_run.finish(run, reason, self._now())  # WRAP já fechou: não faz nada
         await self._push_run(run, reason)
@@ -868,10 +889,56 @@ class LearningWiring:
             return
         self._spawn(self._debrief_run(run, publish=active), "retorno da entrevista")
 
+    async def retry_debrief(self, run_id: str | None, via: str = "button") -> bool:
+        """``lm_interview {"cmd":"debrief"[,"run_id"]}`` (LI5.1, spec §10): refaz o retorno de uma
+        run encerrada sem retorno (``DEBRIEFING`` parado por reinício, ``ERROR`` ou ``DONE`` depois
+        de uma falha). Sem ``run_id``: a última encerrada neste processo. Recusa com
+        ``lm_interview {"state":"error","error"}``; ``True`` = retorno agendado."""
+        rid = run_id or self._last_ended
+        refusal: str | None = None
+        info = None
+        if rid is None:
+            refusal = DEBRIEF_RETRY_NONE
+        elif rid in self._debriefing:
+            refusal = DEBRIEF_RETRY_BUSY
+        else:
+            try:
+                info = await self.interviews.interview_of(rid)
+            except Exception:
+                log.warning("learning: simulação %s indisponível para o retorno", rid, exc_info=True)
+            if info is None or info.run is None:
+                refusal = DEBRIEF_RETRY_NONE
+            elif info.run.state in _RUN_LIVE:
+                refusal = DEBRIEF_RETRY_LIVE
+            elif info.has_debrief and info.run.state is not RunState.DEBRIEFING:
+                refusal = DEBRIEF_RETRY_DONE
+            elif info.run.answers < iv_debrief.MIN_ANSWERS:
+                refusal = DEBRIEF_TOO_SHORT.format(n=iv_debrief.MIN_ANSWERS)
+        if refusal is not None or info is None or info.run is None:
+            log.info("learning: retorno de %s não refeito (%s): %s", rid, via, refusal)
+            await self.hud.send(LmInterviewMsg(state=RunState.ERROR, run_id=rid,
+                                               error=refusal or DEBRIEF_RETRY_NONE))
+            return False
+        run = info.run
+        run.state = RunState.DEBRIEFING
+        self._debriefing.add(run.id)  # já reservado antes do spawn (dois cliques = um retorno)
+        if self._same_session(run):
+            await self.hud.send(self._iv_msg(run))
+        log.info("learning: refazendo o retorno de %s (%s)", run.id, via)
+        self._spawn(self._debrief_run(run, publish=True), "retorno da entrevista (retry)")
+        return True
+
     async def _debrief_run(self, run: InterviewRun, *, publish: bool) -> None:
         """Gera o retorno (uma chamada, spec §6), grava e, com ``publish`` e a mesma sessão
         aberta, manda ``lm_debrief`` + a linha curta da Condessa (R4.2). Falha: só a linha
         ``feedback not generated — <código>`` (spec §10)."""
+        self._debriefing.add(run.id)
+        try:
+            await self._debrief_once(run, publish=publish)
+        finally:
+            self._debriefing.discard(run.id)
+
+    async def _debrief_once(self, run: InterviewRun, *, publish: bool) -> None:
         try:
             if self.job_model is None:
                 raise ModelFailure("sem modelo para o retorno da entrevista")
@@ -916,8 +983,18 @@ class LearningWiring:
 
     async def _send_debrief(self, result: InterviewDebrief) -> None:
         """``lm_debrief`` e marca como visto (a tela mostra uma vez, R5.2)."""
-        title, company, at = self._debrief_meta.get(
-            result.run_id, (DEBRIEF_TITLE, None, self.clock()))
+        meta = self._debrief_meta.get(result.run_id)
+        if meta is None:  # LI5.1: retorno pendente depois de reiniciar o núcleo
+            meta = (DEBRIEF_TITLE, None, self.clock())
+            try:
+                info = await self.interviews.interview_of(result.run_id)
+            except Exception:
+                log.warning("learning: simulação %s indisponível", result.run_id, exc_info=True)
+                info = None
+            if info is not None:
+                meta = (info.title or DEBRIEF_TITLE, info.company,
+                        info.ended_at or info.started_at)
+        title, company, at = meta
         await self.hud.send(LmDebriefMsg(debrief=result, title=title, company=company, at=at))
         try:
             await self.interviews.mark_seen(result.run_id)

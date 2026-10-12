@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from magi.learning.interview.contracts import (
     InterviewDebrief,
@@ -17,6 +17,9 @@ from magi.learning.interview.contracts import (
     JobPost,
     JobProfile,
 )
+
+if TYPE_CHECKING:
+    from magi.learning.repo import InterviewInfo
 
 
 def _utcnow() -> datetime:
@@ -56,6 +59,10 @@ class InterviewStore:
     async def load_active(self, session_id: str) -> InterviewRun | None:
         """Run não encerrada da sessão (retomada, R5.3)."""
         return await self.repo.active_interview(session_id)
+
+    async def interview_of(self, run_id: str) -> InterviewInfo | None:
+        """Simulação pelo id (LI5.1): título/empresa/fim do retorno pendente e a run do retry."""
+        return await self.repo.interview_of(run_id)
 
     async def save_debrief(self, debrief: InterviewDebrief) -> None:
         await self.repo.save_debrief(debrief)

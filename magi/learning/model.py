@@ -298,14 +298,15 @@ def build_model(
     budget: LearningBudget,
     registry: Any = None,
 ) -> LearningModel:
-    """``LearningModel`` da tarefa ``learning_actions``/``learning_observe`` lida do config.
+    """``LearningModel`` da tarefa ``learning_actions``/``learning_observe``/``learning_job``.
 
     Trocar a linha ``[tasks] learning_*`` troca o modelo sem mudar código (CA-04). Provedor de
     ``kind = "fake"`` vira ``FakeModel`` (respostas do JSON em ``fixtures`` da tarefa, se houver).
     """
     label = LearningCostTask(task_name)
     tasks = learning_tasks(config)
-    task = tasks.actions if label is LearningCostTask.ACTIONS else tasks.observe
+    task = {LearningCostTask.ACTIONS: tasks.actions, LearningCostTask.OBSERVE: tasks.observe,
+            LearningCostTask.JOB: tasks.job}[label]
     if task is None:
         raise ConfigError(f"tarefa '{task_name}' não configurada em [tasks]")
     pcfg = config.providers[task.provider]

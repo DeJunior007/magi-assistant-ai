@@ -110,17 +110,20 @@ class LearningSession:
         ctx = self.topic_context
         return ctx.block if ctx is not None else None
 
-    async def set_topic(self, ctx: TopicContext, *, record: bool = True) -> bool:
+    async def set_topic(self, ctx: TopicContext, *, record: bool = True,
+                        scenario: str | None = None) -> bool:
         """Guarda o tema na sessão aberta e grava o efetivo no histórico (``record``). Devolve
-        ``True`` se o tema efetivo mudou; sem sessão não faz nada (``False``)."""
+        ``True`` se o tema efetivo (ou o cenário do roleplay, LI5.1) mudou; sem sessão não faz
+        nada (``False``). ``scenario`` vai na entrada de ``topics`` (retomada após reiniciar)."""
         if self._info is None:
             return False
-        changed = ctx.topic != self._info.topic
+        scenario = scenario if ctx.topic is Topic.ROLEPLAY and scenario else None
+        changed = ctx.topic != self._info.topic or scenario != self._info.scenario
         self._topic = ctx
         if record and changed:
             at = self.clock()
-            await self.repo.set_topic(self._info.id, ctx.topic, at)
-            self._info = replace(self._info, topic=ctx.topic,
+            await self.repo.set_topic(self._info.id, ctx.topic, at, scenario=scenario)
+            self._info = replace(self._info, topic=ctx.topic, scenario=scenario,
                                  topics=[*self._info.topics, (ctx.topic, at)])
         return changed
 
