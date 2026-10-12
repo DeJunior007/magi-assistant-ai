@@ -4,6 +4,25 @@
 # estiver em `values`, é traduzido também. Frase sem entrada aqui sai em português e vai para o log.
 
 fixed:
+  # TV pela magi-casa (ayanami-central C2.1, spec §13.2)
+  "Ligando a TV.": "Turning the TV on."
+  "Desligar a TV? Confirma?": "Turn the TV off? Confirm?"
+  "Volume da TV ajustado.": "TV volume set."
+  "TV no mudo.": "TV muted."
+  "Som da TV de volta.": "TV sound's back."
+  "Abrindo na TV.": "Opening it on the TV."
+  "Entrada trocada.": "Input switched."
+  "Pronto, TV ligada.": "There you go, the TV's on."
+  "TV desligada.": "TV off."
+  "Não consegui ligar a TV.": "I couldn't turn the TV on."
+  "A TV não respondeu.": "The TV didn't answer."
+  "A casa está fora do ar.": "The house is offline."
+  "Essa TV não faz isso.": "That TV can't do that."
+  "Não conheço esse app nessa TV.": "I don't know that app on that TV."
+  "Qual TV?": "Which TV?"
+  "Mudo alternado.": "Mute toggled."
+  "A TV recusou o comando.": "The TV refused the command."
+  "Essa TV ainda não foi pareada.": "That TV hasn't been paired yet."
   # audiolivro (A2.3)
   "Tô numa call; leio quando ela acabar.": "I'm in a call; I'll read once it's over."
   "Não achei esse livro na pasta.": "I couldn't find that book in the folder."
@@ -174,6 +193,15 @@ fixed:
   "Entrevista encerrada.": "Interview over."
 
 templates:
+  # TV (C2.1, spec §13.2)
+  "Desligar a {nome}? Confirma?": "Turn {nome} off? Confirm?"
+  "Abrindo {nome} na TV.": "Opening {nome} on the TV."
+  "Não consegui ligar a {nome}; ela precisa do Ligar com celular ativo.": "I couldn't turn {nome} on; it needs Power on with mobile enabled."
+  "Não consegui ligar a {nome}; ative o Início rápido da TV.": "I couldn't turn {nome} on; switch on the TV's Quick Start."
+  "Não consegui ligar a {nome}; ela está em espera profunda.": "I couldn't turn {nome} on; it's in deep standby."
+  "A {nome} está bloqueando o controle; ative o Acesso à rede.": "{nome} is blocking remote control; switch on Network access."
+  "A {nome} está desligada.": "{nome} is off."
+  "Mais de uma TV: {nome}?": "More than one TV: {nome}?"
   # audiolivro (A2.3)
   "Achei mais de um: {a} ou {b}. Qual?": "I found more than one: {a} or {b}. Which?"
   "Lendo {titulo}.": "Reading {titulo}."

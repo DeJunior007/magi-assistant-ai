@@ -213,6 +213,121 @@ intents:
       - "volta o som"
       - "desmuta o som"
 
+  # -- TV (R6.6; magi-casa; ayanami-central C2.1, spec §13.1) -----------------
+  # Regra de colisão [DS12]: toda frase tv.* tem "tv"/"televisão", um {tv} ou "hdmi" (o roteador
+  # nem deixa tv.* concorrer sem isso); "aumenta o volume" sozinho continua volume.set do PC.
+  # {tv} {app} {input} são slots de catálogo (CasaCatalogo, do ``ola`` da casa; rapidfuzz ≥ 80);
+  # {input} também casa "hdmi 1".."hdmi 4" sem catálogo. Volume: "+k"/"-k" = k teclas, "N" = absoluto.
+  - id: tv.power_on
+    label: "ligar a TV"
+    reply: "Ligando a TV."
+    phrases:
+      - "liga a tv"
+      - "liga a televisão"
+      - say: "liga a {tv}"
+        label: "ligar a {tv}"
+
+  - id: tv.power_off
+    label: "desligar a TV"
+    reply: "Desligar a TV? Confirma?"
+    danger: true
+    phrases:
+      - "desliga a tv"
+      - "desliga a televisão"
+      - say: "desliga a {tv}"
+        label: "desligar a {tv}"
+
+  - id: tv.volume
+    label: "volume da TV em {volume}"
+    reply: "Volume da TV ajustado."
+    phrases:
+      - "volume da tv em {volume}"
+      - "volume da televisão em {volume}"
+      - "coloca o volume da tv em {volume}"
+      - "coloca o volume da {tv} em {volume}"
+      - say: "aumenta o volume da tv"
+        slots: {volume: "+3"}
+        label: "aumentar o volume da TV"
+      - say: "aumenta o volume da televisão"
+        slots: {volume: "+3"}
+        label: "aumentar o volume da TV"
+      - say: "aumenta o volume da {tv}"
+        slots: {volume: "+3"}
+        label: "aumentar o volume da {tv}"
+      - say: "abaixa o volume da tv"
+        slots: {volume: "-3"}
+        label: "abaixar o volume da TV"
+      - say: "abaixa o volume da televisão"
+        slots: {volume: "-3"}
+        label: "abaixar o volume da TV"
+      - say: "abaixa o volume da {tv}"
+        slots: {volume: "-3"}
+        label: "abaixar o volume da {tv}"
+      - say: "aumenta muito o volume da tv"
+        slots: {volume: "+8"}
+        label: "aumentar bem o volume da TV"
+      - say: "abaixa muito o volume da tv"
+        slots: {volume: "-8"}
+        label: "abaixar bem o volume da TV"
+      - say: "aumenta {volume:+} o volume da tv"
+        label: "aumentar o volume da TV em {volume}"
+      - say: "abaixa {volume:-} o volume da tv"
+        label: "abaixar o volume da TV em {volume}"
+
+  - id: tv.mute
+    label: "deixar a TV no mudo"
+    reply: "TV no mudo."
+    phrases:
+      - "muta a tv"
+      - "muta a televisão"
+      - "tv no mudo"
+      - "silencia a tv"
+      - say: "muta a {tv}"
+        label: "deixar a {tv} no mudo"
+      - say: "silencia a {tv}"
+        label: "deixar a {tv} no mudo"
+
+  - id: tv.unmute
+    label: "tirar a TV do mudo"
+    reply: "Som da TV de volta."
+    phrases:
+      - "tira a tv do mudo"
+      - "tira a televisão do mudo"
+      - "desmuta a tv"
+      - "volta o som da tv"
+      - say: "tira a {tv} do mudo"
+        label: "tirar a {tv} do mudo"
+      - say: "volta o som da {tv}"
+        label: "tirar a {tv} do mudo"
+
+  - id: tv.app
+    label: "abrir {app} na TV"
+    reply: "Abrindo na TV."
+    required: [app]
+    phrases:
+      - "abre {app} na tv"
+      - "abre {app} na televisão"
+      - "coloca {app} na tv"
+      - say: "abre {app} na {tv}"
+        label: "abrir {app} na {tv}"
+      - say: "coloca {app} na {tv}"
+        label: "abrir {app} na {tv}"
+
+  - id: tv.input
+    label: "trocar a entrada da TV para {input}"
+    reply: "Entrada trocada."
+    required: [input]
+    phrases:
+      - "muda a tv para {input}"
+      - "muda a tv pra {input}"
+      - "tv no {input}"
+      - "entrada {input}"
+      - "muda a entrada da tv para {input}"
+      - say: "coloca a {tv} no {input}"
+        label: "trocar a {tv} para {input}"
+      - say: "muda a {tv} para {input}"
+        label: "trocar a {tv} para {input}"
+
   # -- RGB (R6.3) ------------------------------------------------------------
   - id: rgb.color
     label: "deixar o RGB {color}"

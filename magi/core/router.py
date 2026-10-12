@@ -4,6 +4,9 @@ Pipeline: minúsculas sem acento → formas canônicas de verbos ("abri" → "ab
 (número, cor, painel) viram marcadores → nota de cada frase-modelo do ``intents.yaml`` com
 ``rapidfuzz.fuzz.token_set_ratio`` menos penalidades por palavra sobrando/faltando → slot livre
 (jogo, música, texto) é o rabo da frase depois do comando; jogo é resolvido no ``GameCatalog``.
+TV, app e entrada (``{tv}``/``{app}``/``{input}``, C2.1) são slots de catálogo casados contra o
+``CasaCatalogo`` (rapidfuzz ≥ 80); frases ``tv.*`` só concorrem com "tv"/"televisão"/"hdmi" ou uma
+TV do catálogo no texto (regra de colisão DS12).
 
 Nota ≥ ``execute_score`` executa; entre ``ask_score`` e ``execute_score`` pergunta
 "você quis dizer X?"; abaixo vai ao agente.
@@ -14,7 +17,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -34,9 +37,11 @@ from magi.common.contracts import (
     SlotName,
     TurnContext,
 )
+from magi.elo.mensagens import AppInfo, TvInfo
 
 __all__ = [
     "COLORS",
+    "CasaCatalogo",
     "INTENTS_PATH",
     "IntentSpec",
     "LocalRouter",
@@ -155,8 +160,13 @@ _HUNDREDS = {
 _SPECIAL_NUMBERS = {"maximo": 100, "talo": 100, "metade": 50, "minimo": 0}
 
 PH_NUM, PH_COLOR, PH_DETAIL = "#num", "#cor", "#det"
+PH_TV, PH_APP, PH_INPUT = "#tv", "#app", "#in"
 _NUM_SLOTS = {SlotName.VOLUME, SlotName.BRIGHTNESS, SlotName.AMOUNT}
-_PLACEHOLDER = {SlotName.COLOR: PH_COLOR, SlotName.DETAIL: PH_DETAIL} | dict.fromkeys(_NUM_SLOTS, PH_NUM)
+#: Slots de catálogo da casa (C2.1): casados contra o ``CasaCatalogo``, em qualquer posição.
+_CASA_SLOTS = {SlotName.TV: PH_TV, SlotName.APP: PH_APP, SlotName.INPUT: PH_INPUT}
+_PLACEHOLDER = (
+    {SlotName.COLOR: PH_COLOR, SlotName.DETAIL: PH_DETAIL} | dict.fromkeys(_NUM_SLOTS, PH_NUM) | _CASA_SLOTS
+)
 _FREE_SLOTS = {SlotName.GAME, SlotName.QUERY, SlotName.TEXT, SlotName.FRANCHISE}
 _TAIL_LEAD = FILLERS | {"jogo", "musica", "som"}
 #: Sobra no fim do rabo que não é nome ("uma só da Willow então", "Linkin Park por favor").
@@ -173,6 +183,13 @@ _OFF_MUSIC = frozenset(
 )
 _OFF_MUSIC_PEN = 40.0
 _LONG_QUERY_WORDS = 6
+
+#: Casa (C2.1, spec §13.1): nota mínima do slot de catálogo; palavras que marcam frase de TV.
+CASA_SCORE = 80.0
+_TV_WORDS = frozenset({"tv", "televisao"})
+_TV_PREFIX = "tv."
+_HDMI_MAX = 4
+_CASA_MAX_WORDS = 4
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +289,109 @@ def _extract_fixed(words: Sequence[str]) -> tuple[list[str], list[_Found]]:
 
 
 # ---------------------------------------------------------------------------
+# Casa: TV, app e entrada (C2.1)
+
+
+def _key(text: str) -> str:
+    return " ".join(_lemmas(normalize_text(text)))
+
+
+@dataclass(frozen=True, slots=True)
+class CasaCatalogo:
+    """Nomes da casa para os slots ``{tv}``/``{app}``/``{input}`` (spec §13.1, DS12).
+
+    Vem do ``ola`` da casa (``TvInfo``/``AppInfo``, §10.2); ``entradas`` = apelidos de entrada do
+    ``casa.toml`` (``{"console": "hdmi2"}``). "hdmi 1".."hdmi 4" casam mesmo sem catálogo.
+    """
+
+    tvs: tuple[TvInfo, ...] = ()
+    apps: tuple[AppInfo, ...] = ()
+    entradas: Mapping[str, str] = field(default_factory=dict)
+
+    def tabela(self) -> list[tuple[str, str, str, str]]:
+        """``(slot, chave normalizada, value, display)`` de nomes e apelidos."""
+        out: list[tuple[str, str, str, str]] = []
+        for tv in self.tvs:
+            out += [(SlotName.TV, _key(n), tv.id, tv.nome) for n in (tv.nome, tv.id, *tv.apelidos)]
+        for app in self.apps:
+            out += [(SlotName.APP, _key(n), app.id, app.nome) for n in (app.nome, app.id, *app.apelidos)]
+        for apelido, entrada in self.entradas.items():
+            out.append((SlotName.INPUT, _key(apelido), entrada, apelido))
+        return [t for t in out if t[1] and t[1] not in _TV_WORDS]
+
+
+def _hdmi(words: Sequence[str], i: int) -> tuple[str, int] | None:
+    """Entrada falada: "hdmi 2", "hdmi dois", "hdmi2" → ``("hdmi2", fim)`` (só 1..4)."""
+    w = words[i]
+    if w.startswith("hdmi") and w[4:].isdigit():
+        n, end = int(w[4:]), i + 1
+    elif w == "hdmi" and i + 1 < len(words):
+        nxt = words[i + 1]
+        hit = (1, i + 2) if nxt in ("um", "uma") else parse_number(words, i + 1)
+        if hit is None:
+            return None
+        n, end = hit
+    else:
+        return None
+    return (f"hdmi{n}", end) if 1 <= n <= _HDMI_MAX else None
+
+
+def _casa_hit(
+    words: Sequence[str], i: int, table: Sequence[tuple[str, str, str, str]]
+) -> tuple[str, str, str, float, int] | None:
+    """Melhor nome do catálogo começando em ``words[i]``: ``(slot, value, display, nota, fim)``."""
+    if words[i] in FILLERS:
+        return None
+    best: tuple[str, str, str, float, int] | None = None
+    for n in range(min(_CASA_MAX_WORDS, len(words) - i), 0, -1):
+        if words[i + n - 1] in FILLERS:
+            continue
+        gram = " ".join(words[i : i + n])
+        for slot, key, value, display in table:
+            sc = fuzz.ratio(gram, key)
+            if sc >= CASA_SCORE and (best is None or sc > best[3]):
+                best = (slot, value, display, sc, i + n)
+    return best
+
+
+def _extract_casa(words: Sequence[str], casa: CasaCatalogo | None) -> tuple[list[str], list[_Found], bool]:
+    """Troca TV/app/entrada por marcadores. Devolve palavras, achados e se a frase é de TV
+    ("tv"/"televisão"/"hdmi" ou uma TV do catálogo: DS12)."""
+    table = casa.tabela() if casa is not None else []
+    out: list[str] = []
+    found: list[_Found] = []
+    tv_mark = any(w in _TV_WORDS or w.startswith("hdmi") for w in words)
+    i = 0
+    while i < len(words):
+        hd = _hdmi(words, i)
+        if hd is not None:
+            found.append(_Found(PH_INPUT, hd[0], " ".join(words[i : hd[1]])))
+            out.append(PH_INPUT)
+            i = hd[1]
+            continue
+        hit = None
+        if words[i] in _TV_WORDS and table:  # "tv da sala" → {tv} inteiro
+            j = i + 1
+            while j < len(words) and words[j] in ("da", "do", "de"):
+                j += 1
+            if j < len(words) and (h := _casa_hit(words, j, table)) is not None and h[0] == SlotName.TV:
+                hit = h
+        if hit is None and table:
+            hit = _casa_hit(words, i, table)
+        if hit is not None:
+            slot, value, display, _sc, end = hit
+            ph = _CASA_SLOTS[SlotName(slot)]
+            found.append(_Found(ph, value, display))
+            out.append(ph)
+            tv_mark = tv_mark or slot == SlotName.TV
+            i = end
+            continue
+        out.append(words[i])
+        i += 1
+    return out, found, tv_mark
+
+
+# ---------------------------------------------------------------------------
 # Nota
 
 
@@ -324,6 +444,11 @@ class _Template:
     consts: tuple[tuple[str, str], ...]
     label: str | None
     context: str | None = None  # "reading": só concorre com ``ctx.reading`` (A6.1)
+
+    @property
+    def casa(self) -> bool:
+        """Frase com slot de catálogo da casa (``{tv}``/``{app}``/``{input}``)."""
+        return any(n in _CASA_SLOTS for n, _ in self.fixed)
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,6 +563,8 @@ class LocalRouter:
     """Implementa ``contracts.Router`` (R4, §4.2).
 
     ``catalog``: jogos para o slot ``game`` (sem catálogo o slot sai com ``value=""``).
+    ``casa``: TVs, apps e entradas para ``{tv}``/``{app}``/``{input}`` (C2.1); a ``TvActions`` troca
+    o atributo ``casa`` quando chega o ``ola`` da casa.
     ``intents``: specs já carregadas ou caminho do YAML. Limiares ajustáveis (config, §4.2).
     """
 
@@ -448,11 +575,13 @@ class LocalRouter:
         *,
         execute_score: float = ROUTER_EXECUTE_SCORE,
         ask_score: float = ROUTER_ASK_SCORE,
+        casa: CasaCatalogo | None = None,
     ) -> None:
         if intents is None or isinstance(intents, (str, Path)):
             intents = load_intents(intents or INTENTS_PATH)
         self.intents: list[IntentSpec] = list(intents)
         self.catalog = catalog
+        self.casa = casa
         self.execute_score = execute_score
         self.ask_score = ask_score
         self._reading = False  # ``ctx.reading`` do ``route`` em curso (A6.1)
@@ -486,13 +615,20 @@ class LocalRouter:
         lem = _lemmas(raw)
         marked, found = _extract_fixed(lem)
         core = _core(marked)
+        cmarked, cfound, tv_mark = _extract_casa(lem, self.casa)
+        cmarked, cfound2 = _extract_fixed(cmarked)
+        casa_core, casa_found = _core(cmarked), cfound + cfound2
         best: _Candidate | None = None
         reading = self._reading if ctx is None else getattr(ctx, "reading", None) is not None
         for spec in self.intents:
             for tpl in spec.templates:
                 if tpl.context is not None and not reading:
                     continue
-                if tpl.free is None:
+                if spec.id.startswith(_TV_PREFIX) and not tv_mark:
+                    continue  # DS12: sem "tv"/"hdmi"/{tv} o volume e o mudo são do PC
+                if tpl.casa:
+                    cand = self._fixed(spec, tpl, casa_core, casa_found)
+                elif tpl.free is None:
                     cand = self._fixed(spec, tpl, core, found)
                 else:
                     cand = self._free(spec, tpl, raw, lem)

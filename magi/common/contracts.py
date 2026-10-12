@@ -405,6 +405,10 @@ class SlotName(StrEnum):
     AMOUNT = "amount"  # número decimal em texto, ex. "8"
     FRANCHISE = "franchise"  # nome da obra
     TEXT = "text"  # texto livre (ex.: correção "não, eu falei X")
+    # casa (ayanami-central C2.1, spec §13.1): slots de catálogo, casados contra o ``CasaCatalogo``
+    TV = "tv"  # value = id da TV, display = nome
+    APP = "app"  # value = id do apps.yaml, display = nome
+    INPUT = "input"  # value = "hdmi1".."hdmi4" (apelido do casa.toml já resolvido)
 
 
 @dataclass(frozen=True, slots=True)
@@ -497,6 +501,15 @@ class IntentId(StrEnum):
     BOOK_WHERE = "book.where"  # "onde a gente parou"
     BOOK_LIST = "book.list"  # "que livros eu tenho"
     BOOK_TIME = "book.time"  # "quanto falta desse livro" (A7.1), slot query opcional
+    # TV pela magi-casa (ayanami-central C2.1, spec §13.1, DS11/DS12): toda frase tem "tv",
+    # "televisão", um {tv} ou "hdmi"; sem isso o volume/mudo continua o do PC
+    TV_POWER_ON = "tv.power_on"  # slot tv opcional
+    TV_POWER_OFF = "tv.power_off"  # perigosa
+    TV_VOLUME = "tv.volume"  # slot volume: "+k"/"-k" teclas (padrão 3, "muito" = 8) ou "N"
+    TV_MUTE = "tv.mute"
+    TV_UNMUTE = "tv.unmute"
+    TV_APP = "tv.app"  # slot app
+    TV_INPUT = "tv.input"  # slot input
 
 
 @dataclass(frozen=True, slots=True)

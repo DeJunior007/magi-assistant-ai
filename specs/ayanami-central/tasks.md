@@ -779,7 +779,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
 
 ## Fase C2 — Intents `tv.*` e ferramentas
 
-- [ ] **C2.1 Intents, slots de catálogo e frases** — `IntentId.TV_*` (7) e `SlotName.TV/APP/INPUT`
+- [x] **C2.1 Intents, slots de catálogo e frases** — `IntentId.TV_*` (7) e `SlotName.TV/APP/INPUT`
   em `contracts.py`; bloco TV no `intents.yaml` (§13.1, com a **regra de colisão** [DS12]: toda frase
   `tv.*` tem "tv"/"televisão", `{tv}` ou "hdmi"; "aumenta o volume" segue `volume.set`, "abre o
   YouTube" sem "na tv" segue o de hoje); no roteador, slots de catálogo `{tv}`, `{app}`, `{input}`
@@ -978,6 +978,11 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
+
+- **C2.1:** `CasaCatalogo` (tvs, apps, `entradas` = apelidos do `casa.toml`) mora em
+  `magi/core/router.py`; a C2.2 troca `LocalRouter.casa` quando chega o `ola` (as entradas-apelido
+  não vêm no `TvInfo`: a C2.2 decide de onde tirá-las). Em en-GB, "Mais de uma TV: {nome}?" sai
+  com os nomes em português ("sala ou quarto"); o "ou" não é traduzido.
 
 - **Y0.2:** (1) `ayanami-ml` fixa `kokoro-onnx==0.6.1` e `onnxruntime==1.30.0` (as do PC), não
   `0.4.7`/`1.31.0`: o `uv.lock` é um só e os pinos da spec rebaixariam o Kokoro do PC (audiolivro).

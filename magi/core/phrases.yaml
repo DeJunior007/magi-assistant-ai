@@ -43,6 +43,26 @@ fixed:
   - "Bati o teto do mês, só comandos locais agora."
 
 lazy:
+  # TV pela magi-casa (ayanami-central C2.1, spec §13.2): replies do intents.yaml e ``fala`` da
+  # Ayanami em /v1/casa/acao (``SAY_TV_*`` da C2.2)
+  - "Ligando a TV."
+  - "Desligar a TV? Confirma?"
+  - "Volume da TV ajustado."
+  - "TV no mudo."
+  - "Som da TV de volta."
+  - "Abrindo na TV."
+  - "Entrada trocada."
+  - "Pronto, TV ligada."
+  - "TV desligada."
+  - "Não consegui ligar a TV."
+  - "A TV não respondeu."
+  - "A casa está fora do ar."
+  - "Essa TV não faz isso."
+  - "Não conheço esse app nessa TV."
+  - "Qual TV?"
+  - "Mudo alternado."
+  - "A TV recusou o comando."
+  - "Essa TV ainda não foi pareada."
   # audiolivro (A2.3)
   - "Tô numa call; leio quando ela acabar."
   - "Não achei esse livro na pasta."
@@ -195,6 +215,16 @@ lazy:
   - "Deixa eu organizar a cabeça aqui."
 
 templates:
+  # TV (C2.1, spec §13.2): {nome} = nome da TV, do app ou da entrada; em "Mais de uma TV" os
+  # nomes já vêm juntados com "ou"
+  - "Desligar a {nome}? Confirma?"
+  - "Abrindo {nome} na TV."
+  - "Não consegui ligar a {nome}; ela precisa do Ligar com celular ativo."
+  - "Não consegui ligar a {nome}; ative o Início rápido da TV."
+  - "Não consegui ligar a {nome}; ela está em espera profunda."
+  - "A {nome} está bloqueando o controle; ative o Acesso à rede."
+  - "A {nome} está desligada."
+  - "Mais de uma TV: {nome}?"
   # audiolivro (A2.3)
   - "Achei mais de um: {a} ou {b}. Qual?"
   - "Lendo {titulo}."
