@@ -177,6 +177,24 @@ O0.1 ─┬─ O1.1 ─┐
   - Pronto: `uv run pytest -q tests/hud` verde; decisões nos 4 casos + Meta+M nos 2; nenhum `dbus-send` novo no `install.sh`.
   - Paralelo: O4.2 (arquivos separados)
 
+- [x] **O4.2 Overlay em XWayland com encaixe em 8 pontos por tela** — feedback do Pedro em
+  2026-10-12 ("seria bom setorizar os cantos da tela pra ela grudar nos pontos certos, não ficar em
+  qualquer lugar pra ter que acertar certinho" / "o overlay demorou para fechar quando abri o
+  HUD"). D4 revista: padrão `xcb` (`QT_QPA_PLATFORM="xcb;wayland"` antes do `QApplication`);
+  `MAGI_OVERLAY_WAYLAND=1` ou `plataforma = "wayland"` volta ao nativo (O4.1, sem encaixe). Puras:
+  `ANCORAS` (4 cantos + meio das bordas), `ponto_ancora`, `encaixar` (área útil, qualquer monitor,
+  `ancoras` limita), `gravar_ancora`/`ler_ancora` (converte o `{x, y, tela}` antigo). Janela: arraste
+  do próprio app no xcb, ao soltar anima ~180 ms até a âncora e grava; restaura no `main()` (tela
+  ausente → principal, padrão D6 `sup_dir`); D3 na mesma âncora do monitor oposto; menu
+  "Grudar em ▸". HUD: `checar_hud` no laço de 1 Hz + `QFileSystemWatcher` na trava (esconde/volta
+  em ≤ 1 s; `jogo_aberto` segue nos 5 s). *(R2, R4, D3, D4, D6)*
+  - Lê: `hud/condessa_overlay.py`, `hud/wired/overlay.py`, `hud/install.sh`
+  - Escreve: `hud/condessa_overlay.py`, `hud/wired/overlay.py`, `tests/hud/test_overlay_janela.py`, SDD, `hud/README.md`
+  - Depende de: O4.1
+  - Orçamento: ~70k
+  - Pronto: `uv run pytest -q tests/hud` verde; `encaixar` com 1 e 2 telas e painel; soltar → âncora exata; memória converte o formato antigo; D3 espelhado; "Grudar em" move; HUD visto a 1 Hz.
+  - Paralelo: —
+
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
@@ -223,3 +241,11 @@ O0.1 ─┬─ O1.1 ─┐
   está no `hud/README.md`. `trava_ocupada` repete o `wired.overlay.hud_aberto` (sem importar o Qt:
   roda a cada tecla). Corrida rara: o HUD morrer entre o teste e o `gamerhud` (que alterna) o
   reabriria; aceito.
+- **O4.2:** a fábrica dos testes ganhou `xcb=` (padrão `False` = o Wayland nativo do O4.1, para as
+  asserções antigas valerem sem mudança); o `OverlayWindow` também tem `xcb=False` por padrão e
+  quem liga é o `main()` pelo `platformName()`. A tela salva é o `QScreen.name()` (não o serial).
+  A regra do KWin (posição "Lembrar") continua e pode, no xcb, pôr a janela onde lembrava no
+  primeiro `show`: a âncora é reafirmada logo depois (`_t_reafirma`). `x`/`y` do toml ficam
+  obsoletos (lidos e ignorados). Soltar a trava do HUD não gera evento de arquivo (só abrir, que
+  trunca): a volta vale pelo laço de 1 Hz. Risco do XWayland: com escala fracionária no KDE o
+  retrato pode ficar borrado (o Plasma escala o XWayland) — conferir ao vivo.

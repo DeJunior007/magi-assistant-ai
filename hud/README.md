@@ -43,11 +43,17 @@ assistente Magui vai morar (ver `specs/magi-assistant/`).
   humor e placa `CONDESSA` + estado; sobe sozinho no login (autostart).
 - Ligar/desligar: `condessa-overlay` (ou "Condessa (overlay)" no menu); de vez: `ligado = false`.
 - Mover: arraste com o **botão esquerdo** (no card) ou do meio; clique simples continua reação.
-  O KWin lembra a posição (regra `condessa-overlay-rule`); fora do Wayland nativo ela também fica
-  em `~/.local/state/magi/overlay-pos.json`.
+  Ao soltar ela **gruda** no ponto de encaixe mais perto (4 cantos + meio de cada borda, em
+  qualquer monitor, margem 24 px, sem cobrir o painel). Botão direito → "Grudar em ▸" faz o mesmo
+  sem arrastar. O ponto fica em `~/.local/state/magi/overlay-pos.json` (`{"tela", "ancora"}`).
+- Plataforma: roda no **XWayland** por padrão (o app se posiciona; o Wayland nativo não deixa).
+  Para o nativo: `MAGI_OVERLAY_WAYLAND=1` ou `plataforma = "wayland"` (sem encaixe; o KWin lembra
+  a posição pela regra `condessa-overlay-rule`).
 - Config: `~/.config/magi/overlay.toml`, tabela `[overlay]` (canto, margem, tamanho, fundo,
-  `estilo = "card" | "solto"`, ligado). `solto` = só o rosto, sem moldura (o antigo).
-- Some com o HUD aberto e, em jogo, vai para o outro monitor; a regra do KWin vale após relogar.
+  `estilo = "card" | "solto"`, `plataforma`, `encaixe = true`, `ancoras = [...]` para limitar os
+  pontos, ligado). `solto` = só o rosto, sem moldura (o antigo).
+- Some em até 1 s com o HUD aberto (vê a trava `hud.lock` na hora) e, em jogo, vai para o mesmo
+  ponto no outro monitor; com um monitor só, some até o jogo fechar.
 
 ### Atalhos HUD ↔ overlay
 

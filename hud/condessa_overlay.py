@@ -3,10 +3,13 @@
 
 Processo próprio (D1), mais um cliente do socket do HUD. Estilo ``card`` (O4.1, padrão): o retrato
 com fundo num cartão com moldura na cor do humor, cantos marcados e uma placa ``CONDESSA`` + estado;
-a máscara é o retângulo todo e o botão esquerdo arrasta. Estilo ``solto``: só o rosto, sem fundo,
-máscara recortada. Sempre acima, sem foco; o clique no rosto só faz reação (nunca liga a escuta). A cada 5 s
-``decidir_lugar`` diz onde ficar (D2: HUD aberto → some; D3: em jogo → monitor oposto, um monitor
-só → some) e a janela só aplica, guardando a posição antes de sair para voltar a ela.
+a máscara é o retângulo todo e o botão esquerdo arrasta. Por padrão roda no XWayland (O4.2, D4
+revista): o app sabe e define a própria posição e, ao soltar, gruda num dos 8 pontos de encaixe da
+tela (cantos + meio das bordas, na área útil) com uma animação curta. Estilo ``solto``: só o rosto,
+sem fundo, máscara recortada. Sempre acima, sem foco; o clique no rosto só faz reação (nunca liga a
+escuta). A cada 5 s ``decidir_lugar`` diz onde ficar (D2: HUD aberto → some; D3: em jogo → monitor
+oposto, um monitor só → some) e a janela só aplica; a trava do HUD é vista na hora (O4.2: vigia na
+pasta da trava + recaída de 1 Hz).
 
 Nada de D-Bus aqui: a posição/regras no Wayland ficam com a regra do KWin (spec §4).
 """
@@ -20,10 +23,11 @@ import signal
 import sys
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import IO, Any
 
-from PySide6.QtCore import QPoint, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QFileSystemWatcher, QPoint, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPainterPath, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
@@ -31,12 +35,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # wired/ e hud_bridge 
 
 from wired import fonts, kit, overlay, theme  # noqa: E402
 from wired.overlay import (  # noqa: E402
+    ANCORAS,
     Config,
     Gestos,
     Lugar,
     canto_para_posicao,
     decidir_lugar,
+    encaixar,
     fundo_efetivo,
+    ponto_ancora,
     tamanho_quadro,
 )
 
@@ -52,6 +59,12 @@ ROSTO_Y = 0.32  # centro do rosto (fração da altura do quadro): acima = "alto"
 TAMANHO_PASSO = 20
 TAMANHO_MIN, TAMANHO_MAX = 120, 480
 POS_SALVAR_MS = 600  # sem release depois do startSystemMove: grava quando a janela parar
+ANIM_S = 0.18  # O4.2: do ponto solto até a âncora
+ANIM_MS = 16
+ROTULO_ANCORA = {"sup_esq": "Canto superior esquerdo", "sup_meio": "Meio de cima",
+                 "sup_dir": "Canto superior direito", "meio_esq": "Meio da esquerda",
+                 "meio_dir": "Meio da direita", "inf_esq": "Canto inferior esquerdo",
+                 "inf_meio": "Meio de baixo", "inf_dir": "Canto inferior direito"}
 
 # -- card (O4.1) ------------------------------------------------------------------------------
 CARD_PAD = 7.0  # da borda do card ao retrato
@@ -180,7 +193,9 @@ class OverlayWindow(QWidget):
         self.clock = clock
         self.jogo = jogo
         self.hud = hud
-        self.xcb = xcb
+        self.xcb = xcb  # XWayland: o app se posiciona (O4.2); False = Wayland nativo (O4.1)
+        self.encaixe = xcb and cfg.encaixe
+        self.ancora: tuple[str | None, str] = (cfg.tela, cfg.canto)  # (monitor, ponto)  O4.2
         self.card = cfg.estilo == "card"
         portrait.fundo = fundo_efetivo(cfg)
 
@@ -199,6 +214,10 @@ class OverlayWindow(QWidget):
         self._movendo = False  # arraste pelo usuário em curso (grava a posição ao soltar)
         self._arrasto: QPoint | None = None  # arraste manual (sem startSystemMove): deslocamento
         self._press_global = QPoint()
+        self._anim: tuple[float, QPoint, QPoint] | None = None  # (início, de, para)
+        self._alvo: QPoint | None = None  # última posição pedida (reafirmada depois do show)
+        self._hud_visto = False  # último hud_aberto (O4.2: checado a 1 Hz + vigia)
+        self._vigia: QFileSystemWatcher | None = None
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -227,6 +246,8 @@ class OverlayWindow(QWidget):
         self._t_glitch = self._timer(True, self._fim_glitch, GLITCH_MS)
         self._t_gesto = self._timer(True, lambda: self.gestos.tick(self.clock()), Gestos.DBL_MS + 10)
         self._t_pos = self._timer(True, self._fim_movimento, POS_SALVAR_MS)
+        self._t_anim = self._timer(False, self._passo_anim, ANIM_MS)
+        self._t_reafirma = self._timer(True, self._reafirmar, 0)
 
     def _timer(self, unico: bool, alvo: Callable[[], None], ms: int = 0) -> QTimer:
         t = QTimer(self)
@@ -237,13 +258,29 @@ class OverlayWindow(QWidget):
 
     # -- ciclo -----------------------------------------------------------------------------
 
-    def iniciar(self, pos: tuple[int, int, str | None] | None = None) -> None:
+    def iniciar(
+        self,
+        pos: tuple[int, int, str | None] | None = None,
+        ancora: tuple[str | None, str] | None = None,
+    ) -> None:
         """Posição inicial, ponte, laços; mostra conforme o ``decidir_lugar``.
 
-        ``pos`` = ``overlay.ler_posicao()`` (O4.1): vale antes do canto D6 se cair numa tela.
+        Com encaixe (O4.2): ``ancora`` = ``overlay.ler_ancora()``; sem ela, o canto D6 (``canto``
+        na principal); tela ausente → a principal com a mesma âncora. Sem encaixe: ``pos`` =
+        ``overlay.ler_posicao()`` (O4.1), vale antes do canto D6 se cair numa tela.
         """
-        if self.xcb and self.cfg.x is not None and self.cfg.y is not None:
-            self.move(self.cfg.x, self.cfg.y)  # recaída D4: o app escolhe a posição
+        if self.encaixe:
+            tela, nome = ancora if ancora is not None else (self.cfg.tela, self.cfg.canto)
+            permitidas = self.cfg.ancoras or ANCORAS
+            if nome not in permitidas:  # limitada no toml: a permitida mais perto da salva
+                p = self.posicao_ancora(tela, nome)
+                w, h = tamanho_quadro(self.cfg)
+                s = self._tela(tela)
+                nome = encaixar(QPoint(p.x() + w // 2, p.y() + h // 2),
+                                [(s.name(), s.availableGeometry())], (w, h), self.cfg.margem,
+                                permitidas).nome
+            self.ancora = (tela, nome)
+            self._ir_para(tela, self.posicao_ancora(tela, nome))
         elif pos is not None and self._pos_valida(pos):
             self._ir_para(pos[2], QPoint(pos[0], pos[1]))
         else:
@@ -254,6 +291,7 @@ class OverlayWindow(QWidget):
         self.checar_lugar()
         self.passo()
         self._t_laco.start()
+        self.vigiar_hud()
         self._t_lugar.start()
         self.quadro()
 
@@ -271,6 +309,7 @@ class OverlayWindow(QWidget):
 
     def passo(self) -> None:
         """Laço de 1 Hz: snapshot leve → ``Reactor`` → rosto (design §3, passo 3)."""
+        self.checar_hud()  # O4.2: HUD abriu/fechou → some/volta em ≤ 1 s
         now = self.clock()
         track = None
         np_ = self.now_playing
@@ -319,15 +358,46 @@ class OverlayWindow(QWidget):
                 return s
         return QGuiApplication.primaryScreen()
 
-    def checar_lugar(self) -> Lugar:
-        """A cada 5 s: ``decidir_lugar(cfg, telas, principal, jogo_aberto(), hud_aberto())``."""
-        self.gaming = bool(self.jogo())
+    def checar_lugar(self, jogo: bool = True) -> Lugar:
+        """A cada 5 s: ``decidir_lugar(cfg, telas, principal, jogo_aberto(), hud_aberto())``.
+
+        ``jogo=False`` reaproveita o último ``jogo_aberto`` (checagem rápida do HUD, O4.2).
+        """
+        if jogo:
+            self.gaming = bool(self.jogo())
+        self._hud_visto = bool(self.hud())
         telas = [s.name() for s in QGuiApplication.screens()]
         prim = QGuiApplication.primaryScreen()
-        lugar = decidir_lugar(self.cfg, telas, prim.name() if prim else None, self.gaming,
-                              bool(self.hud()))
+        cfg = replace(self.cfg, tela=self.ancora[0]) if self.encaixe else self.cfg  # tela da âncora
+        lugar = decidir_lugar(cfg, telas, prim.name() if prim else None, self.gaming,
+                              self._hud_visto)
         self.aplicar(lugar)
         return lugar
+
+    def checar_hud(self, *_: Any) -> bool:
+        """Trava do HUD mudou? (O4.2: o laço de 1 Hz e o vigia da pasta da trava chamam; flock sem
+        bloquear, barato.) Mudou → ``checar_lugar`` na hora, sem refazer o ``jogo_aberto``."""
+        if bool(self.hud()) == self._hud_visto:
+            return False
+        self.checar_lugar(jogo=False)
+        return True
+
+    def vigiar_hud(self) -> None:
+        """``QFileSystemWatcher`` na trava do HUD e na pasta dela: o HUD abre a trava com ``"w"``
+        (trunca = evento) e esconde na hora; soltar não gera evento, aí vale o laço de 1 Hz."""
+        trava = overlay.HUD_LOCK
+        caminhos = [str(c) for c in (trava, trava.parent) if c.exists()]
+        if self._vigia is None:
+            self._vigia = QFileSystemWatcher(self)
+            self._vigia.fileChanged.connect(self.checar_hud)
+            self._vigia.directoryChanged.connect(self._pasta_hud_mudou)
+        novos = [c for c in caminhos if c not in self._vigia.files() + self._vigia.directories()]
+        if novos:
+            self._vigia.addPaths(novos)
+
+    def _pasta_hud_mudou(self, *_: Any) -> None:
+        self.vigiar_hud()  # a trava pode ter acabado de nascer (ou sido recriada)
+        self.checar_hud()
 
     def aplicar(self, lugar: Lugar, forcar: bool = False) -> None:
         """Só aplica o ``Lugar``: esconde, troca de monitor (canto/margem) ou volta onde estava."""
@@ -338,13 +408,16 @@ class OverlayWindow(QWidget):
                 and self._volta is None):
             self._volta = (self._nome_tela(), QPoint(self.pos()))  # guarda antes de sair
         if self._pausa or not lugar.visivel:
+            self._parar_anim()
             self.hide()
             return
         if lugar.motivo == "jogo_oposto":
-            self._ir_para(lugar.tela, None)
+            self._ir_para(lugar.tela, None)  # encaixe: a mesma âncora no monitor oposto
         elif self._volta is not None:
             nome, pos = self._volta
             self._volta = None
+            if self.encaixe:  # volta à âncora salva (O4.2)
+                nome, pos = self.ancora[0], self.posicao_ancora(*self.ancora)
             self._ir_para(nome, pos)
         elif ant is not None and ant.tela != lugar.tela:
             self._ir_para(lugar.tela, None)
@@ -360,7 +433,66 @@ class OverlayWindow(QWidget):
             return
         if tela is not self.screen():
             self.setScreen(tela)  # no Wayland pode não valer (Sobras O0.1): O3.1 mede
-        self.move(pos if pos is not None else canto_para_posicao(self.cfg, tela.geometry()))
+        if pos is None:
+            pos = (self.posicao_ancora(tela.name(), self.ancora[1]) if self.encaixe
+                   else canto_para_posicao(self.cfg, tela.geometry()))
+        self._mover_ja(pos)
+
+    # -- encaixe (O4.2) -----------------------------------------------------------------------
+
+    def posicao_ancora(self, tela: str | None, nome: str) -> QPoint:
+        """Topo-esquerdo da âncora ``nome`` na área útil de ``tela`` (ausente → a principal)."""
+        s = self._tela(tela)
+        area = s.availableGeometry() if s is not None else self.geometry()
+        return ponto_ancora(nome, area, tamanho_quadro(self.cfg), self.cfg.margem)
+
+    def telas_uteis(self) -> list[tuple[str | None, Any]]:
+        return [(s.name(), s.availableGeometry()) for s in QGuiApplication.screens()]
+
+    def grudar(self, nome: str, tela: str | None = None, animar: bool = True) -> None:
+        """Vai à âncora ``nome`` (menu "Grudar em"); ``tela`` None = a da âncora atual."""
+        s = self._tela(tela if tela is not None else self.ancora[0])
+        self.ancora = (s.name() if s is not None else None, nome)
+        alvo = self.posicao_ancora(*self.ancora)
+        if animar and self.isVisible():
+            self.animar_para(alvo)
+        else:
+            self._mover_ja(alvo)
+        overlay.gravar_ancora(*self.ancora)
+
+    def animar_para(self, alvo: QPoint) -> None:
+        """~180 ms (``ANIM_S``) até ``alvo``, em passos no relógio injetado; termina exato nele."""
+        self._alvo = QPoint(alvo)
+        self._anim = (self.clock(), QPoint(self.pos()), QPoint(alvo))
+        self._t_anim.start()
+
+    def _passo_anim(self) -> None:
+        if self._anim is None:
+            self._t_anim.stop()
+            return
+        t0, de, para = self._anim
+        f = (self.clock() - t0) / ANIM_S
+        if f >= 1.0:
+            self._parar_anim()
+            self.move(para)
+            return
+        e = 1.0 - (1.0 - max(0.0, f)) ** 3  # sai rápido, chega devagar
+        self.move(QPoint(round(de.x() + (para.x() - de.x()) * e),
+                         round(de.y() + (para.y() - de.y()) * e)))
+
+    def _parar_anim(self) -> None:
+        self._anim = None
+        self._t_anim.stop()
+
+    def _mover_ja(self, pos: QPoint) -> None:
+        self._parar_anim()
+        self._alvo = QPoint(pos)
+        self.move(pos)
+
+    def _reafirmar(self) -> None:
+        """Depois do show: a regra do KWin (posição lembrada) não ganha da âncora (XWayland)."""
+        if self.encaixe and self._alvo is not None and self._anim is None and not self._movendo:
+            self.move(self._alvo)
 
     # -- ponte ------------------------------------------------------------------------------
 
@@ -462,6 +594,8 @@ class OverlayWindow(QWidget):
     def showEvent(self, ev) -> None:  # noqa: N802
         super().showEvent(ev)
         self.remascarar(forcar=True)
+        if self.encaixe:
+            self._t_reafirma.start()
 
     def resizeEvent(self, ev) -> None:  # noqa: N802
         super().resizeEvent(ev)
@@ -482,7 +616,7 @@ class OverlayWindow(QWidget):
             self.menu().popup(ev.globalPosition().toPoint())
 
     def mouseMoveEvent(self, ev) -> None:  # noqa: N802
-        if self._arrasto is not None:  # recaída: o compositor não aceitou o startSystemMove
+        if self._arrasto is not None:  # XWayland (O4.2) ou startSystemMove recusado: na mão
             self.move(ev.globalPosition().toPoint() - self._arrasto)
             return
         pos = ev.position()
@@ -518,16 +652,23 @@ class OverlayWindow(QWidget):
         return bool(h.startSystemMove())
 
     def arrastar(self) -> None:
-        """Começa um arraste do usuário (chamado dentro do press/move do mouse)."""
+        """Começa um arraste do usuário (chamado dentro do press/move do mouse).
+
+        XWayland (O4.2): o próprio app move a janela atrás do mouse (controle para encaixar).
+        Wayland nativo: ``startSystemMove`` (O4.1); recusado → na mão.
+        """
         self._movendo = True
-        if not self.mover():  # compositor recusou: move na mão com o mouse (X11/XWayland)
+        self._parar_anim()
+        if self.xcb:
+            self._arrasto = self._press_global - self.pos()
+        elif not self.mover():  # compositor recusou: move na mão com o mouse
             log.info("startSystemMove recusado; arraste manual")
             self._arrasto = self._press_global - self.pos()
 
     def moveEvent(self, ev) -> None:  # noqa: N802
         super().moveEvent(ev)
-        if self._movendo:  # o compositor pode engolir o release do arraste: grava quando parar
-            self._t_pos.start()
+        if self._movendo and self._arrasto is None:  # o compositor pode engolir o release do
+            self._t_pos.start()  # startSystemMove: grava quando parar (na mão, vale o release)
 
     def _fim_movimento(self) -> None:
         self._t_pos.stop()
@@ -537,24 +678,29 @@ class OverlayWindow(QWidget):
             self.salvar_posicao()
 
     def salvar_posicao(self) -> None:
-        """Grava ``x, y, tela`` no ``overlay-pos.json`` (O4.1) e, na recaída XCB, no toml (D4).
+        """Ao soltar. Com encaixe (O4.2): âncora mais próxima (qualquer monitor), anima até ela e
+        grava ``{"tela", "ancora"}``. Sem encaixe: ``x, y, tela`` (O4.1).
 
         No Wayland nativo o app não sabe onde está (``pos()`` não é a posição real): não grava;
         quem lembra é a regra do KWin.
         """
-        if self.xcb:
-            self.lembrar_posicao()
-        if QGuiApplication.platformName() != "wayland":
+        if self.encaixe:
+            w, h = tamanho_quadro(self.cfg)
+            a = encaixar(QPoint(self.x() + w // 2, self.y() + h // 2), self.telas_uteis(), (w, h),
+                         self.cfg.margem, self.cfg.ancoras)
+            self.ancora = (a.tela, a.nome)
+            self.animar_para(QPoint(a.x, a.y))
+            overlay.gravar_ancora(a.tela, a.nome)
+        elif QGuiApplication.platformName() != "wayland":
             overlay.gravar_posicao(self.x(), self.y(), self._nome_tela())
-
-    def lembrar_posicao(self) -> None:
-        """Recaída XWayland (D4 = b): grava ``x``/``y`` no ``overlay.toml``."""
-        self.cfg.x, self.cfg.y = self.x(), self.y()
-        self.cfg.gravar()
 
     def menu(self) -> QMenu:
         m = QMenu(self)
         m.addAction("Mover", self.mover)
+        if self.encaixe:  # O4.2: atalho para quem não quer arrastar
+            sub = m.addMenu("Grudar em")
+            for nome in self.cfg.ancoras or ANCORAS:
+                sub.addAction(ROTULO_ANCORA[nome], lambda n=nome: self.grudar(n))
         m.addAction("Tamanho +", lambda: self.mudar_tamanho(+TAMANHO_PASSO))
         m.addAction("Tamanho −", lambda: self.mudar_tamanho(-TAMANHO_PASSO))
         m.addAction("Esconder 1 h", self.esconder_1h)
@@ -582,7 +728,7 @@ class OverlayWindow(QWidget):
 
     def closeEvent(self, ev) -> None:  # noqa: N802
         for t in (self._t_quadro, self._t_laco, self._t_lugar, self._t_pausa, self._t_glitch,
-                  self._t_gesto, self._t_pos):
+                  self._t_gesto, self._t_pos, self._t_anim, self._t_reafirma):
             t.stop()
         self.bridge.stop()
         if self.trava is not None:
@@ -600,9 +746,13 @@ def main(argv: list[str] | None = None) -> int:
     if not cfg.ligado:
         log.info("desligado no overlay.toml (ligado = false)")
         return 0
-    xcb = os.environ.get("MAGI_OVERLAY_XCB") == "1"
-    if xcb:
-        os.environ["QT_QPA_PLATFORM"] = "xcb"  # recaída D4 = b (antes do QApplication)
+    plataforma = cfg.plataforma  # O4.2 (D4 revista): XWayland por padrão
+    if os.environ.get("MAGI_OVERLAY_WAYLAND") == "1":
+        plataforma = "wayland"
+    elif os.environ.get("MAGI_OVERLAY_XCB") == "1":
+        plataforma = "xcb"
+    if plataforma == "xcb":  # antes do QApplication; sem XWayland cai no nativo
+        os.environ["QT_QPA_PLATFORM"] = "xcb;wayland"
     trava = travar(overlay.LOCK_FILE)
     if trava is None:
         log.info("já tem um overlay rodando")
@@ -618,6 +768,8 @@ def main(argv: list[str] | None = None) -> int:
     QGuiApplication.setDesktopFileName("condessa-overlay")  # app_id que a regra do KWin casa
     app = QApplication.instance() or QApplication(argv)
     app.setApplicationName("condessa-overlay")
+    xcb = QGuiApplication.platformName() == "xcb"
+    log.info("plataforma %s", QGuiApplication.platformName())
 
     from hud_bridge import HudBridge
     from wired.data import NowPlaying
@@ -638,7 +790,9 @@ def main(argv: list[str] | None = None) -> int:
     pulso = QTimer()  # deixa o Python atender os sinais com o laço do Qt rodando
     pulso.timeout.connect(lambda: None)
     pulso.start(500)
-    win.iniciar(overlay.ler_posicao())  # O4.1: a posição do último arraste, antes do canto D6
+    telas = [(s.name(), s.availableGeometry()) for s in QGuiApplication.screens()]
+    win.iniciar(overlay.ler_posicao(),  # sem encaixe: o x,y do último arraste (O4.1)
+                ancora=overlay.ler_ancora(telas, tamanho_quadro(cfg), cfg.margem))  # O4.2
     return app.exec()
 
 

@@ -79,8 +79,17 @@ No Wayland o app não escolhe a própria posição. A regra `condessa-overlay-ru
 `wmclass=condessa-overlay`) faz: acima de tudo, sem foco, fora de Alt+Tab/pager/barra, sem
 moldura, **posição "Lembrar"** (o KWin grava a última posição na própria regra) e posição inicial
 calculada do `overlay.toml` pelo `install.sh`. Nenhuma chamada nova de D-Bus: a regra é escrita
-antes do `reconfigure` que o `install.sh` já faz. Recaída D4 = b: com `MAGI_OVERLAY_XCB=1`, o
-`main()` põe `QT_QPA_PLATFORM=xcb`, usa `move()` e grava `x`, `y` no `overlay.toml` ao soltar.
+antes do `reconfigure` que o `install.sh` já faz.
+
+**O4.2 (D4 revista):** o padrão é XWayland. O `main()` põe `QT_QPA_PLATFORM="xcb;wayland"` antes
+do `QApplication` (sem XWayland cai no nativo) e decide o modo por `platformName() == "xcb"`. No
+xcb o arraste é do próprio app (`move()` atrás do mouse, sem `startSystemMove`); ao soltar,
+`encaixar` escolhe a âncora mais próxima em qualquer monitor (área útil), a janela anima ~180 ms
+até ela (passos no relógio injetado) e grava `{"tela", "ancora"}` em `overlay-pos.json`. Depois do
+`show` a âncora é reafirmada (a posição "Lembrar" da regra do KWin não ganha). D3 usa a mesma
+âncora no monitor oposto e volta à salva. A trava do HUD é vista a 1 Hz e por `QFileSystemWatcher`
+(trava + pasta), não só nos 5 s do `decidir_lugar`; o `jogo_aberto` continua a cada 5 s.
+Wayland nativo (`MAGI_OVERLAY_WAYLAND=1` / `plataforma = "wayland"`): o comportamento do O4.1.
 
 ## 6. Riscos
 

@@ -60,12 +60,17 @@ def fabrica(tmp_path, monkeypatch):
     bridge = HudBridge(tmp_path / "hud.sock", backoff_start=60.0, backoff_max=60.0)
     feitas = []
 
-    def fazer(cfg):
+    def fazer(cfg, xcb=False):  # O4.2: xcb=True = XWayland com encaixe (o main() liga por padrão)
         trava = co.travar(overlay.LOCK_FILE)
-        estado = {"hud": False, "jogo": False}
+        estado = {"hud": False, "jogo": False, "jogos": 0}
+
+        def jogo():
+            estado["jogos"] += 1
+            return estado["jogo"]
+
         w = co.OverlayWindow(cfg, portrait, bridge, reactor, np_, trava=trava,
-                             clock=lambda: relogio[0], jogo=lambda: estado["jogo"],
-                             hud=lambda: estado["hud"])
+                             clock=lambda: relogio[0], jogo=jogo,
+                             hud=lambda: estado["hud"], xcb=xcb)
         w.relogio, w.estado = relogio, estado
         feitas.append(w)
         return w
@@ -361,3 +366,179 @@ def test_ler_posicao_ilegivel():
     overlay.POS_FILE.parent.mkdir(parents=True, exist_ok=True)
     overlay.POS_FILE.write_text("{x", encoding="utf-8")
     assert overlay.ler_posicao() is None
+
+
+# -- O4.2: XWayland com encaixe em 8 pontos por tela + HUD visto na hora ---------------------------
+
+from PySide6.QtCore import QRect  # noqa: E402
+
+TAM = (220, 253)
+
+
+def test_encaixar_uma_tela_com_painel():
+    area = QRect(0, 0, 1920, 1040)  # painel do KDE de 40 px embaixo: fora da área útil
+    a = overlay.encaixar(QPoint(1900, 1070), [("DP-1", area)], TAM, 24)
+    assert (a.tela, a.nome, a.x, a.y) == ("DP-1", "inf_dir", 1920 - 24 - 220, 1040 - 24 - 253)
+    a = overlay.encaixar(QPoint(300, 560), [("DP-1", area)], TAM, 24)  # meio da tela, à esquerda
+    assert (a.nome, a.x, a.y) == ("meio_esq", 24, (1040 - 253) // 2)
+    a = overlay.encaixar(QPoint(950, 30), [("DP-1", area)], TAM, 24)
+    assert (a.nome, a.x, a.y) == ("sup_meio", (1920 - 220) // 2, 24)
+    pontos = {overlay.ponto_ancora(n, area, TAM, 24).toTuple() for n in overlay.ANCORAS}
+    assert len(pontos) == 8
+
+
+def test_encaixar_duas_telas_e_limite():
+    telas = [("A", QRect(0, 0, 1920, 1080)), ("B", QRect(1920, 0, 2560, 1440))]
+    a = overlay.encaixar(QPoint(2050, 700), telas, TAM, 24)
+    assert (a.tela, a.nome, a.x) == ("B", "meio_esq", 1920 + 24)
+    a = overlay.encaixar(QPoint(1800, 100), telas, TAM, 24)
+    assert (a.tela, a.nome) == ("A", "sup_dir")
+    a = overlay.encaixar(QPoint(10, 10), telas, TAM, 24, ["sup_dir", "inf_dir"])
+    assert (a.tela, a.nome) == ("A", "sup_dir")
+
+
+def test_config_plataforma_encaixe_ancoras(tmp_path):
+    f = tmp_path / "o.toml"
+    c = Config()
+    assert (c.plataforma, c.encaixe, c.ancoras) == ("xcb", True, None)
+    f.write_text('[overlay]\nplataforma = "wayland"\nencaixe = false\n'
+                 'ancoras = ["inf_dir", "sup_dir", "inf_dir"]\n', encoding="utf-8")
+    c = Config.ler(f)
+    assert (c.plataforma, c.encaixe, c.ancoras) == ("wayland", False, ["inf_dir", "sup_dir"])
+    c.gravar(f)
+    assert Config.ler(f).ancoras == ["inf_dir", "sup_dir"]
+    f.write_text('[overlay]\nplataforma = "x11"\nancoras = ["canto"]\n', encoding="utf-8")
+    c = Config.ler(f)
+    assert (c.plataforma, c.ancoras) == ("xcb", None)
+
+
+def test_memoria_grava_le_e_converte_formato_antigo():
+    telas = [("A", QRect(0, 0, 1920, 1080))]
+    assert overlay.ler_ancora(telas, TAM, 24) is None
+    overlay.gravar_ancora("A", "inf_meio")
+    assert overlay.ler_ancora(telas, TAM, 24) == ("A", "inf_meio")
+    assert overlay.ler_posicao() is None  # o formato novo não engana a leitura antiga
+    overlay.gravar_posicao(1650, 800, "A")  # O4.1: x,y perto do canto inferior direito
+    assert overlay.ler_ancora(telas, TAM, 24) == ("A", "inf_dir")
+    overlay.POS_FILE.write_text("{x", encoding="utf-8")
+    assert overlay.ler_ancora(telas, TAM, 24) is None
+
+
+def _area():
+    return QGuiApplication.primaryScreen().availableGeometry()
+
+
+def _ponto(nome, cfg):
+    return overlay.ponto_ancora(nome, _area(), overlay.tamanho_quadro(cfg), cfg.margem)
+
+
+def test_xcb_nasce_no_d6_e_tela_ausente_vai_a_principal(fabrica):
+    w = fabrica(Config(), xcb=True)
+    w.iniciar()
+    assert w.pos() == _ponto("sup_dir", w.cfg) and w.ancora == (None, "sup_dir")
+    w.move(0, 0)  # a regra do KWin lembrou outro lugar: o show reafirma a âncora
+    w._reafirmar()
+    assert w.pos() == _ponto("sup_dir", w.cfg)
+    v = fabrica(Config(), xcb=True)
+    v.iniciar(ancora=("HDMI-SUMIU", "inf_meio"))
+    assert v.pos() == _ponto("inf_meio", v.cfg)
+    u = fabrica(Config(ancoras=["inf_esq", "inf_dir"]), xcb=True)
+    u.iniciar(ancora=(None, "sup_esq"))  # fora do limite: a permitida mais perto
+    assert u.ancora[1] == "inf_esq" and u.pos() == _ponto("inf_esq", u.cfg)
+
+
+def test_xcb_arraste_proprio_e_solta_na_ancora_mais_proxima(fabrica, monkeypatch):
+    from PySide6.QtCore import Qt
+
+    w = fabrica(Config(), xcb=True)
+    w.iniciar()
+    h = _Handle(True)
+    monkeypatch.setattr(w, "windowHandle", lambda: h)
+    alvo = _ponto("meio_esq", w.cfg)
+    w._mover_ja(QPoint(alvo.x() + 40, alvo.y() - 30))  # perto do meio da esquerda
+    esq = Qt.MouseButton.LeftButton
+    _mouse(w, "press", esq, (60, 200))
+    _mouse(w, "move", esq, (60 + overlay.Gestos.DRAG_PX + 2, 200))  # vira arraste do app
+    assert w._arrasto is not None and h.chamadas == 0  # sem startSystemMove no xcb
+    antes = QPoint(w.pos())
+    _mouse(w, "move", esq, (60 + 5, 200 + 7))
+    assert w.pos() == antes + QPoint(5, 7)  # a janela segue o mouse
+    _mouse(w, "release", esq, (60 + 5, 200 + 7))
+    assert w.ancora[1] == "meio_esq" and w._anim is not None
+    assert overlay.ler_ancora([], TAM, 24) == (w.ancora[0], "meio_esq")
+    w.relogio[0] += co.ANIM_S / 2
+    w._passo_anim()
+    assert w.pos() != alvo and w._anim is not None  # no caminho
+    w.relogio[0] += co.ANIM_S
+    w._passo_anim()
+    assert w.pos() == alvo and w._anim is None  # termina exatamente na âncora
+
+
+def test_xcb_d3_mesma_ancora_no_oposto_e_volta(fabrica):
+    w = fabrica(Config(), xcb=True)
+    w.iniciar(ancora=(None, "inf_esq"))
+    tela = QGuiApplication.primaryScreen()
+    w.aplicar(Lugar(True, tela.name(), "jogo_oposto"))
+    assert w.pos() == _ponto("inf_esq", w.cfg)  # offscreen tem um monitor: a mesma âncora nele
+    w.move(5, 5)
+    w.aplicar(Lugar(True, tela.name(), "normal"))
+    assert w.pos() == _ponto("inf_esq", w.cfg) and w.ancora == (None, "inf_esq")
+    w.estado["jogo"] = True
+    assert not w.checar_lugar().visivel and not w.isVisible()  # um monitor só: some
+
+
+def test_menu_grudar_em_move(fabrica):
+    w = fabrica(Config(), xcb=True)
+    w.iniciar()
+    sub = next(a.menu() for a in w.menu().actions() if a.text() == "Grudar em")
+    nomes = [a.text() for a in sub.actions()]
+    assert len(nomes) == 8
+    next(a for a in sub.actions() if a.text() == co.ROTULO_ANCORA["inf_esq"]).trigger()
+    assert w.ancora[1] == "inf_esq"
+    w.relogio[0] += 1.0
+    w._passo_anim()
+    assert w.pos() == _ponto("inf_esq", w.cfg)
+    assert overlay.ler_ancora([], TAM, 24)[1] == "inf_esq"
+    assert all(a.text() != "Grudar em" for a in fabrica(Config()).menu().actions())  # Wayland
+
+
+def test_main_xcb_por_padrao(monkeypatch):
+    primeira = co.travar(overlay.LOCK_FILE)
+    monkeypatch.setattr(co, "OverlayWindow", lambda *a, **k: pytest.fail("abriu janela"))
+    try:
+        for env, esperado in ((None, "xcb;wayland"), ("1", None)):
+            monkeypatch.delenv("QT_QPA_PLATFORM", raising=False)
+            if env is None:
+                monkeypatch.delenv("MAGI_OVERLAY_WAYLAND", raising=False)
+            else:
+                monkeypatch.setenv("MAGI_OVERLAY_WAYLAND", env)
+            assert co.main(["x"]) == 0  # já rodando: sai antes do QApplication
+            assert co.os.environ.get("QT_QPA_PLATFORM") == esperado
+    finally:
+        primeira.close()
+
+
+def test_hud_esconde_e_volta_no_laco_de_1hz(fabrica):
+    w = fabrica(Config(), xcb=True)
+    w.iniciar()
+    jogos = w.estado["jogos"]
+    w.estado["hud"] = True
+    w.passo()  # 1 Hz, sem esperar os 5 s do checar_lugar
+    assert not w.isVisible() and w._lugar == Lugar(False, motivo="hud")
+    w.estado["hud"] = False
+    w.passo()
+    assert w.isVisible() and w.pos() == _ponto("sup_dir", w.cfg)
+    assert w.estado["jogos"] == jogos  # o jogo_aberto continua só nos 5 s
+    assert w.checar_hud() is False  # sem mudança: nada
+
+
+def test_hud_vigia_na_trava(fabrica):
+    w = fabrica(Config())
+    overlay.HUD_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    overlay.HUD_LOCK.write_text("", encoding="utf-8")
+    w.iniciar()
+    assert str(overlay.HUD_LOCK) in w._vigia.files()
+    assert str(overlay.HUD_LOCK.parent) in w._vigia.directories()
+    w.estado["hud"] = True
+    w._vigia.fileChanged.emit(str(overlay.HUD_LOCK))  # o HUD abriu a trava com "w"
+    assert not w.isVisible()

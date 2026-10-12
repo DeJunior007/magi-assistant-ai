@@ -100,8 +100,13 @@ Valem acima do texto antigo; aplicadas neste SDD na O0.1.
   monitor só, **some** enquanto o jogo estiver aberto e volta ao lugar de antes quando ele fecha
   (`em_jogo = "oposto"`). O monitor do jogo é `tela_jogo` (padrão: o principal, onde o Pedro joga;
   descobrir a janela do jogo exigiria D-Bus do KWin, proibido pelo R10).
-- **D4 — Plataforma.** ✔ Confirmada (padrão): Wayland nativo + regra do KWin; recaída XWayland por
-  `MAGI_OVERLAY_XCB=1`.
+- **D4 — Plataforma.** ⚠ **Revista pelo Pedro em 2026-10-12 (O4.2):** padrão **XWayland** (`xcb`),
+  para o overlay grudar em pontos certos da tela ("seria bom setorizar os cantos da tela pra ela
+  grudar nos pontos certos") — no Wayland nativo o cliente não sabe nem define a própria posição e
+  o D-Bus do KWin é proibido (R10). Ao soltar o arraste ela vai à âncora mais próxima (4 cantos +
+  meio de cada borda, por monitor, na área útil). O nativo continua como opção
+  (`MAGI_OVERLAY_WAYLAND=1` ou `plataforma = "wayland"`, sem encaixe, regra do KWin). Antes:
+  Wayland nativo + regra do KWin, recaída XWayland por `MAGI_OVERLAY_XCB=1`.
 - **D5 — Legenda e moldura.** ✔ Revista pelo Pedro em 2026-10-12 (O4.1): card com moldura
   ("ela tinha que ter um quadradinho pra ela"); só o rosto, sem balão de texto, continua. O estilo
   antigo fica em `estilo = "solto"`.

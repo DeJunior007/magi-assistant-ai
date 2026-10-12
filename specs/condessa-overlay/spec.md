@@ -28,13 +28,27 @@ class Config:
     tela_jogo: str | None = None  # monitor do jogo (QScreen.name()); None = principal
     com_hud: str = "esconde"      # "esconde" | "independente"     (D2)
     ligado: bool = True           # False = o autostart sai na hora
-    x: int | None = None          # só na recaída XWayland (D4 = b)
+    x: int | None = None          # obsoleto (D4 antiga): lido e ignorado
     y: int | None = None
+    plataforma: str = "xcb"       # "xcb" (XWayland, padrão) | "wayland" (nativo)  (D4, O4.2)
+    encaixe: bool = True          # gruda na âncora mais próxima ao soltar        (O4.2)
+    ancoras: list[str] | None = None  # limita as 8 âncoras; None = todas         (O4.2)
     @classmethod
     def ler(cls, caminho: Path | None = None) -> "Config": ...   # None = CONFIG_FILE; ausente/inválido → padrões; chave desconhecida ignorada
     def gravar(self, caminho: Path | None = None) -> None: ...   # escrita atômica (tmp + rename)
 
 def canto_para_posicao(cfg: Config, tela: QRect) -> QPoint: ...   # topo-esquerdo do quadro
+
+# O4.2 — encaixe. ANCORAS = sup_esq, sup_meio, sup_dir, meio_esq, meio_dir, inf_esq, inf_meio, inf_dir
+@dataclass(frozen=True)
+class Ancora:
+    tela: str | None; nome: str; x: int; y: int
+def ponto_ancora(nome: str, area: QRect, tamanho: tuple[int, int], margem: int) -> QPoint: ...
+def encaixar(centro: QPoint, telas: Sequence[tuple[str | None, QRect]], tamanho, margem,
+             ancoras=None) -> Ancora: ...   # telas = (name, availableGeometry); a mais próxima
+def gravar_ancora(tela: str | None, ancora: str, caminho=None) -> None: ...  # POS_FILE
+def ler_ancora(telas, tamanho, margem, caminho=None) -> tuple[str | None, str] | None: ...
+    # formato antigo {x, y, tela} (O4.1) → a âncora mais próxima
 
 @dataclass(frozen=True)
 class Lugar:                                   # o que a janela faz agora (D2/D3)

@@ -37,7 +37,7 @@ LOCK_FILE = Path.home() / ".cache/gamerhud/overlay.lock"
 HUD_LOCK = Path.home() / ".cache/gamerhud/hud.lock"
 REGISTRO_FILE = Path.home() / ".local/state/magi/reacoes-overlay.jsonl"
 ATIVIDADE_FILE = Path.home() / ".local/state/magi/atividade-overlay.json"
-POS_FILE = Path.home() / ".local/state/magi/overlay-pos.json"  # O4.1: x, y e tela ao soltar
+POS_FILE = Path.home() / ".local/state/magi/overlay-pos.json"  # O4.2: {"tela", "ancora"}
 
 TAMANHO_MIN, TAMANHO_MAX = 120, 480
 MARGEM_MAX = 400
@@ -48,6 +48,10 @@ RENDERERS = ("cpu", "gl")
 EM_JOGO = ("oposto", "esconde", "fica")  # D3
 COM_HUD = ("esconde", "independente")  # D2
 ESTILOS = ("card", "solto")  # O4.1: card com moldura (padrão) | só o rosto solto (antigo)
+PLATAFORMAS = ("xcb", "wayland")  # O4.2: XWayland (padrão, o app se posiciona) | nativo
+# O4.2: pontos de encaixe por tela — 4 cantos + o meio de cada borda
+ANCORAS = ("sup_esq", "sup_meio", "sup_dir", "meio_esq", "meio_dir", "inf_esq", "inf_meio",
+           "inf_dir")
 
 
 @dataclass
@@ -65,8 +69,11 @@ class Config:
     tela_jogo: str | None = None  # monitor do jogo; None = principal     (D3)
     com_hud: str = "esconde"  # "esconde" | "independente"              (D2)
     ligado: bool = True  # False = o autostart sai na hora
-    x: int | None = None  # só na recaída XWayland (D4)
+    x: int | None = None  # obsoleto (D4 antiga): lido e ignorado; a memória é a âncora (O4.2)
     y: int | None = None
+    plataforma: str = "xcb"  # "xcb" (XWayland) | "wayland" (nativo, sem encaixe)   (D4, O4.2)
+    encaixe: bool = True  # gruda no ponto de encaixe mais próximo ao soltar        (O4.2)
+    ancoras: list[str] | None = None  # limita os pontos de encaixe; None = os 8   (O4.2)
 
     @classmethod
     def ler(cls, caminho: Path | None = None) -> Config:
@@ -107,6 +114,8 @@ class Config:
 
 
 def _toml(valor: Any) -> str:
+    if isinstance(valor, list):
+        return "[" + ", ".join(_toml(v) for v in valor) + "]"
     if isinstance(valor, bool):
         return "true" if valor else "false"
     if isinstance(valor, int):
@@ -141,6 +150,10 @@ _VALIDA: dict[str, Callable[[Any], tuple[bool, Any]]] = {
     "ligado": lambda v: (isinstance(v, bool), v),
     "x": lambda v: (_inteiro(v), v),
     "y": lambda v: (_inteiro(v), v),
+    "plataforma": _escolha(PLATAFORMAS),
+    "encaixe": lambda v: (isinstance(v, bool), v),
+    "ancoras": lambda v: (isinstance(v, list) and v != [] and all(a in ANCORAS for a in v),
+                          list(dict.fromkeys(v)) if isinstance(v, list) else v),
 }
 
 
@@ -154,13 +167,22 @@ def fundo_efetivo(cfg: Config) -> bool:
     return True if cfg.estilo == "card" else cfg.fundo
 
 
-def gravar_posicao(x: int, y: int, tela: str | None, caminho: Path | None = None) -> None:
-    """Posição ao soltar o arraste (O4.1), escrita atômica em ``POS_FILE``."""
+def _gravar_json(dados: dict, caminho: Path | None) -> None:
     caminho = POS_FILE if caminho is None else caminho
     caminho.parent.mkdir(parents=True, exist_ok=True)
     tmp = caminho.with_name(caminho.name + ".tmp")
-    tmp.write_text(json.dumps({"x": int(x), "y": int(y), "tela": tela}), encoding="utf-8")
+    tmp.write_text(json.dumps(dados), encoding="utf-8")
     os.replace(tmp, caminho)
+
+
+def gravar_posicao(x: int, y: int, tela: str | None, caminho: Path | None = None) -> None:
+    """Posição livre ao soltar o arraste (O4.1; no O4.2 só com ``encaixe = false``)."""
+    _gravar_json({"x": int(x), "y": int(y), "tela": tela}, caminho)
+
+
+def gravar_ancora(tela: str | None, ancora: str, caminho: Path | None = None) -> None:
+    """Ponto de encaixe ao soltar (O4.2): ``{"tela": QScreen.name(), "ancora": "inf_dir"}``."""
+    _gravar_json({"tela": tela, "ancora": ancora}, caminho)
 
 
 def ler_posicao(caminho: Path | None = None) -> tuple[int, int, str | None] | None:
@@ -174,6 +196,87 @@ def ler_posicao(caminho: Path | None = None) -> tuple[int, int, str | None] | No
     if not (_inteiro(x) and _inteiro(y)) or not (tela is None or isinstance(tela, str)):
         return None
     return x, y, tela
+
+
+@dataclass(frozen=True)
+class Ancora:
+    """Ponto de encaixe escolhido: tela, nome e o topo-esquerdo do quadro (O4.2)."""
+
+    tela: str | None
+    nome: str
+    x: int
+    y: int
+
+
+def ponto_ancora(nome: str, area: QRect, tamanho: tuple[int, int], margem: int) -> QPoint:
+    """Topo-esquerdo do quadro ``tamanho`` na âncora ``nome`` da ``area`` útil, a ``margem`` px."""
+    w, h = tamanho
+    horiz, vert = nome.split("_")[1], nome.split("_")[0]
+    if horiz == "esq":
+        x = area.x() + margem
+    elif horiz == "dir":
+        x = area.x() + area.width() - margem - w
+    else:
+        x = area.x() + (area.width() - w) // 2
+    if vert == "sup":
+        y = area.y() + margem
+    elif vert == "inf":
+        y = area.y() + area.height() - margem - h
+    else:
+        y = area.y() + (area.height() - h) // 2
+    return QPoint(x, y)
+
+
+def encaixar(
+    centro: QPoint,
+    telas: Sequence[tuple[str | None, QRect]],
+    tamanho: tuple[int, int],
+    margem: int,
+    ancoras: Sequence[str] | None = None,
+) -> Ancora:
+    """Âncora mais próxima do ``centro`` da janela, em qualquer monitor (O4.2).
+
+    ``telas`` = ``(QScreen.name(), availableGeometry())``: a área útil não cobre o painel do KDE.
+    Distância entre o centro da janela e o centro do quadro na âncora; empate → a primeira.
+    """
+    nomes = [a for a in (ancoras or ANCORAS) if a in ANCORAS] or list(ANCORAS)
+    w, h = tamanho
+    melhor: tuple[float, Ancora] | None = None
+    for tela, area in telas:
+        for nome in nomes:
+            p = ponto_ancora(nome, area, tamanho, margem)
+            d = math.hypot(p.x() + w / 2 - centro.x(), p.y() + h / 2 - centro.y())
+            if melhor is None or d < melhor[0]:
+                melhor = (d, Ancora(tela, nome, p.x(), p.y()))
+    if melhor is None:
+        raise ValueError("encaixar sem telas")
+    return melhor[1]
+
+
+def ler_ancora(
+    telas: Sequence[tuple[str | None, QRect]],
+    tamanho: tuple[int, int],
+    margem: int,
+    caminho: Path | None = None,
+) -> tuple[str | None, str] | None:
+    """``(tela, ancora)`` gravados por ``gravar_ancora``; o formato antigo ``{x, y, tela}`` (O4.1)
+    vira a âncora mais próxima do quadro naquele ponto. Ausente/ilegível/sem telas → None."""
+    caminho = POS_FILE if caminho is None else caminho
+    try:
+        d = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(d, dict) or not (d.get("tela") is None or isinstance(d.get("tela"), str)):
+        return None
+    if d.get("ancora") in ANCORAS:
+        return d.get("tela"), d["ancora"]
+    antiga = ler_posicao(caminho)
+    if antiga is None or not telas:
+        return None
+    x, y, _ = antiga
+    w, h = tamanho
+    a = encaixar(QPoint(x + w // 2, y + h // 2), telas, tamanho, margem)
+    return a.tela, a.nome
 
 
 def canto_para_posicao(cfg: Config, tela: QRect) -> QPoint:
