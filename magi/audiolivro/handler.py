@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
+import unicodedata
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
@@ -42,6 +44,19 @@ SAY_TIME = "Esse capítulo leva uns {min} minutos; o livro todo, umas {horas} ho
 
 PASSO = 0.1
 
+#: ``query`` do ``book.read`` ("lê {query}") que é comando de leitura, não título: sem livro
+#: aberto, "lê de novo"/"lê mais rápido" respondem ``SAY_NO_BOOK`` (não "não achei esse livro").
+COMANDOS_SOLTOS = frozenset({
+    "novo", "de novo", "outra vez", "novamente", "denovo",
+    "mais rapido", "mais devagar", "rapido", "devagar", "mais lento", "normal",
+})
+
+
+def _comando_solto(fala: str) -> bool:
+    sem_acento = unicodedata.normalize("NFKD", fala.casefold())
+    texto = "".join(c for c in sem_acento if not unicodedata.combining(c))
+    return " ".join(texto.replace(",", " ").replace(".", " ").split()) in COMANDOS_SOLTOS
+
 
 def _int(req: ActionRequest, padrao: int | None = None) -> int | None:
     s = req.intent.slot("amount")
@@ -60,15 +75,44 @@ def _num(v: float) -> str:
     return f"{v:.1f}".replace(".", ",").removesuffix(",0")
 
 
-class Narrada:
-    """A ``Leitura`` que vai ao ``TurnMachine`` (``ARG_NARRATE``): delega tudo e chama
-    ``ao_fim()`` quando ``partes()`` chega ao fim sem interrupção (fim do livro ou
-    ``parar_apos_capitulos``)."""
+class _Partes:
+    """As partes de uma narração com ``on_done``: o ``say_parts`` chama quando o áudio da última
+    parte acaba de tocar (não quando o gerador acaba, porque ele pré-sintetiza)."""
 
-    def __init__(self, leitura: Any, ao_fim: Callable[[], Any]) -> None:
+    def __init__(self, gen: AsyncIterator[tuple[str, OpcoesVoz]], on_done: Callable[[], None]) -> None:
+        self._gen = gen
+        self.on_done = on_done
+
+    def __aiter__(self) -> _Partes:
+        return self
+
+    async def __anext__(self) -> tuple[str, OpcoesVoz]:
+        return await self._gen.__anext__()
+
+    async def aclose(self) -> None:
+        await self._gen.aclose()
+
+
+class Narrada:
+    """A ``Leitura`` que vai ao ``TurnMachine`` (``ARG_NARRATE``): delega tudo, chama ``ao_fim()``
+    quando o áudio das últimas partes acaba de tocar depois de ``partes()`` chegar ao fim sem
+    interrupção (fim do livro ou ``parar_apos_capitulos``) e registra a sessão (A10) no fim ou na
+    parada (``registrar``). O registro não leva texto do livro nem fala do Pedro."""
+
+    def __init__(
+        self,
+        leitura: Any,
+        ao_fim: Callable[[], Any],
+        *,
+        relogio: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.leitura = leitura
         self.ao_fim = ao_fim
+        self.relogio = relogio
         self.fechada = False
+        self._acabou = False
+        self._sessao: tuple[Posicao, float, frozenset[str]] | None = None
+        self._chars = 0
 
     @property
     def estado(self) -> str:
@@ -78,10 +122,57 @@ class Narrada:
     def __getattr__(self, nome: str) -> Any:
         return getattr(self.leitura, nome)
 
-    async def partes(self) -> AsyncIterator[tuple[str, OpcoesVoz]]:
+    def partes(self) -> _Partes:
+        return _Partes(self._gerar(), self._tocou_tudo)
+
+    async def _gerar(self) -> AsyncIterator[tuple[str, OpcoesVoz]]:
+        self._acabou = False
+        if self._sessao is None:
+            elenco = getattr(self.leitura, "elenco", None)
+            vozes = frozenset(getattr(elenco, "vozes", {}) or {})
+            self._sessao, self._chars = (self.leitura.posicao, self.relogio(), vozes), 0
         async for parte in self.leitura.partes():
+            self._chars += len(parte[0])
             yield parte
-        self.ao_fim()
+        self._acabou = True
+        self.registrar("fim_livro" if self.leitura.estado == "parada" else "capitulos")
+
+    def _tocou_tudo(self) -> None:
+        if self._acabou and not self.fechada:
+            self._acabou = False
+            self.ao_fim()
+
+    def registrar(self, motivo: str) -> None:
+        """Uma linha no ``audiolivro.jsonl`` (A10) para a sessão aberta, se houver: livro (id),
+        de/até (cap/par), capítulos, caracteres, segundos, minutos, marcação, personagens novos
+        e ``motivo`` (``fim_livro``, ``capitulos``, ``parada``, ``pausa``, ``trocou``)."""
+        if self._sessao is None:
+            return
+        inicio, t0, antes = self._sessao
+        self._sessao = None
+        livro = getattr(self.leitura, "livro", None)
+        if livro is None:
+            return
+        fim = self.leitura.posicao
+        segundos = round(max(0.0, self.relogio() - t0), 1)
+        elenco = getattr(self.leitura, "elenco", None)
+        novos = sorted(set(getattr(elenco, "vozes", {}) or {}) - antes)
+        registro = {
+            "livro": livro.id,
+            "de": [inicio.cap, inicio.par],
+            "ate": [fim.cap, fim.par],
+            "capitulos": max(0, fim.cap - inicio.cap) + 1,
+            "caracteres": self._chars,
+            "segundos": segundos,
+            "minutos": round(segundos / 60, 1),
+            "marcacao": getattr(self.leitura, "marcacao", "regras"),
+            "personagens_novos": novos,
+            "motivo": motivo,
+        }
+        try:
+            self.leitura.marcador.registrar_sessao(registro)
+        except Exception as e:  # noqa: BLE001 — registro nunca para a leitura
+            log.warning("audiolivro: sessão não registrada (%s)", e)
 
 
 class BookHandler:
@@ -171,6 +262,8 @@ class BookHandler:
 
     def _abrir(self, livro: Livro) -> None:
         if self.leitura is None or self.leitura.livro is None or self.leitura.livro.id != livro.id:
+            if self.narrada is not None:
+                self.narrada.registrar("trocou")
             if self.leitura is None:
                 self.leitura = self.nova_leitura()
             self.leitura.abrir(livro)
@@ -208,12 +301,15 @@ class BookHandler:
             return ActionResult(ok=False, speech=SAY_NO_BOOK, expression=Expression.CONFUSED)
         if iid == IntentId.BOOK_PAUSE.value:
             self.leitura.interrompida()
+            if self.narrada is not None:
+                self.narrada.registrar("pausa")
             return ActionResult(ok=True, speech=SAY_PAUSED)
         if iid == IntentId.BOOK_STOP.value:
             self.leitura.interrompida()
             await self.encerrar()
             self.leitura.marcador.gravar()
             if self.narrada is not None:
+                self.narrada.registrar("parada")
                 self.narrada.fechada = True
             self.leitura, self.narrada = None, None
             return ActionResult(ok=True, speech=SAY_STOPPED)
@@ -242,6 +338,8 @@ class BookHandler:
 
     async def _read(self, req: ActionRequest) -> ActionResult:
         fala = _texto(req, "query")
+        if _comando_solto(fala):
+            return ActionResult(ok=False, speech=SAY_NO_BOOK, expression=Expression.CONFUSED)
         achados = await asyncio.to_thread(self.biblioteca.achar, fala) if fala else []
         if not achados:
             sem_texto = [

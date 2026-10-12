@@ -137,6 +137,12 @@ class Leitura:
                 self._estado = "parada"
         return self._estado
 
+    @property
+    def marcacao(self) -> str:
+        """``qwen`` se algum capítulo desta abertura saiu com as marcas refinadas; senão ``regras``
+        (registro A10)."""
+        return "qwen" if any(qwen for qwen, _ in self._marcas.values()) else "regras"
+
     def _pausar(self) -> None:
         self._estado = "pausada"
         self._pausada_em = self.relogio()

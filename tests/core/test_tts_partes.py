@@ -190,3 +190,74 @@ async def test_say_parts_on_sentence_indice_continuo(tmp_path: Path) -> None:
     await sp.say_parts(partes, FakeLink(), personal=False, on_sentence=lambda t, d, i: avisos.append((t, i)))
     # sem pausa, cada frase dura < 5 ms: os avisos saem na hora (sem relógio real)
     assert avisos == [("Um.", 0), ("Dois.", 1), ("Três.", 2)]
+
+
+async def test_say_parts_on_done_espera_o_audio_tocar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``on_done`` sai quando o áudio enviado acaba de tocar (relógio da reprodução), não quando o
+    envio acaba; relógio do loop falso (sem sleep real)."""
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    agora = [loop.time()]
+    monkeypatch.setattr(loop, "time", lambda: agora[0])
+    sp = speaker(tmp_path, registry(config(KOKORO), []).tts())
+    feitos: list[str] = []
+    partes = [("Um.", OpcoesVoz(pausa_ms=500)), ("Dois.", OpcoesVoz(pausa_ms=500))]
+    await sp.say_parts(partes, FakeLink(), personal=False, on_done=lambda: feitos.append("fim"))
+    await asyncio.sleep(0)
+    assert feitos == []  # ~1 s de áudio ainda na fila do satélite
+    agora[0] += 0.9
+    await asyncio.sleep(0)
+    assert feitos == []
+    agora[0] += 0.2
+    for _ in range(3):
+        await asyncio.sleep(0)
+    assert feitos == ["fim"]
+
+
+async def test_say_parts_on_done_vem_das_partes_e_nao_sai_se_interrompido(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    agora = [loop.time()]
+    monkeypatch.setattr(loop, "time", lambda: agora[0])
+    sp = speaker(tmp_path, registry(config(KOKORO), []).tts())
+    feitos: list[str] = []
+
+    class Partes:
+        def __init__(self, itens: list) -> None:
+            self._it = iter(itens)
+            self.on_done = lambda: feitos.append("fim")
+
+        def __aiter__(self) -> Partes:
+            return self
+
+        async def __anext__(self) -> tuple[str, OpcoesVoz]:
+            try:
+                return next(self._it)
+            except StopIteration:
+                raise StopAsyncIteration from None
+
+    await sp.say_parts(Partes([("Um.", OpcoesVoz())]), FakeLink(), personal=False)
+    agora[0] += 1.0
+    for _ in range(3):
+        await asyncio.sleep(0)
+    assert feitos == ["fim"]
+
+    class LinkQueCorta(FakeLink):
+        async def play(self, audio: AsyncIterable[bytes], fmt: PcmFormat) -> None:
+            async for _ in audio:
+                raise asyncio.CancelledError  # ativação no meio da leitura
+
+    feitos.clear()
+    with pytest.raises(asyncio.CancelledError):
+        await sp.say_parts(Partes([("Um.", OpcoesVoz()), ("Dois.", OpcoesVoz())]), LinkQueCorta(),
+                           personal=False)
+    agora[0] += 1.0
+    for _ in range(3):
+        await asyncio.sleep(0)
+    assert feitos == []

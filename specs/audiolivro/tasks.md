@@ -186,6 +186,23 @@ onda 1) · **3)** A2.2 · **4)** A2.3. A3.1 é do Pedro (não implementar).
   - Pronto: os 6 critérios medidos e anotados; desvios viram itens em *Sobras*.
   - Paralelo: —
 
+## Fase A4 — Limpeza
+
+- [x] **A4.1 Limpeza do audiolivro (sobras de A2.2 e A2.3)** — registro A10: a `Narrada` chama
+  `Marcador.registrar_sessao` no fim (`fim_livro`/`capitulos`), no `book.pause` (`pausa`), no
+  `book.stop` (`parada`) e ao trocar de livro (`trocou`): livro (id), de/até, capítulos, caracteres,
+  segundos/minutos, marcação (`Leitura.marcacao`), personagens novos, motivo — sem texto do livro.
+  Música volta no fim do **áudio**: `say_parts(..., on_done)` (ou o `on_done` do iterável de partes;
+  a `Narrada.partes()` devolve um `_Partes` com ele) agendado pelo `_Playhead` no fim do que foi
+  enviado; interrompido, não chama. Frases soltas: "chega de livro" com `context: reading` ("chega"
+  sem leitura não vira ASK); `book.read` com `query` de comando ("de novo", "mais rápido"...)
+  responde `SAY_NO_BOOK`. Legenda de call traduzida em `i18n/en-gb.yaml` (a constante ficou em
+  `turn.py`, sem edição).
+  - Lê: as *Sobras* de A2.2/A2.3, `handler.py`, `leitor.py`, `magi/core/tts.py` (`say_parts`, `_Playhead`), `intents.yaml` (bloco `book.*`)
+  - Escreve: `magi/audiolivro/handler.py`, `magi/audiolivro/leitor.py`, `magi/core/tts.py`, `magi/core/intents.yaml` (só `book.stop`), `magi/core/i18n/en-gb.yaml` (só livro), `tests/audiolivro/test_handler.py`, `tests/core/test_tts_partes.py`
+  - Depende de: A2.3
+  - Pronto: `uv run pytest -q tests/audiolivro tests/core` verde.
+
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
@@ -212,3 +229,7 @@ onda 1) · **3)** A2.2 · **4)** A2.3. A3.1 é do Pedro (não implementar).
   `LocalRouter.best(text)` com 1 argumento (`intent_action._gate`), então o `route` passa o
   `ctx.reading` por `self._reading`; (5) sem leitura, "chega" vira ASK de `book.stop` (85) e
   "lê de novo"/"lê mais rápido" viram `book.read` (responde "não achei esse livro").
+- (A4.1) Itens (1), (2) e (5) das sobras da A2.3 e a legenda en-gb da A2.2 resolvidos. Ficou: o
+  `TurnMachine._narrate_now` não passa `on_done` explícito (o `say_parts` pega o da `Narrada`
+  pelo iterável); se a ativação cortar o áudio das últimas frases **depois** do gerador acabar, o
+  turno já não acompanha (`_narrating` caiu) e a música volta mesmo assim no tempo previsto.

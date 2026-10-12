@@ -137,9 +137,14 @@ async def test_fim_do_livro_volta_musica_e_para_refino(cfg, tmp_path) -> None:
     mpris = Mpris()
     h, refino = _handler(cfg, [_livro(tmp_path)], mpris=mpris)
     narrada = (await _ler(h)).on_confirm.args[ARG_NARRATE]
-    partes = [p async for p in narrada.partes()]
+    fluxo = narrada.partes()
+    partes = [p async for p in fluxo]
     assert [t for t, _ in partes][0] == "Era uma vez."
     await asyncio.sleep(0)
+    # o gerador acabou, mas o áudio das últimas frases ainda toca: a música espera o ``on_done``
+    assert mpris.chamadas == ["pause"] and not h._tarefas
+    fluxo.on_done()  # o ``say_parts`` avisa: o último trecho tocou
+    fluxo.on_done()  # aviso repetido não dobra
     await asyncio.gather(*h._tarefas)
     assert mpris.chamadas == ["pause", "play"] and refino.parado == 1
 
@@ -233,3 +238,89 @@ def dataclasses_replace(cfg: ConfigAudiolivro, **kw: Any) -> ConfigAudiolivro:
     import dataclasses
 
     return dataclasses.replace(cfg, **kw)
+
+
+def _registros(cfg: ConfigAudiolivro) -> list[dict[str, Any]]:
+    import json
+
+    if not cfg.registro_path.is_file():
+        return []
+    return [json.loads(x) for x in cfg.registro_path.read_text().splitlines()]
+
+
+async def test_registro_a10_no_fim_do_livro(cfg, tmp_path) -> None:
+    h, _ = _handler(cfg, [_livro(tmp_path)])
+    narrada = (await _ler(h)).on_confirm.args[ARG_NARRATE]
+    t = [100.0]
+    narrada.relogio = lambda: t[0]
+    fluxo = narrada.partes()
+    async for _ in fluxo:
+        t[0] += 30.0
+    (reg,) = _registros(cfg)
+    assert reg["livro"] == "abc123" and reg["motivo"] == "fim_livro"
+    assert reg["de"] == [0, 0] and reg["capitulos"] >= 1 and reg["marcacao"] == "regras"
+    textos = ["Era uma vez.", "O sol nasceu.", "Fim do dia.", "Ana olhou.", "Choveu.", "Último.", "Mesmo."]
+    assert reg["caracteres"] == sum(map(len, textos))
+    assert reg["segundos"] == 30.0 * len(textos) and reg["minutos"] == 3.5
+    assert isinstance(reg["personagens_novos"], list)
+    linha = cfg.registro_path.read_text()
+    assert not any(x in linha for x in textos)  # nada do texto do livro no registro
+    fluxo.on_done()
+    await asyncio.gather(*h._tarefas)
+    assert len(_registros(cfg)) == 1
+
+
+async def test_registro_a10_na_parada_e_na_pausa(cfg, tmp_path) -> None:
+    h, _ = _handler(cfg, [_livro(tmp_path)])
+    narrada = (await _ler(h)).on_confirm.args[ARG_NARRATE]
+    assert _registros(cfg) == []  # abrir sem narrar não é sessão
+    fluxo = narrada.partes()
+    await fluxo.__anext__()
+    await fluxo.aclose()  # ativação no meio: segue a mesma sessão
+    await h.run(_req(IntentId.BOOK_PAUSE))
+    narrada = (await h.run(_req(IntentId.BOOK_RESUME))).on_confirm.args[ARG_NARRATE]
+    fluxo = narrada.partes()
+    await fluxo.__anext__()
+    await fluxo.aclose()
+    await h.run(_req(IntentId.BOOK_STOP))
+    assert [r["motivo"] for r in _registros(cfg)] == ["pausa", "parada"]
+    await h.run(_req(IntentId.BOOK_STOP))  # sem livro: nada a mais
+    assert len(_registros(cfg)) == 2
+
+
+@pytest.mark.parametrize("fala", ["novo", "de novo", "mais rápido", "Mais devagar."])
+async def test_le_de_novo_sem_leitura_nao_procura_livro(cfg, tmp_path, fala) -> None:
+    h, _ = _handler(cfg, [_livro(tmp_path)])
+    r = await h.run(_req(IntentId.BOOK_READ, f"lê {fala}", query=fala))
+    assert not r.ok and r.speech == hd.SAY_NO_BOOK and r.on_confirm is None
+
+
+def test_frases_soltas_sem_leitura() -> None:
+    """Sem leitura: "chega" não pergunta ``book.stop``; "lê de novo"/"lê mais rápido" caem no
+    ``book.read`` com ``query`` de comando (o handler responde ``SAY_NO_BOOK``)."""
+    from magi.common.contracts import RouteKind
+    from magi.core.router import LocalRouter
+
+    router = LocalRouter()
+    sem = TurnContext("pc", list(WakeSource)[0], datetime.now())
+    com = TurnContext("pc", list(WakeSource)[0], datetime.now(), reading=object())
+    r = router.route("chega", sem)
+    assert r.intent is None or not r.intent.id.startswith("book.")
+    assert router.route("chega", com).intent.id == "book.stop"
+    assert router.route("chega de livro", com).intent.id == "book.stop"
+    assert router.route("fecha o livro", sem).intent.id == "book.stop"
+    for fala in ("lê de novo", "lê mais rápido"):
+        r = router.route(fala, sem)
+        if r.kind is RouteKind.LOCAL and r.intent is not None and r.intent.id == "book.read":
+            assert hd._comando_solto(r.intent.slot("query").value)
+
+
+def test_legenda_de_call_tem_ingles() -> None:
+    from magi.core import i18n
+    from magi.core.turn import READING_CALL_CAPTION
+
+    try:
+        i18n.configure("en-gb")
+        assert i18n.tr(READING_CALL_CAPTION) == "I've paused the book: you've joined a call."
+    finally:
+        i18n.configure("pt-br")

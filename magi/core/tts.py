@@ -319,12 +319,18 @@ class PhraseSpeaker:
         personal: bool,
         on_sentence: OnSentence | None = None,
         provider: TtsProvider | None = None,
+        on_done: Callable[[], None] | None = None,
     ) -> None:
         """Fala ``(texto, OpcoesVoz)`` num único envio (A2.1): cada parte com a voz/velocidade/
         idioma dela (``provider.com_opcoes``) e ``pausa_ms`` de silêncio depois dela. ``provider``:
-        o TTS do livro (Kokoro, D1); sem ele, o da fala. Nada vai ao cache de frases."""
+        o TTS do livro (Kokoro, D1); sem ele, o da fala. Nada vai ao cache de frases.
+
+        ``on_done``: chamado quando o **áudio** da última parte termina de tocar no satélite (pelo
+        relógio da reprodução), não quando o envio acaba; interrompido, não chama. Sem ele, vale o
+        ``on_done`` de ``parts`` (a fonte das partes pede o aviso, ex.: a leitura do audiolivro)."""
         base = provider if provider is not None else self.provider()
-        await link.play(self._speak_parts(base, parts, personal, on_sentence), base.output_format)
+        done = on_done if on_done is not None else getattr(parts, "on_done", None)
+        await link.play(self._speak_parts(base, parts, personal, on_sentence, done), base.output_format)
 
     async def _speak_all(
         self,
@@ -351,9 +357,12 @@ class PhraseSpeaker:
         parts: AsyncIterable[Part] | Iterable[Part],
         personal: bool,
         on_sentence: OnSentence | None,
+        on_done: Callable[[], None] | None = None,
     ) -> AsyncIterator[bytes]:
         fmt = base.output_format
-        clock = _Playhead(fmt, on_sentence) if on_sentence is not None else None
+        clock = None
+        if on_sentence is not None or on_done is not None:
+            clock = _Playhead(fmt, on_sentence or _no_sentence)
         variants: dict[tuple[tuple[str, str], ...], TtsProvider] = {}
         try:
             async for raw, opts in _aiter(parts):
@@ -372,6 +381,8 @@ class PhraseSpeaker:
             if clock is not None:
                 clock.cancel()
             raise
+        if clock is not None and on_done is not None:
+            clock.at_end(on_done)
 
     async def _sentence(
         self, provider: TtsProvider, text: str, personal: bool, clock: _Playhead | None, *, cache: bool
@@ -547,6 +558,10 @@ async def _replay(parts: list[bytes]) -> AsyncIterator[bytes]:
         yield pcm
 
 
+def _no_sentence(text: str, dur: float | None, index: int) -> None:
+    pass
+
+
 class _Playhead:
     """Relógio da reprodução no satélite para a legenda sincronizada.
 
@@ -576,6 +591,19 @@ class _Playhead:
 
     def advance(self, nbytes: int) -> None:
         self._end += nbytes / self._bps
+
+    def at_end(self, on_done: Callable[[], None]) -> None:
+        """Agenda ``on_done`` para quando o áudio já enviado acabar de tocar."""
+        loop = asyncio.get_running_loop()
+        delay = max(0.0, self._end - loop.time())
+        self._handles.append(loop.call_later(delay, self._done, on_done))
+
+    @staticmethod
+    def _done(on_done: Callable[[], None]) -> None:
+        try:
+            on_done()
+        except Exception as e:  # noqa: BLE001
+            log.warning("aviso de fim do áudio falhou (%s): %s", type(e).__name__, e)
 
     def cancel(self) -> None:
         for handle in self._handles:

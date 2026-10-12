@@ -843,7 +843,9 @@ intents:
     phrases:
       - "para de ler"
       - "fecha o livro"
-      - "chega de livro"
+      # "chega de livro" só com leitura: sem ela, "chega" solto casava parcial e virava pergunta
+      - say: "chega de livro"
+        context: reading
       - say: "para"
         context: reading
       - say: "chega"

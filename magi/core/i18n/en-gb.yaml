@@ -12,6 +12,8 @@ fixed:
   "Não tem livro nenhum na pasta.": "There are no books in the folder."
   "Leitura pausada.": "Reading paused."
   "Fechei o livro.": "Book closed."
+  # legenda de call no meio da leitura (``READING_CALL_CAPTION`` em ``magi/core/turn.py``; só legenda)
+  "Pausei o livro: você entrou numa call.": "I've paused the book: you've joined a call."
   "Beleza.": "Alright."
   "Feito.": "Done."
   "Pronto.": "There you go."
