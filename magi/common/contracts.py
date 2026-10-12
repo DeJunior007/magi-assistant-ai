@@ -554,6 +554,8 @@ class TurnContext:
     do turno anterior do mesmo satélite (preenchidos pelo ``TurnMachine``; base do "não, eu falei
     X", R3.3). ``None`` no primeiro turno. ``reading``: a ``Leitura`` do audiolivro lendo ou
     pausada há ≤ 30 min (``None`` = nenhuma); frases com ``context: reading`` só valem com ela (A6.1).
+    ``jogo``: nome do jogo aberto agora (``GameWatcher.running``), ``None`` sem jogo; alimenta os
+    moldes ``{jogo}`` da frase de espera (E5.1).
     """
 
     satellite: str
@@ -566,6 +568,7 @@ class TurnContext:
     previous_text: str | None = None
     previous_at: datetime | None = None
     reading: Any = None
+    jogo: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

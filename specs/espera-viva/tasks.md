@@ -188,6 +188,18 @@ E0.1 ─┬─ E1.1 ─────────┐
   - Pronto: medida com dados reais registrada; critério 1 (p90 do primeiro som ≤ 1,8 s; resposta ≤ 3,5 s) conferido; nota do Pedro.
   - Paralelo: —
 
+## Fase E5 — Limpeza
+
+- [x] **E5.1 Limpeza da espera viva** — sobras da E0.1, E2.1, E2.3 e E3.1b: `TurnContext.jogo`
+  (nome do jogo aberto, `TurnDeps.jogo` montado do `GameWatcher.running` no `assemble`) passado ao
+  `escolher(jogo=…)` para os moldes `{jogo}` saírem (≤ 30 car.); coluna `primeiro_som` no
+  `tools/perf.py latency` (spec §8) ao lado da `resposta`; teto da `persona.md` no
+  `test_prompt.py` de 780 para 820 (texto da persona intacto).
+  - Lê: Sobras acima; spec §3.2, §8; `turn.py` por trecho (`TurnDeps`, `_make_ctx`, `_start_espera`); `assemble.py` por trecho (`core.game`); `tools/perf.py` (latency)
+  - Escreve: `magi/common/contracts.py` (só `TurnContext`), `magi/core/turn.py`, `magi/core/assemble.py` (só o jogo), `tools/perf.py`, `tests/tools/test_perf.py`, `tests/agent/test_prompt.py`, `tests/core/test_espera_jogo.py`
+  - Depende de: E2.3, E3.1
+  - Pronto: testes de `tests/core`, `tests/agent`, `tests/tools` verdes; `ruff` limpo.
+
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
@@ -267,3 +279,8 @@ E0.1 ─┬─ E1.1 ─────────┐
   texto do acordo §3.5, palavra por palavra (`magi/agent/persona.md`, regra "Espera é do
   sistema…"). Nada a mudar na persona nem no teto de 780 do `test_prompt.py`. Corrigido o E501 em
   `hud/konsole_term.py` (docstring do `close` quebrada).
+- **E5.1:** `primeiro_som` = 1º `audio-chunk` depois do `audio-stop`; `resposta` (o `latency_s` do
+  JSON, compatível) pula a frase de espera: acha `espera: frase "<texto>"` no `journalctl --user -u
+  magi-core` desde o turno e pula no áudio recebido a duração dessa frase pelo TTS configurado
+  (cache do `perf`; voz/formato diferentes do núcleo dariam erro de alguns chunks). A linha
+  `espera:` não leva o satélite: medir com o satélite real quieto. Sem journal → as duas iguais.

@@ -12,7 +12,11 @@ Reporta média, p90 e máximo de CPU (% de um núcleo) e RAM (MB).
 
 ``latency``: cliente Wyoming próprio (satélite ``perf``, máquina de turno separada no núcleo; o
 satélite real não é tocado). Áudio da frase gerado uma vez pelo TTS configurado e cacheado em
-``~/.cache/magi/perf/``. Mede do ``audio-stop`` enviado até o primeiro ``audio-chunk`` da resposta.
+``~/.cache/magi/perf/``. Duas colunas por turno, do ``audio-stop`` enviado (espera viva, spec §8):
+``primeiro_som`` = primeiro ``audio-chunk`` (pode ser a frase de espera local) e ``resposta`` = primeiro
+``audio-chunk`` da resposta. Se o log do núcleo (``journalctl --user -u magi-core``) mostra
+``espera: frase "<texto>"`` no turno, a resposta começa depois da duração dessa frase no áudio recebido
+(duração pelo mesmo TTS, cacheado como a frase do turno); sem frase ou sem journal, as duas são iguais.
 """
 
 from __future__ import annotations
@@ -223,6 +227,50 @@ def run_idle(minutes: float, interval: float = 5.0) -> dict[str, dict[str, Stats
 
 # -- latency -------------------------------------------------------------------------------------
 
+#: Linha do núcleo quando a frase de espera toca (``magi/core/turn.py``, spec §8 da espera viva).
+ESPERA_FRASE = re.compile(r'espera: frase "(?P<frase>.+)" \((?P<topico>[^)]*)\) em (?P<ms>\d+) ms')
+#: Folga ao pular a frase de espera no áudio recebido (fim da fala ≠ fim exato do PCM).
+SKIP_TOLERANCE_S = 0.05
+
+
+def espera_frase(lines: Sequence[str]) -> str | None:
+    """Texto da frase de espera do turno no log do núcleo (a última, se houver mais de uma)."""
+    found = None
+    for line in lines:
+        if (m := ESPERA_FRASE.search(line)) is not None:
+            found = m["frase"]
+    return found
+
+
+def reply_start(chunks: Sequence[tuple[float, float]], skip_s: float = 0.0) -> float | None:
+    """Instante do primeiro ``audio-chunk`` da resposta. ``chunks`` = (chegada, segundos de áudio) na
+    ordem; ``skip_s`` = duração da frase de espera tocada antes (0 = sem frase: o primeiro chunk)."""
+    played = 0.0
+    for t, secs in chunks:
+        if played >= skip_s - SKIP_TOLERANCE_S:
+            return t
+        played += secs
+    return None
+
+
+def core_log_since(since_epoch: float) -> list[str]:
+    """Linhas do ``magi-core`` desde ``since_epoch`` (só leitura); sem journal → ``[]``."""
+    try:
+        out = subprocess.run(
+            ["journalctl", "--user", "-u", "magi-core", "--since", f"@{since_epoch:.3f}", "-o", "cat", "-q"],
+            capture_output=True, text=True, timeout=5, check=False,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return out.splitlines()
+
+
+async def phrase_seconds(text: str) -> float:
+    """Duração (s) da frase falada pelo TTS configurado (mesmo cache das frases do ``latency``)."""
+    pcm, rate, width, channels = await phrase_audio(text)
+    return len(pcm) / (rate * width * channels)
+
+
 
 def cache_dir() -> Path:
     base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
@@ -252,9 +300,21 @@ async def phrase_audio(text: str) -> tuple[bytes, int, int, int]:
         return w.readframes(w.getnframes()), w.getframerate(), w.getsampwidth(), w.getnchannels()
 
 
+@dataclass(frozen=True, slots=True)
+class LatencyRun:
+    """Resultado do ``latency``: por turno respondido, ``first_sound`` (primeiro som), ``reply``
+    (primeiro som da resposta) e ``durations`` (áudio recebido, s); ``waits`` = turnos com frase de
+    espera."""
+
+    first_sound: list[float]
+    reply: list[float]
+    durations: list[float]
+    fails: int
+    waits: int = 0
+
+
 async def run_latency(phrase: str, turns: int, host: str, port: int, gap_s: float = 1.5,
-                      timeout_s: float = 20.0) -> tuple[list[float], list[float], int]:
-    """→ (latências s, duração da resposta s, falhas)."""
+                      timeout_s: float = 20.0) -> LatencyRun:
     from wyoming.event import async_read_event, async_write_event
 
     from magi.common.contracts import (
@@ -280,9 +340,10 @@ async def run_latency(phrase: str, turns: int, host: str, port: int, gap_s: floa
             events.put_nowait((time.perf_counter(), ev))
 
     pump_task = asyncio.create_task(pump())
-    lats: list[float] = []
+    firsts: list[float] = []
+    replies: list[float] = []
     durs: list[float] = []
-    fails = 0
+    fails = waits = 0
     try:
         for i in range(turns):
             while not events.empty():
@@ -293,9 +354,9 @@ async def run_latency(phrase: str, turns: int, host: str, port: int, gap_s: floa
             for chunk in split_chunks(pcm, fmt):
                 await async_write_event(audio_chunk(chunk, fmt), writer)
             await async_write_event(to_event(AudioEnd(reason=AudioEndReason.VAD)), writer)
-            t0 = time.perf_counter()
+            t0, epoch0 = time.perf_counter(), time.time()
             first: float | None = None
-            nbytes = 0
+            arrivals: list[tuple[float, int]] = []
             out_fmt = fmt
             try:
                 async with asyncio.timeout(timeout_s):
@@ -309,7 +370,7 @@ async def run_latency(phrase: str, turns: int, host: str, port: int, gap_s: floa
                                                 channels=d.get("channels", channels))
                         elif ev.type == "audio-chunk":
                             first = first or t
-                            nbytes += len(ev.payload or b"")
+                            arrivals.append((t, len(ev.payload or b"")))
                         elif ev.type == "audio-stop" and first is not None:
                             break
             except TimeoutError:
@@ -318,9 +379,18 @@ async def run_latency(phrase: str, turns: int, host: str, port: int, gap_s: floa
                 fails += 1
                 print(f"[{i + 1}] sem resposta em {timeout_s:.0f} s", file=sys.stderr)
             else:
-                lats.append(first - t0)
-                durs.append(nbytes / (out_fmt.rate * out_fmt.width * out_fmt.channels))
-                print(f"[{i + 1}] {lats[-1] * 1000:.0f} ms (resposta {durs[-1]:.1f} s)", file=sys.stderr)
+                bps = out_fmt.rate * out_fmt.width * out_fmt.channels
+                chunks = [(t, n / bps) for t, n in arrivals]
+                wait = espera_frase(core_log_since(epoch0 - 1))
+                skip = await phrase_seconds(wait) if wait else 0.0
+                waits += wait is not None
+                start = reply_start(chunks, skip) or first
+                firsts.append(first - t0)
+                replies.append(start - t0)
+                durs.append(sum(s for _, s in chunks))
+                extra = f' · espera "{wait}"' if wait else ""
+                print(f"[{i + 1}] primeiro_som {firsts[-1] * 1000:.0f} ms · resposta"
+                      f" {replies[-1] * 1000:.0f} ms ({durs[-1]:.1f} s){extra}", file=sys.stderr)
             await async_write_event(to_event(PlaybackDone(satellite=SATELLITE_ID)), writer)
             await asyncio.sleep(gap_s)
     finally:
@@ -330,7 +400,21 @@ async def run_latency(phrase: str, turns: int, host: str, port: int, gap_s: floa
         writer.close()
         with contextlib.suppress(Exception):
             await writer.wait_closed()
-    return lats, durs, fails
+    return LatencyRun(firsts, replies, durs, fails, waits)
+
+
+def latency_summary(run: LatencyRun) -> dict:
+    """JSON do ``latency``: ``latency_s`` segue sendo a resposta (compatível com as medidas antigas);
+    ``first_sound_s`` é a coluna ``primeiro_som`` (spec §8 da espera viva)."""
+    if not run.reply:
+        return {}
+    return {
+        "latency_s": asdict(summarize(run.reply)),
+        "first_sound_s": asdict(summarize(run.first_sound)),
+        "reply_s": asdict(summarize(run.durations)),
+        "samples_s": run.reply,
+        "first_sound_samples_s": run.first_sound,
+    }
 
 
 # -- CLI -----------------------------------------------------------------------------------------
@@ -367,14 +451,16 @@ def main(argv: list[str] | None = None) -> None:
         out = {name: {k: asdict(s) for k, s in st.items()} for name, st in res.items()}
         out["docker_stats"] = {"before": before, "after": after}
     else:
-        lats, durs, fails = asyncio.run(run_latency(args.phrase, args.turns, args.host, args.port, args.gap))
-        out = {"phrase": args.phrase, "turns": args.turns, "fails": fails}
-        if lats:
-            s = summarize(lats)
-            print(f"{args.phrase!r}: {s.fmt(' s', 3)} · n={s.n} · falhas={fails}")
-            out |= {"latency_s": asdict(s), "reply_s": asdict(summarize(durs)), "samples_s": lats}
+        run = asyncio.run(run_latency(args.phrase, args.turns, args.host, args.port, args.gap))
+        out = {"phrase": args.phrase, "turns": args.turns, "fails": run.fails, "waits": run.waits}
+        out |= latency_summary(run)
+        if run.reply:
+            print(f"{args.phrase!r}: n={len(run.reply)} · falhas={run.fails}"
+                  f" · com frase de espera={run.waits}")
+            print(f"  primeiro_som  {summarize(run.first_sound).fmt(' s', 3)}")
+            print(f"  resposta      {summarize(run.reply).fmt(' s', 3)}")
         else:
-            print(f"{args.phrase!r}: nenhuma resposta ({fails} falhas)")
+            print(f"{args.phrase!r}: nenhuma resposta ({run.fails} falhas)")
     if args.json:
         args.json.write_text(json.dumps(out, indent=2, ensure_ascii=False))
 

@@ -68,8 +68,10 @@ def test_persona_tem_cerca_de_500_tokens():
     # Teto 700: regra da frase de espera antes de ferramenta demorada e resposta em lotes (~45).
     # Teto 750: regra de referências do conselho no lugar da "vibe Evangelion/NERV" (~55 a mais).
     # Teto 780: linha do placar e do "isso foi sem sentido" (Conselho placar-e-jogo, ~30).
+    # Teto 820 (E5.1): a regra "Espera é do sistema…" (ata 2026-10-11-espera, acordo §3.5) deixou a
+    # persona em 779; folga de ~40 para a próxima linha do Conselho sem mexer neste teste de novo.
     tokens = estimate_tokens(load_persona())
-    assert 400 <= tokens <= 780
+    assert 400 <= tokens <= 820
 
 
 def test_persona_cobre_os_tracos():

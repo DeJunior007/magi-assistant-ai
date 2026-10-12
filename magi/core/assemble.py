@@ -523,6 +523,7 @@ async def assemble(
         core.steam = SteamLocal()  # só com o catálogo real (testes passam um catálogo dublê)
     core.catalog = catalog
     core.game = _game_watcher(config, catalog)
+    core.deps.jogo = _jogo_aberto(core.game)
     core.deps.router = LocalRouter(catalog)
     core.deps.corrector = core.corrections
     found = handlers(catalog, hud_sink, core.corrections)
@@ -915,6 +916,16 @@ def _learning_topics(core: Core, config: Config) -> Any:
     return TopicBuilder(game=core.game, steam=core.steam,
                         news=core.repos.news if core.repos is not None else None,
                         interview_role=str(role) if isinstance(role, str) else None)
+
+
+def _jogo_aberto(watcher: Any) -> Callable[[], str | None]:
+    """Nome do jogo aberto agora para o ``TurnContext.jogo`` (E5.1, moldes ``{jogo}`` da espera)."""
+
+    def nome() -> str | None:
+        game = watcher.running() if watcher is not None else None
+        return game.name if game is not None else None
+
+    return nome
 
 
 def _game_watcher(config: Config, catalog: GameCatalog) -> Any:

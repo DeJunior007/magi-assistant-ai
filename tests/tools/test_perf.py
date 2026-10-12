@@ -5,12 +5,16 @@ from __future__ import annotations
 import pytest
 
 from tools.perf import (
+    LatencyRun,
     cpu_percent,
+    espera_frase,
+    latency_summary,
     parse_docker_stats,
     parse_memory_stat,
     parse_size_mb,
     parse_smaps_rollup,
     percentile,
+    reply_start,
     summarize,
 )
 
@@ -69,3 +73,35 @@ def test_parse_smaps_rollup() -> None:
 def test_parse_memory_stat() -> None:
     st = parse_memory_stat("anon 16224256\nfile 133906432\nshmem 37662720\n\n")
     assert st == {"anon": 16224256, "file": 133906432, "shmem": 37662720}
+
+
+# -- primeiro_som (espera viva, spec §8; E5.1) ---------------------------------------------------
+
+
+def test_espera_frase_no_log_do_nucleo() -> None:
+    log = [
+        'perf: ouvi "pesquisa o preço" (1.2 s de áudio)',
+        'espera: frase "Peraí, deixa eu juntar as peças." (noticia) em 702 ms',
+        'perf: rota agente -> "O preço tá em mil."',
+    ]
+    assert espera_frase(log) == "Peraí, deixa eu juntar as peças."
+    assert espera_frase(["espera: sem frase (pedido não demorado)"]) is None
+    assert espera_frase([]) is None
+
+
+def test_reply_start_pula_a_frase_de_espera() -> None:
+    chunks = [(0.70, 0.5), (0.71, 0.5), (0.72, 0.4), (2.10, 0.5), (2.11, 0.5)]  # (chegada, s de áudio)
+    assert reply_start(chunks) == 0.70  # sem frase: o primeiro som é a resposta
+    assert reply_start(chunks, 1.4) == 2.10  # frase de 1,4 s: a resposta é o 4º chunk
+    assert reply_start(chunks, 1.43) == 2.10  # folga de 50 ms do fim do PCM
+    assert reply_start(chunks, 5.0) is None  # a resposta não chegou
+    assert reply_start([], 0.0) is None
+
+
+def test_latency_summary_tem_as_duas_colunas() -> None:
+    run = LatencyRun(first_sound=[0.7, 0.8], reply=[2.1, 0.8], durations=[3.0, 1.0], fails=1, waits=1)
+    out = latency_summary(run)
+    assert out["first_sound_s"]["mean"] == pytest.approx(0.75)
+    assert out["latency_s"]["mean"] == pytest.approx(1.45)  # resposta (compatível com as medidas antigas)
+    assert out["samples_s"] == [2.1, 0.8] and out["first_sound_samples_s"] == [0.7, 0.8]
+    assert latency_summary(LatencyRun([], [], [], fails=3)) == {}

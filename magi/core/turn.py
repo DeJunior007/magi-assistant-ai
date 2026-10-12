@@ -178,6 +178,8 @@ class TurnDeps:
       ``[learning] enabled``; ``None`` = nada muda.
     - ``espera`` (espera viva E2.3): frase de espera local em pedido demorado ao agente; ``None``
       ou ``[espera] frase = false`` = sem frase, como antes.
+    - ``jogo`` (E5.1): nome do jogo aberto agora (``None`` = nenhum); vai no ``TurnContext.jogo``
+      e nos moldes ``{jogo}`` da frase de espera. Erro ao consultar = sem jogo.
     - ``revive``: sem STT (ou agente) porque o keyring estava trancado na subida, tenta reler as
       chaves e remontar antes de responder "não peguei" (``Core.revive``, com intervalo mínimo).
     """
@@ -195,6 +197,7 @@ class TurnDeps:
     learning: Callable[[Transcript, TurnContext, ActionResult], None] | None = None
     revive: Callable[[], Awaitable[bool]] | None = None
     espera: EsperaDeps | None = None
+    jogo: Callable[[], str | None] | None = None
 
 
 def _motivo_sem_frase(cat: Catalogo, text: str, cota: Cota, cfg: EsperaCfg, followup: bool) -> str:
@@ -761,7 +764,22 @@ class TurnMachine:
             previous_text=self._last_text,
             previous_at=self._last_at,
             reading=self.reading,
+            jogo=self._jogo(),
         )
+
+    def _jogo(self) -> str | None:
+        """Jogo aberto agora pelo ``TurnDeps.jogo`` (E5.1); falha ou nome vazio = ``None``."""
+        fonte = self.pipeline.deps.jogo
+        if fonte is None:
+            return None
+        try:
+            nome = fonte()
+        except Exception:
+            log.debug("jogo em foco indisponível", exc_info=True)
+            return None
+        if not isinstance(nome, str):
+            return None
+        return nome.strip() or None
 
     async def _open_stream(self, fmt: PcmFormat) -> None:
         await self._drop_stream()
@@ -985,7 +1003,9 @@ class TurnMachine:
         if self.pipeline.peek_route(text, ctx).kind is not RouteKind.AGENT:
             return None
         cat, cota = esp.catalogo, esp.cota(self.satellite)
-        frase = escolher(cat, text, cota, esp.rng, continuacao=followup, so_demorado=esp.cfg.so_demorado)
+        frase = escolher(
+            cat, text, cota, esp.rng, jogo=ctx.jogo, continuacao=followup, so_demorado=esp.cfg.so_demorado
+        )
         if frase is None:
             log.info("espera: sem frase (%s)", _motivo_sem_frase(cat, text, cota, esp.cfg, followup))
             return cota
