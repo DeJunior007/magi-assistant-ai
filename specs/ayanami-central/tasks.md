@@ -400,7 +400,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: SSE retoma do `Last-Event-ID` sem perder nem repetir (100 eventos, corte no 37º); 5º SSE do mesmo celular → 429; revogar fecha o SSE em ≤ 5 s (relógio falso); `NOTIFY` perdido → evento entregue no reconectar (`pg`); feed pagina por `antes`.
   - Paralelo: Y3.1, Y3.3, Y4.1 (Y5.1/Y6.1 só depois da Y3.1)
 
-- [ ] **Y2.4 `EloCliente`** — `magi/elo/cliente.py`: conexão de saída `wss://…/ws` com Bearer,
+- [x] **Y2.4 `EloCliente`** — `magi/elo/cliente.py`: conexão de saída `wss://…/ws` com Bearer,
   `ola` → `ack`, `bate` a cada `batimento_s`, reconexão 1 → 2 → 4 … → 60 s com jitter ±20% (rng
   injetado), recaída `/v1/longpoll` após 3 falhas seguidas de WS, retransmissão e cache de ids pelo
   `receptor`, `401` → para e loga `ayanami_token_revogado`, despacho por tipo (`on(tipo, fn)`),
