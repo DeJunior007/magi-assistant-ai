@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Atalho Meta+O: HUD aberto → fecha o HUD e liga o overlay; HUD fechado → liga/desliga o overlay.
+exec python3 "$HOME/.local/share/gamerhud/alternar.py"

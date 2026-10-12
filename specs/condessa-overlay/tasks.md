@@ -160,6 +160,23 @@ O0.1 ─┬─ O1.1 ─┐
   - Pronto: `uv run pytest -q tests/hud` verde; card com cantos na cor da borda e texto na placa; `solto` com as asserções antigas; máscara = retângulo; esquerdo chama `startSystemMove`; posição gravada e restaurada.
   - Paralelo: —
 
+- [x] **O4.3 Atalhos para alternar HUD e overlay** — pedido do Pedro em 2026-10-12 ("Win+M já
+  abre o HUD se estiver fechado; outro atalho fecha o HUD e abre o overlay; de novo, liga/desliga
+  o overlay"). Lógica pura em `hud/alternar.py` (sem Qt): `decidir_meta_m(hud)` e
+  `decidir_alternar(hud, overlay)`; HUD aberto = trava `hud.lock` presa ou processo vivo; ações
+  pelos comandos do menu (`gamerhud` fecha por SIGTERM + `--restore`; `condessa-overlay` alterna).
+  **Meta+M** (`magi-view.py`): HUD fechado → abre; aberto → alterna a ociosidade (como antes).
+  **Meta+O** (`condessa-alternar`): HUD aberto → fecha o HUD e liga o overlay (se o processo já
+  roda, escondido pela D2, não liga outro); HUD fechado → liga/desliga o overlay. Atalho por
+  `X-KDE-Shortcuts=Meta+O` em `condessa-alternar.desktop` (sem D-Bus novo); Meta+O livre no
+  Plasma 6 e no `kglobalshortcutsrc` do Pedro. *(D2)*
+  - Lê: `hud/magi-view.py`, `hud/system/bin/*`, `hud/install.sh` (bloco do HUD), `hud/wired/overlay.py` (`hud_aberto`, só leitura)
+  - Escreve: `hud/alternar.py`, `hud/magi-view.py`, `hud/system/bin/condessa-alternar`, `hud/system/applications/condessa-alternar.desktop`, `hud/install.sh`, `hud/README.md`, `tests/hud/test_alternar.py`, SDD
+  - Depende de: O4.1
+  - Orçamento: ~40k
+  - Pronto: `uv run pytest -q tests/hud` verde; decisões nos 4 casos + Meta+M nos 2; nenhum `dbus-send` novo no `install.sh`.
+  - Paralelo: O4.2 (arquivos separados)
+
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
@@ -201,3 +218,8 @@ O0.1 ─┬─ O1.1 ─┐
   vale). No Wayland nativo o app não sabe a própria posição: o `overlay-pos.json` só é gravado fora
   dele (o KWin lembra pela regra depois do relogin). O arrasto do card não vira reação `arrasto`
   (no `solto` continua virando).
+- **O4.3:** o `X-KDE-Shortcuts` de um `.desktop` em `~/.local/share/applications` costuma ser lido
+  pelo kglobalaccel só no próximo login (depois do `kbuildsycoca6`); se não pegar, o caminho manual
+  está no `hud/README.md`. `trava_ocupada` repete o `wired.overlay.hud_aberto` (sem importar o Qt:
+  roda a cada tecla). Corrida rara: o HUD morrer entre o teste e o `gamerhud` (que alterna) o
+  reabriria; aceito.

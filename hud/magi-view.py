@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-"""Alterna o MAGI entre o painel completo e a tela de ociosidade (atalho Meta+M).
-Leve de propósito (sem Qt): o MAGI aberto percebe a troca em ~0,3 s."""
-import json
+"""Atalho Meta+M: HUD fechado → abre o MAGI; aberto → alterna painel completo ↔ tela de
+ociosidade (o MAGI aberto percebe a troca em ~0,3 s). Lógica em ``alternar.py`` (O4.3), sem Qt."""
 import os
+import sys
 
-path = os.path.expanduser("~/.config/gamerhud/settings.json")
-try:
-    with open(path) as f:
-        cfg = json.load(f)
-except (OSError, ValueError):
-    cfg = {}
-cfg["view"] = "full" if cfg.get("view", "full") == "idle" else "idle"
-os.makedirs(os.path.dirname(path), exist_ok=True)
-with open(path, "w") as f:
-    json.dump(cfg, f)
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from alternar import meta_m  # noqa: E402
+
+meta_m()

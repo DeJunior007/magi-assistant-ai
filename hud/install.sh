@@ -112,7 +112,7 @@ elif [ -e "$LINK" ]; then
 else
     ln -s "$HUD_DIR" "$LINK"
 fi
-chmod +x "$HUD_DIR"/magi-view.py "$HUD_DIR"/steam-mangohud.sh
+chmod +x "$HUD_DIR"/magi-view.py "$HUD_DIR"/alternar.py "$HUD_DIR"/steam-mangohud.sh
 
 echo "== comando, menu e autostart"
 render "$SYS/bin/gamerhud" "$HOME/.local/bin/gamerhud"
@@ -127,6 +127,11 @@ render "$SYS/bin/condessa-overlay" "$HOME/.local/bin/condessa-overlay"
 chmod +x "$HOME/.local/bin/condessa-overlay"
 render "$SYS/applications/condessa-overlay.desktop" "$SHARE/applications/condessa-overlay.desktop"
 render "$SYS/autostart/condessa-overlay.desktop" "$HOME/.config/autostart/condessa-overlay.desktop"
+
+echo "== atalho Meta+O: condessa-alternar (HUD <-> overlay; X-KDE-Shortcuts, sem D-Bus)"
+render "$SYS/bin/condessa-alternar" "$HOME/.local/bin/condessa-alternar"
+chmod +x "$HOME/.local/bin/condessa-alternar"
+render "$SYS/applications/condessa-alternar.desktop" "$SHARE/applications/condessa-alternar.desktop"
 
 echo "== Steam aberta pelo MangoHud (FPS em todos os jogos)"
 if [ -f /usr/share/applications/steam.desktop ]; then

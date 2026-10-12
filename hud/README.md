@@ -23,7 +23,8 @@ assistente Magui vai morar (ver `specs/magi-assistant/`).
 | `gamerhud.py` | O HUD (PySide6, desenhado na CPU). `--restore`, `--toggle-rgb`, `--install-icons` |
 | `gamerhud-watch.py` | Vigia de jogos (Steam `reaper SteamLaunch` + logs do MangoHud) |
 | `orgb.py` | Cliente mínimo do SDK do OpenRGB (só leitura de cores) |
-| `magi-view.py` | Alterna painel completo / tela de ociosidade (atalho Meta+M) |
+| `magi-view.py` | Meta+M: abre o HUD ou alterna painel completo / tela de ociosidade |
+| `alternar.py` | Lógica dos atalhos Meta+M e Meta+O (`condessa-alternar`) |
 | `steam-mangohud.sh` | Abre a Steam com o MangoHud pré-carregado |
 | `system/` | Templates de config do sistema (`@HOME@` vira a home no install) |
 | `install.sh` | Instala tudo: link do código, menu, autostart, MangoHud, regra do KWin, atalho |
@@ -47,6 +48,16 @@ assistente Magui vai morar (ver `specs/magi-assistant/`).
 - Config: `~/.config/magi/overlay.toml`, tabela `[overlay]` (canto, margem, tamanho, fundo,
   `estilo = "card" | "solto"`, ligado). `solto` = só o rosto, sem moldura (o antigo).
 - Some com o HUD aberto e, em jogo, vai para o outro monitor; a regra do KWin vale após relogar.
+
+### Atalhos HUD ↔ overlay
+
+- **Meta+M**: HUD fechado → abre o HUD; aberto → alterna painel completo ↔ tela de ociosidade.
+- **Meta+O** (`condessa-alternar`): HUD aberto → fecha o HUD e mostra o overlay (uma instância só);
+  HUD fechado → liga/desliga o overlay. Lógica em `alternar.py`.
+- O Meta+O vem do `X-KDE-Shortcuts=Meta+O` de `condessa-alternar.desktop` (sem D-Bus): rode
+  `hud/install.sh` e relogue. Se não pegar: Configurações do Sistema → Teclado → Atalhos →
+  "Adicionar novo" → Aplicativo → "Condessa: alternar HUD e overlay" (busque `condessa-alternar`)
+  → defina Meta+O.
 
 ## Ajustes manuais fora do repo
 

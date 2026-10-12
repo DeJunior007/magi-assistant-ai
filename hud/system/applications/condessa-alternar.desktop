@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Condessa: alternar HUD e overlay
+GenericName=Alternar HUD e overlay da Condessa
+Comment=HUD aberto: fecha o HUD e mostra o overlay; HUD fechado: liga/desliga o overlay (Meta+O)
+Exec=@HOME@/.local/bin/condessa-alternar
+Icon=gamerhud
+Keywords=condessa-alternar;condessa;magi;magui;overlay;hud;alternar;atalho;
+Categories=Utility;
+StartupNotify=false
+X-KDE-Shortcuts=Meta+O
