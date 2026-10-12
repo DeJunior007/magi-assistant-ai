@@ -327,21 +327,36 @@ class Gestos:
 
     **Dona: O1.1.** Relógio injetado (``agora``); sem Qt. Simples (vence ``DBL_MS``) →
     ``enviar_click("face", agora)``; duplo → ``enviar_hover("dbl", agora)``; longo (≥ ``LONG_S``) →
-    ``"long"``; arrasto na metade de cima ≥ ``DRAG_PX`` → ``"arrasto"`` uma vez; hover
+    ``"long"``; arrasto na metade de cima ≥ ``drag_px`` → ``"arrasto"`` uma vez; hover
     ``"in"``/``"move"``/``"out"``. Nunca liga a escuta.
+
+    Toque igual ao do HUD (O4.4): ``DBL_MS``/``LONG_S`` = ``FACE_DBL_MS``/``FACE_LONG_S`` do
+    gamerhud. O arraste não copia o ``FACE_DRAG`` (40 px na base 1920 sobre um rosto de 272 px):
+    aqui ele começa a mover a janela (O4.1/O4.2), então o limiar é proporcional ao lado do card
+    (``lado``, px reais) e mais leve, com piso contra tremida do clique — ver ``limiar_arraste``.
     """
 
-    DBL_MS = 250
-    LONG_S = 0.6
-    DRAG_PX = 18  # mesmos valores do gamerhud (FACE_*), copiados
+    DBL_MS = 250  # = FACE_DBL_MS do gamerhud
+    LONG_S = 0.8  # = FACE_LONG_S do gamerhud (segurou ≥ isso = "long")
+    DRAG_MIN_PX = 12  # piso: abaixo disso uma tremida do clique viraria arraste
+    DRAG_FRAC = 0.075  # metade da proporção do HUD (40/272 ≈ 0,147): no card o arraste move a janela
+    DRAG_PX = 16  # limiar no lado padrão (220 px) = limiar_arraste(220); o real é ``drag_px``
+
+    @classmethod
+    def limiar_arraste(cls, lado: float) -> int:
+        """Px reais para o arraste começar num card de ``lado`` px: ``max(12, round(0,075 × lado))``
+        → 120 px: 12 · 220 px: 16 · 480 px: 36."""
+        return max(cls.DRAG_MIN_PX, round(cls.DRAG_FRAC * lado))
 
     def __init__(
         self,
         enviar_click: Callable[[str, float], None],
         enviar_hover: Callable[[str, float], None],
+        lado: float = 220,
     ) -> None:
         self.enviar_click = enviar_click
         self.enviar_hover = enviar_hover
+        self.drag_px = self.limiar_arraste(lado)
         self._press: tuple[float, float, float, bool, bool] | None = None  # (t, x, y, alto, arrastou)
         self._espera: float | None = None  # prazo do 2º clique (duplo); None = sem espera
         self._dentro = False
@@ -367,7 +382,7 @@ class Gestos:
         p = self._press
         if p is None or x is None or y is None or p[4] or not p[3]:
             return
-        if math.hypot(x - p[1], y - p[2]) >= self.DRAG_PX:
+        if math.hypot(x - p[1], y - p[2]) >= self.drag_px:
             self._press = (*p[:4], True)
             self.enviar_hover("arrasto", agora)
 
@@ -386,6 +401,10 @@ class Gestos:
         if self._espera is not None and agora >= self._espera:
             self._espera = None
             self.enviar_click("face", agora)
+
+    def redimensionar(self, lado: float) -> None:
+        """O card mudou de tamanho: refaz o limiar de arraste (O4.4)."""
+        self.drag_px = self.limiar_arraste(lado)
 
 
 def regiao_entrada(img: QImage, limiar: int = 76, grade: int = 8) -> list[QRect]:

@@ -195,6 +195,21 @@ O0.1 ─┬─ O1.1 ─┐
   - Pronto: `uv run pytest -q tests/hud` verde; `encaixar` com 1 e 2 telas e painel; soltar → âncora exata; memória converte o formato antigo; D3 espelhado; "Grudar em" move; HUD visto a 1 Hz.
   - Paralelo: —
 
+- [x] **O4.4 Toque do overlay igual ao do HUD** — sobra da O1.1: o `Gestos` usava `LONG_S = 0,6`
+  e `DRAG_PX = 18` com comentário "copiados" errado (o HUD usa `FACE_LONG_S = 0,8` e `FACE_DRAG =
+  40` px na base 1920 sobre um rosto de 272 px). Agora `LONG_S = 0,8` e `DBL_MS = 250` iguais ao
+  HUD; o arraste, que no card move a janela (O4.1/O4.2), é em px reais pelo lado do card:
+  `limiar_arraste(lado) = max(12, round(0,075 × lado))` (metade da proporção do HUD, 40/272 ≈ 0,147,
+  para não ficar duro num card pequeno; piso de 12 px contra tremida do clique) → 120 px: 12 ·
+  220 px: 16 · 480 px: 36. `Gestos(..., lado=220)` e `redimensionar(lado)`; `DRAG_PX = 16` fica
+  como o valor no lado padrão. *(spec §1, CA-O2)*
+  - Lê: `hud/wired/overlay.py` (`Gestos`), `hud/gamerhud.py` (`FACE_*`, por grep), `tests/hud/test_overlay_gestos.py`
+  - Escreve: `hud/wired/overlay.py` (só `Gestos`), `tests/hud/test_overlay_gestos.py`, SDD
+  - Depende de: O4.1, O4.2
+  - Orçamento: ~25k
+  - Pronto: `uv run pytest -q tests/hud` verde; 0,7 s é simples (não longo); limiar 12/16/36 nos lados 120/220/480.
+  - Paralelo: —
+
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
@@ -249,3 +264,8 @@ O0.1 ─┬─ O1.1 ─┐
   obsoletos (lidos e ignorados). Soltar a trava do HUD não gera evento de arquivo (só abrir, que
   trunca): a volta vale pelo laço de 1 Hz. Risco do XWayland: com escala fracionária no KDE o
   retrato pode ficar borrado (o Plasma escala o XWayland) — conferir ao vivo.
+- **O4.4:** a janela (`hud/condessa_overlay.py`, fora do Escreve) ainda cria `Gestos` sem `lado`,
+  então vale o padrão de 220 px (16 px) mesmo com outro `tamanho`. Falta, numa tarefa da janela:
+  `Gestos(reactor.on_click, self._hover, lado=cfg.tamanho)` e `self.gestos.redimensionar(...)` no
+  `mudar_tamanho`. Chaves em `[overlay]` (`toque_longo_s`, `arraste_px`) não foram criadas: só
+  valeriam com essa ligação; fica para a mesma tarefa, se o Pedro quiser ajustar na mão.

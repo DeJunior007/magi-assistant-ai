@@ -63,11 +63,35 @@ def test_longo():
     assert r.nomes() == ["hover:long"]
 
 
+def test_toque_igual_ao_do_hud():
+    # O4.4: longo e duplo = FACE_LONG_S/FACE_DBL_MS do gamerhud
+    assert (Gestos.LONG_S, Gestos.DBL_MS) == (0.8, 250)
+    r = Rec()
+    r.g.press(10, 10, True, 1.0)
+    r.g.release(1.7)  # 0,7 s: antes (0,6) era longo; agora é simples
+    r.g.tick(5.0)
+    assert r.nomes() == ["click:face"]
+
+
+def test_limiar_de_arraste_escala_com_o_card():
+    assert [Gestos.limiar_arraste(lado) for lado in (120, 220, 480)] == [12, 16, 36]
+    assert Gestos.limiar_arraste(40) == Gestos.DRAG_MIN_PX  # piso contra tremida
+    assert Gestos.DRAG_PX == Gestos.limiar_arraste(overlay.Config().tamanho)
+    r = Rec()
+    r.g = Gestos(r.g.enviar_click, r.g.enviar_hover, lado=480)
+    r.g.press(0, 0, True, 1.0)
+    r.g.move(30, 0, True, 1.1)  # 30 < 36: ainda não
+    assert "hover:arrasto" not in r.nomes()
+    r.g.redimensionar(220)  # card diminuiu: 30 ≥ 16
+    r.g.move(31, 0, True, 1.2)
+    assert r.nomes().count("hover:arrasto") == 1
+
+
 def test_arrasto_no_alto_uma_vez_e_sem_clique():
     r = Rec()
     r.g.press(10, 10, True, 1.0)
     r.g.move(20, 10, True, 1.1)  # 10 px: ainda não
-    r.g.move(10, 28, True, 1.2)  # 18 px
+    r.g.move(10, 28, True, 1.2)  # 18 px ≥ 16 (lado padrão 220)
     r.g.move(60, 60, True, 1.3)
     r.g.release(1.4)
     r.g.tick(5.0)
