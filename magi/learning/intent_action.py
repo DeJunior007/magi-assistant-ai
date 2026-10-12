@@ -17,6 +17,8 @@ frases só existem no roteador **com sessão ativa** (filtro no ``best`` do rote
 fora da aula "vamos falar do jogo" segue o caminho antigo. A ação guarda o ``TopicBuilder`` com as
 fontes do núcleo (``GameWatcher``, Steam, ``NewsRepo``); a ``LearningWiring`` o acha por
 ``builder_of``.
+Roleplay (LI4.2, spec imersivo §12): ``learning.topic.roleplay`` traz o id do cenário no slot
+constante ``text`` de cada frase ("let's roleplay a hotel check-in" → ``hotel_checkin``).
 
 Entrevista pela vaga (LI1.4): ``learning.interview.job|last`` (só com sessão ativa) pedem a vaga
 ao HUD (``lm_job_req``, D1) ou recarregam a última; ``learning.interview.next|skip|pause|end``
@@ -32,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 from magi.common.config import ConfigError
 from magi.common.contracts import ActionHandler, ActionRequest, ActionResult, IntentId
 from magi.learning.contracts import Topic
-from magi.learning.topic import NO_GAME, NO_NEWS, TopicBuilder
+from magi.learning.topic import NO_GAME, NO_NEWS, NO_SCENARIO, TopicBuilder
 
 if TYPE_CHECKING:
     from magi.learning.wiring import LearningWiring
@@ -66,8 +68,11 @@ TOPIC_OF: dict[str, Topic] = {
     IntentId.LEARNING_TOPIC_INTERVIEW.value: Topic.INTERVIEW,
     IntentId.LEARNING_TOPIC_GAME.value: Topic.GAME,
     IntentId.LEARNING_TOPIC_NEWS.value: Topic.NEWS,
+    IntentId.LEARNING_TOPIC_ROLEPLAY.value: Topic.ROLEPLAY,  # cenário no slot ``text`` (LI4.2)
 }
 TOPIC_INTENTS = frozenset(TOPIC_OF)
+#: Slot constante das frases de ``learning.topic.roleplay`` com o id do cenário (``intents.yaml``).
+SCENARIO_SLOT = "text"
 #: Entrevista pela vaga (LI1.4): vaga (com sessão) e comandos (com simulação viva) → ``cmd``.
 JOB_INTENTS = frozenset({IntentId.LEARNING_INTERVIEW_JOB.value, IntentId.LEARNING_INTERVIEW_LAST.value})
 RUN_CMD_OF: dict[str, str] = {
@@ -93,10 +98,12 @@ SAY_TOPIC: dict[Topic, str] = {
     Topic.INTERVIEW: "Beleza, entrevista técnica.",
     Topic.GAME: "Bora falar do jogo.",
     Topic.NEWS: "Bora falar das notícias.",
+    Topic.ROLEPLAY: "Bora simular, então.",
 }
 SAY_TOPIC_FALLBACK: dict[str, str] = {
     NO_GAME: "Não vi jogo nenhum aberto. Conversa livre, então.",
     NO_NEWS: "Não tem notícia de hoje. Conversa livre, então.",
+    NO_SCENARIO: "Não conheço esse cenário. Conversa livre, então.",
 }
 SAY_TOPIC_FAILED = "Não consegui trocar o tema."
 SAY_JOB_ASKED = "Pegando a vaga que você copiou."
@@ -154,7 +161,9 @@ class LearningTopicAction:
         if not wiring.session.active:
             return ActionResult(ok=False, speech=SAY_NOT_ON)
         try:
-            ctx = await wiring.set_topic(TOPIC_OF[req.intent.id], "voice")
+            slot = req.intent.slot(SCENARIO_SLOT)  # roleplay: id do cenário na frase (LI4.2)
+            ctx = await wiring.set_topic(TOPIC_OF[req.intent.id], "voice",
+                                         scenario=slot.value if slot is not None else None)
         except Exception:
             log.exception("learning: falha ao trocar o tema por voz")
             return ActionResult(ok=False, speech=SAY_TOPIC_FAILED)

@@ -217,7 +217,7 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   - Pronto: CA-09 (parte do núcleo): os 4 arquivos carregam e validam; bloco ≤ 1500 em todos; id desconhecido/ausente → `free`; `tests/learning/test_topic.py`, `test_contracts.py` e `test_topic_view.py` verdes (o enum novo não quebra o seletor antigo; se quebrar, anotar em *Sobras* para a LI4.2).
   - Paralelo: LI0.2, LI1.x, LI2.x (não escreve nenhum arquivo delas)
 
-- [ ] **LI4.2 Roleplay: tela e ligação** — no `wiring`, `_on_topic` passa `msg.scenario` ao
+- [x] **LI4.2 Roleplay: tela e ligação** — no `wiring`, `_on_topic` passa `msg.scenario` ao
   `TopicBuilder`, `lm_session.scenarios` vem de `roleplay.scenarios()`, e a sessão retomada volta ao
   mesmo cenário (gravar o id com o tema sem coluna nova; sem id → `free`); intent de voz
   `learning.topic.roleplay` ("let's roleplay a hotel check-in" / "vamos simular um check-in no
@@ -341,3 +341,16 @@ LI0.1 ─┬─ LI0.2 ─────────┐
   `lm_interview {"cmd":"debrief"}` + enum do contrato e `wiring.py`, ocupado pela LI4.2); Esc com a
   lista de temas aberta (sessão nova) fecha a lista antes do painel do retorno. `tests/learning`
   tinha 13 falhas de `wiring._scenario_list` (`pipeline` `None`) vindas da LI4.2 em andamento.
+- **LI4.2 (2026-10-12):** o id do cenário fica **só em memória** (`LearningWiring._scenario_of`,
+  por sessão): a sessão só é retomada depois de o núcleo reiniciar (fechar pelo botão/voz encerra),
+  então hoje a retomada de um roleplay cai em `free` + `detail "unknown scenario"`. Para gravar sem
+  coluna nova: `repo.set_topic(…, scenario=None)` pondo `"scenario"` na entrada de `topics` (jsonl,
+  memória e Postgres; dedup por tema + cenário), `SessionInfo.scenario` lido da última entrada e
+  `session.set_topic` repassando — fora do *Escreve* (`repo.py`, `session.py`). Fora do *Escreve*
+  (inevitáveis): `IntentId.LEARNING_TOPIC_ROLEPLAY` em `magi/common/contracts.py`, 2 respostas em
+  `magi/core/i18n/en-gb.yaml`, a ligação `topic_picker.on_scenario` em `hud/gamerhud.py`
+  (`learning_entry_sync`, ao lado do `on_job`) e um teste em `tests/hud/test_learning_job_paste.py`;
+  `set_topic(…, *, scenario=None)` e o `__init__` do wiring ganharam linhas. O cenário vai no slot
+  constante `text` das frases (sem `SlotName` novo). O seletor sempre reserva 4 sublinhas de
+  cenário (`SCENARIOS_MAX`, a geometria não depende da tela); a linha "Roleplay ▸" não manda nada.
+  O `lm_topic` de confirmação não traz `scenario` (o chip usa o `label`).

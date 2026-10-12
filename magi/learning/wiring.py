@@ -76,6 +76,7 @@ from magi.common.contracts import (
     LmSavedMsg,
     LmSaveMsg,
     LmSayMsg,
+    LmScenarioRef,
     LmSessionMsg,
     LmTopicMsg,
     Transcript,
@@ -220,6 +221,10 @@ class LearningWiring:
         self._cmd_turn = False  # o turno de voz foi um comando da entrevista: não conta resposta
         #: LI2.3: título/empresa/hora de cada retorno gerado neste processo (o repo não guarda).
         self._debrief_meta: dict[str, tuple[str, str | None, datetime]] = {}
+        #: LI4.2: cenário de roleplay atual de cada sessão (só em memória: o repo ainda não grava o
+        #: id com o tema; retomada depois de reiniciar cai em free) e a lista do seletor (lida 1×).
+        self._scenario_of: dict[str, str] = {}
+        self._scenario_refs: tuple[LmScenarioRef, ...] | None = None
 
     def _handlers(self) -> dict[type[LearningHudMsg], Handler]:
         """**Único ponto de registro** dos handlers ``lm_*`` (as próximas tarefas acrescentam aqui)."""
@@ -420,7 +425,23 @@ class LearningWiring:
             topic=info.topic,
             n_msgs=self.session.n_msgs,
             jobs=self._jobs,
+            scenarios=self._scenario_list(),
         )
+
+    def _scenario_list(self) -> tuple[LmScenarioRef, ...]:
+        """Cenários de roleplay do seletor (``lm_session.scenarios``, spec §12); erro = nenhum."""
+        if self._scenario_refs is None:
+            from magi.learning import roleplay
+
+            builder = self.topics if self.pipeline is None else self._builder()  # sem pipeline
+            try:
+                found = roleplay.scenarios((builder.scenarios_dir if builder is not None else None)
+                                           or roleplay.SCENARIOS_DIR)
+            except (OSError, ValueError):
+                log.exception("learning: cenários de roleplay ilegíveis")
+                found = ()
+            self._scenario_refs = tuple(LmScenarioRef(s.id, s.title) for s in found)
+        return self._scenario_refs
 
     async def _idle_loop(self) -> None:
         while True:
@@ -469,32 +490,43 @@ class LearningWiring:
         return LmTopicMsg(topic=ctx.topic, requested=ctx.requested, label=ctx.label, detail=ctx.detail)
 
     async def _on_topic(self, msg: LmTopicMsg) -> None:
-        await self.set_topic(msg.topic, "button")
+        await self.set_topic(msg.topic, "button", scenario=msg.scenario)
 
-    async def set_topic(self, requested: Topic | str, via: str = "button") -> TopicContext | None:
+    async def set_topic(self, requested: Topic | str, via: str = "button", *,
+                        scenario: str | None = None) -> TopicContext | None:
         """Tema pedido (botão ou voz) → ``TopicContext`` guardado na sessão → ``lm_topic`` a todos.
         O mesmo tema de novo só confirma (um fallback é refeito: o jogo pode ter aberto). Tema
-        efetivo novo ≠ free agenda a abertura (P11). Sem sessão: ``None``, nada publicado."""
+        efetivo novo ≠ free agenda a abertura (P11). Sem sessão: ``None``, nada publicado.
+        ``scenario``: id do roleplay (LI4.2); outro cenário = tema novo (refaz e abre a cena)."""
         requested = Topic(requested)
+        scenario = scenario if requested is Topic.ROLEPLAY else None
         async with self._lock:
             if not self.session.active:
                 return None
+            sid = self.session.id or ""
             current = self.session.topic_context
-            if current is not None and current.requested == requested and current.detail is None:
+            same_scene = requested is not Topic.ROLEPLAY or scenario == self._scenario_of.get(sid)
+            if (current is not None and current.requested == requested and current.detail is None
+                    and same_scene):
                 await self.hud.send(self._topic_msg(current))
                 return current
             run = self.live_run()
             if run is not None and requested is Topic.INTERVIEW:
                 ctx = self._run_ctx(run)  # volta à vaga da run pausada (spec §10)
             else:
-                ctx = await self._builder().build(requested)
+                ctx = await self._builder().build(requested, scenario)
                 if run is not None and iv_run.apply(run, "pause", self._now()):
                     await self._push_run(run)  # troca de tema no meio: PAUSED e grava
             previous = current.topic if current is not None else self.session.topic
+            if ctx.topic is Topic.ROLEPLAY and scenario:
+                self._scenario_of[sid] = scenario
+            else:
+                self._scenario_of.pop(sid, None)
             await self.session.set_topic(ctx)
             await self.hud.send(self._topic_msg(ctx))
         log.info("learning: tema %s (pedido %s, %s)", ctx.topic.value, requested.value, via)
-        if ctx.topic is not Topic.FREE and (ctx.topic != previous or current is None):
+        if ctx.topic is not Topic.FREE and (ctx.topic != previous or current is None
+                                            or not same_scene):
             self._schedule_opening(keep=via == "voice")
         elif ctx.topic is Topic.FREE:
             self._cancel_opening()
@@ -506,7 +538,8 @@ class LearningWiring:
         ctx = self.session.topic_context
         if ctx is None:
             topic = self.session.topic
-            ctx = await self._builder().build(topic) if topic is not Topic.FREE else None
+            scenario = self._scenario_of.get(self.session.id or "")  # roleplay: mesmo cenário
+            ctx = await self._builder().build(topic, scenario) if topic is not Topic.FREE else None
             if ctx is None:
                 ctx = TopicContext(Topic.FREE, Topic.FREE, "FREE TALK", None, None)
             await self.session.set_topic(ctx, record=False)

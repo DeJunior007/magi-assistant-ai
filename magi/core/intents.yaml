@@ -717,6 +717,36 @@ intents:
       - "let's talk about the news"
       - "talk about today's news"
 
+  # Roleplay (learning-imersivo LI4.2, spec §12): o id do cenário vai no slot constante ``text``.
+  - id: learning.topic.roleplay
+    label: "simular uma cena na aula"
+    reply: null
+    phrases:
+      - say: "let's roleplay a hotel check-in"
+        slots: {text: "hotel_checkin"}
+      - say: "vamos simular um check-in no hotel"
+        slots: {text: "hotel_checkin"}
+      - say: "simular check-in no hotel"
+        slots: {text: "hotel_checkin"}
+      - say: "let's roleplay ordering food"
+        slots: {text: "ordering_food"}
+      - say: "vamos simular um pedido no restaurante"
+        slots: {text: "ordering_food"}
+      - say: "simular pedido de comida"
+        slots: {text: "ordering_food"}
+      - say: "let's roleplay a doctor visit"
+        slots: {text: "doctor_visit"}
+      - say: "vamos simular uma consulta médica"
+        slots: {text: "doctor_visit"}
+      - say: "simular consulta no médico"
+        slots: {text: "doctor_visit"}
+      - say: "let's roleplay a support call"
+        slots: {text: "support_call"}
+      - say: "vamos simular uma ligação pro suporte"
+        slots: {text: "support_call"}
+      - say: "simular ligação de suporte"
+        slots: {text: "support_call"}
+
   # Entrevista pela vaga (learning-imersivo LI1.4, spec §5.3, D1): ``job``/``last`` só com sessão
   # ativa; ``next``/``skip``/``pause``/``end`` só com simulação viva (filtro de
   # ``magi.learning.intent_action``). "pula essa" fica só no texto (empata com ``media.next``).

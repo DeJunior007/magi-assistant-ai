@@ -477,6 +477,7 @@ class IntentId(StrEnum):
     LEARNING_TOPIC_INTERVIEW = "learning.topic.interview"  # "entrevista técnica", "tech interview"
     LEARNING_TOPIC_GAME = "learning.topic.game"  # "vamos falar do jogo" (só com sessão ativa)
     LEARNING_TOPIC_NEWS = "learning.topic.news"  # "vamos falar das notícias"
+    LEARNING_TOPIC_ROLEPLAY = "learning.topic.roleplay"  # "let's roleplay a hotel check-in" (LI4.2)
     # entrevista pela vaga (learning-imersivo LI1.4): job/last só com sessão, o resto com run viva
     LEARNING_INTERVIEW_JOB = "learning.interview.job"  # "treinar para a vaga que eu copiei" (D1)
     LEARNING_INTERVIEW_LAST = "learning.interview.last"  # "same job again"

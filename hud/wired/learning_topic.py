@@ -17,6 +17,12 @@ Vaga (learning-imersivo LI2.1, R1.1/R1.3, D2): a linha Tech interview ganha subl
 (recarregar por ``job_id``). A altura da lista (``list_rect(…, n_jobs)``) diz quantas sublinhas de
 vaga cabem; ``row_rect``/``item_at``/``sub_rect`` leem isso do próprio retângulo. Clicar numa
 sublinha fecha a lista e chama ``TopicPicker.on_job(job_id | None)`` (``None`` = colar).
+
+Roleplay (LI4.2, D5, spec imersivo §12): última linha "Roleplay ▸" com os cenários de
+``lm_session.scenarios`` como sublinhas (sempre ``SCENARIOS_MAX`` reservadas, para a geometria não
+depender da tela). Clicar num cenário fecha a lista e chama ``TopicPicker.on_scenario(id)`` (quem
+liga manda ``lm_topic {"topic":"roleplay","scenario"}``, ``scenario_payload``); clicar na linha
+Roleplay não manda nada. Chip ``ROLEPLAY // <TITLE>`` (o rótulo confirmado pelo núcleo).
 """
 from __future__ import annotations
 
@@ -37,6 +43,9 @@ PAD = 12.0
 SUB_H = 26.0             # sublinha da vaga sob Tech interview (LI2.1)
 JOBS_MAX = 3             # vagas recentes no seletor (lm_session.jobs, spec §7)
 INTERVIEW = 1            # índice da linha Tech interview em ITEMS
+ROLEPLAY = 4             # índice da linha Roleplay ▸ (a última) em ITEMS
+SCENARIOS_MAX = 4        # sublinhas de cenário sob Roleplay (os 4 da D5)
+ROLEPLAY_HEAD = "ROLEPLAY // "
 # = magi.learning.interview.contracts (o HUD não importa magi.learning)
 JOB_MIN = 200
 JOB_MAX = 12_000
@@ -59,6 +68,7 @@ ITEMS: tuple[TopicItem, ...] = (
     TopicItem("interview", "Tech interview"),
     TopicItem("game", "The game I'm playing"),
     TopicItem("news", "Today's news"),
+    TopicItem("roleplay", "Roleplay ▸"),
 )
 
 DESC = {  # linha curta sob cada tema (a dica do núcleo, se houver, entra no lugar em Game/News)
@@ -66,6 +76,7 @@ DESC = {  # linha curta sob cada tema (a dica do núcleo, se houver, entra no lu
     "interview": "mock interview: questions and follow-ups",
     "game": "whatever is running right now",
     "news": "headlines of the day, in English",
+    "roleplay": "act out a scene: pick one below",
 }
 
 LABELS = {  # = contracts.TOPIC_LABELS do núcleo (o HUD não importa magi.learning)
@@ -73,6 +84,7 @@ LABELS = {  # = contracts.TOPIC_LABELS do núcleo (o HUD não importa magi.learn
     "interview": "TECH INTERVIEW",
     "game": "THE GAME I'M PLAYING",
     "news": "TODAY'S NEWS",
+    "roleplay": "ROLEPLAY",
 }
 
 
@@ -96,7 +108,10 @@ def chip_parts(topic_msg: Mapping[str, Any] | None,
     topic = confirmed(msg, session)
     lbl = str(msg.get("label") or "") if msg.get("topic") == topic else ""
     detail = msg.get("detail") or None
-    return ("TOPIC // ", (lbl or LABELS[topic]).upper(), str(detail) if detail else None)
+    detail = str(detail) if detail else None
+    if topic == "roleplay" and lbl.upper().startswith(ROLEPLAY_HEAD):
+        return (ROLEPLAY_HEAD, lbl[len(ROLEPLAY_HEAD):].upper(), detail)   # ROLEPLAY // <TITLE>
+    return ("TOPIC // ", (lbl or LABELS[topic]).upper(), detail)
 
 
 def chip_text(topic_msg: Mapping[str, Any] | None, session: Mapping[str, Any] | None = None) -> str:
@@ -133,6 +148,27 @@ def jobs_of(session: Mapping[str, Any] | None) -> tuple[JobRow, ...]:
     return tuple(out[:JOBS_MAX])
 
 
+@dataclass(frozen=True, slots=True)
+class ScenarioRow:
+    id: str
+    title: str
+
+
+def scenarios_of(session: Mapping[str, Any] | None) -> tuple[ScenarioRow, ...]:
+    """Até ``SCENARIOS_MAX`` cenários de ``lm_session.scenarios`` (sem ``id`` = ignorado)."""
+    raw = (session or {}).get("scenarios") or ()
+    out: list[ScenarioRow] = []
+    for s in raw if isinstance(raw, Sequence) and not isinstance(raw, str) else ():
+        if isinstance(s, Mapping) and s.get("id"):
+            out.append(ScenarioRow(str(s["id"]), str(s.get("title") or s["id"])))
+    return tuple(out[:SCENARIOS_MAX])
+
+
+def scenario_payload(scenario: str) -> dict[str, str]:
+    """Campos do ``lm_topic`` que abre o cenário (spec §12)."""
+    return {"topic": "roleplay", "scenario": scenario}
+
+
 def job_check(raw: str | None) -> tuple[str | None, str | None]:
     """Recusa local do texto da vaga (R1.5, espelha ``jobtext.check`` sem normalizar):
     ``(texto, aviso)``; ``texto`` ``None`` = recusado (``aviso`` é a linha do rodapé). Acima de
@@ -156,13 +192,15 @@ def is_long_paste(text: str | None) -> bool:
 
 # ====================================================================== geometria
 
-_BASE_H = HEAD_H + ROW_H * len(ITEMS) + PAD / 2
+_BASE_H = HEAD_H + ROW_H * len(ITEMS) + PAD / 2 + SUB_H * SCENARIOS_MAX
 PASTE_ROW = len(ITEMS)   # índice de hover/clique da sublinha [ PASTE JOB ]; vagas = PASTE_ROW + 1 + k
+SCENARIO_ROW = PASTE_ROW + 1 + JOBS_MAX   # cenário k = SCENARIO_ROW + k (LI4.2)
 
 
 def list_rect(chip: Rect, bounds: Rect, with_hints: bool = False, n_jobs: int = 0) -> Rect:
     """Lista ancorada embaixo do chip, alinhada à direita dele e dentro de ``bounds`` (a coluna
-    da conversa). ``n_jobs`` vagas recentes (≤ 3) + ``[ PASTE JOB ]`` sob Tech interview."""
+    da conversa). ``n_jobs`` vagas recentes (≤ 3) + ``[ PASTE JOB ]`` sob Tech interview; os
+    ``SCENARIOS_MAX`` cenários sob Roleplay estão sempre no ``_BASE_H``."""
     w = min(LIST_W_HINT if with_hints else LIST_W, bounds.w)
     h = _BASE_H + SUB_H * (1 + max(0, min(JOBS_MAX, n_jobs)))
     x = max(bounds.left, min(chip.right - w, bounds.right - w))
@@ -184,14 +222,23 @@ def sub_rect(lst: Rect, k: int) -> Rect:
     return Rect(lst.x, lst.y + HEAD_H + ROW_H * (INTERVIEW + 1) + SUB_H * k, lst.w, SUB_H)
 
 
+def scenario_rect(lst: Rect, k: int) -> Rect:
+    """Sublinha do cenário ``k`` logo abaixo de Roleplay (a última linha)."""
+    return Rect(lst.x, row_rect(lst, ROLEPLAY).bottom + SUB_H * k, lst.w, SUB_H)
+
+
 def item_at(lst: Rect, point: Point) -> int | None:
-    """Índice em ``ITEMS``, ou ``PASTE_ROW + k`` numa sublinha da vaga."""
+    """Índice em ``ITEMS``, ``PASTE_ROW + k`` numa sublinha da vaga ou ``SCENARIO_ROW + k`` num
+    cenário."""
     for i in range(len(ITEMS)):
         if row_rect(lst, i).contains(point):
             return i
     for k in range(n_subs(lst)):
         if sub_rect(lst, k).contains(point):
             return PASTE_ROW + k
+    for k in range(SCENARIOS_MAX):
+        if scenario_rect(lst, k).contains(point):
+            return SCENARIO_ROW + k
     return None
 
 
@@ -210,6 +257,8 @@ class TopicPicker:
     auto: bool = False                 # aberta sozinha (sessão nova)
     jobs: tuple[JobRow, ...] = ()      # lm_session.jobs (LI2.1)
     on_job: Callable[[str | None], Any] | None = field(default=None, repr=False, compare=False)
+    scenarios: tuple[ScenarioRow, ...] = ()   # lm_session.scenarios (LI4.2)
+    on_scenario: Callable[[str], Any] | None = field(default=None, repr=False, compare=False)
     _session_id: str | None = None
     _you_mark: int | None = None       # última mensagem do Pedro quando abriu
 
@@ -245,6 +294,7 @@ class TopicPicker:
         before = (self.is_open, self.hover)
         session = session or {}
         self.jobs = jobs_of(session)
+        self.scenarios = scenarios_of(session)
         sid = session.get("id")
         if sid is not None and str(sid) != self._session_id:
             self._session_id = str(sid)
@@ -287,7 +337,13 @@ class TopicPicker:
             return ("none", None)
         if lst is not None and lst.contains(point):
             idx = item_at(lst, point)
-            if idx is None:
+            if idx is None or idx == ROLEPLAY:
+                return ("inside", None)   # a linha Roleplay só agrupa os cenários
+            if idx >= SCENARIO_ROW:       # cenário: a lista fecha e o HUD manda lm_topic
+                k = idx - SCENARIO_ROW
+                if k < len(self.scenarios):
+                    self.close()
+                    self.pick_scenario(self.scenarios[k].id)
                 return ("inside", None)
             if idx >= PASTE_ROW:      # sublinha da vaga: a lista fecha e o HUD manda lm_job
                 k = idx - PASTE_ROW
@@ -306,8 +362,13 @@ class TopicPicker:
         if self.on_job is not None:
             self.on_job(job_id)
 
+    def pick_scenario(self, scenario: str) -> None:
+        """Cenário de roleplay escolhido (``lm_topic`` com ``scenario_payload``)."""
+        if self.on_scenario is not None:
+            self.on_scenario(scenario)
+
     def state_key(self) -> tuple:
-        return (self.is_open, self.hover, self.jobs)
+        return (self.is_open, self.hover, self.jobs, self.scenarios)
 
 
 def last_you(messages: Sequence[Any]) -> int | None:
@@ -362,6 +423,11 @@ def paint_glyph(p, topic: str, cx: float, cy: float, col, s: float = 8.0) -> Non
         p.drawLine(P(cx - s * 0.4, cy - s * 0.25), P(cx - s * 0.4, cy + s * 0.25))
         p.drawPoint(P(cx + s * 0.35, cy - s * 0.12))
         p.drawPoint(P(cx + s * 0.6, cy + s * 0.15))
+    elif topic == "roleplay":   # claquete: corpo + ripa diagonal
+        p.drawRect(QRectF(cx - s, cy - s * 0.3, 2 * s, s * 1.2))
+        p.drawLine(P(cx - s, cy - s * 0.3), P(cx + s * 0.8, cy - s * 0.95))
+        p.drawLine(P(cx - s * 0.3, cy - s * 0.55), P(cx - s * 0.05, cy - s * 0.3))
+        p.drawLine(P(cx + s * 0.3, cy - s * 0.75), P(cx + s * 0.55, cy - s * 0.3))
     else:
         p.drawRect(QRectF(cx - s * 0.75, cy - s, s * 1.5, 2 * s))
         for k in (-0.45, 0.0, 0.45):
@@ -459,6 +525,32 @@ def paint_list(p, lst: Rect, picker: TopicPicker, current: str,
             p.fillRect(QRectF(x, r.bottom, r.right - PAD - x, 1), alpha(LINE, 160))
         if i == INTERVIEW:
             paint_subs(p, lst, picker)
+    paint_scenarios(p, lst, picker)
+
+
+def paint_scenarios(p, lst: Rect, picker: TopicPicker) -> None:
+    """Sublinhas sob Roleplay: ``▸ TÍTULO`` de cada cenário (lilás sob o mouse); sem cenários
+    (núcleo antigo), ``no scenarios`` apagado."""
+    from PySide6.QtCore import QRectF
+
+    from .main_screen import text
+    from .theme import CPU, TEXT, TEXT_DIM, alpha
+
+    x = lst.left + PAD + 30
+    if not picker.scenarios:
+        r = scenario_rect(lst, 0)
+        text(p, x, r.top + r.h / 2 + 4, "no scenarios", px=11, color_=TEXT_DIM,
+             max_w=max(0.0, r.right - PAD - x))
+        return
+    for k, sc in enumerate(picker.scenarios):
+        r = scenario_rect(lst, k)
+        hov = picker.hover == SCENARIO_ROW + k
+        if hov:
+            p.fillRect(QRectF(r.x + 1, r.y, r.w - 2, r.h), alpha(CPU, 30))
+            p.fillRect(QRectF(r.x + 1, r.y + 5, 2, r.h - 10), alpha(CPU, 150))
+        text(p, x, r.top + r.h / 2 + 4, f"▸ {sc.title}", px=12,
+             color_=CPU if hov else TEXT,
+             max_w=max(0.0, r.right - PAD - x))
 
 
 def paint_subs(p, lst: Rect, picker: TopicPicker) -> None:

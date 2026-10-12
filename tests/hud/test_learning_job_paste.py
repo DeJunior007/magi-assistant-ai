@@ -190,3 +190,13 @@ def test_short_paste_goes_to_field(hud):
     hud.clip[0] = "hello there"
     assert not key(hud, Qt.Key_V, Qt.KeyboardModifier.ControlModifier)
     assert not hud.lm_paste_ask
+
+
+def test_picker_scenario_routes_to_hud(hud):
+    """LI4.2: cenário do roleplay no seletor manda ``lm_topic`` com ``scenario``."""
+    hud.learning_entry_sync()
+    hud.wired.learning.topic_picker.pick_scenario("hotel_checkin")
+    assert hud.sent == [("lm_topic", {"topic": "roleplay", "scenario": "hotel_checkin"})]
+    hud.connected = False
+    hud.wired.learning.topic_picker.pick_scenario("doctor_visit")
+    assert hud.learning_model.log == "topic not sent — not connected"

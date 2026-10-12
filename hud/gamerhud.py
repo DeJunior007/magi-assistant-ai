@@ -1872,6 +1872,9 @@ class HUD(QWidget):
             return
         scr = self.wired.learning
         scr.topic_picker.on_job = self.learning_job_pick   # sublinhas da vaga (LI2.1)
+        scr.topic_picker.on_scenario = lambda sid: (  # cenários do roleplay (LI4.2)
+            self.bridge.send_lm("lm_topic", wtopic.scenario_payload(sid))
+            or self.learning_footer("topic not sent — not connected"))
         scr.on_paste_answer = self.learning_paste_answer   # [ YES ] [ NO ] no rodapé (LI2.5)
         s = scr.scale(self.size())
         r = scr.entry_rect()
