@@ -144,7 +144,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
 
 ## Fase Y0 — Contratos e spikes
 
-- [ ] **Y0.1 Contrato do elo** — pacote puro `magi/elo/` (sem I/O de rede): `ids.py` (ULID [DS2],
+- [x] **Y0.1 Contrato do elo** — pacote puro `magi/elo/` (sem I/O de rede): `ids.py` (ULID [DS2],
   gerar/validar/binário de 16 bytes), `mensagens.py` (`Tipo`, `Envelope`, os 12 corpos, `encode`/
   `decode`, `EloError` com `codigo`, `NOME_RE`, limites de tamanho, campo extra ignorado),
   `quadros.py` (`QuadroTipo`, `Quadro`, `encode_quadro`/`decode_quadro`, cabeçalho de 18 bytes,

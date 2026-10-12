@@ -1,0 +1,926 @@
+{
+  "$defs": {
+    "Acao": {
+      "properties": {
+        "origem": {
+          "type": "string"
+        },
+        "pedido": {
+          "$ref": "#/$defs/AcaoPedido"
+        },
+        "prazo_ms": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pedido",
+        "origem"
+      ],
+      "type": "object"
+    },
+    "AcaoOk": {
+      "properties": {
+        "resultado": {
+          "$ref": "#/$defs/AcaoResultado"
+        }
+      },
+      "required": [
+        "resultado"
+      ],
+      "type": "object"
+    },
+    "AcaoPedido": {
+      "properties": {
+        "args": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "type": "object"
+        },
+        "confirmed": {
+          "type": "boolean"
+        },
+        "intent": {
+          "type": "string"
+        },
+        "slots": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "texto": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "type": "object"
+    },
+    "AcaoResultado": {
+      "properties": {
+        "dados": {
+          "additionalProperties": {},
+          "type": "object"
+        },
+        "fala": {
+          "type": "string"
+        },
+        "motivo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "perigosa": {
+          "type": "boolean"
+        },
+        "precisa_confirmar": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "type": "object"
+    },
+    "Ack": {
+      "properties": {
+        "ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "AppInfo": {
+      "properties": {
+        "apelidos": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "nome": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "nome"
+      ],
+      "type": "object"
+    },
+    "Bate": {
+      "properties": {
+        "custos_mes_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "seq": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq"
+      ],
+      "type": "object"
+    },
+    "CardElo": {
+      "properties": {
+        "nivel": {
+          "type": "string"
+        },
+        "texto": {
+          "type": "string"
+        },
+        "titulo": {
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "titulo"
+      ],
+      "type": "object"
+    },
+    "Confirma": {
+      "properties": {
+        "descricao": {
+          "type": "string"
+        },
+        "expira_em": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "origem": {
+          "type": "string"
+        },
+        "pedido": {
+          "type": "string"
+        },
+        "resposta": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "pedido"
+      ],
+      "type": "object"
+    },
+    "Erro": {
+      "properties": {
+        "codigo": {
+          "type": "string"
+        },
+        "msg": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "codigo"
+      ],
+      "type": "object"
+    },
+    "Estado": {
+      "properties": {
+        "tvs": {
+          "items": {
+            "$ref": "#/$defs/EstadoTv"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "EstadoTv": {
+      "properties": {
+        "app": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "driver": {
+          "type": "string"
+        },
+        "entrada": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "ligada": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mudo": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nome": {
+          "type": "string"
+        },
+        "online": {
+          "type": "boolean"
+        },
+        "visto": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "volume": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "nome",
+        "driver",
+        "online"
+      ],
+      "type": "object"
+    },
+    "Evento": {
+      "properties": {
+        "proativo": {
+          "type": "boolean"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resumo": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer"
+        },
+        "tipo": {
+          "$ref": "#/$defs/EventoTipo"
+        },
+        "titulo": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "seq",
+        "tipo",
+        "titulo"
+      ],
+      "type": "object"
+    },
+    "EventoTipo": {
+      "enum": [
+        "tarefa_pronta",
+        "tarefa_falhou",
+        "monitor",
+        "lembrete",
+        "noticia_bomba",
+        "backup_falhou",
+        "confirmacao",
+        "dispositivo"
+      ]
+    },
+    "Ola": {
+      "properties": {
+        "apps": {
+          "items": {
+            "$ref": "#/$defs/AppInfo"
+          },
+          "type": "array"
+        },
+        "caps": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "retomar_desde": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tipo": {
+          "$ref": "#/$defs/TipoDispositivo"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tvs": {
+          "items": {
+            "$ref": "#/$defs/TvInfo"
+          },
+          "type": "array"
+        },
+        "versao": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tipo",
+        "versao"
+      ],
+      "type": "object"
+    },
+    "ResumoNuvem": {
+      "properties": {
+        "restam": {
+          "type": "integer"
+        },
+        "turnos": {
+          "items": {
+            "$ref": "#/$defs/TurnoNuvem"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "turnos"
+      ],
+      "type": "object"
+    },
+    "TipoDispositivo": {
+      "enum": [
+        "pc",
+        "casa",
+        "celular",
+        "mcp"
+      ]
+    },
+    "Turno": {
+      "properties": {
+        "audio": {
+          "type": "boolean"
+        },
+        "dispositivo": {
+          "type": "string"
+        },
+        "satelite": {
+          "type": "string"
+        },
+        "texto": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "turno": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "turno"
+      ],
+      "type": "object"
+    },
+    "TurnoFim": {
+      "properties": {
+        "audio": {
+          "type": "boolean"
+        },
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/CardElo"
+          },
+          "type": "array"
+        },
+        "erro": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expressao": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fala": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "texto": {
+          "type": "string"
+        },
+        "turno": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "turno",
+        "ok"
+      ],
+      "type": "object"
+    },
+    "TurnoNuvem": {
+      "properties": {
+        "dispositivo": {
+          "type": "string"
+        },
+        "ferramentas": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "texto_resposta": {
+          "type": "string"
+        },
+        "texto_usuario": {
+          "type": "string"
+        },
+        "ts": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "uid",
+        "ts",
+        "dispositivo",
+        "texto_usuario",
+        "texto_resposta"
+      ],
+      "type": "object"
+    },
+    "TvInfo": {
+      "properties": {
+        "apelidos": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "apps": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "caps": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "driver": {
+          "type": "string"
+        },
+        "entradas": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "nome": {
+          "type": "string"
+        },
+        "padrao": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "nome",
+        "driver"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "magi-elo-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "t": {
+            "const": "ola"
+          }
+        },
+        "required": [
+          "t"
+        ]
+      },
+      "then": {
+        "properties": {
+          "corpo": {
+            "$ref": "#/$defs/Ola"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "t": {
+            "const": "bate"
+          }
+        },
+        "required": [
+          "t"
+        ]
+      },
+      "then": {
+        "properties": {
+          "corpo": {
+            "$ref": "#/$defs/Bate"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "t": {
+            "const": "turno"
+          }
+        },
+        "required": [
+          "t"
+        ]
+      },
+      "then": {
+        "properties": {
+          "corpo": {
+            "$ref": "#/$defs/Turno"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "t": {
+            "const": "turno_fim"
+          }
+        },
+        "required": [
+          "t"
+        ]
+      },
+      "then": {
+        "properties": {
+          "corpo": {
+            "$ref": "#/$defs/TurnoFim"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "t": {
+            "const": "acao"
+          }
+        },
+        "required": [
+          "t"
+        ]
+      },
+      "then": {
+        "properties": {
+          "corpo": {
+            "$ref": "#/$defs/Acao"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "t": {
+            "const": "acao_ok"
+          }
+        },
+        "required": [
+          "t"
+        ]
+      },
+      "then": {
+        "properties": {
+          "corpo": {
+            "$ref": "#/$defs/AcaoOk"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "t": {
+            "const": "estado"
+          }
+        },
+        "required": [
+          "t"
+        ]
+      },
+      "then": {
+        "properties": {
+          "corpo": {
+            "$ref": "#/$defs/Estado"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "t": {
+            "const": "evento"
+          }
+        },
+        "required": [
+          "t"
+        ]
+      },
+      "then": {
+        "properties": {
+          "corpo": {
+            "$ref": "#/$defs/Evento"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "t": {
+            "const": "confirma"
+          }
+        },
+        "required": [
+          "t"
+        ]
+      },
+      "then": {
+        "properties": {
+          "corpo": {
+            "$ref": "#/$defs/Confirma"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "t": {
+            "const": "resumo_nuvem"
+          }
+        },
+        "required": [
+          "t"
+        ]
+      },
+      "then": {
+        "properties": {
+          "corpo": {
+            "$ref": "#/$defs/ResumoNuvem"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "t": {
+            "const": "ack"
+          }
+        },
+        "required": [
+          "t"
+        ]
+      },
+      "then": {
+        "properties": {
+          "corpo": {
+            "$ref": "#/$defs/Ack"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "t": {
+            "const": "erro"
+          }
+        },
+        "required": [
+          "t"
+        ]
+      },
+      "then": {
+        "properties": {
+          "corpo": {
+            "$ref": "#/$defs/Erro"
+          }
+        }
+      }
+    }
+  ],
+  "description": "Uma mensagem por frame de texto, ≤ 65536 bytes. Quadros binários de áudio: cabeçalho de 18 bytes (versao u8=1, tipo u8 1=AUDIO_IN 2=AUDIO_OUT 3=AUDIO_FIM, turno ULID 16 bytes) + carga PCM s16le ≤ 8174 bytes.",
+  "properties": {
+    "corpo": {
+      "type": "object"
+    },
+    "de": {
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "type": "string"
+    },
+    "para": {
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+      "type": "string"
+    },
+    "resp": {
+      "anyOf": [
+        {
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "t": {
+      "enum": [
+        "ola",
+        "bate",
+        "turno",
+        "turno_fim",
+        "acao",
+        "acao_ok",
+        "estado",
+        "evento",
+        "confirma",
+        "resumo_nuvem",
+        "ack",
+        "erro"
+      ]
+    },
+    "ts": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "v": {
+      "const": 1
+    }
+  },
+  "required": [
+    "v",
+    "t",
+    "id",
+    "de",
+    "para",
+    "ts",
+    "corpo"
+  ],
+  "title": "Envelope do elo (magi/elo, spec §1)",
+  "type": "object"
+}
