@@ -346,7 +346,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
 
 ## Fase Y2 — API (spec §2)
 
-- [ ] **Y2.1 API base: tokens, pareamento, limites, auditoria e saúde** — `ayanami/api/` com
+- [x] **Y2.1 API base: tokens, pareamento, limites, auditoria e saúde** — `ayanami/api/` com
   `app.py` (`criar_app(cfg, db, relogio, …)` e `app` do `uvicorn`; inclui os roteadores de uma lista
   fixa de módulos; monta `/app` chamando `montar_pwa(app)` de `ayanami/pwa_estatico.py` (P1.1) por
   import preguiçoso — módulo ausente ou diretório `ayanami/pwa/` inexistente → não monta e loga
@@ -1168,3 +1168,20 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   `Ack(ids=…)`), `CustosPc(core, cliente).rodar()/total_mes()` (o `Bate` usa `total_mes()` ou, sem
   ele, o gasto do `Budget` local relido a cada 60 s). (5) Fora do *Escreve*:
   `tests/hud/test_overlay_install.py::test_templates` falha no working tree (não é desta tarefa).
+- **Y2.1:** (1) Stubs por `auth.rota_stub(router, método, caminho, dono)` (autentica pela linha de
+  `ESCOPO_DE_ROTA` e dá `501`); o `/ws` é um `GET` HTTP no stub — a Y2.2 troca por rota WebSocket
+  sem mexer na tabela. `/mcp` fica fora da tabela (verificador próprio da Y5.1). (2) Ganchos no
+  `app.state.ctx` (`Contexto`): `auth.ao_revogar` (lista de `fn(Dispositivo)`, chamada na revogação
+  pela API), `extras` (hub da Y2.2; `extras["online"]` = `() -> dict` substitui o `online` do
+  `/saude`), `ciclo` (fábricas de `AsyncContextManager` que o lifespan abre: a Y5.1 põe
+  `mcp.session_manager.run` e faz `app.mount("/mcp", …)`). (3) `ayanami dispositivo revogar` roda
+  noutro processo: o REST recusa em ≤ 5 s pelo TTL do cache, mas fechar WS/SSE na hora precisa de
+  sinal entre processos (NOTIFY ou varredura de `revogado`) — decisão da Y2.2. (4) `/saude`: `ok` =
+  banco ok e `faltando` vazio; `workers` por nome da fila (`workers_batimento`); `failed_24h` lê
+  `procrastinate_events` (conferir o esquema na Y3.1); `restic` = `max(backups.enviado)`; `online`
+  do `pc`/`casa` por `dispositivos.visto` dentro de `offline_apos_s`, celulares por `ultimo_uso`.
+  (5) FastAPI 0.143 inclui roteadores de forma preguiçosa (`app.routes` só mostra
+  `_IncludedRouter`): teste de rotas lê `mod.router.routes`. (6) Pareamento: `409` não gasta o
+  código; o 10º erro dá `429 codigo_morto` e mata o código; erro em `{"erro","msg"}` também para
+  `404`/`405`/`422` (`invalido`). Fixtures em `tests/ayanami/api/conftest.py`: `fazer_app(db, **kw)`,
+  `cliente(app, token=None, ip=…)`, `db` (base nova por teste), `db_fora`, `novo_token`, `relogio`.

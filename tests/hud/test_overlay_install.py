@@ -135,7 +135,7 @@ def test_ca_o7_sem_dbus_do_kwin():
 
 def test_templates(tmp_path):
     bin_ = (SYS / "bin" / "condessa-overlay").read_text()
-    assert "^python3 .*/condessa_overlay\\.py$" in bin_
+    assert "python3(\\.[0-9]+)? [^ ]*/condessa_overlay\\.py$" in bin_  # O4.6: casa /usr/bin/python3
     assert os.access(SYS / "bin" / "condessa-overlay", os.X_OK)
     auto = (SYS / "autostart" / "condessa-overlay.desktop").read_text()
     assert "Exec=python3 @HOME@/.local/share/gamerhud/condessa_overlay.py" in auto
