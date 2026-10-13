@@ -1,0 +1,16 @@
+# magi-news-sync: o PC puxa as notícias da Ayanami (nuvem) para o magi-pg (ayanami-central spec
+# §5.2, design §8). Unit de usuário, disparada por magi-news-sync.timer. Sem [ayanami] url no
+# config.toml não faz nada (exit 0). Saída 2 = Ayanami fora, 3 = erro de banco. Template: @REPO@
+# é trocado pelo caminho real do repositório na instalação.
+[Unit]
+Description=Magi: sincronização das notícias da Ayanami
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO@
+ExecStart="@REPO@/.venv/bin/python" -m magi.elo.news_sync
+TimeoutStartSec=300
+Nice=10
+IOSchedulingClass=idle

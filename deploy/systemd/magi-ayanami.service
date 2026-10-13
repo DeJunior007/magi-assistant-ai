@@ -10,6 +10,10 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=@REPO@
+# Recaída (ayanami-central design §8, spec §5.2): com [ayanami] no config.toml, a coleta local só
+# roda se o último sync OK da nuvem tem > 6 h E há internet; saída 1 pula sem falhar. Sem
+# [ayanami] (ou com erro na checagem) sai 0 e a coleta roda como sempre.
+ExecCondition="@REPO@/.venv/bin/python" -m magi.elo.news_sync --precisa-local
 ExecStart="@REPO@/.venv/bin/magi-ayanami"
 # Cada fonte tem teto próprio; isto só segura travas inesperadas. 5 min de folga porque no boot
 # a rede ainda sobe devagar (uma rodada de 2026-10-07 estourou os 2 min antigos).

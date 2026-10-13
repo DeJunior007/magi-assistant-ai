@@ -218,3 +218,10 @@ max_age_h     = 48           # igual a [news.delivery] max_age_h
 # endereco = "127.0.0.1:10760"    # Pi: "<IP tailnet>:10760"
 # timeout_s = 2.5
 # timeout_longo_s = 10            # tv.power_on e volume absoluto
+
+# Ayanami, a nuvem da Condessa (ayanami-central spec §5.2). Sem a seção o PC roda sozinho, como
+# hoje. Com ela, magi-news-sync.timer puxa as notícias da nuvem a cada 15 min e a coleta local
+# (magi-ayanami.timer) só roda se a nuvem ficar > 6 h sem entregar. O token do PC fica no keyring
+# (serviço "magi", nome "ayanami_pc") ou em ayanami.token ao lado deste arquivo (0600), nunca aqui.
+# [ayanami]
+# url = "https://ayanami.<tailnet>.ts.net"

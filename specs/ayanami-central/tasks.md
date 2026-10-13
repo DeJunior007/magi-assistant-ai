@@ -445,7 +445,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y16 verde; `tests/news/` sem mudar asserção; coleta com provedores falsos grava itens no banco `pg` e cria `noticia_bomba` só no item urgente.
   - Paralelo: Y3.4, Y3.5, Y3.6, Y4.2
 
-- [ ] **Y3.3 `magi-news-sync` no PC e recaída do timer** — `magi/elo/news_sync.py` (`main`, cursor
+- [x] **Y3.3 `magi-news-sync` no PC e recaída do timer** — `magi/elo/news_sync.py` (`main`, cursor
   e `ultimo_ok` em `~/.local/state/magi/news_sync.json`, upsert por página numa transação no
   `magi-pg`, `delivered_at` preservado, embedding de dimensão errada → `NULL`, `PUT
   /v1/noticias/preferencias` depois do OK, `--precisa-local`, códigos de saída 0/1/2/3, internet e
@@ -1098,3 +1098,15 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   não existe vira `null` no manifesto (a Y4.2 deve tratar `null` como "não comparar"). (5) Fora do
   *Escreve*: `hud/install.sh` não instala `magi-backup.{service,timer}` (lista fixa); units não
   instaladas nem habilitadas (Y4.3).
+- **Y3.3:** (1) Fora do *Escreve*: falta a entrada `magi-news-sync = "magi.elo.news_sync:main"` no
+  `pyproject.toml` e as units novas na lista `UNIT_FILES` do `hud/install.sh`; por isso as units
+  chamam `"@REPO@/.venv/bin/python" -m magi.elo.news_sync` (o `ExecCondition` funciona sem `uv
+  sync`). (2) Helper único `magi/elo/credenciais.py` (pedido do orquestrador): `url_ayanami(cfg)`
+  (dict cru ou `Config.raw`) e `token_pc(config_dir=None, *, keyring_get=None)` — keyring
+  `magi`/`ayanami_pc` primeiro, recaída `ayanami.token` ao lado do `config.toml`. A Y6.2 usa; o
+  `magi/elo/backup.py` (Y4.1) ainda lê o arquivo sozinho: trocar pelo helper depois. (3) `NEWS_DIM`
+  lido do banco (`atttypmod` de `news_items.embedding`). Item local (sem `ayanami_uid`) que cite
+  uma crua do item da nuvem é adotado (ganha o uid, mantém `delivered_at`): a recaída não entrega
+  a mesma notícia de novo. (4) `--precisa-local` com erro inesperado ou sem `[ayanami]` sai 0
+  (coleta local); um `ImportError` do módulo sairia 1 e pularia a coleta — imports pesados são
+  locais para isso não acontecer. Falha no `PUT /v1/noticias/preferencias` só registra (exit 0).

@@ -1,0 +1,12 @@
+# Dispara magi-news-sync.service 2 min depois do boot e a cada 15 min (spec §5.2). Persistent=true
+# roda logo ao acordar se perdeu um disparo.
+[Unit]
+Description=Magi: sincronização das notícias da Ayanami a cada 15 min
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
