@@ -708,7 +708,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y37 e CA-Y38 verdes (cliente TCP em `127.0.0.1:0`, `DriverFalso`); `magi-casa servir` sobe sem `casa.toml` e sem internet; `ola` lista vazio.
   - Paralelo: C1.1b, C1.2, C1.3, C1.4
 
-- [ ] **C1.2 Driver Samsung** — `magi/casa/drivers/samsung.py` (`samsungtvws[async]` 3.0.6 +
+- [x] **C1.2 Driver Samsung** — `magi/casa/drivers/samsung.py` (`samsungtvws[async]` 3.0.6 +
   `wakeonlan` 4.0.0, spec §11.1): 8002/8001 por `ano`, `PowerState` pela REST, ligar por
   `KEY_POWER`/WOL 3× ao broadcast, desligar só com estado, `run_app` do catálogo, `KEY_HDMIn`,
   `send_text`, token do keyring (ganha) ou arquivo. Testes com REST e WS falsos; `send_magic_packet`
@@ -1185,3 +1185,14 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   código; o 10º erro dá `429 codigo_morto` e mata o código; erro em `{"erro","msg"}` também para
   `404`/`405`/`422` (`invalido`). Fixtures em `tests/ayanami/api/conftest.py`: `fazer_app(db, **kw)`,
   `cliente(app, token=None, ip=…)`, `db` (base nova por teste), `db_fora`, `novo_token`, `relogio`.
+- **C1.2:** (1) Keyring: o nome da §11.1 (`casa/<id>/samsung`) não passa no `_NAME_RE` de
+  `magi/common/secrets.py` (sem `/`); o driver usa `casa.<id>.samsung` (serviço `magi-assistant`).
+  Quem escreve o pareamento (C1.5/`magi-casa parear`) usa o mesmo nome. (2) `SamsungDriver(tv, ctx,
+  *, portas, tls, dormir, enviar_wol, ler_segredo, gravar_segredo, sessao)`: `portas` mapeia a porta
+  lógica (8002/8001) para a real (testes); `criar(tv, ctx)` usa os padrões. (3) O driver confirma
+  `power` sozinho (sonda a REST a cada 500 ms até 8 s, relógio do `ctx`), devolvendo `REDE_DESLIGADA`/
+  `STANDBY_PROFUNDO`/`SEM_MAC`; desligar já em standby → `ok` sem tecla; desligar sem REST → `OFFLINE`.
+  `mute(True/False)` e `volume(set_to=)` → `NAO_SUPORTADO` (emulação é do `Executor`).
+  (4) `_Remote.open` reescreve o da lib: a lib deixa o socket aberto quando a TV recusa
+  ("Permitir") e loga o token; aqui fecha e não loga (logger `samsungtvws` em WARNING).
+  (5) `Key.PLAY_PAUSE` → `KEY_PLAY` (Tizen não tem alterna confiável; validar na F.1).
