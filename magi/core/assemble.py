@@ -269,7 +269,9 @@ def default_agent(
     from magi.agent.tools.media import media_tools
     from magi.agent.tools.search import search_tools
     from magi.agent.tools.system import system_tools
+    from magi.agent.tools.tv import tv_tools
     from magi.agent.tools.vision import vision_tools
+    from magi.core.actions.tv import tv_actions_de
     from magi.core.espera import EsperaCfg
 
     user = getattr(getattr(providers, "config", None), "raw", None) or {}
@@ -280,6 +282,9 @@ def default_agent(
         *search_tools(providers, private_terms=(name,) if name else ()),
         *vision_tools(providers),
     ]
+    handles = getattr(registry, "handles", None)
+    if callable(handles) and handles(IntentId.TV_POWER_ON.value):  # ``[casa]`` ligado (C2.2)
+        tools += tv_tools(registry, tv_actions_de(registry))
     paralelo = EsperaCfg.from_raw(user.get("espera") if isinstance(user, dict) else None).ferramentas_paralelo
     if self_model is None:
         return GraphAgent(providers, tools, game=game, ferramentas_paralelo=paralelo)
@@ -323,6 +328,7 @@ class Core:
     game_task: asyncio.Task[Any] | None = None
     news_feedback: Any = None  # magi.news.feedback.NewsFeedback (6.11): ``cfg`` trocada na recarga (1.22)
     autofix: Any = None  # magi.maintenance.autofix.Autofix: autoconserto com o Claude Code
+    casa: Any = None  # magi.core.actions.tv.TvActions (C2.2): aquece o elo em ``start_proactive``
     _brain_args: tuple | None = None  # (config, catalog, agent) para ``revive``
     _revived_at: float = -1e9
 
@@ -367,6 +373,8 @@ class Core:
         if self.game is not None and self.game_task is None:
             self.game_task = asyncio.create_task(self.game.run())
             self.tasks.append(self.game_task)
+        if self.casa is not None:  # catálogo das TVs para o roteador (C2.2); nunca levanta
+            self.tasks.append(asyncio.create_task(self.casa.aquecer(), name="casa-aquecer"))
         if self.deps.prewarm is not None:  # clientes HTTP prontos já na subida (1.23)
             self.tasks.append(asyncio.create_task(self.deps.prewarm(), name="prewarm"))
 
@@ -380,6 +388,8 @@ class Core:
         speaker = self.deps.speaker
         if speaker is not None and hasattr(speaker, "aclose"):
             await speaker.aclose()
+        if self.casa is not None:
+            await self.casa.aclose()
         for task in self.tasks:
             task.cancel()
         if self.tasks:
@@ -527,6 +537,7 @@ async def assemble(
     core.deps.router = LocalRouter(catalog)
     core.deps.corrector = core.corrections
     found = handlers(catalog, hud_sink, core.corrections)
+    found = _wire_casa(core, config, found)  # TVs pela magi-casa (ayanami-central C2.2)
     found = _wire_memory_store(core, found)
     found = _wire_mood(core, config, hud_sink, found)
     found = _wire_news_query(core, found)
@@ -553,6 +564,29 @@ async def assemble(
     core.deps.revive = core.revive
     core._brain_args = (config, catalog, agent)
     return core
+
+
+def _wire_casa(core: Core, config: Config, found: list[ActionHandler]) -> list[ActionHandler]:
+    """``TvActions`` (C2.2) com ``[casa] ligado``: o ``ola`` da casa troca ``LocalRouter.casa``.
+    Sem a ``magi-casa`` no ar, os ``tv.*`` respondem "A casa está fora do ar." (nunca travam)."""
+    cfg = getattr(config, "casa", None)
+    if cfg is None or not cfg.ligado or any(IntentId.TV_POWER_ON.value in h.intents for h in found):
+        return found
+    from magi.core.actions.tv import TvActions
+
+    router = core.deps.router
+
+    def ao_catalogo(cat: Any) -> None:
+        if router is not None:
+            router.casa = cat
+
+    # ``casa.token`` mora ao lado do ``config.toml`` (~/.config/magi); config sem arquivo (testes)
+    # não aponta para o token real.
+    pasta = config.source.parent if getattr(config, "source", None) is not None else config.paths.data_dir
+    core.casa = TvActions(cfg.host, cfg.port, pasta / "casa.token", timeout_s=cfg.timeout_s,
+                          timeout_longo_s=cfg.timeout_longo_s, ao_catalogo=ao_catalogo,
+                          casa_toml=pasta / "casa.toml")
+    return [*found, core.casa]
 
 
 async def _wire_brain(core: Core, config: Config, catalog: GameCatalog, agent: Any) -> None:

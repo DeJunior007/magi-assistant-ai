@@ -795,7 +795,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y51 verde; `uv run pytest -q tests/core/test_router.py tests/core/test_i18n.py` continua verde (nenhuma frase antiga muda de intent); `ruff` limpo.
   - Paralelo: C1.x, P1.x
 
-- [ ] **C2.2 `TvActions`, ferramentas `tv_*` e a pergunta "qual TV?"** — `magi/core/actions/tv.py`
+- [x] **C2.2 `TvActions`, ferramentas `tv_*` e a pergunta "qual TV?"** — `magi/core/actions/tv.py`
   (`TvActions` no molde do `RgbActions`: uma conexão TCP JSON-lines com a casa, `ola` com
   `casa.token`, `acao` → `acao_ok`, timeouts 2,5 s / 10 s, `motivo` → `SAY_TV_*`, casa recusando →
   "A casa está fora do ar." sem tentar a Ayanami; o `ola` da casa alimenta o `CasaCatalogo` do
@@ -983,6 +983,18 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   `magi/core/router.py`; a C2.2 troca `LocalRouter.casa` quando chega o `ola` (as entradas-apelido
   não vêm no `TvInfo`: a C2.2 decide de onde tirá-las). Em en-GB, "Mais de uma TV: {nome}?" sai
   com os nomes em português ("sala ou quarto"); o "ou" não é traduzido.
+
+- **C2.2:** (1) Contrato com a casa (C1.1/C1.1b conferem): `TV_AMBIGUA` pode trazer
+  `dados["candidatos"]` (ids) — sem isso a pergunta lista todas as TVs do `ola`; a pergunta usa o
+  1º apelido (ou o nome). (2) Apelidos de entrada: lidos do `casa.toml` ao lado do `config.toml`
+  (`[[tv]] entradas`) quando a casa é `127.0.0.1`, e de itens `"apelido=hdmiN"` em `TvInfo.entradas`
+  (para o Pi, D10b, a casa pode mandar assim). (3) `casa.token` é lido ao lado do `config.toml`
+  (`~/.config/magi/`); sem ele o `TvActions` nem conecta e diz "A casa está fora do ar.".
+  (4) `tv.power_off` sem `confirmed` é confirmado no PC antes de ir à casa. (5) O `GraphAgent`
+  lê `spec` das ferramentas na montagem: a descrição com os nomes das TVs só aparece se o `ola`
+  chegou antes (o aquecimento roda em `start_proactive`); a Y6.3 pode remontar. (6) A pergunta
+  "qual TV?" usa `ARG_ESCOLHA` (função no `on_confirm.args`) + `ARG_QUIET`; o caminho "sim
+  atrasado" (`_stale`) não resolve escolha de TV.
 
 - **Y0.2:** (1) `ayanami-ml` fixa `kokoro-onnx==0.6.1` e `onnxruntime==1.30.0` (as do PC), não
   `0.4.7`/`1.31.0`: o `uv.lock` é um só e os pinos da spec rebaixariam o Kokoro do PC (audiolivro).

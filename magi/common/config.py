@@ -65,12 +65,48 @@ class PathsConfig:
 
 
 @dataclass(frozen=True)
+class CasaConfig:
+    """``[casa]`` (ayanami-central §16.1): elo local com a ``magi-casa`` (TVs)."""
+
+    ligado: bool = True
+    host: str = "127.0.0.1"
+    port: int = 10760
+    timeout_s: float = 2.5
+    timeout_longo_s: float = 10.0  # tv.power_on e volume absoluto
+
+    @classmethod
+    def from_raw(cls, raw: Any) -> CasaConfig:
+        if not raw:
+            return cls()
+        if not isinstance(raw, dict):
+            raise ConfigError("[casa] deve ser uma tabela")
+        _reject_secrets("casa", raw)
+        host, port = cls.host, cls.port
+        endereco = str(raw.get("endereco", "")).strip()
+        if endereco:
+            h, sep, p = endereco.rpartition(":")
+            if not sep or not h or not p.isdigit() or not 0 < int(p) < 65536:
+                raise ConfigError(f"[casa] endereco inválido: {endereco!r} (use \"host:porta\")")
+            host, port = h.strip("[]"), int(p)
+        try:
+            t = float(raw.get("timeout_s", cls.timeout_s))
+            tl = float(raw.get("timeout_longo_s", cls.timeout_longo_s))
+        except (TypeError, ValueError) as e:
+            raise ConfigError("[casa] timeout_s/timeout_longo_s devem ser números") from e
+        if t <= 0 or tl <= 0:
+            raise ConfigError("[casa] timeouts devem ser positivos")
+        ligado = bool(raw.get("ligado", True))
+        return cls(ligado=ligado, host=host, port=port, timeout_s=t, timeout_longo_s=tl)
+
+
+@dataclass(frozen=True)
 class Config:
     providers: dict[str, ProviderConfig]
     tasks: dict[str, TaskConfig]
     budget: BudgetConfig = BudgetConfig()
     database: DatabaseConfig = DatabaseConfig()
     paths: PathsConfig = PathsConfig()
+    casa: CasaConfig = CasaConfig()
     source: Path | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
@@ -166,6 +202,7 @@ def parse_config(data: dict[str, Any], source: Path | None = None) -> Config:
         budget=budget,
         database=database,
         paths=paths,
+        casa=CasaConfig.from_raw(data.get("casa")),
         source=source,
         raw=data,
     )

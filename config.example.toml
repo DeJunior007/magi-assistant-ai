@@ -209,3 +209,12 @@ ignored_after = 3
 grace_h       = 2            # entrega mais nova que isso ainda não conta como ignorada
 recent_h      = 6            # "não curti" vale para a notícia entregue até essas horas atrás
 max_age_h     = 48           # igual a [news.delivery] max_age_h
+
+# TVs pela magi-casa (ayanami-central C2.2, spec §16.1). Sem a seção: ligado, 127.0.0.1:10760.
+# Sem a magi-casa rodando (ou sem ~/.config/magi/casa.token) a Condessa só diz
+# "A casa está fora do ar.". Apelidos de entrada ("console" = hdmi2) vêm do casa.toml.
+# [casa]
+# ligado = true
+# endereco = "127.0.0.1:10760"    # Pi: "<IP tailnet>:10760"
+# timeout_s = 2.5
+# timeout_longo_s = 10            # tv.power_on e volume absoluto

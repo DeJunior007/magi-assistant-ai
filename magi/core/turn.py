@@ -83,6 +83,7 @@ from magi.common.contracts import (
     WakeSource,
     check_transition,
 )
+from magi.core.actions.tv import ARG_ESCOLHA as ARG_TV_ESCOLHA
 from magi.core.compose import compose, subtitle
 from magi.core.early import EARLY_SPEECH, THINK_HUD, EarlySpeech
 from magi.core.espera import Catalogo, Cota, EsperaCfg, demorado, desabafo, escolher, topico
@@ -1071,6 +1072,10 @@ class TurnMachine:
         self, audio: bytes, fmt: PcmFormat, pending: ActionRequest, ctx: TurnContext, *, stream: Any = None
     ) -> None:
         transcript = await self.pipeline.transcribe(audio, fmt, ctx, stream=stream)
+        escolha = pending.args.get(ARG_TV_ESCOLHA)  # "Mais de uma TV: sala ou quarto?" (C2.2)
+        if callable(escolha) and not transcript.is_empty and (req := escolha(transcript.final)) is not None:
+            await self._deliver(await self.pipeline.run_action(req))
+            return
         answer = self.pipeline.confirm_answer(transcript, ctx, pending.args.get(ARG_ALSO_YES, ()))
         if _quiet(pending) and answer is None and not self.pipeline.is_no(transcript, ctx):
             if transcript.is_empty:  # ruído: como silêncio, dorme calado
