@@ -292,7 +292,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: teste estático verde; runbook cobre os passos da Y1.5/Y1.6 na ordem; nenhum segredo nem host real no repo.
   - Paralelo: Y1.4, Y2.x, Y3.x
 
-- [ ] **Y1.3 Vigia e Telegram** — `deploy/ayanami/vigia/vigia.py` (só biblioteca padrão, roda no
+- [x] **Y1.3 Vigia e Telegram** — `deploy/ayanami/vigia/vigia.py` (só biblioteca padrão, roda no
   python3 do host): `/saude` (3 falhas seguidas), `df` > 85%, worker sem batimento > 5 min,
   snapshot `pc`/`ayanami` > 36 h, backup `falhou`, restore vermelho (tudo lido do JSON da `/saude`
   e de `df`), Telegram por `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` lidos do `.env`, anti-repetição
@@ -1196,3 +1196,9 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   (4) `_Remote.open` reescreve o da lib: a lib deixa o socket aberto quando a TV recusa
   ("Permitir") e loga o token; aqui fecha e não loga (logger `samsungtvws` em WARNING).
   (5) `Key.PLAY_PAUSE` → `KEY_PLAY` (Tizen não tem alterna confiável; validar na F.1).
+- **Y1.3:** (1) A `/saude` (Y2.1/Y4.2) ainda não expõe "job de backup `falhou`" nem "restore de
+  teste vermelho": o vigia lê, se vierem, `backup_falhou: true` e `restore_teste: {"verde": false,
+  …}` no JSON; o dono da `/saude` acrescenta esses campos. (2) `ultimo_backup.pc/ayanami` nulo conta
+  como atrasado (alerta 1×/6 h até o 1º backup). (3) Só `/saude` sem `200`/JSON conta como falha;
+  `200` com `ok=false` (segredo faltando) não alerta. (4) Sem `docker`: tudo vem da `/saude` e do
+  `statvfs` (`/` e `/opt/ayanami/dados`). Instalar as units fica na Y1.6 (Pedro).

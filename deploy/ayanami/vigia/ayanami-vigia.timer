@@ -1,0 +1,12 @@
+# Vigia da Ayanami a cada 1 min (Y1.3; spec §7.3).
+[Unit]
+Description=Vigia da Ayanami a cada minuto
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=ayanami-vigia.service
+
+[Install]
+WantedBy=timers.target
