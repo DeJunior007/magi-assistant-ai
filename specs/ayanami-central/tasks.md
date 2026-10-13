@@ -760,7 +760,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y46, CA-Y47, CA-Y48 e CA-Y49 (caplog de descobrir → parear → 20 ações com drivers falsos) verdes; nenhum socket multicast aberto nos testes.
   - Paralelo: C2.x, P1.x; **não** com C1.6 (`servir.py`; a C1.6 vem depois)
 
-- [ ] **C1.6 Conexão de saída à Ayanami e recursos** — `magi/casa/saida.py`: `wss://<ayanami>/ws`
+- [x] **C1.6 Conexão de saída à Ayanami e recursos** — `magi/casa/saida.py`: `wss://<ayanami>/ws`
   com o token `casa` (`~/.config/magi/ayanami-casa.token` ou keyring), só se `[casa] ayanami`
   estiver preenchido; `ola` (sem `token`) → `bate` 10 s → `estado` a cada mudança e a cada 60 s;
   reconexão, recaída `/v1/longpoll` e 401 (para e segue local) **pelo `EloCliente` de
@@ -768,7 +768,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   `ola`/`estado` e despacho de `acao` remota para a mesma fila por TV (`origem=ayanami` no log). Também o teste de recursos (`pytest -m lento`). *(R1.7, R6.7, R6.8,
   spec §10.3)*
   - Lê: design §5.6 (*Pela Ayanami*); spec §1.1 (envelope, `bate`), §2.2 (linhas `/ws` e `/v1/longpoll`), §10.3, §10.1 (*Meta*), §16.2 (CA-Y35, CA-Y39, CA-Y58); assinaturas de `magi/casa/servir.py`, `fila.py`, `emula.py`; `magi/elo/cliente.py` (Y2.4) só as assinaturas
-  - Escreve: `magi/casa/saida.py`, `magi/casa/servir.py` (só ligar a saída quando configurada), `tests/casa/test_saida.py`, `tests/casa/test_recursos.py` (marcado `lento`)
+  - Escreve: `magi/casa/saida.py`, `magi/casa/servir.py` (só ligar a saída quando configurada e recriar o driver quando o IP muda), `magi/casa/local.py` (só `dados["candidatos"]`, sobra da C1.1b), `tests/casa/test_saida.py`, `tests/casa/test_recursos.py` (marcado `lento`)
   - Depende de: C1.1b, C1.1c, C1.5 (`servir.py` em sequência), Y2.4 (`EloCliente`); a integração com a API real depende de Y2.2 e fica para a prova ao vivo (P1.S4/F.1) — os CA usam WS falso
   - Orçamento: ~45k
   - Pronto: CA-Y39 e CA-Y35 (caminho da WS) verdes com servidor WS falso; CA-Y58 rodado uma vez com `-m lento` e o número anotado no commit (≤ 1% CPU, ≤ 80 MB RSS).
@@ -1232,6 +1232,23 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   (5) O filtro do log (C1.1) descarta campos chamados `chave`: a descoberta loga `ip`/`tv`. As fontes
   reais `ssdp_real`/`mdns_real` nunca rodam nos testes: validar na C1.S2/F.1. (6) Fora do *Escreve*:
   `tests/casa/test_contrato.py` (a asserção do stub `testar` esperava "dono: C1.5").
+- **C1.6:** (1) `magi/casa/saida.py`: `SaidaAyanami(url, token, executor, estado, catalogo, *, versao,
+  periodo_estado_s=60, relogio, dormir, agora, **elo_kw)` embrulha o `EloCliente` (Y2.4): `ola` com
+  `tvs`/`apps` remontado a cada conexão, `acao` → mesmo `Executor` (`rodar(req, origem="ayanami")`
+  quando aceita) → `acao_ok`, `estado` vazio → `estado`, `estado` empurrado a cada mudança (ouvinte do
+  `EstadoCasa`) e a cada 60 s; token revogado → `ayanami_token_revogado` (log da casa) e a API local
+  segue. Token: `ler_token()` lê `ayanami-casa.token` (recusa mais aberto que `0600`) e depois o
+  keyring `casa.ayanami` (sem `/`, como na C1.2). O `servir` só liga com `[casa] ayanami` + token
+  (sem token: `ayanami_sem_token`); `servir_async(saida_kw=…)` repassa ao `EloCliente` (testes).
+  Recaída `/v1/longpoll` precisa de `http` (`httpx.AsyncClient`) no `EloCliente`: o `servir` ainda não
+  passa um, então hoje a casa fica só na WS — ligar na P1.S4/F.1 junto com a API real (Y2.2).
+  (2) Sobras da C1.1b/C1.5 feitas: `dados["candidatos"]` (lista de ids) no `local.resultado_de_res`
+  quando `TV_AMBIGUA` (vale para a API local e a WS); `servir.trocar_drivers` recria o driver da TV
+  cujo IP/MAC mudou (gancho `ao_mudar` da revalidação), fecha o antigo e troca no `Executor` (mesmo
+  dict, `executor.cfg = novo`) e no `EstadoCasa.drivers`. (3) CA-Y58 (`pytest -m lento
+  tests/casa/test_recursos.py`, processo próprio, 3 `DriverFalso`, 600 s): CPU médio 0,003%, RSS 34,4 MB (meta ≤ 1% e ≤ 80 MB). O marcador `lento`
+  não está registrado no `pyproject.toml` (fora do *Escreve*): dá `PytestUnknownMarkWarning`; o teste
+  pula sozinho sem `-m lento`. Registrar em `[tool.pytest.ini_options] markers` numa limpeza.
 - **Y3.1:** (1) Contrato do corpo: `async def corpo(deps, contexto, **kwargs) -> dict | None`; o
   `Deps` chega por `run_worker_async(additional_context={"deps": deps})` e `fila.registrar` embrulha
   com `asyncio.timeout` (estouro → `PrazoEstourado`, nunca repetido pela `fila.Repeticao`). Jobs de

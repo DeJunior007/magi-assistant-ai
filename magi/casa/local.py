@@ -32,6 +32,7 @@ from typing import Final, Protocol
 from magi.casa import log
 from magi.casa.config import caminho_token_local
 from magi.casa.driver import Motivo, ResTv
+from magi.casa.emula import candidatos
 from magi.casa.estado import EstadoCasa
 from magi.common.contracts import ActionRequest, TurnContext, WakeSource
 from magi.elo.converte import request_de_pedido
@@ -99,16 +100,19 @@ def prazo_s(acao: Acao) -> float:
 def resultado_de_res(res: ResTv, tv: str | None) -> AcaoResultado:
     """``ResTv`` → ``AcaoResultado`` (§10.2 passo 3): ``fala`` vazia, ``dados`` com tv/emulado/…"""
     tv_id = res.estado.id if res.estado is not None else tv
+    dados: dict[str, object] = {
+        "tv": tv_id,
+        "emulado": res.emulado,
+        "detalhe": res.detalhe[:MAX_ERRO_MSG],
+        "estado": res.estado,
+    }
+    if cands := candidatos(res):  # C1.6 (sobra da C1.1b): a pergunta lista só as candidatas
+        dados["candidatos"] = list(cands)
     return AcaoResultado(
         ok=res.ok,
         motivo=res.motivo.value if res.motivo is not None else None,
         precisa_confirmar=res.motivo == Motivo.PRECISA_CONFIRMAR,
-        dados={
-            "tv": tv_id,
-            "emulado": res.emulado,
-            "detalhe": res.detalhe[:MAX_ERRO_MSG],
-            "estado": res.estado,
-        },
+        dados=dados,
     )
 
 
