@@ -432,7 +432,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y13, CA-Y14, CA-Y15 verdes; `POST /v1/tarefas` repetido com a mesma `chave` → `200` com a existente; limpeza respeita os prazos da §3 (`pg`, relógio falso); `ruff` limpo.
   - Paralelo: Y2.2, Y2.3, Y6.1
 
-- [ ] **Y3.2 Notícias na nuvem** — `ayanami/workers/noticias.py` (`noticias.coletar` chamando
+- [x] **Y3.2 Notícias na nuvem** — `ayanami/workers/noticias.py` (`noticias.coletar` chamando
   `magi.news.__main__.run_once(config, dsn)` com `Config` de `[noticias]`, recusa `dim` ≠ do PC,
   `free_tier` só para texto público, `evento noticia_bomba` pelo critério de
   `magi/core/proactive/news.py`; `progresso.atualizar`), `ayanami/api/noticias.py`
@@ -1315,3 +1315,18 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   início de cada `stt.transcrever` (`stt.limpar_textos`); a `limpeza.diaria` pode chamá-la também.
   (6) `embeddings.lote(textos, tipo)` devolve os vetores em `dados.vetores`; quem grava em
   `vector(384)` fica para a A8. Modelos em `/dados/modelos/{whisper,fastembed}`.
+- **Y3.2:** (1) `magi/news/__main__.py` não mudou: `run_once(config, dsn)` já aceita qualquer DSN e o
+  `PgNewsRepo` só usa as tabelas da `002`. O DSN do job vem de `deps.extras["dsn"]` (testes) ou
+  `db.dsn_padrao()`, com `recusar_magi`. (2) `[noticias]` → `Config`: `fontes` = nomes das fontes
+  padrão (as outras ficam `enabled = false`); `embedder = {provider, model, free_tier, keys, …}` →
+  `[providers.<p>]` + `[tasks.news]`; o `magi-news` já recusa provedor que não seja `free_tier`. As
+  chaves vêm do keyring do contêiner: falta decidir como o `.env` chega ao `Registry` (Y6.1/Y3.4).
+  (3) `noticia_bomba`: `level = 'bomba'`, tocado nesta coleta (`atualizado ≥ clock_timestamp()` do
+  início), `first_seen` ≤ 48 h, obra não largada, uma vez por `ref = noticia:<uid>`; manchete sem
+  spoiler (`safe_title` ou "Tem notícia de X com spoiler", sem resumo). Evento por
+  `tarefas.criar_evento` (a Y2.3 pode trocar por `ayanami.eventos`). (4) Cursor com microssegundos
+  (`…T20:00:00.000500Z|8812`), opaco para o PC. Risco conhecido: linha gravada por transação longa
+  com `atualizado` anterior a um cursor já servido seria pulada (o `PgNewsRepo` é autocommit, então
+  hoje não acontece). (5) `PUT /v1/noticias/preferencias`: `franchise_prefs` do PC substitui a da
+  Ayanami; `progress` por *upsert* sem regredir (`updated_at` mais novo fica). (6) `progresso.atualizar`
+  = `update_if_due` + `score_pending` com o relógio do `Deps`, sem `Registry`.
