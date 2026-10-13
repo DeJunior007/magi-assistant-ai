@@ -199,7 +199,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y11 e CA-Y12 verdes no `ayanami-pg-teste`; sem `AYANAMI_TEST_DSN` os testes `pg` pulam e o resto passa; `tests/memory/` verde (marcador `db` como hoje); o fixture recusa a porta 54329.
   - Paralelo: Y1.1, Y1.3, Y4.1, Y0.7
 
-- [ ] **Y0.4 Spike S5 — `procrastinate` 3.10** — script local contra o `ayanami-pg-teste`:
+- [x] **Y0.4 Spike S5 — `procrastinate` 3.10** — script local contra o `ayanami-pg-teste`:
   `retry_stalled_jobs` (nome exato), `cancel_job_by_id_async(abort=True)` com parada ≤ 10 s em
   tarefa async e síncrona (`should_abort`), `queueing_lock` + `AlreadyEnqueued`, `on_job_status`,
   job de 30 min sobrevivendo a reinício do worker (simulado: matar e subir o processo do worker
@@ -1078,3 +1078,9 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   (3) `mute(True/False)` com mudo desconhecido alterna e devolve `emulado=True, detalhe="alternado"`.
   (4) `power` espera a confirmação pelo callback `is_on` até 8 s; sem ligar → `STANDBY_PROFUNDO`.
   (5) Construtor aceita `fabrica`, `dormir` e `agora` injetados (testes sem rede).
+- **Y0.4:** (1) A linha DS9 do resumo da spec (linha ~48, fora do trecho da Y0.4) ainda diz "cron
+  segue o TZ"; o S5 mostrou que não: os crons da §4.2 já estão em UTC (local + 3 h); falta trocar o
+  texto da DS9. (2) Para a Y1.x (compose): `stop_grace_period` ≥ 35 s nos três workers (graceful de
+  30 s da §4.1). (3) Para a Y3.1: `fila.reanimar` = `get_stalled_jobs(seconds_since_heartbeat=300)` +
+  `retry_job`; estado de `tarefas` por `worker_middleware` (não há `on_job_status`); detalhes em
+  `docs/perf/ayanami-s5.md`.

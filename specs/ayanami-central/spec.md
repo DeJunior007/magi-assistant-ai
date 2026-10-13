@@ -544,8 +544,15 @@ pela API (só `defer`) e pelos workers. Testes trocam por `InMemoryConnector`.
 `ayanami worker <fila>` = `app.run_worker_async(queues=[fila], concurrency=n,
 shutdown_graceful_timeout=30, listen_notify=True)` + tarefa de fundo que grava
 `workers_batimento` a cada 30 s. Job em `doing` de worker morto (sem batimento > 5 min) volta a
-`todo` pelo `retry_stalled_jobs` da lib, chamado pelo job `fila.reanimar` a cada 5 min (S5
-confirma o nome da API na 3.10).
+`todo` pelo job `fila.reanimar` a cada 5 min. **S5 (Y0.4):** a 3.10 **não tem**
+`retry_stalled_jobs`; o `fila.reanimar` faz `for j in await app.job_manager.get_stalled_jobs(
+seconds_since_heartbeat=300): await app.job_manager.retry_job(j)` (usa o batimento da própria lib,
+`procrastinate_workers`, a cada `update_heartbeat_interval=10` s; o worker com `kill -9` deixa o job
+em `doing` e ele volta em `todo` → roda de novo do começo, `attempts` +1). Parada limpa
+(`SIGTERM`/`docker stop`) com `shutdown_graceful_timeout=30`: após 30 s o job é abortado com motivo
+"shutdown" e, se a tarefa tem `retry`, volta sozinho a `todo` gastando uma tentativa (sem `retry`
+fica `aborted`): tarefas longas (§4.2, 30–90 min) precisam ser retomáveis e ter `a` ≥ 2. O
+`docker stop` do Compose precisa de `stop_grace_period` ≥ 35 s nos workers.
 
 ### 4.2 Tarefas registradas
 
@@ -562,16 +569,23 @@ s). Prioridade [DS4]: `20` pedido do Pedro, `10` monitor/lembrete, `0` lote e ma
 | `noticias.coletar` | agendada | cron `0 */2 * * *` | 45 min | 2 / 300 | `lock="noticias"` | §5.1 |
 | `progresso.atualizar` | agendada | cron `15 */6 * * *` | 10 min | 2 / 300 | `lock="progresso"` | AniList/Steam (só local, nunca Gemini) |
 | `backup.restic` | agendada | `PUT /v1/backup/pc` aceito | 60 min | 3 / 600 | `lock="restic"` | §7 |
-| `backup.dump_ayanami` | agendada | cron `0 4 * * *` | 15 min | 2 / 60 | `lock="restic"` | §7 |
-| `backup.enviar` | agendada | cron `30 4 * * *` | 60 min | 3 / 600 | `lock="restic"` | §7 |
-| `backup.reter` | agendada | cron `0 5 * * 0` | 60 min | 2 / 600 | `lock="restic"` | §7 |
-| `backup.verificar` | agendada | cron `30 5 * * 0` | 90 min | 1 | `lock="restic"` | §7 |
-| `backup.restore_teste` | agendada | cron `0 6 1 * *` | 90 min | 1 | `lock="restic"` | §7 |
-| `limpeza.diaria` | agendada | cron `30 3 * * *` | 10 min | 2 / 60 | `lock="limpeza"` | §3 retenção; `entrada/` > 2 dias |
+| `backup.dump_ayanami` | agendada | cron `0 7 * * *` | 15 min | 2 / 60 | `lock="restic"` | §7 |
+| `backup.enviar` | agendada | cron `30 7 * * *` | 60 min | 3 / 600 | `lock="restic"` | §7 |
+| `backup.reter` | agendada | cron `0 8 * * 0` | 60 min | 2 / 600 | `lock="restic"` | §7 |
+| `backup.verificar` | agendada | cron `30 8 * * 0` | 90 min | 1 | `lock="restic"` | §7 |
+| `backup.restore_teste` | agendada | cron `0 9 1 * *` | 90 min | 1 | `lock="restic"` | §7 |
+| `limpeza.diaria` | agendada | cron `30 6 * * *` | 10 min | 2 / 60 | `lock="limpeza"` | §3 retenção; `entrada/` > 2 dias |
 | `fila.reanimar` | agendada | cron `*/5 * * * *` | 1 min | 1 | `lock="reanimar"` | jobs presos |
 | `stt.transcrever` | lenta | tarefa tipo `stt` | 60 min | 2 / 60 | `queueing_lock=chave` | §5.5 |
-| `voz.cache_frases` | lenta | cron `0 3 * * 1` | 30 min | 1 | `lock="voz"` | §5.4 |
+| `voz.cache_frases` | lenta | cron `0 6 * * 1` | 30 min | 1 | `lock="voz"` | §5.4 |
 | `embeddings.lote` | lenta | A8 (desligada) | 30 min | 2 / 60 | `lock="emb"` | §5.6 |
+
+**Crons em UTC (S5):** o `periodic` da 3.10 calcula o cron sobre o timestamp em UTC e **ignora o
+`TZ`** do contêiner (com `TZ=America/Sao_Paulo`, `0 4 * * *` dispara 01:00 local). Os crons acima
+já estão em UTC = local + 3 h (São Paulo sem horário de verão desde 2019): dump 04:00, envio 04:30,
+retenção dom 05:00, verificação dom 05:30, restore dia 1 06:00, limpeza 03:30, cache de voz seg
+03:00 (horário de Brasília). `TZ=America/Sao_Paulo` segue nos contêineres para logs e
+`agenda`/lembretes.
 
 Prazo: `asyncio.timeout(prazo)` dentro da tarefa; estourou → `falhou` com `erro="prazo"` sem
 retry. Periódicas usam `periodic_id` = nome; `queueing_lock` das periódicas = nome (sem
@@ -597,12 +611,21 @@ async def cancelar_tarefa(db: Db, id: UUID) -> Literal["cancelada", "cancelando"
 
 `criar_tarefa`: numa transação insere em `tarefas` (conflito em `tarefas_chave_viva` → devolve a
 existente, `criada=False`) e chama `defer_async` com `queueing_lock=chave`; `AlreadyEnqueued` também
-devolve a existente. Estado: `todo`→`na_fila`, `doing`→`rodando`, `succeeded`→`ok`,
+devolve a existente. (S5: o `queueing_lock` só barra enquanto o job está em `todo`; com o 1º em
+`doing` um 2º `defer` com a mesma chave é aceito — quem segura a idempotência durante a execução é o
+`tarefas_chave_viva`.) Estado: `todo`→`na_fila`, `doing`→`rodando`, `succeeded`→`ok`,
 `failed`→`falhou`, `cancelled`/`aborted`→`cancelada` (sincronizado pela própria tarefa e por um
-`on_job_status` no worker). `cancelar_tarefa`: na fila → `cancel_job_by_id_async(job_id)`
+`worker_middleware` no worker — S5: a 3.10 **não tem** `on_job_status`; o middleware `async def
+(call_next, context, worker)` passado em `run_worker_async(worker_middleware=[…])` vê o início e o
+desfecho de cada job, async e síncrono: retorno → `ok`, `JobAborted`/`CancelledError` → `cancelada`,
+outra exceção → `falhou` ou, se o `retry` ainda tem tentativa, `na_fila`; o cancelamento em `todo`
+nunca chega ao worker e é gravado pelo próprio `cancelar_tarefa`). `cancelar_tarefa`: na fila → `cancel_job_by_id_async(job_id)`
 (nunca começa); rodando → `cancel_job_by_id_async(job_id, abort=True)`; tarefas async veem o
 abort como `asyncio.CancelledError` e as síncronas checam `context.should_abort()` a cada ≤ 5 s
-→ parada em ≤ 10 s (R2.4; S5 confirma). Falha após esgotar → `falhou`, `erro` sem segredo
+→ parada em ≤ 10 s (R2.4; **S5 confirmado**: com `listen_notify=True` o pedido chega por NOTIFY —
+async `aborted` em 0,02 s, síncrona com checagem a cada 5 s em ≤ 5 s; sem NOTIFY, pelo
+`abort_job_polling_interval=5` s, ≤ 5 s + checagem). A tarefa síncrona levanta
+`procrastinate.exceptions.JobAborted` ao ver `should_abort()`; se só retornar, vira `succeeded`. Falha após esgotar → `falhou`, `erro` sem segredo
 (passa por `redigir()` que tira `sk-…`, `ayn_…`, `Bearer …`) e `evento tarefa_falhou` se
 `avisar` (R2.5).
 
@@ -1725,5 +1748,5 @@ Valores acima valem até a bancada confirmar; o que mudar volta a esta spec ante
 | S2 (TVs reais) | TCL é Roku ou Google TV (§12.2); portas Samsung por ano (8001/8002, §11.1) e `PowerState`; WOL Wi-Fi/cabo; Roku "Acesso à rede" e *Fast TV start* (§11.2); `androidtvremote2` em 6466/6467, reconexão e HDMI por keycode (§11.3); ids `[S2]` do `apps.yaml`; latência por driver (critério 1) | ajustar §11/§12.5 e a matriz §11.4 |
 | S3 (`mcp` 2.3) | montagem do `MCPServer` no FastAPI em `/mcp` (`streamable_http_app`, `streamable_http_path`), `AuthSettings`/`token_verifier` com escopos, `get_access_token()`; `claude mcp add` pelo tailnet e ponte `mcp-remote` (§8) — **local feito (Y0.5)**: montagem, verificador, escopos e `get_access_token()` confirmados; bloco da §8 corrigido (caminho no `streamable_http_app`, lifespan, `allowed_hosts`, URL `/mcp/`); falta o tailnet (Y1.6) | servir o MCP em processo/porta própria atrás do mesmo `tailscale serve` |
 | S4 (Android do Pedro) | `tailscale serve` + WebAPK; `MediaRecorder` opus; autoplay após o PTT; Web Push via FCM saindo do node 2 com a tela bloqueada (§14–§15) | gravar em WAV via `AudioWorklet`; tocar só após toque |
-| S5 (`procrastinate` 3.10) | API exata da 3.10: `retry_stalled_jobs` (nome), `cancel_job_by_id_async(abort=True)` com parada ≤ 10 s, `queueing_lock` + `AlreadyEnqueued`, `on_job_status`, job de 30 min sobrevivendo a restart, LISTEN/NOTIFY → API (§4); cron das `periodic` segue o `TZ` do contêiner [DS9] | converter crons para UTC; ajustar nomes no §4 |
+| S5 (`procrastinate` 3.10) | **feito (Y0.4, `docs/perf/ayanami-s5.md`)**: `retry_stalled_jobs` mudou para `get_stalled_jobs(seconds_since_heartbeat=…)` + `retry_job`; `cancel_job_by_id_async(abort=True)` confirmado (≤ 5 s); `queueing_lock` + `AlreadyEnqueued` confirmado (só em `todo`); `on_job_status` mudou para `worker_middleware`; job de 30 min sobrevive a `kill -9` (via `fila.reanimar`) e a `SIGTERM` (via `retry`); LISTEN/NOTIFY confirmado (500/500, p90 2,6 ms); cron **não** segue o `TZ` → crons da §4.2 convertidos para UTC [DS9] | — (§4 já ajustada) |
 | S6 (turno remoto) | `RemoteLink` no `CoreService`: webm → PCM 16 kHz (ffmpeg ≤ 2 s) → turno → PCM 24 kHz → opus; ponto do `on_turn_done` [DS6]; p90 no 4G (voz ≤ 4 s) — **local feito (Y0.6)**: transcodificação e gancho confirmados (§6.3); falta o p90 no 4G (F.x) | ajustar o gancho e os prazos da §6.2 |
