@@ -221,6 +221,19 @@ O0.1 ─┬─ O1.1 ─┐
   - Pronto: `uv run pytest -q tests/hud` verde; Tamanho ± leva o limiar a 36 px (480) e 12 px (120).
   - Paralelo: —
 
+- [x] **O4.6 Padrão de processo casa `/usr/bin/python3`** — bug ao vivo: o autostart sobe o overlay
+  como `/usr/bin/python3 …/condessa_overlay.py` e o padrão `^python3 .*/condessa_overlay\.py$` não
+  casava; `condessa-overlay` e Meta+O não viam nem fechavam essa instância. Padrão novo (ERE do
+  pgrep) `^([^ ]*/)?python3(\.[0-9]+)? [^ ]*/<script>\.py$` no overlay e no HUD (`alternar.py`,
+  `bin/condessa-overlay`, `bin/gamerhud` pela paridade testada); não casa o próprio `pgrep`/`bash -c`.
+  - Lê: `hud/alternar.py`, `hud/system/bin/*`, `hud/system/autostart/condessa-overlay.desktop`
+  - Escreve: `hud/alternar.py`, `hud/system/bin/condessa-overlay`, `hud/system/bin/gamerhud`,
+    `tests/hud/test_alternar.py`, SDD
+  - Depende de: O4.3
+  - Orçamento: ~15k
+  - Pronto: `uv run pytest -q tests/hud/test_alternar.py` verde com as linhas de comando reais.
+  - Paralelo: —
+
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)

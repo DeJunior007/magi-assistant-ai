@@ -23,8 +23,12 @@ HOME = Path.home()
 HUD_LOCK = HOME / ".cache/gamerhud/hud.lock"
 SETTINGS = HOME / ".config/gamerhud/settings.json"
 BIN = HOME / ".local/bin"
-HUD_PATTERN = r"^python3 .*/gamerhud\.py$"  # mesmos padrões de hud/system/bin/*
-OVERLAY_PATTERN = r"^python3 .*/condessa_overlay\.py$"
+# Mesmos padrões de hud/system/bin/* (ERE do pgrep). O 1º token é ``python3``, ``python3.12`` ou
+# um caminho até ele (o autostart do KDE sobe ``/usr/bin/python3 …``); o ``^`` e o ``[^ ]*`` deixam
+# de fora o próprio ``pgrep``/``bash -c`` que só trazem o texto do padrão (O4.6).
+_PY = r"^([^ ]*/)?python3(\.[0-9]+)? [^ ]*/"
+HUD_PATTERN = _PY + r"gamerhud\.py$"
+OVERLAY_PATTERN = _PY + r"condessa_overlay\.py$"
 
 ABRIR_HUD = "abrir_hud"
 FECHAR_HUD = "fechar_hud"

@@ -125,3 +125,36 @@ def test_desktop_e_install_sem_dbus_novo():
     assert 'render "$SYS/applications/condessa-alternar.desktop"' in inst
     assert inst.count("dbus-send") == 3  # só os antigos (KWin reconfigure + 2 do Meta+M)
     assert "alternar.py" in (REPO / "hud/system/bin/condessa-alternar").read_text()
+
+
+# O4.6: o autostart do KDE sobe o overlay como ``/usr/bin/python3 …``; o padrão (ERE do pgrep,
+# compatível com ``re``) tem que casar qualquer python3 e não o pgrep/bash que carregam o padrão.
+OVERLAY_PY = "/home/pedrojr/.local/share/gamerhud/condessa_overlay.py"
+HUD_PY = "/home/pedrojr/.local/share/gamerhud/gamerhud.py"
+
+
+@pytest.mark.parametrize("py", ["python3", "/usr/bin/python3", "python3.12", "/usr/bin/python3.12"])
+def test_padroes_casam_qualquer_python3(py):
+    import re
+
+    assert re.search(al.OVERLAY_PATTERN, f"{py} {OVERLAY_PY}")
+    assert re.search(al.HUD_PATTERN, f"{py} {HUD_PY}")
+    assert not re.search(al.OVERLAY_PATTERN, f"{py} {HUD_PY}")
+    assert not re.search(al.HUD_PATTERN, f"{py} {OVERLAY_PY}")
+
+
+@pytest.mark.parametrize(
+    "linha",
+    [
+        f"pgrep -f {al.OVERLAY_PATTERN}",
+        f"pkill -f {al.OVERLAY_PATTERN}",
+        f"bash -c pgrep -f '{al.OVERLAY_PATTERN}'",
+        f"/usr/bin/python2 {OVERLAY_PY}",
+        f"python3 {OVERLAY_PY} --debug",
+        f"vim {OVERLAY_PY}",
+    ],
+)
+def test_padrao_nao_casa_o_proprio_pgrep_nem_outros(linha):
+    import re
+
+    assert not re.search(al.OVERLAY_PATTERN, linha)
