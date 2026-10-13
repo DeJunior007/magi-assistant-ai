@@ -1,0 +1,15 @@
+# Backup diário do PC para a Ayanami (magi.elo.backup, ayanami-central spec §7.1): pg_dump do
+# magi-pg (só leitura) + ~/.config/magi sem tokens/chaves → zstd → PUT /v1/backup/pc. Unit de
+# usuário disparada por magi-backup.timer. Template: @REPO@ é trocado pelo caminho real do
+# repositório na instalação. Até 3 novas tentativas (1, 5 e 15 min) dentro da mesma execução.
+[Unit]
+Description=Magui: backup do PC para a Ayanami (magi-backup)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO@
+ExecStart="@REPO@/.venv/bin/magi-backup"
+TimeoutStartSec=2h
+Nice=15
+IOSchedulingClass=idle

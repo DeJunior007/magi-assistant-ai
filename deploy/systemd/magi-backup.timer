@@ -1,0 +1,14 @@
+# Dispara magi-backup.service às 03:30. Persistent=true roda ao ligar se a janela passou com o PC
+# desligado; OnStartupSec=10min garante o backup em ≤ 15 min depois do login (R4.1). A falha vira
+# card "backup não subiu" pelo backup_state.json (lido pelo magi-core).
+[Unit]
+Description=Magui: backup do PC para a Ayanami uma vez por dia
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+OnStartupSec=10min
+Unit=magi-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -499,7 +499,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
 
 ## Fase Y4 — Backups (spec §7)
 
-- [ ] **Y4.1 `magi-backup` no PC** — `magi/elo/backup.py` (`main`: `pg_dump -Fc` e contagens por
+- [x] **Y4.1 `magi-backup` no PC** — `magi/elo/backup.py` (`main`: `pg_dump -Fc` e contagens por
   `docker exec magi-pg` **só leitura**, `tar` do `~/.config/magi` sem `*.token`/`*key*`/`*secret*`,
   `zstd -10`, manifesto, `PUT /v1/backup/pc` com `X-Sha256`/`X-Data`/`X-Manifesto`, `409` → sai 0,
   3 tentativas 1/5/15 min com `sleep` injetado, temporário apagado sempre, card "backup não subiu"
@@ -1084,3 +1084,17 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   30 s da §4.1). (3) Para a Y3.1: `fila.reanimar` = `get_stalled_jobs(seconds_since_heartbeat=300)` +
   `retry_job`; estado de `tarefas` por `worker_middleware` (não há `on_job_status`); detalhes em
   `docs/perf/ayanami-s5.md`.
+- **Y4.1:** (1) Card "backup não subiu": não há canal fora do `magi-core` para o HUD; o
+  `magi-backup` grava `<data_dir>/backup_state.json` (`resultado` `ok`/`ja_recebido`/`falhou`/
+  `desligado`, `erro`, `data`, `tentativas`), como o `magi-clean` faz com `cleanup_state.json`.
+  Falta o `AlertMonitor` (`magi/core/proactive/alerts.py`, fora do *Escreve*) ler esse arquivo e
+  entregar o card quando `resultado == "falhou"` (uma vez por `quando`). (2) Config do PC: URL em
+  `[ayanami] url` e token do PC (escopo `backup`) em `~/.config/magi/ayanami.token` ao lado do
+  `config.toml` (excluído do tar por `*.token`); sem um dos dois o backup fica desligado (sai 0). A
+  Y3.3 (`[ayanami]` no `config.example.toml`) e a Y6.2 devem usar os mesmos nomes. (3) Tentativas:
+  1ª + 3 repetições (esperas 1/5/15 min) em rede fora, `5xx`, `400`, `408`, `425`, `429`;
+  `401`/`403`/`413` falham na hora. (4) Temporário em `~/.cache/magi/magi-backup-*` (o `/tmp` é
+  tmpfs), apagado sempre. `pg_versao` vem de `docker exec magi-pg pg_dump --version`; tabela que
+  não existe vira `null` no manifesto (a Y4.2 deve tratar `null` como "não comparar"). (5) Fora do
+  *Escreve*: `hud/install.sh` não instala `magi-backup.{service,timer}` (lista fixa); units não
+  instaladas nem habilitadas (Y4.3).
