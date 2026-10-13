@@ -681,7 +681,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y30 (tabela dos 11 métodos no `Executor`), CA-Y31, CA-Y32, CA-Y33, CA-Y34, CA-Y35 (caminho local), CA-Y36, CA-Y45 e CA-Y52 (as cinco regras em ordem; a pergunta no turno é da C2.2) verdes, só com `DriverFalso` e relógio falso; nenhum `sleep` real.
   - Paralelo: C1.1c, C1.2, C1.3, C1.4, C2.x, P1.x
 
-- [ ] **C1.1c API local e `servir`** — `magi/casa/local.py`: servidor TCP JSON-lines do elo
+- [x] **C1.1c API local e `servir`** — `magi/casa/local.py`: servidor TCP JSON-lines do elo
   (§10.2: `ola` com token de `casa.token` criado `0600` na 1ª subida, `acao` → `acao_ok` com
   `resp`, `estado` pedido e empurrado, ociosidade 10 min, linha ≤ 64 KiB; escuta `127.0.0.1` ou o
   IP do tailnet do `[casa] escuta`, nunca `0.0.0.0`); `magi/casa/estado.py` (`EstadoTv` em memória,
@@ -1110,3 +1110,18 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   a mesma notícia de novo. (4) `--precisa-local` com erro inesperado ou sem `[ayanami]` sai 0
   (coleta local); um `ImportError` do módulo sairia 1 e pularia a coleta — imports pesados são
   locais para isso não acontecer. Falha no `PUT /v1/noticias/preferencias` só registra (exit 0).
+- **C1.1c:** (1) Interface do executor: `magi.casa.local.Executor` (`Protocol`, `async rodar(req:
+  ActionRequest) -> ResTv`); o `servir` monta `magi.casa.emula.Executor(cfg, drivers)` (recaída
+  `NAO_SUPORTADO` se o módulo faltar). O `Executor` da C1.1b tem o próprio `estados`; o
+  `EstadoCasa` (`magi/casa/estado.py`) só recebe o `ResTv.estado` de cada `acao` e a sondagem — a
+  C1.5/C1.6 pode unificar (`Executor(estados=…)` com aviso aos ouvintes). (2) Caps do `ola` saem de
+  `driver.capacidades.anunciadas()`; as emuladas só aparecem se o driver/Executor as puser em
+  `capacidades.emula`. (3) `AcaoResultado.dados["tv"]` = `ResTv.estado.id` ou o slot `tv`;
+  `precisa_confirmar` = motivo `PRECISA_CONFIRMAR`; `detalhe` cortado em 200. Prazo de segurança
+  `local.prazo_s(acao)` = `prazo_ms` (acima dos timeouts do `Executor`). (4) Idempotência: um
+  `Receptor` por servidor (reenvio da mesma `acao` depois de reconectar não roda 2×); cada linha
+  roda em tarefa própria (respostas fora de ordem, casadas por `resp`). (5) Android TV é lida a
+  cada 5 s (`estado.INTERVALOS`, lê o cache dos callbacks); demais 30 s. (6) `servir` também recusa
+  `casa.token` mais aberto que `0600`. (7) Fora do *Escreve*: `tests/casa/test_contrato.py`
+  (`test_magi_casa_stubs_apontam_o_dono` chamava `main([])` esperando o stub — com o `servir` real
+  ele subia a casa na 10760 de verdade; agora troca o `servir` por um falso).

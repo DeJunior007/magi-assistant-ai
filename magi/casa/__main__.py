@@ -24,8 +24,9 @@ from collections.abc import Callable, Sequence
 
 def servir(args: list[str]) -> int | None:
     """Sobe a casa: config + drivers + ``Executor`` + API local (dono: C1.1c)."""
-    print("magi-casa servir: ainda não implementado (dono: C1.1c)", file=sys.stderr)
-    return 2
+    from magi.casa.servir import servir as _servir
+
+    return _servir(args)
 
 
 SUBCOMANDOS: tuple[tuple[str, str], ...] = (
