@@ -643,7 +643,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y22 (parte reconciliação: 120 → 50/50/20; `ack` parcial; reenvio não duplica `turns`) verde; nome exato do extrator anotado em *Sobras* (a spec deixou "nome exato no tasks").
   - Paralelo: Y6.4, Y6.6
 
-- [ ] **Y6.6 PC: eventos, confirmações e custos** — `magi/elo/eventos_pc.py` (`evento` → `sink`
+- [x] **Y6.6 PC: eventos, confirmações e custos** — `magi/elo/eventos_pc.py` (`evento` → `sink`
   novo da proatividade em `magi/core/proactive/` respeitando silêncio/jogo; cards existentes
   "Pesquisa pronta", "código de pareamento", "celular conectado"; `confirma` → pergunta ao Pedro
   pelo caminho de confirmação que o core já usa e responde `Confirma(resp=…)`; expirada → nada),
@@ -1343,3 +1343,25 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   própria rota; sem mexer no `hub.py`. (4) `GET /v1/custos?desde=&n=` (n ≤ 500, padrão 500): só
   `source='nuvem'`, ordem de `id`; `desde` desconhecido recomeça do início (o PC deduplica por
   `origem_uid`); `desde` inválido → 422; `at` por `iso_z` (segundos).
+- **Y6.6:** (1) Sink novo `magi/core/proactive/ayanami.py`: `AvisosAyanami(core.proactive)` sem fila
+  própria — tudo pelo `ProactiveSink`, logo as regras de call/jogo/satélite ocupado são as dos
+  avisos locais (o core não tem modo "silêncio" separado). `evento` usa o título da Ayanami com
+  prefixo por tipo ("Pesquisa pronta", "Lembrete"…); `confirmacao`/`dispositivo` só tela;
+  `proativo=False` só card. (2) `confirma`: o handler responde `ack` na hora (não segura o elo 120 s)
+  e pergunta pela `Offer` proativa (a mesma da sugestão de música); "sim"/"não" → `Confirma(resposta,
+  resp=<id da pergunta>)` ao `hub.ao_receber(CONFIRMA)`; silêncio/expirada → nada; `confirma` com
+  `resposta` (respondida no celular) esquece a pergunta. Em call/sem satélite a pergunta fica só na
+  legenda (responde pelo PWA). (3) `CustosPc`: o `EloCliente` não tem gancho de `ola`, então `rodar`
+  observa `cliente.modo` (`None` → conectado) a cada 5 s, mais 15 min; `ao_ola()` existe para o
+  `NoPc.ola` chamar se quiser (fora do *Escreve*). HTTP próprio com `cliente.base_url` e
+  `cliente._cabecalhos` (o `EloCliente` do PC nasce sem `http`); repo pela conexão do
+  `core.repos.costs._conn` (`Repos` não expõe outra) — trocar por um método no `CostsRepo` depois.
+  `total_mes()` = só `origem_uid IS NULL` (local) no mês de São Paulo, senão a nuvem contaria duas
+  vezes no `pc_mes`; o fallback do `NoPc` (`Budget.status().spent_usd`) inclui as linhas copiadas.
+  (4) Card "backup não subiu" (pedido da Y4.1): `AvisoBackup` em `ayanami.py`, chamado na volta do
+  `CustosPc.rodar` (só com `[ayanami]`, como o próprio backup); uma vez por `quando` (marca
+  `avisado` no `backup_state.json`); `data_dir` vem de `core._brain_args[0]`. O `AlertMonitor` não
+  foi tocado. (5) O design cita `magi-elo parear`: é `uv run python -m magi.elo.parear [--nome …]`
+  (sem script no `pyproject`). Esse processo não alcança o HUD (o socket só aceita `cmd`): o card
+  "código de pareamento" sai só quando o core chamar `pedir_codigo(url, token, avisos=…)` — falta
+  um intent/`cmd` "parear celular" no core (fora do *Escreve*).
