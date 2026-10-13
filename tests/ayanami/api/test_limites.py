@@ -43,17 +43,22 @@ async def test_61a_requisicao_por_minuto(app, cliente, novo_token, relogio):
     um, outro = novo_token("um", "celular"), novo_token("outro", "celular")
     async with cliente(app, um) as c:
         for i in range(60):
-            assert (await c.get("/v1/feed")).status_code == 501, i
+            assert (await c.get("/v1/feed")).status_code == 200, i
         r = await c.get("/v1/feed")
         assert r.status_code == 429 and r.json()["erro"] == "muitas_requisicoes"
         assert r.headers["Retry-After"] == "60"
+        from ayanami.api.eventos import sse_de
+
+        pub, disp = sse_de(app.state.ctx), app.state.ctx.auth.verificar(um)
+        for _ in range(pub.max):  # SSE não termina: com as vagas ocupadas responde 429 próprio
+            pub.abrir(disp)
         for _ in range(5):  # rotas isentas
-            assert (await c.get("/v1/eventos")).status_code == 501
+            assert (await c.get("/v1/eventos")).json()["erro"] == "muitas_conexoes"
     async with cliente(app, outro) as c:
-        assert (await c.get("/v1/feed")).status_code == 501
+        assert (await c.get("/v1/feed")).status_code == 200
     relogio.avancar(60)
     async with cliente(app, um) as c:
-        assert (await c.get("/v1/feed")).status_code == 501
+        assert (await c.get("/v1/feed")).status_code == 200
 
 
 @pytest.mark.pg

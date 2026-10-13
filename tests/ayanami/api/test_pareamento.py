@@ -39,7 +39,7 @@ async def test_pareia_e_o_token_tem_escopos_de_celular(app, cliente, pc, db):
     assert TOKEN_RE.match(j["token"]) and j["token"].startswith("ayn_celular_")
     assert j["nome"] == "celular-pedro" and j["escopos"] == sorted(ESCOPOS_PADRAO["celular"])
     async with cliente(app, j["token"]) as c:
-        assert (await c.get("/v1/feed")).status_code == 501  # autenticou; rota ainda stub
+        assert (await c.get("/v1/feed")).status_code == 200  # autenticou
     # uso único
     assert (await _trocar(app, cliente, corpo["codigo"], nome="outro")).status_code == 400
     with db.connection() as conn:

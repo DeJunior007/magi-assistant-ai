@@ -93,7 +93,14 @@ async def test_escopo_certo_passa_da_autenticacao(fazer_app, db, novo_token, cli
     tipo = exig.tipos[0] if exig.tipos else "pc"
     escopos = list(exig.escopos[:1])
     app = fazer_app(db)
-    async with cliente(app, novo_token("certo", tipo, escopos)) as c:
+    token = novo_token("certo", tipo, escopos)
+    if rota == ("GET", "/v1/eventos"):  # SSE não termina: com as 4 vagas ocupadas responde 429
+        from ayanami.api.eventos import sse_de
+
+        pub, disp = sse_de(app.state.ctx), app.state.ctx.auth.verificar(token)
+        for _ in range(pub.max):
+            pub.abrir(disp)
+    async with cliente(app, token) as c:
         r = await _pedir(c, *rota)
     assert r.status_code not in (401, 403), r.text
 
@@ -103,7 +110,7 @@ async def test_revogar_pelo_proprio_token_vale_na_hora(app, cliente, novo_token)
     app.state.ctx.auth.ao_revogar.append(revogados.append)
     token = novo_token("celular-pedro", "celular")
     async with cliente(app, token) as c:
-        assert (await c.get("/v1/feed")).status_code == 501
+        assert (await c.get("/v1/feed")).status_code == 200
         assert (await c.delete("/v1/dispositivo")).status_code == 204
         assert (await c.get("/v1/feed")).status_code == 401
     assert [d.nome for d in revogados] == ["celular-pedro"]
@@ -114,11 +121,11 @@ async def test_revogar_pelo_proprio_token_vale_na_hora(app, cliente, novo_token)
 async def test_revogar_fora_da_api_vale_em_5s(app, cliente, novo_token, relogio, base):
     token = novo_token("pc", "pc")
     async with cliente(app, token) as c:
-        assert (await c.get("/v1/feed")).status_code == 501
+        assert (await c.get("/v1/feed")).status_code == 200
         saida = io.StringIO()
         assert cli_dispositivo(["--dsn", base, "revogar", "pc"], saida=saida) == 0
         relogio.avancar(4.9)
-        assert (await c.get("/v1/feed")).status_code == 501  # ainda no cache
+        assert (await c.get("/v1/feed")).status_code == 200  # ainda no cache
         relogio.avancar(0.2)
         assert (await c.get("/v1/feed")).status_code == 401
 

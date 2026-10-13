@@ -386,7 +386,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y7 e CA-Y10 (parte casa) verdes; CA-Y5 de ponta a ponta pela WS (mesmo `acao` 3× → 1 execução); 2ª WS do mesmo `pc` fecha a 1ª com 4002; casa sem `ola` em 5 s → fechada; `ruff` limpo.
   - Paralelo: Y2.4, Y3.1, Y3.3, Y4.1
 
-- [ ] **Y2.3 Eventos, SSE e feed** — `ayanami/eventos.py` (`criar_evento(db, …)` grava em `eventos`
+- [x] **Y2.3 Eventos, SSE e feed** — `ayanami/eventos.py` (`criar_evento(db, …)` grava em `eventos`
   com `seq`, faz `NOTIFY`, e entrega ao hub para o `pc` online; ouvinte `LISTEN` que relê pendentes
   ao reconectar — design §13), `ayanami/api/eventos.py` (`GET /v1/eventos` SSE com `Last-Event-ID`,
   `ping` 15 s, ≤ 4 SSE por celular, fecha na revogação; eventos `turno.texto`, `turno.fim`,
@@ -1365,3 +1365,20 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   (sem script no `pyproject`). Esse processo não alcança o HUD (o socket só aceita `cmd`): o card
   "código de pareamento" sai só quando o core chamar `pedir_codigo(url, token, avisos=…)` — falta
   um intent/`cmd` "parear celular" no core (fora do *Escreve*).
+- **Y2.3:** (1) `ayanami/eventos.py`: `gravar(conn, …)` / `criar_evento(db, tipo, titulo, resumo, ref, *,
+  para, agora)` + `NOTIFY ayanami_eventos` (payload = id, o mesmo canal da Y3.1: o
+  `tarefas.criar_evento` já é ouvido; trocá-lo por `ayanami.eventos.gravar` fica para quem mexer em
+  `tarefas.py`). `eventos_de(ctx)` (`extras["eventos"]`): `await criar(…)` grava e distribui. O
+  `LISTEN` sobe no lifespan do router de `api/eventos.py` (`APIRouter(lifespan=…)`, que o FastAPI
+  mescla ao da app) só se o `Db` expõe `dsn`/`conninfo`; a cada (re)conexão relê `id >` último.
+  (2) PC: `evento` por `hub.enviar_e_esperar` (30 s), `ack` → `entregue_pc`; offline fica pendente e
+  sai no `ola` do `pc`; `ola.retomar_desde` (seq numérico) marca como entregue o que o PC já tem. O
+  reenvio usa envelope novo: o PC (Y6.6) deduplica por `seq`. (3) SSE: `sse_de(ctx)`
+  (`extras["sse"]`).`publicar(alvo, nome, corpo, id=None)`, alvo = id/nome/tipo/`"*"`; o `estado` da
+  casa vai ao SSE `celular` por `hub.ao_receber(ESTADO)`; confirmações pendentes saem na varredura de
+  2,5 s (a `Confirmacoes` não avisa ao criar; atraso ≤ 2,5 s); sem `Last-Event-ID` não relê nada.
+  O `push.enviar` depois do evento fica para a P2.1. (4) Feed: `antes` exclusivo e `ts` com
+  microssegundos; tarefas = `ok`/`falhou` sem tipo `lembrete`; lembrete = `eventos` tipo `lembrete`;
+  não filtra spoiler de notícia. (5) Fora do *Escreve*: `tests/ayanami/api/test_tokens.py`,
+  `test_limites.py` e `test_pareamento.py` esperavam `501` do stub do `/v1/feed` (agora `200`), e o
+  `GET /v1/eventos` não termina no ASGI de teste (ocupam as 4 vagas → `429`).
