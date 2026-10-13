@@ -183,6 +183,9 @@ class TurnDeps:
       e nos moldes ``{jogo}`` da frase de espera. Erro ao consultar = sem jogo.
     - ``revive``: sem STT (ou agente) porque o keyring estava trancado na subida, tenta reler as
       chaves e remontar antes de responder "não peguei" (``Core.revive``, com intervalo mínimo).
+    - ``on_turn_done`` (ayanami-central Y6.2, [DS6]): chamado uma vez por entrega de resposta, logo
+      depois do ``compose``/tradução e antes de cards/legenda/fala, com ``(ctx, resultado)``. O
+      ``PonteTurnos`` usa para mandar o ``TurnoFim`` do satélite ``celular``. Erro: log e segue.
     """
 
     stt: SttProvider | None = None
@@ -199,6 +202,7 @@ class TurnDeps:
     revive: Callable[[], Awaitable[bool]] | None = None
     espera: EsperaDeps | None = None
     jogo: Callable[[], str | None] | None = None
+    on_turn_done: Callable[[TurnContext, ActionResult], Awaitable[None]] | None = None
 
 
 def _motivo_sem_frase(cat: Catalogo, text: str, cota: Cota, cfg: EsperaCfg, followup: bool) -> str:
@@ -1135,6 +1139,12 @@ class TurnMachine:
             self._narrate_next = self._reading if alvo is True else alvo
             self._followup = False  # leitura não abre janela de continuação
         result = tr_result(compose(result))
+        hook = self.pipeline.deps.on_turn_done
+        if hook is not None and self._ctx is not None:  # [DS6] TurnoFim do celular (Y6.2)
+            try:
+                await hook(self._ctx, result)
+            except Exception:
+                log.exception("on_turn_done falhou")
         if result.needs_confirmation:
             self._pending = result.on_confirm
             if result.dangerous:

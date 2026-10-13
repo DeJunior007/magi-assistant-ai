@@ -582,7 +582,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y21 (parte `BudgetNuvem`: 1,99+2,00 libera; 2,00 bloqueia; 1,00+4,00 bloqueia) verde; `record` grava `source='nuvem'`; `/v1/custos` pagina por `uid`.
   - Paralelo: Y2.3, Y3.2, Y3.4–Y3.6, Y4.2, Y5.1
 
-- [ ] **Y6.2 `RemoteLink`, `PonteTurnos` e o elo no PC** — `magi/elo/remote.py` (`RemoteLink`
+- [x] **Y6.2 `RemoteLink`, `PonteTurnos` e o elo no PC** — `magi/elo/remote.py` (`RemoteLink`
   implementa `SatelliteLink`: `AUDIO_IN` → `entrada()` com fila ≤ 400 quadros, `play` → `AUDIO_OUT`
   reamostrando para 24 kHz, `StopPlayback` → `AUDIO_FIM`), `magi/elo/ponte.py` (`PonteTurnos`: um
   `TurnMachine` do satélite `celular` criado uma vez, áudio como PTT, texto sem STT, prazo 45 s →
@@ -1152,3 +1152,19 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   `casa.token` mais aberto que `0600`. (7) Fora do *Escreve*: `tests/casa/test_contrato.py`
   (`test_magi_casa_stubs_apontam_o_dono` chamava `main([])` esperando o stub — com o `servir` real
   ele subia a casa na 10760 de verdade; agora troca o `servir` por um falso).
+- **Y6.2:** (1) `CoreService.anexar(link, *, pipeline, hud, followup_ms=None)` guarda o `TurnMachine`
+  do celular em `_remotos`, **fora** de `satellites`: a proatividade (`targets[0].announce`) e o
+  clique no rosto nunca vão ao celular; `service.machine("celular")` acha. HUD do turno do celular =
+  `NullHud` (não mexe no rosto do PC nem mostra o card lá). (2) `[ayanami]` no PC: só `url`
+  (`magi.elo.credenciais.url_ayanami`) + token `token_pc()`; sem URL/token → aviso e segue sem elo.
+  O bloco `[ayanami]` do PC no `config.example.toml`/spec §16.1 não foi escrito (fora do *Escreve*).
+  `NoPc` liga em `run()` (`core.ayanami.iniciar(service)`) e fecha em `Core.aclose`. (3) Para a
+  Y6.4: `TurnoFim` sai **antes** da fala (gancho antes do `speaker.say`), então `audio=True` só com
+  fala antecipada; o áudio vem depois em `AUDIO_OUT` e cada `play` fecha com `AUDIO_FIM` (fala com
+  lotes antecipados pode ter mais de um `AUDIO_FIM` no turno). `Turno` com outro em andamento →
+  `TurnoFim(erro="ocupado")`; erro inesperado → `erro="interno"`; prazo 45 s → `"tempo"` e a fala
+  atrasada é descartada. (4) Stubs com classes injetáveis por `core`: `EventosPc(core).evento/
+  confirma`, `Reconciliador(core).gravar_resumo(resumo) -> tuple[str, ...]` (o `NoPc` responde
+  `Ack(ids=…)`), `CustosPc(core, cliente).rodar()/total_mes()` (o `Bate` usa `total_mes()` ou, sem
+  ele, o gasto do `Budget` local relido a cada 60 s). (5) Fora do *Escreve*:
+  `tests/hud/test_overlay_install.py::test_templates` falha no working tree (não é desta tarefa).

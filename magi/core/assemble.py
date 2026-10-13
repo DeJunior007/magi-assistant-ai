@@ -35,7 +35,7 @@ import dataclasses
 import logging
 import shutil
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -329,6 +329,7 @@ class Core:
     news_feedback: Any = None  # magi.news.feedback.NewsFeedback (6.11): ``cfg`` trocada na recarga (1.22)
     autofix: Any = None  # magi.maintenance.autofix.Autofix: autoconserto com o Claude Code
     casa: Any = None  # magi.core.actions.tv.TvActions (C2.2): aquece o elo em ``start_proactive``
+    ayanami: Any = None  # magi.elo.pc.NoPc (ayanami-central Y6.2): só com ``[ayanami]``
     _brain_args: tuple | None = None  # (config, catalog, agent) para ``revive``
     _revived_at: float = -1e9
 
@@ -390,6 +391,8 @@ class Core:
             await speaker.aclose()
         if self.casa is not None:
             await self.casa.aclose()
+        if self.ayanami is not None:
+            await self.ayanami.aclose()
         for task in self.tasks:
             task.cancel()
         if self.tasks:
@@ -538,6 +541,7 @@ async def assemble(
     core.deps.corrector = core.corrections
     found = handlers(catalog, hud_sink, core.corrections)
     found = _wire_casa(core, config, found)  # TVs pela magi-casa (ayanami-central C2.2)
+    _wire_ayanami(core, config)  # elo do PC com a Ayanami (ayanami-central Y6.2)
     found = _wire_memory_store(core, found)
     found = _wire_mood(core, config, hud_sink, found)
     found = _wire_news_query(core, found)
@@ -564,6 +568,19 @@ async def assemble(
     core.deps.revive = core.revive
     core._brain_args = (config, catalog, agent)
     return core
+
+
+def _wire_ayanami(core: Core, config: Config) -> None:
+    """``NoPc`` (Y6.2) só com ``[ayanami]`` no config; sem a seção nada muda. Nunca levanta: sem
+    token no keyring ou URL, avisa e segue sem o elo. Liga de fato em ``run`` (``iniciar``)."""
+    if not isinstance(config.raw.get("ayanami"), Mapping):
+        return
+    try:
+        from magi.elo.pc import NoPc
+
+        core.ayanami = NoPc.de_config(config, core)
+    except Exception as e:
+        core.warn(f"elo com a Ayanami desligado: {e}")
 
 
 def _wire_casa(core: Core, config: Config, found: list[ActionHandler]) -> list[ActionHandler]:

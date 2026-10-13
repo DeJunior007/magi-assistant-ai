@@ -38,6 +38,7 @@ from magi.common.contracts import (
     HudSink,
     PcmFormat,
     SatelliteHello,
+    SatelliteLink,
 )
 from magi.common.events import EventDecodeError, audio_chunk, audio_start, from_event, to_event
 from magi.core.assemble import Core, assemble
@@ -104,6 +105,9 @@ class CoreService:
         self.followup_ms = followup_ms  # janela de continuação (1.20); None = desligada
         self._server: asyncio.Server | None = None
         self._machines: dict[str, TurnMachine] = {}
+        # satélites sem socket (``anexar``, celular pela Ayanami, Y6.2): fora de ``satellites``,
+        # então avisos proativos e o clique no rosto nunca vão para eles
+        self._remotos: dict[str, TurnMachine] = {}
         self._conns: set[asyncio.Task[None]] = set()
 
     @property
@@ -123,13 +127,43 @@ class CoreService:
         return self._machines
 
     def machine(self, satellite: str) -> TurnMachine | None:
-        return self._machines.get(satellite)
+        return self._machines.get(satellite) or self._remotos.get(satellite)
+
+    async def anexar(
+        self,
+        link: SatelliteLink,
+        *,
+        pipeline: TurnPipeline | None = None,
+        hud: HudSink | None = None,
+        followup_ms: int | None = None,
+    ) -> TurnMachine:
+        """Registra um satélite sem conexão TCP (o ``RemoteLink`` do celular, ayanami-central
+        Y6.2): mesmo ``TurnMachine`` do ``_serve``, sem janela de continuação por padrão. Fecha o
+        anterior do mesmo id. Não entra em ``satellites`` (proatividade e clique no rosto)."""
+        machine = TurnMachine(
+            link,
+            hud if hud is not None else NullHud(),
+            pipeline if pipeline is not None else self.pipeline,
+            confirm_timeout_ms=self.confirm_timeout_ms,
+            confirm_grace_ms=self.confirm_grace_ms,
+            followup_ms=followup_ms,
+        )
+        old = self._remotos.get(link.hello.satellite)
+        if old is not None:
+            await old.close()
+        self._remotos[link.hello.satellite] = machine
+        log.info("satélite remoto anexado: %s", link.hello.satellite)
+        return machine
 
     async def start(self) -> None:
         self._server = await asyncio.start_server(self._serve, self.host, self._port)
         log.info("núcleo: Wyoming em %s:%d", self.host, self.port)
 
     async def stop(self) -> None:
+        for machine in list(self._remotos.values()):
+            with contextlib.suppress(Exception):
+                await machine.close()
+        self._remotos.clear()
         if self._server is not None:
             self._server.close()
         for task in list(self._conns):
@@ -251,6 +285,8 @@ async def run(
     await service.start()
     if core is not None:
         core.start_proactive(lambda: list(service.satellites.values()))
+        if core.ayanami is not None:  # [ayanami]: turnos do celular pela Ayanami (Y6.2)
+            core.ayanami.iniciar(service)
     stop = asyncio.Event()
     watch = _watch_config(core, config, hud, service, stop)
     loop = asyncio.get_running_loop()
