@@ -745,7 +745,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y44 verde; reconexão testada com o falso caindo 3× sem bloquear outra TV.
   - Paralelo: C1.1b, C1.1c, C1.2, C1.3
 
-- [ ] **C1.5 Descoberta, TCL e pareamento (CLI)** — `magi/casa/descoberta.py` (`Descobridor`:
+- [x] **C1.5 Descoberta, TCL e pareamento (CLI)** — `magi/casa/descoberta.py` (`Descobridor`:
   SSDP `async-upnp-client` + mDNS `zeroconf` com fontes **injetáveis**; confirmação por HTTP;
   `chave` estável; MAC de `/proc/net/arp` injetável; regra TCL §12.2; revalidação de IP com escrita
   atômica do `casa.toml`, ligada ao `servir` a cada `descoberta_min`); `magi/casa/pareamento.py`
@@ -1216,3 +1216,19 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   para `restic snapshots` não foi conferido (o `migrar` pode ter comando fixo); a Y1.6 confere ou
   usa `exec worker-agendado`. Keyring do token do PC segue a Y3.3 (`magi`/`ayanami_pc`), não o
   `magi-keys` do design §10.3.
+- **C1.5:** (1) Revalidação no `servir`: só a ativa, a cada `descoberta_min` (relê o `casa.toml`,
+  descobre e grava o IP novo de forma atômica); a passiva contínua (SSDP NOTIFY/mDNS) não foi feita.
+  Os drivers já montados seguem com o IP antigo até reiniciar: `revalidar_periodicamente(ao_mudar=…)`
+  existe para a C1.6 recriar o driver. (2) Sobras da C1.1b: o `estados` do `Executor` agora acompanha
+  a sondagem (`servir._ligar_estados`, ouvinte do `EstadoCasa`); `candidatos(res)` em
+  `dados["candidatos"]` fica para a C1.6 (é no `local.py`, fora do *Escreve*). (3) O pareamento
+  Samsung usa privados do driver da C1.2 (`_novo_remote`, `_guardar_token`, `_res_erro`,
+  `_pode_8001`, `samsung._recusada`) para abrir a WS sem token com prazo de 60 s (o `conectar` tem
+  3 s); keyring `casa.<id>.samsung`. Android TV usa `androidtv.parear`/`caminhos_cert` (C1.4). (4) CLI:
+  `descobrir` grava `~/.local/state/magi/casa-descobertas.json` (sem segredo) e o `nomear <nº|chave|IP>
+  <id> [nome] [--apelido A] [--padrao] [--driver D]` lê dali; `testar <tv> <acao> chave=valor…`
+  (slots `volume`/`app`/`input`, args `step`/`key`/`texto`) roda sempre com `confirmed=True`; `estado`
+  lê o `casa-estado.json` (`--sondar` pergunta às TVs); `esquecer <tv> [--manter-config]`.
+  (5) O filtro do log (C1.1) descarta campos chamados `chave`: a descoberta loga `ip`/`tv`. As fontes
+  reais `ssdp_real`/`mdns_real` nunca rodam nos testes: validar na C1.S2/F.1. (6) Fora do *Escreve*:
+  `tests/casa/test_contrato.py` (a asserção do stub `testar` esperava "dono: C1.5").

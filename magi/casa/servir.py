@@ -21,6 +21,7 @@ from magi.casa import apps as apps_mod
 from magi.casa import config as cfg_mod
 from magi.casa import log
 from magi.casa.config import CasaConfig
+from magi.casa.descoberta import Descobridor, revalidar_periodicamente
 from magi.casa.driver import ContextoDriver, Motivo, ResTv, TvConfig, TvDriver
 from magi.casa.drivers import criar_driver
 from magi.casa.estado import EstadoCasa
@@ -66,6 +67,15 @@ def executor_padrao(cfg: CasaConfig, drivers: Mapping[str, TvDriver], apps: apps
     return ExecutorCasa(cfg, drivers)
 
 
+def _ligar_estados(executor: object, estado: EstadoCasa) -> None:
+    """C1.5 (sobra da C1.1b): o ``estados`` do ``Executor`` (regra 4 da §13.3) acompanha a sondagem."""
+    alvo = getattr(executor, "estados", None)
+    if not isinstance(alvo, dict):
+        return
+    alvo.update({e.id: e for e in estado.todos()})
+    estado.ouvir(lambda todos: alvo.update({e.id: e for e in todos}))
+
+
 def _versao() -> str:
     try:
         return metadata.version("magi-assistant")
@@ -91,6 +101,7 @@ async def servir_async(
     pronto: Callable[[str, int], None] | None = None,
     fabrica_executor: FabricaExecutor = executor_padrao,
     fabrica_driver: Callable[[TvConfig, ContextoDriver], TvDriver] = criar_driver,
+    descobridor: Descobridor | None = None,
 ) -> int:
     """Roda até ``parar`` (ou SIGTERM/SIGINT via ``servir``). ``porta=0`` = efêmera (testes)."""
     abertos = arquivos_abertos()
@@ -106,6 +117,7 @@ async def servir_async(
     drivers: dict[str, TvDriver] = {tv.id: fabrica_driver(tv, ctx) for tv in cfg.tvs}
     executor = fabrica_executor(cfg, drivers, catalogo)
     estado = EstadoCasa(drivers, {tv.id: (tv.nome, tv.driver) for tv in cfg.tvs})
+    _ligar_estados(executor, estado)
 
     def _catalogo():
         tvs = tuple(
@@ -120,6 +132,8 @@ async def servir_async(
     parar = parar or asyncio.Event()
     fundo = [asyncio.create_task(_conectar(i, d)) for i, d in drivers.items()]
     fundo.append(asyncio.create_task(estado.rodar()))
+    if any(tv.chave for tv in cfg.tvs):  # C1.5: revalidação de IP a cada ``descoberta_min``
+        fundo.append(asyncio.create_task(revalidar_periodicamente(descobridor or Descobridor())))
     try:
         await parar.wait()
     finally:

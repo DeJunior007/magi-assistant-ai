@@ -189,5 +189,5 @@ def test_magi_casa_stubs_apontam_o_dono(capsys, monkeypatch):
     chamado = []
     monkeypatch.setattr(servir_mod, "servir", lambda args: chamado.append(args) or 0)
     assert main([]) == 0 and chamado == [[]]  # servir é o padrão (C1.1c); nunca sobe de verdade aqui
-    assert main(["testar", "sala", "tv.power_on"]) == 2
-    assert "dono: C1.5" in capsys.readouterr().err
+    assert main(["testar", "sala", "tv.power_on"]) == 2  # C1.5: corpo real, sem TV no casa.toml
+    assert "Nenhuma TV 'sala'" in capsys.readouterr().err
