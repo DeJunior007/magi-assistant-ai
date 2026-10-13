@@ -513,6 +513,18 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y23 verde; os únicos comandos contra o `magi-pg` capturados são `pg_dump` e `psql -Atc "SELECT count(*)…"`; `tests/deploy/test_units.py` sem mudar asserção.
   - Paralelo: Y0.3, Y1.1, Y1.3, Y2.1, Y3.3
 
+- [x] **Y4.1b Sobras da Y3.3/Y4.1: credenciais, scripts e units no `install.sh`** — `magi/elo/backup.py`
+  usa `magi/elo/credenciais.py` (`url_ayanami(cfg)`, `token_pc()`: keyring `magi`/`ayanami_pc`
+  primeiro, `ayanami.token` ao lado do config como recaída; sem url o keyring nem é lido);
+  `[project.scripts]` conferido (`magi-news-sync`/`magi-backup` já existiam); `hud/install.sh`
+  copia `magi-news-sync.{service,timer}`, `magi-backup.{service,timer}` e `magi-casa.service` em
+  `UNIT_FILES` **sem** habilitar nem iniciar (só `daemon-reload`, que já existia).
+  - Lê: `magi/elo/credenciais.py`; `hud/install.sh` por trecho; `tests/deploy/test_units.py`
+  - Escreve: `magi/elo/backup.py`, `tests/elo/test_backup.py`, `pyproject.toml` (só scripts), `hud/install.sh` (só `UNIT_FILES`), `specs/ayanami-central/tasks.md`
+  - Depende de: Y3.3, Y4.1
+  - Orçamento: ≤ 30k
+  - Pronto: `uv run pytest -q tests/elo tests/deploy` código 0.
+
 - [ ] **Y4.2 Backup na Ayanami: recebimento, restic e restore de teste** — `ayanami/api/backup.py`
   (`PUT /v1/backup/pc` em streaming para `/dados/entrada/pc/<data>/`, sha256, `400` apaga, `409`,
   `413`, defere `backup.restic`), `ayanami/workers/backup.py` (os 6 jobs da §7.2 gerando comandos

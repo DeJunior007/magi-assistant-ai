@@ -66,9 +66,14 @@ def test_render_usa_caminho_real_do_repo(tmp_path: Path) -> None:
     assert names == [
         "magi-ayanami.service",
         "magi-ayanami.timer",
+        "magi-backup.service",
+        "magi-backup.timer",
+        "magi-casa.service",
         "magi-clean.service",
         "magi-clean.timer",
         "magi-core.service",
+        "magi-news-sync.service",
+        "magi-news-sync.timer",
         "magi-satellite.service",
     ]
     for name in (*SERVICES, "magi-ayanami", "magi-clean"):

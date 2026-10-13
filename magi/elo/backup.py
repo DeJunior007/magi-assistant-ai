@@ -17,7 +17,8 @@ Config (``config.toml``)::
 
     [ayanami]
     url = "https://ayanami.<tailnet>.ts.net"
-    # token do PC (escopo ``backup``): ``ayanami.token`` ao lado do config.toml (0600, fora do git)
+    # token do PC (escopo ``backup``): keyring ``magi``/``ayanami_pc``; recaída ``ayanami.token``
+    # ao lado do config.toml (0600, fora do git) — via ``magi.elo.credenciais``
 
 Sem ``[ayanami] url`` ou sem o token o backup fica desligado (sai 0, só registra). O resultado vai
 para ``<data_dir>/backup_state.json`` (``resultado``: ``ok``, ``ja_recebido``, ``falhou`` ou
@@ -47,6 +48,8 @@ from typing import Any, Protocol
 
 import httpx
 
+from magi.elo.credenciais import TOKEN_FILE, token_pc, url_ayanami
+
 log = logging.getLogger("magi.elo.backup")
 
 CONTAINER = "magi-pg"
@@ -56,7 +59,6 @@ TABELAS = ("turns", "memories", "costs", "news_items", "taste", "learning_sessio
 EXCLUIR = ("*.token", "*key*", "*secret*")
 ESPERAS_S = (60.0, 300.0, 900.0)  # 1, 5 e 15 min entre as tentativas
 STATE_FILE = "backup_state.json"
-TOKEN_FILE = "ayanami.token"
 ROTA = "/v1/backup/pc"
 _REPETE = {400, 408, 425, 429}  # além de 5xx e erro de rede
 
@@ -297,15 +299,19 @@ def executar(
 # --- linha de comando -----------------------------------------------------------------------------
 
 
-def config_de(raw: dict[str, Any], config_dir: Path, data_dir: Path) -> BackupConfig:
-    ay = raw.get("ayanami")
-    ay = ay if isinstance(ay, dict) else {}
-    url = ay.get("url") if isinstance(ay.get("url"), str) and ay.get("url") else None
-    token: str | None = None
-    try:
-        token = (config_dir / TOKEN_FILE).read_text(encoding="utf-8").strip() or None
-    except OSError:
-        token = None
+def config_de(
+    raw: dict[str, Any],
+    config_dir: Path,
+    data_dir: Path,
+    *,
+    keyring_get: Callable[[str, str], str | None] | None = None,
+) -> BackupConfig:
+    """URL e token pelo helper único (``magi.elo.credenciais``): keyring primeiro, arquivo depois.
+
+    Sem ``[ayanami] url`` o keyring nem é consultado (o backup já fica desligado).
+    """
+    url = url_ayanami(raw)
+    token = token_pc(config_dir, keyring_get=keyring_get) if url else None
     return BackupConfig(url=url, token=token, config_dir=config_dir, data_dir=data_dir)
 
 

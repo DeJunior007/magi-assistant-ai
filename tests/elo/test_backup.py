@@ -203,10 +203,22 @@ def test_sem_url_ou_token_fica_desligado(cfg: BackupConfig) -> None:
         assert _estado(c)["resultado"] == "desligado"
 
 
-def test_config_de_le_url_e_token_ao_lado_do_config(cfg: BackupConfig) -> None:
-    c = bk.config_de({"ayanami": {"url": "https://a.falsa"}}, cfg.config_dir, cfg.data_dir)
-    assert c.url == "https://a.falsa" and c.token == TOKEN
-    c = bk.config_de({}, cfg.config_dir / "nada", cfg.data_dir)
+def test_config_de_usa_credenciais_keyring_primeiro(cfg: BackupConfig) -> None:
+    raw = {"ayanami": {"url": "https://a.falsa/"}}
+    c = bk.config_de(raw, cfg.config_dir, cfg.data_dir, keyring_get=lambda s, n: "ayn_keyring")
+    assert c.url == "https://a.falsa" and c.token == "ayn_keyring"
+    # keyring vazio ou quebrado → recaída no ayanami.token ao lado do config
+    c = bk.config_de(raw, cfg.config_dir, cfg.data_dir, keyring_get=lambda s, n: None)
+    assert c.token == TOKEN
+
+    def quebra(s: str, n: str) -> str | None:
+        raise RuntimeError("sem backend")
+
+    assert bk.config_de(raw, cfg.config_dir, cfg.data_dir, keyring_get=quebra).token == TOKEN
+    c = bk.config_de(raw, cfg.config_dir / "nada", cfg.data_dir, keyring_get=lambda s, n: None)
+    assert c.url == "https://a.falsa" and c.token is None
+    # sem url o keyring nem é consultado
+    c = bk.config_de({}, cfg.config_dir, cfg.data_dir, keyring_get=lambda s, n: pytest.fail("keyring"))
     assert c.url is None and c.token is None
 
 

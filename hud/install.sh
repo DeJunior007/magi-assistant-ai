@@ -194,7 +194,9 @@ UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 MAGI_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/magi/config.toml"
 SERVICES=(magi-satellite.service magi-core.service)
 UNIT_FILES=(magi-satellite.service magi-core.service magi-ayanami.service magi-ayanami.timer
-            magi-clean.service magi-clean.timer)
+            magi-clean.service magi-clean.timer
+            magi-news-sync.service magi-news-sync.timer magi-backup.service magi-backup.timer
+            magi-casa.service)  # só copiadas; não habilitadas aqui (Y4.1b)
 
 run() {  # executa, ou só mostra no --dry-run
     if [ "$DRY" = 1 ]; then
