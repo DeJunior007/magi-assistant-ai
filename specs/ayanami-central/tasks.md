@@ -720,7 +720,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y42 e CA-Y43 verdes; nenhum log com o texto digitado (só `len`).
   - Paralelo: C1.1b, C1.1c, C1.2, C1.4
 
-- [ ] **C1.4 Driver Android TV** — `magi/casa/drivers/androidtv.py` (`androidtvremote2` 0.3.2,
+- [x] **C1.4 Driver Android TV** — `magi/casa/drivers/androidtv.py` (`androidtvremote2` 0.3.2,
   spec §11.3): `async_connect` + `keep_reconnecting` em tarefa própria, comando durante reconexão
   espera ≤ 1,5 s, estado por callbacks (`is_on`, `current_app` → id pelo `pacote:`, `volume_info` →
   0–100), `POWER` só quando o estado contradiz, deep link do catálogo, HDMI por keycode com
@@ -1054,3 +1054,15 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   (privado; versão fixada 0.19.5) porque o `literal()` da lib codifica espaço como `+`, e a spec
   pede `Lit_%20`. (5) Sem sessão `aiohttp` compartilhada no `ContextoDriver`: o driver aceita
   `session=` e, sem ela, a `rokuecp` abre a sua (fechada no `fechar()`).
+- **C1.4:** (1) `magi.casa.drivers.androidtv.parear(tv, ctx, pedir_codigo, *, fabrica, gerar_cert,
+  prazo_s=120, tentativas=3) -> ResTv` faz o fluxo da §12.3 (a C1.5 só orquestra e lê o código com
+  eco desligado): cert/key gerados direto em `0600` (`os.open`, não pelo
+  `async_generate_cert_if_missing`, que grava com a umask) em `<id>.atv.crt|.key.novo`, renomeados
+  só com o código certo; errado 3× → `ACESSO_NEGADO`, cancelado na TV → `ACESSO_NEGADO`, prazo →
+  `TEMPO_ESGOTADO`, sempre sem gravar. Cada código errado reinicia o `async_start_pairing` (a TV
+  mostra código novo). `caminhos_cert(tv_id, dir)` também é público. (2) O driver troca
+  `capacidades` por uma cópia com `vol_max = volume_info.max` quando ele chega: a emulação de
+  `VOL_SET` (C1.1b) deve converter passos com `vol_max` (1 tecla = 100/`vol_max` na escala 0–100).
+  (3) `mute(True/False)` com mudo desconhecido alterna e devolve `emulado=True, detalhe="alternado"`.
+  (4) `power` espera a confirmação pelo callback `is_on` até 8 s; sem ligar → `STANDBY_PROFUNDO`.
+  (5) Construtor aceita `fabrica`, `dormir` e `agora` injetados (testes sem rede).
