@@ -571,7 +571,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
 
 ## Fase Y6 — Roteamento do turno e modo nuvem (spec §6)
 
-- [ ] **Y6.1 Gasto da nuvem** — `ayanami/custos.py` (`BudgetNuvem` com a interface do `Budget` do
+- [x] **Y6.1 Gasto da nuvem** — `ayanami/custos.py` (`BudgetNuvem` com a interface do `Budget` do
   PC: `ensure_allowed`/`record`/`status`; tetos de `[budget]`; `pc_mes` de `custos_pc` alimentado
   pelo `Bate.custos_mes_usd` via gancho do hub), `ayanami/api/custos.py` (`GET /v1/custos?desde=`),
   e o `budget` no `Deps` dos workers. *(R8.4, D11a, spec §6.4)*
@@ -1330,3 +1330,16 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   hoje não acontece). (5) `PUT /v1/noticias/preferencias`: `franchise_prefs` do PC substitui a da
   Ayanami; `progress` por *upsert* sem regredir (`updated_at` mais novo fica). (6) `progresso.atualizar`
   = `update_if_due` + `score_pending` com o relógio do `Deps`, sem `Registry`.
+- **Y6.1:** (1) `BudgetNuvem(db, relogio, *, teto_nuvem_usd, teto_geral_usd, preco=None)` /
+  `.de_config(db, cfg, relogio)`; conta como o PC (mês civil America/Sao_Paulo, bloqueia só
+  `BUDGET_BLOCKED_TASKS`: STT/TTS passam com o teto batido). `status()` → `spent_usd`=nuvem do mês,
+  `cap_usd`=teto efetivo `max(0, min(2, 5 − pc))` (`spent ≥ cap` ⇔ bloqueado); `gasto()` dá
+  `GastoMes` com nuvem/pc/tetos. Preço: `usage.usd` ou o `preco(usage)` injetado (a Ayanami não tem
+  `[budget.prices]`; a Y6.3 pode passar o `MonthlyBudget.price_usd` do PC ou uma tabela própria).
+  (2) `Deps.__post_init__` cria o `BudgetNuvem` de `cfg.budget` quando `budget` vem `None` (o worker
+  não precisou mudar). (3) Gancho do `bate`: `custos.ligar(hub, db, relogio)` (idempotente) liga
+  `ao_bate` → upsert em `custos_pc` (só nó `pc`, valor finito ≥ 0). Quem liga: o `lifespan` do
+  roteador `ayanami/api/custos.py` (`APIRouter(lifespan=…)`, mesclado pelo FastAPI ao da app) e a
+  própria rota; sem mexer no `hub.py`. (4) `GET /v1/custos?desde=&n=` (n ≤ 500, padrão 500): só
+  `source='nuvem'`, ordem de `id`; `desde` desconhecido recomeça do início (o PC deduplica por
+  `origem_uid`); `desde` inválido → 422; `at` por `iso_z` (segundos).
