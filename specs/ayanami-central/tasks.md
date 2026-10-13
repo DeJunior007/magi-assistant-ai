@@ -275,7 +275,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y29 verde; soma dos `mem_limit` ≤ 13 GB e `cpus` de lento + voz ≤ 6 (no teste); `docker build` local da imagem leve passa (sem subir nada); `ruff` limpo.
   - Paralelo: Y0.3, Y1.3, Y4.1
 
-- [ ] **Y1.2 Host do node 2 como script e runbook** — scripts idempotentes, revisáveis e **não
+- [x] **Y1.2 Host do node 2 como script e runbook** — scripts idempotentes, revisáveis e **não
   executados pelo agente**: `deploy/ayanami/host/preparar.sh` (pacotes, usuário `ayanami`,
   `/opt/ayanami`, `dados/`), `ufw.sh` (nega entrada; libera 22/tcp e 41641/udp; nada mais),
   `tailscale.sh` (`tailscale up` com hostname `ayanami` e `tailscale serve --bg --https=443
@@ -1202,3 +1202,17 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   como atrasado (alerta 1×/6 h até o 1º backup). (3) Só `/saude` sem `200`/JSON conta como falha;
   `200` com `ok=false` (segredo faltando) não alerta. (4) Sem `docker`: tudo vem da `/saude` e do
   `statvfs` (`/` e `/opt/ayanami/dados`). Instalar as units fica na Y1.6 (Pedro).
+- **Y1.2:** (1) Layout: `/opt/ayanami` é o clone; `.env`, `ayanami.toml` e `dados/` reais ficam em
+  `/opt/ayanami/` e o `preparar.sh` cria links `deploy/ayanami/{.env,ayanami.toml,dados}` para eles
+  (o `compose.yml` usa `build: ../..` e lê tudo ao lado dele) + `.git/info/exclude`. (2) `deploy.sh`:
+  `git pull --ff-only` → `pull --ignore-buildable` → `build` só sem `AYANAMI_IMAGEM` (env ou `.env`)
+  → `--profile ops run --rm migrar` → `up -d` → `/saude` (30×2 s); `--tag X` grava `AYANAMI_TAG` no
+  `.env` (rollback), `--sem-git`. A Y1.4 chama `deploy.sh` como o usuário `ayanami`. (3)
+  `limpar-multivideos.sh` exige `--host-esperado` e `--ip-esperado` (do painel, fora do repo) e
+  aborta antes de ler qualquer coisa se não baterem ou se houver contêiner rodando com
+  `multivideos|wedding|gold`; é o único script com `docker volume rm` (só volumes `ollama|whisper`
+  sem contêiner, nunca `ayanami|magi`), e o teste estático tolera só esse. (4) Sem `shellcheck` no
+  PC: só `bash -n` + execução com falsos no PATH. (5) Runbook: o `run --rm migrar <outro comando>`
+  para `restic snapshots` não foi conferido (o `migrar` pode ter comando fixo); a Y1.6 confere ou
+  usa `exec worker-agendado`. Keyring do token do PC segue a Y3.3 (`magi`/`ayanami_pc`), não o
+  `magi-keys` do design §10.3.
