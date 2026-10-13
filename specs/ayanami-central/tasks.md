@@ -367,7 +367,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y6 (403 parametrizado sobre `ESCOPO_DE_ROTA`, inclusive rotas ainda stub), CA-Y8, CA-Y9 verdes; 61ª requisição/min → 429 com `Retry-After`; `caplog` de 50 requisições sem `ayn_`/`Bearer`/corpo; `ruff` limpo.
   - Paralelo: Y0.4, Y0.5, Y3.3, Y4.1
 
-- [ ] **Y2.2 WebSocket dos nós, hub, ação na casa e confirmações** — `ayanami/hub.py` (conexões
+- [x] **Y2.2 WebSocket dos nós, hub, ação na casa e confirmações** — `ayanami/hub.py` (conexões
   por dispositivo, 1 WS por dispositivo — a nova fecha a antiga com `4002`; `enviar_e_esperar(env,
   prazo)` com retransmissão 10 s × 3 [spec §1.3]; `visto` e `online` do `pc`/`casa`; último
   `ola`/`estado` da casa; ganchos `ao_ola(tipo, fn)` e `ao_receber(tipo, fn)` para Y6.x/Y5.1;
@@ -1269,3 +1269,20 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   (7) `workers_batimento.fila` = nome da fila (`rapida`…); healthcheck do Compose: `ayanami batimento
   <fila> --max 90` (0 ok, 1 velho/ausente, 2 banco). (8) Limpeza: `confirmacoes` e `pareamentos` pela
   `expira`; jobs pelo último `procrastinate_events.at`; `tarefas` não são apagadas (a §3 não pede).
+- **Y2.2:** (1) O hub nasce preguiçoso em `hub_de(ctx)` (`ctx.extras["hub"]`; a `app.py` é da
+  Y5.1) e se liga a `auth.ao_revogar`; `confirmacoes_de(ctx)` fica em `extras["confirmacoes"]`.
+  `extras["online"]` não é usado: a `/saude` segue por `dispositivos.visto`, que o hub grava no
+  `ola`/`bate` (e a cada `GET /v1/longpoll`, que não manda `bate`). (2) Revogação feita por outro
+  processo: enquanto houver conexão aberta, o hub varre `dispositivos.revogado` dos conectados a cada
+  2,5 s e fecha com `4001` (≤ 5 s); a Y2.3 pode fazer igual no SSE. (3) `/ws` é rota WebSocket com
+  `methods=set()` + `GET /ws` HTTP que dá `426`, para a tabela da Y2.1 seguir batendo; recusa do
+  upgrade por `send_denial_response` (401/403); sem `ola` válido em 5 s fecha com `4003` (código
+  não fixado na spec). Quadros binários na WS são ignorados por ora (Y6.x liga ao turno).
+  (4) `casa.pedir_acao(ctx, disp, tv, pedido, origem)` é a chamada interna para a Y5.1: origem
+  `"mcp"` + `danger` do `intents.yaml` sem `confirmed` → `202 {"confirma"}`; no "sim" o executor
+  `"casa.acao"` roda com `confirmed=True`. A pergunta vai ao PC por `confirma` (espera 30 s; resposta
+  por `resp` ou depois pelo `ao_receber(CONFIRMA)`); a entrega pelo SSE é da Y2.3. `POST
+  /v1/confirma/{pedido}` → `{"pedido","resposta","resultado"}`; `404` se não existe. (5) Auditoria
+  só no `POST /v1/casa/acao` (e no `acao_ok` atrasado); o `GET /v1/casa/estado` não audita (o PWA
+  consulta toda hora). (6) `pc_caiu` no meio do turno (§6.1) fica para a Y6.4 (`hub.destino`/
+  `online`/`ativo`). Uma conexão long-poll vira a ativa e fecha a WS com `4002`.
