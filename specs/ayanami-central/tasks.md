@@ -415,7 +415,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
 
 ## Fase Y3 — Fila e workers (spec §4–§5)
 
-- [ ] **Y3.1 Fila, tarefas e workers** — `ayanami/fila.py` (`app` com `PsycopgConnector`; registro
+- [x] **Y3.1 Fila, tarefas e workers** — `ayanami/fila.py` (`app` com `PsycopgConnector`; registro
   das 17 tarefas da §4.2 com fila, `RetryStrategy`, prazo por `asyncio.timeout`, `queueing_lock`/
   `lock`, `periodic` só na `agendada`; `embeddings.lote` só com `[embeddings] ligado`), corpos
   **stub** em `ayanami/workers/{noticias,agente,voz,stt,embeddings,backup,push}.py` (assinatura
@@ -1232,3 +1232,23 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   (5) O filtro do log (C1.1) descarta campos chamados `chave`: a descoberta loga `ip`/`tv`. As fontes
   reais `ssdp_real`/`mdns_real` nunca rodam nos testes: validar na C1.S2/F.1. (6) Fora do *Escreve*:
   `tests/casa/test_contrato.py` (a asserção do stub `testar` esperava "dono: C1.5").
+- **Y3.1:** (1) Contrato do corpo: `async def corpo(deps, contexto, **kwargs) -> dict | None`; o
+  `Deps` chega por `run_worker_async(additional_context={"deps": deps})` e `fila.registrar` embrulha
+  com `asyncio.timeout` (estouro → `PrazoEstourado`, nunca repetido pela `fila.Repeticao`). Jobs de
+  `tarefas` recebem só `tarefa_id` (lêem `params` do banco); o retorno `{"texto","dados"}` vira
+  `resultado` pelo middleware `tarefas.on_job_status(deps)`. Abort do usuário (`CancelledError` com
+  `AbortReason.USER_REQUEST`) vira `JobAborted` (sem retry; a lib repetiria um `CancelledError`). (2)
+  Contradição na spec: `voz.cache_frases` é periódica (cron `0 6 * * 1`) mas da fila `lenta`, e o
+  CA-Y13 diz "nenhuma periódica fora da `agendada`". Ficou na `lenta` (precisa da imagem `-ml`); só o
+  worker `agendada` monta o app com periódicas (`montar(periodicas=False)` nos outros), então só ele
+  defere o cron. O teste aceita essa única exceção. (3) `a` da §4.2 = `RetryStrategy(max_attempts=a)`
+  da lib, que conta **repetições** (a=2 → até 3 execuções); `a=1` = sem retry. (4) O evento
+  `tarefa_falhou` é gravado direto em `eventos` + `NOTIFY ayanami_eventos` (`tarefas.criar_evento`);
+  a Y2.3 pode trocar por `ayanami.eventos`, e o `push.enviar` depois do evento fica para a P2.1/Y2.3.
+  (5) Monitor: `criar_tarefa` grava `agenda=agora`, `expira=agora+expira_dias` e defere já o 1º
+  `monitor.passo` com `lock="monitor:<id>"`; a Y3.4 decide o resto. (6) A API acha a fila em
+  `ctx.extras["fila"]` (testes) ou abre o app de produção no 1º uso (`fila.app_aberto`); ninguém o
+  fecha no fim (o `app.py` é da Y2.1/Y5.1: pôr `app.open_async` em `ctx.ciclo` se fizer falta).
+  (7) `workers_batimento.fila` = nome da fila (`rapida`…); healthcheck do Compose: `ayanami batimento
+  <fila> --max 90` (0 ok, 1 velho/ausente, 2 banco). (8) Limpeza: `confirmacoes` e `pareamentos` pela
+  `expira`; jobs pelo último `procrastinate_events.at`; `tarefas` não são apagadas (a §3 não pede).
