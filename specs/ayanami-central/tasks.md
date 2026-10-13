@@ -680,7 +680,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y30 (parte do contrato: `Capacidades.pode`, `ResTv`, driver sem cap → `NAO_SUPORTADO`) e CA-Y50 verdes; `magi-casa --help` lista os subcomandos; `systemd-analyze --user verify` da unit limpo; `ruff` limpo; `magi/casa/driver.py` importa sem I/O.
   - Paralelo: C2.1 e a onda 2 da nuvem; **não** com Y0.2 (`pyproject.toml`)
 
-- [ ] **C1.1b `Executor`, emulação, fila e timeouts** — `magi/casa/emula.py` (`Executor.rodar`,
+- [x] **C1.1b `Executor`, emulação, fila e timeouts** — `magi/casa/emula.py` (`Executor.rodar`,
   §10.6: resolve a TV pelas cinco regras da §13.3 devolvendo `TV_AMBIGUA` com os candidatos no
   `detalhe`; `confirmed` em `tv.power_off`; intent → método; emulação da §10.7; ligar com sonda de
   500 ms até 8 s; timeouts da §11.5) e `magi/casa/fila.py` (um `asyncio.Lock` por TV, fila ≤ 8,
@@ -1090,6 +1090,21 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   (3) `mute(True/False)` com mudo desconhecido alterna e devolve `emulado=True, detalhe="alternado"`.
   (4) `power` espera a confirmação pelo callback `is_on` até 8 s; sem ligar → `STANDBY_PROFUNDO`.
   (5) Construtor aceita `fabrica`, `dormir` e `agora` injetados (testes sem rede).
+- **C1.1b:** (1) `Executor(cfg, drivers, *, estados, fila, relogio, dormir, prazos)`; `estados`
+  (`tv_id → EstadoTv`) é o cache da regra 4 da §13.3 ("só uma ligada"): a C1.1c deve passar o mesmo
+  dicionário que a sondagem atualiza (hoje o `servir.executor_padrao` chama só `Executor(cfg,
+  drivers)`). `rodar(req, *, origem="local")` loga `acao` com a origem. (2) `TV_AMBIGUA`: ids
+  candidatos em `ResTv.detalhe` separados por vírgula; `magi.casa.emula.candidatos(res)` os devolve —
+  a C1.1c põe em `dados["candidatos"]` (contrato da C2.2). (3) Intents do controle remoto além da
+  §13.1, constantes em `emula.py`: `tv.channel` (args `step`), `tv.key` (args `key` = valor de `Key`),
+  `tv.text` (args `texto`), `tv.state` (devolve `estado`); a P1.x/C1.5 (`testar`) usam esses. (4)
+  Emulação abortada por outra `acao` → `OCUPADA` com `detalhe="interrompida por outra ação"`,
+  `emulado=True`; repetição coalescida → `ok` com `detalhe="coalescida"` (sem chamar o driver).
+  (5) Emulação só quando a cap está em `capacidades.emula` (Roku player sem `VOL_SET` ali →
+  `NAO_SUPORTADO`). Mudo: desconhecido → `mute(None)` direto (1 tecla); conhecido e diferente →
+  `mute(on)` e, se `NAO_SUPORTADO` (Roku), `mute(None)`. (6) Prazo: `asyncio.wait_for` real **e**
+  conferência pelo relógio injetado (driver falso que "dorme" no `RelogioFalso` estoura igual);
+  estouro → `fechar()` e `conectar()` antes da próxima chamada daquela TV.
 - **Y0.4:** (1) A linha DS9 do resumo da spec (linha ~48, fora do trecho da Y0.4) ainda diz "cron
   segue o TZ"; o S5 mostrou que não: os crons da §4.2 já estão em UTC (local + 3 h); falta trocar o
   texto da DS9. (2) Para a Y1.x (compose): `stop_grace_period` ≥ 35 s nos três workers (graceful de
