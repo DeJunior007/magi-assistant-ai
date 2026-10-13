@@ -708,7 +708,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y40 e CA-Y41 verdes; 401/recusa de "Permitir" → `ACESSO_NEGADO`; exceção de rede vira `OFFLINE`/`TEMPO_ESGOTADO`, nunca sobe.
   - Paralelo: C1.1b, C1.1c, C1.3, C1.4
 
-- [ ] **C1.3 Driver Roku** — `magi/casa/drivers/roku.py` (`rokuecp` 0.19.5, spec §11.2): caps de
+- [x] **C1.3 Driver Roku** — `magi/casa/drivers/roku.py` (`rokuecp` 0.19.5, spec §11.2): caps de
   `device-info` (`is-tv`, `supports-tv-power-control`), `PowerOn` + WOL de recaída, teclas,
   `launch/<id>` com busca por nome em `/query/apps` (cache 24 h), `Lit_` por caractere (≤ 100, 30 ms),
   403 → `ACESSO_NEGADO` com a dica "Acesso à rede". Servidor HTTP falso `:8060`. *(R6.1, spec
@@ -1044,3 +1044,13 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   corrige a nota/design §4.5. (3) Y5.1: lifespan do FastAPI entra em `mcp.session_manager.run()`;
   `allowed_hosts` precisa do host do tailnet (`[ayanami]` dá a URL base); `mcp` 2.3.0 já está no
   `uv.lock` (sem `--with`).
+- **C1.3:** (1) `RokuDriver.power` confirma sozinho: depois do `PowerOn`/`PowerOff` relê
+  `device-info` a cada 0,5 s por até 7 s (abaixo dos 8 s do `Executor`) e já devolve o motivo
+  (`SEM_MAC`, `REDE_DESLIGADA` depois do WOL, `STANDBY_PROFUNDO` com a dica do *Início rápido da TV*,
+  `ACESSO_NEGADO`); a C1.1b pode pular a própria sondagem para o Roku. (2) `mute(True/False)` →
+  `NAO_SUPORTADO` (o Roku não informa o mudo); o `Executor` emula com `mute(None)` (alterna).
+  `VOL_SET` vem em `capacidades.emula` só na Roku TV. (3) Caps começam como player (`KEY APP TEXT
+  STATE`) e viram as reais no `conectar()` (lê `device-info`). (4) Usa `rokuecp.Roku._request`
+  (privado; versão fixada 0.19.5) porque o `literal()` da lib codifica espaço como `+`, e a spec
+  pede `Lit_%20`. (5) Sem sessão `aiohttp` compartilhada no `ContextoDriver`: o driver aceita
+  `session=` e, sem ela, a `rokuecp` abre a sua (fechada no `fechar()`).
