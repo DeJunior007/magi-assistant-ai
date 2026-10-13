@@ -484,7 +484,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: rotas e faixas da §5.4 testadas com motor falso; descarrega após 600 s ocioso; cache não regenera frase com `sha1` existente; nenhum teste importa `kokoro_onnx`.
   - Paralelo: Y3.2, Y3.4, Y3.6, Y4.2
 
-- [ ] **Y3.6 STT assíncrono e embeddings** — `ayanami/workers/stt.py` (`stt.transcrever` com
+- [x] **Y3.6 STT assíncrono e embeddings** — `ayanami/workers/stt.py` (`stt.transcrever` com
   faster-whisper atrás de protocolo, `small` int8 4 threads `pt`, só na `lenta`, texto ≤ 200 mil
   caracteres ou `dados.arquivo` com expiração de 7 dias, áudio apagado no `finally`), upload do
   `stt` em `ayanami/api/tarefas.py` (só o ramo multipart `tipo=stt`: ≤ 200 MB, para `/dados/tmp/`),
@@ -1300,3 +1300,18 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   só no `POST /v1/casa/acao` (e no `acao_ok` atrasado); o `GET /v1/casa/estado` não audita (o PWA
   consulta toda hora). (6) `pc_caiu` no meio do turno (§6.1) fica para a Y6.4 (`hub.destino`/
   `online`/`ativo`). Uma conexão long-poll vira a ativa e fecha a WS com `4002`.
+
+- **Y3.6:** (1) Fora do *Escreve*: `ayanami/api/limites.py` ganhou `"/v1/tarefas": 201 MiB` em
+  `CORPO_POR_ROTA` (sem isso o `LimiteCorpo` cortava o upload em 256 KiB); a própria rota segura o
+  JSON em 256 KiB e o áudio em 200 MB (`api/tarefas.STT_MAX_BYTES`), contando no fluxo. (2) O
+  middleware `tarefas._resultado` (Y3.1) corta `resultado.texto` em 6000 caracteres: a transcrição
+  devolve até 200 mil, mas só 6000 ficam no banco até o dono subir o corte para o `stt` (o arquivo
+  `stt/<id>.txt` só existe acima de 200 mil). (3) Upload: multipart `tipo`, `titulo`, `arquivo`
+  (+ `chave`/`pessoal`/`avisar`), gravado em `ctx.extras["dados"]` (padrão `/dados`)`/tmp/<uuid>.<ext>`
+  e `params={"arquivo": nome}`; `stt` por JSON → 422. (4) O áudio é apagado no `finally` em sucesso,
+  falha final, prazo e abort; fica só quando a fila vai repetir (a=2) ou no desligamento do worker.
+  Áudio órfão em `tmp/` (API caiu entre gravar e criar) não tem varredura: a `limpeza.diaria` pode
+  apagar `tmp/` > 2 dias. (5) Textos longos vencidos (`/dados/stt/*.txt` > 7 dias) são apagados no
+  início de cada `stt.transcrever` (`stt.limpar_textos`); a `limpeza.diaria` pode chamá-la também.
+  (6) `embeddings.lote(textos, tipo)` devolve os vetores em `dados.vetores`; quem grava em
+  `vector(384)` fica para a A8. Modelos em `/dados/modelos/{whisper,fastembed}`.

@@ -28,7 +28,8 @@ KIB = 1024
 MIB = 1024 * KIB
 GIB = 1024 * MIB
 CORPO_PADRAO = 256 * KIB
-CORPO_POR_ROTA = {"/v1/turno": 1 * MIB, "/v1/backup/pc": 2 * GIB}
+# /v1/tarefas: o multipart do stt (Y3.6) leva até 200 MB; o JSON a rota mesma corta em 256 KiB
+CORPO_POR_ROTA = {"/v1/turno": 1 * MIB, "/v1/backup/pc": 2 * GIB, "/v1/tarefas": 201 * MIB}
 
 
 class Janela:
