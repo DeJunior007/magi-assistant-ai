@@ -471,7 +471,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y19 (parte agente) verde; monitor bate → `evento monitor` e `ok`; não bate → `agenda += a_cada_h`; expirado → `"expirou sem bater"`; prazo estourado → `falhou` com `erro="prazo"` sem retry.
   - Paralelo: Y3.2, Y3.5, Y3.6, Y4.2
 
-- [ ] **Y3.5 `ayanami-voz` (Kokoro)** — `ayanami/voz/servidor.py` (`ayanami voz --port 8741`:
+- [x] **Y3.5 `ayanami-voz` (Kokoro)** — `ayanami/voz/servidor.py` (`ayanami voz --port 8741`:
   `POST /falar` PCM s16le 24 kHz em streaming, `X-Taxa`, `413`, `503` carregando > 20 s, `GET
   /saude`), carga preguiçosa e descarga após `descarregar_apos_s` (relógio injetado), motor Kokoro
   atrás de um protocolo `Motor` (falso nos testes; import de `kokoro_onnx` só dentro do real);
@@ -1008,6 +1008,20 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   "qual TV?" usa `ARG_ESCOLHA` (função no `on_confirm.args`) + `ARG_QUIET`; o caminho "sim
   atrasado" (`_stale`) não resolve escolha de TV.
 
+- **Y3.5:** (1) Modelo do `ayanami-voz` em `$AYANAMI_MODELOS/kokoro/<[voz] modelo>` +
+  `voices-v1.0.bin` ao lado (no contêiner `/modelos/kokoro/`): a Y1.6 (deploy) põe os dois
+  arquivos no volume `ayanami-modelos`. (2) `voz.cache_frases` não carrega o Kokoro no
+  `worker-lento`: sintetiza por `POST` ao `ayanami-voz` (`$AYANAMI_VOZ_URL`, padrão
+  `http://ayanami-voz:8741`) e transcodifica com `ffmpeg` (Opus/OGG 32k); nome =
+  `ayanami.workers.voz.chave(texto)` (SHA-1 do texto UTF-8, sem a voz) — a Y6.x usa a mesma função.
+  Lê `ayanami/frases.yaml` (`{nome: texto}` ou lista); o arquivo ainda não existe (dono do modo
+  nuvem, §6.5): sem ele o job termina sem gerar nada. Injeção por `deps.extras` (`voz_frases`,
+  `voz_sintetizar`, `voz_ffmpeg`). (3) `503` também quando a carga falha (próximo pedido tenta de
+  novo); texto > 600 ou corpo > 16 KiB → `413`; resto inválido → `422`. (4) Teste opcional com o
+  Kokoro real (`AYANAMI_KOKORO_REAL=1`) falha no `.venv` atual: falta `phonemizer` (dependência
+  do `kokoro-onnx`; algum `uv sync` sem `--extra ayanami-ml` tirou?) — não rodei `uv sync`.
+  (5) `tests/ayanami/test_fila.py::test_stubs_apontam_o_dono` falha por `noticias.coletar` (Y3.2,
+  docstring sem "dono:"), não pela voz.
 - **Y0.2:** (1) `ayanami-ml` fixa `kokoro-onnx==0.6.1` e `onnxruntime==1.30.0` (as do PC), não
   `0.4.7`/`1.31.0`: o `uv.lock` é um só e os pinos da spec rebaixariam o Kokoro do PC (audiolivro).
   A Y3.5 usa a API do 0.6.1. (2) Sem `tests/ayanami/__init__.py`: com `--import-mode=importlib` ele
