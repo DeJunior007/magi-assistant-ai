@@ -1,0 +1,8 @@
+# Frases fixas do modo nuvem (dono: Y6.3; spec §6.5). Nome → texto.
+# O job voz.cache_frases (Y3.5) gera <dados>/modelos/cache-voz/<sha1(texto)>.ogg de cada uma;
+# o modo nuvem toca o arquivo do cache sem chamar TTS. Trocar o texto = novo arquivo no cache.
+casa_offline: "A casa está fora do ar."
+pc_offline_pedido: "Isso só no PC, e ele está desligado."
+sem_verba: "Estou sem verba de nuvem este mês."
+erro_generico: "Deu ruim aqui, não consegui."
+pc_caiu: "Perdi o PC no meio; repete?"

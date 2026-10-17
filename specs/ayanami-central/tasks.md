@@ -599,7 +599,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y22 (parte gancho: `celular` emite 1 `TurnoFim`, `pc` nada) verde; turno de texto e de áudio (PCM falso) com core de teste devolvem `TurnoFim` com cards; resposta nunca vai ao satélite do headset; sem `[ayanami]` nada muda (regra 10); `tests/core/` sem mudar asserção.
   - Paralelo: Y3.x, Y4.2, Y5.1, Y6.1, Y6.3, C1.x; **não** com C2.2 (`turn.py`, `assemble.py`)
 
-- [ ] **Y6.3 Modo nuvem** — `ayanami/nuvem.py` (`NUVEM_PODE`, `atender(texto, dispositivo, deps)`:
+- [x] **Y6.3 Modo nuvem** — `ayanami/nuvem.py` (`NUVEM_PODE`, `atender(texto, dispositivo, deps)`:
   `GraphAgent` só com as ferramentas permitidas e a linha "Agora você está na nuvem…", contexto dos
   últimos `contexto_turnos` de `nuvem_turnos`, `tv_*` só com casa online, `tv_desligar` → `confirma`;
   teto batido → roteador sem LLM com as frases `tv.*` do `intents.yaml` (rapidfuzz) e frase
@@ -1365,6 +1365,23 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   (sem script no `pyproject`). Esse processo não alcança o HUD (o socket só aceita `cmd`): o card
   "código de pareamento" sai só quando o core chamar `pedir_codigo(url, token, avisos=…)` — falta
   um intent/`cmd` "parear celular" no core (fora do *Escreve*).
+- **Y6.3:** (1) `atender(texto, dispositivo, deps, *, turno=None)`; `NuvemDeps.da_app(ctx, registry=,
+  app_fila=, noticias=)` monta a produção (a Y6.4 chama). O roteador local (o `LocalRouter` do PC
+  com todo o `intents.yaml` e o catálogo do último `ola`) roda **sempre** antes do LLM, como no PC:
+  `tv.*` com nota de execução vai direto à casa (`tv.power_off` → `confirma`); intenção só do PC
+  (`game./hud./volume./rgb./system./music./learning./book./memory.`) com nota de execução →
+  `pc_offline_pedido`; nota de "quis dizer" vai ao agente (ex.: "sobe o som da tela" dá `ask
+  volume.set`). Teto batido → `sem_verba`. (2) Contexto: os 20 `nuvem_turnos` entram como seção
+  "Conversa recente (nuvem)" na persona do `GraphAgent` (o deque dele guarda só 2 trocas). (3) A
+  confirmação do `tv_desligar` é criada aqui (`Confirmacoes.criar`, `tipo="casa.acao"`,
+  `origem="nuvem"`); o executor do "sim" é o da Y2.2. O id da confirmação não vai no `TurnoFim`
+  (sem campo): o PWA recebe pela entrega de confirmações (Y2.3/P1). (4) Registry de LLM da nuvem
+  segue em aberto: `agente_padrao(registry)` usa o `Deps.registry`, ainda `None` (quem monta o
+  `Registry` com as chaves do `.env`: Y3.4/Y6.4); o `BudgetNuvem` não tem preço de TTS/STT por
+  unidade — passar `preco=` (ex.: `MonthlyBudget.price_usd` do PC) ao montar. (5) `voz_nuvem`: TTS
+  OpenAI `gpt-4o-mini-tts` com `response_format=opus` (modelo não fixado na spec), cache dinâmico em
+  `<dados>/cache-tts/` (≤ 500 arquivos, sai o mais velho); frases fixas lidas de
+  `<dados>/modelos/cache-voz/` (Y3.5). `[nuvem] kokoro_reserva` ainda não é lido.
 - **Y2.3:** (1) `ayanami/eventos.py`: `gravar(conn, …)` / `criar_evento(db, tipo, titulo, resumo, ref, *,
   para, agora)` + `NOTIFY ayanami_eventos` (payload = id, o mesmo canal da Y3.1: o
   `tarefas.criar_evento` já é ouvido; trocá-lo por `ayanami.eventos.gravar` fica para quem mexer em
