@@ -37,10 +37,18 @@ class FakeProc:
         (root / "stat").write_text(f"cpu  1 2 3\nbtime {BTIME}\n")
         (root / "self").mkdir()  # entradas não numéricas são ignoradas
 
-    def add(self, pid: int, comm: str, env: dict[str, str] | None = None, start_s: float = 0.0) -> None:
+    def add(
+        self,
+        pid: int,
+        comm: str,
+        env: dict[str, str] | None = None,
+        start_s: float = 0.0,
+        args: tuple[str, ...] = (),
+    ) -> None:
         d = self.root / str(pid)
         d.mkdir()
         (d / "comm").write_text(comm + "\n")
+        (d / "cmdline").write_bytes(b"".join(a.encode() + b"\0" for a in (comm, *args)))
         (d / "environ").write_bytes(b"\0".join(f"{k}={v}".encode() for k, v in (env or {}).items()) + b"\0")
         fields = ["S", "1", *["0"] * 17, str(int(start_s * TICK))]
         (d / "stat").write_text(f"{pid} ({comm}) {' '.join(fields)}\n")
@@ -168,6 +176,28 @@ async def test_non_steam_known_process(proc: FakeProc) -> None:
     game = await w.poll()
     assert game is not None and game.appid is None and game.name == "Minecraft"
     assert scan(proc.root, {"minecraft": "Minecraft"}) == ["Minecraft"]
+
+
+async def test_minecraft_client_by_cmdline_not_launcher(proc: FakeProc) -> None:
+    proc.add(
+        600, "java", {"PATH": "/bin"}, args=("-cp", "TLauncher.jar", "org.tlauncher.tlauncher.rmo.TLauncher")
+    )
+    w = watcher(proc)
+    assert await w.poll() is None  # o launcher sozinho não é jogo
+    proc.add(
+        601,
+        "java",
+        {"PATH": "/bin"},
+        args=(
+            "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "--gameDir",
+            "/home/x/.minecraft",
+            "--assetsDir",
+            "/home/x/.minecraft/assets",
+        ),
+    )
+    game = await w.poll()
+    assert game is not None and game.appid is None and game.name == "Minecraft" and game.pid == 601
 
 
 async def test_tags_cache_persists_and_expires(tmp_path: Path) -> None:

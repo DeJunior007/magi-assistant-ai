@@ -112,7 +112,7 @@ elif [ -e "$LINK" ]; then
 else
     ln -s "$HUD_DIR" "$LINK"
 fi
-chmod +x "$HUD_DIR"/magi-view.py "$HUD_DIR"/alternar.py "$HUD_DIR"/steam-mangohud.sh
+chmod +x "$HUD_DIR"/magi-view.py "$HUD_DIR"/alternar.py "$HUD_DIR"/steam-mangohud.sh "$HUD_DIR"/tlauncher-mangohud.sh
 
 echo "== comando, menu e autostart"
 render "$SYS/bin/gamerhud" "$HOME/.local/bin/gamerhud"
@@ -137,6 +137,12 @@ echo "== Steam aberta pelo MangoHud (FPS em todos os jogos)"
 if [ -f /usr/share/applications/steam.desktop ]; then
     sed "s|^Exec=/usr/bin/steam|Exec=$LINK/steam-mangohud.sh|" \
         /usr/share/applications/steam.desktop > "$SHARE/applications/steam.desktop"
+fi
+
+echo "== TLauncher aberto pelo MangoHud (FPS do Minecraft, OpenGL)"
+if [ -f "$SHARE/applications/tlauncher.desktop" ]; then
+    sed -i "s|^Exec=.*/TLauncher/tlauncher\.sh|Exec=$LINK/tlauncher-mangohud.sh|" \
+        "$SHARE/applications/tlauncher.desktop"
 fi
 
 echo "== MangoHud invisível + log de FPS"

@@ -3,8 +3,9 @@
 ele termina (só se foi o vigia que abriu; se você fechar no meio do jogo, ele
 não reabre até o próximo jogo).
 
-Detecta jogos da Steam pelo processo `reaper SteamLaunch AppId=N` e qualquer
-outro jogo Vulkan pelo log em tempo real do MangoHud.
+Detecta jogos da Steam pelo processo `reaper SteamLaunch AppId=N`, o Minecraft pela
+linha de comando do cliente (`java … --gameDir … --assetsDir …`) e qualquer outro jogo
+pelo log em tempo real do MangoHud (o log `java_*` é do TLauncher quando não há cliente).
 Config em ~/.config/gamerhud/settings.json: "auto_open" e "auto_close" (true/false).
 
 Rede de segurança do papel de parede: no login e a cada RESCUE_S, se o HUD não está rodando
@@ -77,12 +78,26 @@ def steam_game():
     return None
 
 
+def minecraft_game():
+    """Cliente do Minecraft (vanilla, Forge, NeoForge, Fabric): `java` com `--gameDir` e
+    `--assetsDir`; o TLauncher também é `java`, mas não leva esses argumentos."""
+    for _pid, raw in cmdlines():
+        if b"--assetsDir" not in raw:
+            continue
+        args = raw.split(b"\0")
+        if os.path.basename(args[0]) == b"java" and b"--gameDir" in args and b"--assetsDir" in args:
+            return "minecraft"
+    return None
+
+
 def mango_game():
     try:
         newest = max((e for e in os.scandir(FPS_DIR) if e.name.endswith(".csv")),
                      key=lambda e: e.stat().st_mtime, default=None)
     except OSError:
         return None
+    if newest and newest.name.startswith("java_"):
+        return None   # TLauncher (OpenGL) com o MangoHud herdado; o jogo vem do minecraft_game
     if newest and time.time() - newest.stat().st_mtime < 5:
         return "mango:" + re.sub(r"_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.csv$", "", newest.name)
     return None
@@ -160,7 +175,7 @@ def main():
             rescue_wallpaper()
             next_rescue = time.monotonic() + RESCUE_S
         cfg = settings()
-        game = steam_game() or mango_game()
+        game = steam_game() or minecraft_game() or mango_game()
         if game:
             gone_since = None
             if game != current:

@@ -2,7 +2,9 @@
 
 ``GameWatcher`` varre ``/proc`` a cada ~5 s (só leitura, só processos do usuário) e acha o jogo
 pela variável ``SteamAppId`` (≠ 0) no environ, ignorando a própria Steam e o ``steamwebhelper``.
-Jogos fora da Steam entram por ``known_processes`` (nome do processo → nome do jogo). O environ
+Jogos fora da Steam entram por ``known_processes`` (nome do processo → nome do jogo); o cliente do
+Minecraft (``java`` com ``--gameDir`` e ``--assetsDir``, como o TLauncher abre) é reconhecido sozinho
+pela linha de comando, sem confundir com o próprio launcher, que também é ``java``. O environ
 de um processo não muda, então cada pid é lido uma vez só (cache por pid); a varredura seguinte
 só lista o diretório.
 
@@ -42,6 +44,13 @@ IGNORE_COMM = frozenset({"steam", "steamwebhelper", "steam-runtime-c", "steam-ru
 IGNORE_APPIDS = frozenset({0, 7, 228980})  # nenhum, cliente Steam, redistribuíveis
 _KEY = b"SteamAppId="
 RECLASSIFY_EVERY = 12  # varreduras (~1 min) entre releituras completas do environ
+MINECRAFT = "Minecraft"
+
+
+def _minecraft_client(cmdline: bytes | None) -> bool:
+    """Cliente do Minecraft (vanilla, Forge, NeoForge, Fabric): só ele leva ``--assetsDir``."""
+    args = (cmdline or b"").split(b"\0")
+    return b"--gameDir" in args and b"--assetsDir" in args
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +127,8 @@ class _ProcScanner:
             return appid, None
         if self.known and comm.casefold() in self.known:
             return None, self.known[comm.casefold()]
+        if comm == "java" and _minecraft_client(_read(d / "cmdline")):
+            return None, MINECRAFT
         return None, None
 
     def started(self, pid: int) -> float | None:

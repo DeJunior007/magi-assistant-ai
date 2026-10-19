@@ -633,6 +633,7 @@ def readb(path):
 
 
 STEAM_ROOT = os.path.expanduser("~/.local/share/Steam")
+MINECRAFT = "MINECRAFT"
 _steam_names = {}
 
 
@@ -653,11 +654,18 @@ def steam_game_name(appid):
 
 
 def steam_game():
-    """Nome do jogo da Steam em execução (processo `reaper SteamLaunch AppId=N`), ou None."""
+    """Nome do jogo da Steam em execução (processo `reaper SteamLaunch AppId=N`) ou MINECRAFT
+    (cliente `java … --gameDir … --assetsDir …`, fora da Steam), ou None."""
+    minecraft = None
     for e in os.scandir("/proc"):
         if not e.name.isdigit():
             continue
         raw = readb(f"/proc/{e.name}/cmdline")
+        if raw and b"--assetsDir" in raw:
+            args = raw.split(b"\0")
+            if os.path.basename(args[0]) == b"java" and b"--gameDir" in args and b"--assetsDir" in args:
+                minecraft = MINECRAFT
+            continue
         if not raw or b"SteamLaunch" not in raw:
             continue
         args = raw.split(b"\0")
@@ -667,7 +675,7 @@ def steam_game():
             m = re.fullmatch(rb"AppId=(\d+)", a)
             if m and m.group(1) != b"228980":
                 return steam_game_name(m.group(1).decode())
-    return None
+    return minecraft
 
 
 class Sensors:
@@ -726,6 +734,7 @@ class FpsSource:
         self.fps = self.frametime = self.name = None
         self.recent = deque(maxlen=120)  # últimos 60 s
         self.last_cleanup = 0.0
+        self.java_ok = False   # log `java_*` só vale com o cliente do Minecraft aberto (senão é o TLauncher)
 
     def _newest(self):
         best = None
@@ -771,6 +780,8 @@ class FpsSource:
         self._cleanup()
         newest = self._newest()
         row = None
+        if newest and os.path.basename(newest[0]).startswith("java_") and not self.java_ok:
+            newest = None
         if newest and time.time() - newest[1] < 3:
             row = self._last_row(newest[0])
         if not row:
@@ -784,6 +795,8 @@ class FpsSource:
             base = re.sub(r"_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.csv$", "", base)
             base = re.sub(r"\.(exe|x86_64|x86|bin)$", "", base, flags=re.I)
             self.name = re.sub(r"[_\-]+", " ", base).strip().upper() or "UNKNOWN"
+            if self.name == "JAVA":
+                self.name = MINECRAFT
         self.fps, self.frametime = row
         self.recent.append(self.fps)
 
@@ -994,6 +1007,7 @@ class HUD(QWidget):
         self.spec = system_info(self.sensors.gpu_dev)
         self.pads = controllers()
         self.steam_game = steam_game()
+        self.fpsrc.java_ok = self.steam_game == MINECRAFT
         self.hist = {k: deque([0.0] * HISTORY, maxlen=HISTORY) for k in ("fps", "gpu", "cpu")}
         self.bars = {}        # valor mostrado (animado) de cada barra
         self.fps_scale = 60.0
@@ -1453,6 +1467,7 @@ class HUD(QWidget):
         if self.sample_count % 4 == 0:
             self.pads = controllers()
             self.steam_game = steam_game()
+            self.fpsrc.java_ok = self.steam_game == MINECRAFT
         if self.detail:
             if time.monotonic() > self.detail_until:
                 self.detail = None    # fecha sozinho e volta pro FPS
