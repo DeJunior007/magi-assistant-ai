@@ -1,0 +1,52 @@
+# Perfil enxuto da Ayanami no node 2 compartilhado (Y1.0b). Sobrepõe o compose.yml (que segue a
+# spec §9.3 genérica) só nos limites: o outro serviço do node fica com os núcleos 0-5 e 13 GiB sem swap; a
+# Ayanami cabe nos núcleos 6-7 com ~6,4 GiB de RAM no total (soma dos mem_limit = 6528 MiB).
+# Uso: docker compose -f compose.yml -f compose.node2.yml <...>
+#      (ou COMPOSE_FILE=compose.yml:compose.node2.yml no .env de /opt/ayanami).
+# Swap: só worker-lento (+2g) e ayanami-voz (+1g); o resto com memswap_limit = mem_limit.
+# Concorrência: vem do ayanami.toml ([fila], sem variável de ambiente); lenta_concorrencia = 1.
+
+services:
+  ayanami-pg:
+    # shared_buffers cabe no mem_limit de 1g (a base usa 512MB para 2g).
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_connections=40"]
+    cpuset: "6,7"
+    cpus: 1
+    mem_limit: 1g
+    memswap_limit: 1g
+
+  migrar:
+    cpuset: "6,7"
+
+  ayanami-api:
+    cpuset: "6,7"
+    cpus: 0.5
+    mem_limit: 512m
+    memswap_limit: 512m
+
+  worker-rapido:
+    cpuset: "6,7"
+    cpus: 0.5
+    mem_limit: 384m
+    memswap_limit: 384m
+    stop_grace_period: 40s
+
+  worker-agendado:
+    cpuset: "6,7"
+    cpus: 0.5
+    mem_limit: 512m
+    memswap_limit: 512m
+    stop_grace_period: 40s
+
+  worker-lento:
+    cpuset: "6,7"
+    cpus: 2
+    mem_limit: 3g
+    memswap_limit: 5g
+    stop_grace_period: 40s
+
+  ayanami-voz:
+    cpuset: "6,7"
+    cpus: 1.5
+    mem_limit: 1g
+    memswap_limit: 2g

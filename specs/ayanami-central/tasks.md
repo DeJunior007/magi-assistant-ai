@@ -275,6 +275,21 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y29 verde; soma dos `mem_limit` ≤ 13 GB e `cpus` de lento + voz ≤ 6 (no teste); `docker build` local da imagem leve passa (sem subir nada); `ruff` limpo.
   - Paralelo: Y0.3, Y1.3, Y4.1
 
+- [x] **Y1.0b Perfil enxuto da Ayanami no node 2 compartilhado** — override
+  `deploy/ayanami/compose.node2.yml` (usado com `-f compose.yml -f compose.node2.yml` ou
+  `COMPOSE_FILE=compose.yml:compose.node2.yml` no `.env`), mantendo o `compose.yml` da §9.3: todos em
+  `cpuset: "6,7"`; pg 1g/1 (`shared_buffers=256MB`), api 512m/0.5, rápido 384m/0.5, agendado 512m/0.5,
+  lento 3g/2, voz 1g/1.5 (soma 6528 MiB ≤ 6,5 GiB); `memswap_limit` = `mem_limit` exceto lento (+2g) e
+  voz (+1g); `stop_grace_period: 40s` nos workers; `lenta_concorrencia = 1` (no `ayanami.toml`, sem
+  variável de ambiente). Seção "Perfil node 2 compartilhado" no runbook. Teste estático da mescla.
+  *(RNF-A6, spec §9.3; decisão do Pedro de 2026-10-17)*
+  - Lê: spec §9.3; `ayanami/worker.py`, `ayanami/config.py` (`[fila]`); `deploy/ayanami/compose.yml`
+  - Escreve: `deploy/ayanami/compose.node2.yml`, `tests/deploy/test_ayanami_compose.py`, `docs/ayanami/runbook.md` (só a seção nova), `specs/ayanami-central/tasks.md` (esta entrada)
+  - Depende de: Y1.1
+  - Orçamento: ~40k
+  - Pronto: `docker compose -f compose.yml -f compose.node2.yml config -q` passa com `.env` falso numa cópia temporária; testes da soma, `cpuset`, swap, portas só em `127.0.0.1` e nenhum nome do serviço vizinho verdes; `ruff` limpo.
+  - Paralelo: Y1.3b
+
 - [x] **Y1.2 Host do node 2 como script e runbook** — scripts idempotentes, revisáveis e **não
   executados pelo agente**: `deploy/ayanami/host/preparar.sh` (pacotes, usuário `ayanami`,
   `/opt/ayanami`, `dados/`), `ufw.sh` (nega entrada; libera 22/tcp e 41641/udp; nada mais),
@@ -1382,3 +1397,12 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   não filtra spoiler de notícia. (5) Fora do *Escreve*: `tests/ayanami/api/test_tokens.py`,
   `test_limites.py` e `test_pareamento.py` esperavam `501` do stub do `/v1/feed` (agora `200`), e o
   `GET /v1/eventos` não termina no ASGI de teste (ocupam as 4 vagas → `429`).
+
+- **Y1.0b:** (1) Por que override e não trocar o `compose.yml`: a §9.3 descreve a Ayanami com o
+  node 2 só dela (≈ 13 GB, RNF-A6); o perfil enxuto vale só enquanto o node é dividido, e voltar é
+  tirar o `-f`. (2) `deploy.sh` (Y1.2) não passa `-f`: basta `COMPOSE_FILE=compose.yml:compose.node2.yml`
+  no `/opt/ayanami/.env` (o runbook diz); quem mexer no `deploy.sh` pode passar o `-f` explícito.
+  (3) `rapida_concorrencia = 8` e `agendada_concorrencia = 2` ficaram no padrão do `ayanami.toml`;
+  se o `worker-rapido` encostar nos 384m, baixar para 4 (não há variável de ambiente para isso).
+  (4) A tabela/RNF-A6 da spec não foi editada (spec compartilhada): anotar o perfil node 2 nela se o
+  Pedro quiser.

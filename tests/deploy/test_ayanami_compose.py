@@ -204,3 +204,93 @@ def test_dockerignore_fecha_segredos() -> None:
     liberados = {r[1:] for r in regras if r.startswith("!")}
     assert liberados >= {"pyproject.toml", "uv.lock", "README.md", "magi/", "ayanami/"}
     assert not any(".env" in r or ".git/" == r or "scratch" in r for r in liberados)
+
+
+# --- Y1.0b: perfil enxuto do node 2 compartilhado com outro serviço (compose.node2.yml) ---
+
+NODE2 = DIR / "compose.node2.yml"
+# (cpus, mem_limit, memswap_limit) decididos pelo Pedro para os núcleos 6-7.
+LIMITES_NODE2 = {
+    "ayanami-pg": (1, "1g", "1g"),
+    "ayanami-api": (0.5, "512m", "512m"),
+    "worker-rapido": (0.5, "384m", "384m"),
+    "worker-agendado": (0.5, "512m", "512m"),
+    "worker-lento": (2, "3g", "5g"),
+    "ayanami-voz": (1.5, "1g", "2g"),
+}
+
+
+@pytest.fixture(scope="module")
+def node2() -> dict:
+    return yaml.safe_load(NODE2.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def mesclado(servicos: dict, node2: dict) -> dict:
+    """Como o `docker compose -f compose.yml -f compose.node2.yml` mescla: chave a chave por serviço."""
+    return {nome: {**svc, **(node2["services"].get(nome) or {})} for nome, svc in servicos.items()}
+
+
+def test_node2_so_sobrepoe_servicos_existentes(servicos: dict, node2: dict) -> None:
+    assert set(node2) == {"services"}  # sem rede, volume ou nome novos
+    assert set(node2["services"]) <= set(servicos)
+    for nome, svc in node2["services"].items():
+        assert "ports" not in svc and "volumes" not in svc and "image" not in svc, nome
+
+
+def test_node2_limites_e_soma(mesclado: dict) -> None:
+    ativos = {n: s for n, s in mesclado.items() if not _ops(s)}
+    assert set(ativos) == set(LIMITES_NODE2)
+    for nome, (cpus, mem, swap) in LIMITES_NODE2.items():
+        svc = ativos[nome]
+        assert float(svc["cpus"]) == cpus, nome
+        assert _bytes(svc["mem_limit"]) == _bytes(mem), nome
+        assert _bytes(svc["memswap_limit"]) == _bytes(swap), nome
+        assert float(svc["cpus"]) <= 2, nome  # nunca mais que os 2 núcleos do cpuset
+    assert sum(_bytes(s["mem_limit"]) for s in ativos.values()) <= 6.5 * 1024**3
+
+
+def test_node2_swap_so_no_lento_e_voz(mesclado: dict) -> None:
+    extra = {
+        n: _bytes(s["memswap_limit"]) - _bytes(s["mem_limit"]) for n, s in mesclado.items() if not _ops(s)
+    }
+    assert extra == {
+        "ayanami-pg": 0,
+        "ayanami-api": 0,
+        "worker-rapido": 0,
+        "worker-agendado": 0,
+        "worker-lento": 2 * 1024**3,
+        "ayanami-voz": 1 * 1024**3,
+    }
+
+
+def test_node2_cpuset_em_todos(mesclado: dict) -> None:
+    for nome, svc in mesclado.items():
+        assert svc.get("cpuset") == "6,7", nome
+
+
+def test_node2_workers_parada_graciosa(mesclado: dict) -> None:
+    for nome in ("worker-rapido", "worker-agendado", "worker-lento"):
+        m = re.fullmatch(r"(\d+)s", str(mesclado[nome]["stop_grace_period"]))
+        assert m and int(m.group(1)) >= 35, nome
+
+
+def test_node2_pg_cabe_no_limite(mesclado: dict) -> None:
+    cmd = mesclado["ayanami-pg"]["command"]
+    sb = next(c.split("=", 1)[1] for c in cmd if c.startswith("shared_buffers="))
+    assert _bytes(sb.removesuffix("B")) <= _bytes(mesclado["ayanami-pg"]["mem_limit"]) // 2
+    assert "max_connections=40" in cmd
+
+
+def test_node2_portas_so_em_loopback_e_nome_neutro(mesclado: dict) -> None:
+    for nome, svc in mesclado.items():
+        for p in svc.get("ports") or []:
+            assert str(p).startswith("127.0.0.1:"), f"{nome}: {p}"
+    texto = NODE2.read_text(encoding="utf-8")
+    assert not re.search(r"minecraft", texto, re.I)
+    assert not NODE1.search(texto)
+
+
+def test_node2_concorrencia_lenta_um_por_vez() -> None:
+    toml = (DIR / "ayanami.example.toml").read_text(encoding="utf-8")
+    assert re.search(r"^lenta_concorrencia\s*=\s*1\b", toml, re.M)

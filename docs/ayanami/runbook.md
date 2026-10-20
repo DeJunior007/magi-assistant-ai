@@ -133,6 +133,33 @@ imagem for local) → `docker compose --profile ops run --rm migrar` → `docker
 O script nunca derruba a pilha nem apaga volume. Se a `/saude` não responder, ele sai com 1:
 veja a §6.
 
+### Perfil node 2 compartilhado (Y1.0b)
+
+O node 2 é dividido com o Minecraft (núcleos 0-5, 13 GiB, sem swap). A Ayanami sobe com o
+`compose.yml` (spec §9.3) **mais** o override `compose.node2.yml`, que a prende nos núcleos 6-7:
+
+| Serviço | `cpus` | `mem_limit` | `memswap_limit` |
+| --- | --- | --- | --- |
+| `ayanami-pg` (`shared_buffers=256MB`) | 1 | 1g | 1g (sem swap) |
+| `ayanami-api` | 0.5 | 512m | 512m |
+| `worker-rapido` | 0.5 | 384m | 384m |
+| `worker-agendado` | 0.5 | 512m | 512m |
+| `worker-lento` | 2 | 3g | 5g (+2g de swap) |
+| `ayanami-voz` | 1.5 | 1g | 2g (+1g de swap) |
+
+Todos com `cpuset: "6,7"`; soma dos `mem_limit` = 6528 MiB (≤ 6,5 GiB); workers com
+`stop_grace_period: 40s`. Concorrência no `ayanami.toml` (`[fila]`, não há variável de ambiente):
+`lenta_concorrencia = 1`; se o `worker-rapido` encostar nos 384m, baixe `rapida_concorrencia`.
+
+```
+cd /opt/ayanami/deploy/ayanami
+docker compose -f compose.yml -f compose.node2.yml config -q      # valida a mescla
+docker compose -f compose.yml -f compose.node2.yml up -d
+```
+
+Para o `deploy.sh` e qualquer `docker compose` sem `-f` pegarem o perfil, ponha no `/opt/ayanami/.env`
+(o link `deploy/ayanami/.env` o expõe ao Compose): `COMPOSE_FILE=compose.yml:compose.node2.yml`.
+
 ## 4. Rollback por tag de imagem
 
 As migrações só andam para a frente e são aditivas, então uma imagem anterior roda no esquema
