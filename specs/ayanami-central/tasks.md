@@ -320,6 +320,20 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: cada causa dispara 1 mensagem e não repete em 6 h (relógio falso); `/saude` ok → nada; mensagem nunca contém token nem corpo de resposta; `ruff` limpo.
   - Paralelo: Y0.3, Y1.1, Y4.1
 
+- [x] **Y1.3b Vigia também olha o servidor e o Minecraft** — `vigia.py` (ainda só biblioteca
+  padrão) passa a ler CPU por grupo de núcleos (0-5 Minecraft, 6-7 Ayanami) de `/proc/stat`, RAM e
+  swap de `/proc/meminfo` e o load; alerta núcleos 0-5 > 95% por 5 leituras, RAM disponível < 1
+  GiB, swap usado > 6 GiB; `docker inspect minecraft` (alerta parado ou `RestartCount` subiu;
+  container inexistente → `minecraft: ausente`, sem erro); RCON por `socket` em 127.0.0.1:25575
+  (senha `RCON_PASSWORD` de `/opt/minecraft/.env`; `list` + `spark tps`, sem Spark só jogadores),
+  alerta TPS < 15 por 3 leituras; resumo JSON atômico em `/opt/ayanami/dados/servidor.json`.
+  Limites/nomes em `VIGIA_*` no `.env`; `--sem-servidor` desliga. *(node 2 dividido com o
+  Minecraft)*
+  - Escreve: `deploy/ayanami/vigia/*`, `tests/deploy/test_ayanami_vigia.py`
+  - Depende de: Y1.3
+  - Pronto: `/proc` falso em tmp, docker injetado, RCON falso em 127.0.0.1:0, relógio falso; cada
+    causa nova dispara 1× e respeita as 6 h; ausente não alerta; `ruff` limpo.
+
 - [ ] **Y1.4 CI no GitHub Actions** — `.github/workflows/ayanami.yml`: em push no `main` que toque
   `ayanami/**`, `magi/elo/**`, `magi/news/**`, `deploy/ayanami/**`: `uv sync`, `ruff`, `pytest -q
   tests/elo tests/ayanami tests/deploy` (com serviço `pgvector/pgvector:pg16` e `AYANAMI_TEST_DSN`),
@@ -1225,6 +1239,14 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   (4) `_Remote.open` reescreve o da lib: a lib deixa o socket aberto quando a TV recusa
   ("Permitir") e loga o token; aqui fecha e não loga (logger `samsungtvws` em WARNING).
   (5) `Key.PLAY_PAUSE` → `KEY_PLAY` (Tizen não tem alterna confiável; validar na F.1).
+- **Y1.3b:** (1) Falta a rota/tool da Ayanami que lê `/opt/ayanami/dados/servidor.json` para
+  responder "como está o servidor?" (o JSON já tem `cpu`, `load`, `ram`, `swap`, `minecraft` com
+  status/RestartCount/jogadores/nomes/TPS, `alertas` e `ts`; é reescrito a cada minuto). (2) A 1ª
+  leitura não tem % de CPU (precisa de duas amostras do `/proc/stat`) nem alerta de reinício (só
+  guarda o `RestartCount`). (3) TPS é a média de 1 min do `spark tps`; RCON fora/senha errada só
+  aparece no resumo (`rcon: "erro (…)"`), sem alerta. (4) `docker` ausente ou falhando → resumo
+  `minecraft: {"status": "erro"}` sem alerta. (5) Requer o Minecraft com `enable-rcon=true` e RCON
+  só em 127.0.0.1 (conferir na Y1.6).
 - **Y1.3:** (1) A `/saude` (Y2.1/Y4.2) ainda não expõe "job de backup `falhou`" nem "restore de
   teste vermelho": o vigia lê, se vierem, `backup_falhou: true` e `restore_teste: {"verde": false,
   …}` no JSON; o dono da `/saude` acrescenta esses campos. (2) `ultimo_backup.pc/ayanami` nulo conta

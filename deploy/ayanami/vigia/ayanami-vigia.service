@@ -1,7 +1,9 @@
 # Vigia da Ayanami no host do node 2 (Y1.3; design §11, spec §7.3). Fora do Docker.
 # Instalação (Pedro, Y1.6): cp para /etc/systemd/system/ e `systemctl enable --now ayanami-vigia.timer`.
+# Y1.3b: roda como root no host (lê /proc, chama `docker inspect` pelo socket, RCON em
+# 127.0.0.1:25575, lê /opt/minecraft/.env) e grava /opt/ayanami/dados/servidor.json.
 [Unit]
-Description=Vigia da Ayanami (saude, disco, batimento, backups -> Telegram)
+Description=Vigia da Ayanami (saude, disco, batimento, backups, CPU/RAM/swap, Minecraft -> Telegram)
 After=network-online.target docker.service
 Wants=network-online.target
 

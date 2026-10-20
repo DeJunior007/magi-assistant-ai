@@ -266,7 +266,296 @@ def test_main_sai_1_sem_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(vigia.rodar, "__kwdefaults__",
                         {**vigia.rodar.__kwdefaults__, "http": Rede(), "disco": lambda p: 1.0})
     assert vigia.main(["--env", str(tmp_path / "nada"), "--estado", str(tmp_path / "v.json"),
-                       "--disco", "/"]) == 1
+                       "--disco", "/", "--sem-servidor"]) == 1
+
+
+# ---- servidor e Minecraft (Y1.3b): /proc em tmp, docker injetado, RCON falso local ----
+
+KIB_GIB = 1024 * 1024
+
+
+class Proc:
+    """``/proc`` falso: ``stat`` acumulado por núcleo, ``meminfo`` e ``loadavg``."""
+
+    def __init__(self, raiz: Path) -> None:
+        self.raiz = raiz
+        raiz.mkdir(exist_ok=True)
+        self.cont = {n: [0, 0] for n in range(8)}  # ocupado, ocioso (jiffies)
+        self.mem(disp_gib=4.0, swap_usado_gib=0.5)
+        (raiz / "loadavg").write_text("5.50 4.20 3.10 7/900 12345\n")
+        self.passo(mc=50, ay=20)
+
+    def passo(self, mc: float, ay: float) -> None:
+        for n in range(8):
+            uso = mc if n < 6 else ay
+            self.cont[n][0] += int(uso)
+            self.cont[n][1] += 100 - int(uso)
+        linhas = ["cpu  1 2 3 4 5 6 7 8 0 0"]
+        for n, (oc, oci) in self.cont.items():
+            # user nice system idle iowait irq softirq steal guest guest_nice
+            linhas.append(f"cpu{n} {oc} 0 0 {oci} 0 0 0 0 {oc} 0")
+        (self.raiz / "stat").write_text("\n".join(linhas) + "\nintr 1 2 3\n")
+
+    def mem(self, disp_gib: float, swap_usado_gib: float) -> None:
+        (self.raiz / "meminfo").write_text(
+            f"MemTotal:       {int(15.6 * KIB_GIB)} kB\nMemFree:  100 kB\n"
+            f"MemAvailable:   {int(disp_gib * KIB_GIB)} kB\nSwapTotal:      {8 * KIB_GIB} kB\n"
+            f"SwapFree:       {int((8 - swap_usado_gib) * KIB_GIB)} kB\n")
+
+
+class DockerFalso:
+    def __init__(self) -> None:
+        self.status = "running"
+        self.restarts = 0
+        self.ausente = False
+        self.chamadas: list[list[str]] = []
+
+    def __call__(self, argv: list[str]) -> tuple[int, str, str]:
+        self.chamadas.append(argv)
+        if self.ausente:
+            return 1, "[]", "Error: No such container: minecraft"
+        info = [{"State": {"Status": self.status, "StartedAt": "2026-10-12T11:00:00.123Z"},
+                 "RestartCount": self.restarts}]
+        return 0, json.dumps(info), ""
+
+
+SENHA_RCON = "senha-rcon-falsa"
+
+
+class RconFalso:
+    """Servidor RCON em 127.0.0.1:0 (protocolo real, por ``socketserver``)."""
+
+    def __init__(self) -> None:
+        import socketserver
+        import struct
+
+        self.tps = "20.0"
+        self.spark = True
+        self.comandos: list[str] = []
+        dono = self
+
+        class H(socketserver.BaseRequestHandler):
+            def handle(self) -> None:
+                def ler():
+                    cab = self.request.recv(4)
+                    if len(cab) < 4:
+                        return None
+                    (tam,) = struct.unpack("<i", cab)
+                    dados = b""
+                    while len(dados) < tam:
+                        dados += self.request.recv(tam - len(dados))
+                    rid, tipo = struct.unpack("<ii", dados[:8])
+                    return rid, tipo, dados[8:-2].decode()
+
+                def enviar(rid: int, tipo: int, corpo: str) -> None:
+                    d = struct.pack("<ii", rid, tipo) + corpo.encode() + b"\x00\x00"
+                    self.request.sendall(struct.pack("<i", len(d)) + d)
+
+                rid, tipo, corpo = ler()
+                assert tipo == 3
+                if corpo != SENHA_RCON:
+                    enviar(-1, 2, "")
+                    return
+                enviar(rid, 2, "")
+                while (p := ler()) is not None:
+                    rid, _, cmd = p
+                    dono.comandos.append(cmd)
+                    if cmd == "list":
+                        enviar(rid, 0, "There are 2 of a max of 20 players online: Pedro, Rei")
+                    elif dono.spark:
+                        enviar(rid, 0, f"§8[§e⚡§8] §7TPS from last 5s, 10s, 1m, 5m, 15m:\n§8[§e⚡§8] "
+                                       f"§a*20.0, §a19.9, §c{dono.tps}, §a20.0, §a20.0\n\nTick durations")
+                    else:
+                        enviar(rid, 0, "§cUnknown or incomplete command, see below for error")
+
+        self.srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), H)
+        self.srv.daemon_threads = True
+        self.porta = self.srv.server_address[1]
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def fechar(self) -> None:
+        self.srv.shutdown()
+        self.srv.server_close()
+
+
+@pytest.fixture
+def rcon():
+    r = RconFalso()
+    yield r
+    r.fechar()
+
+
+@pytest.fixture
+def srv(tmp_path: Path, rcon: RconFalso):
+    proc = Proc(tmp_path / "proc")
+    docker = DockerFalso()
+    (tmp_path / "mc.env").write_text(f"RCON_PASSWORD={SENHA_RCON}\n")
+    conf = vigia.ConfServidor.do_env(
+        {"VIGIA_RCON_PORTA": str(rcon.porta), "VIGIA_MC_ENV": str(tmp_path / "mc.env"),
+         "VIGIA_RESUMO": str(tmp_path / "dados" / "servidor.json")},
+        proc=proc.raiz, docker=docker)
+    return proc, docker, conf
+
+
+def _passar(tmp_path: Path, conf, rel: Relogio, rede: Rede | None = None) -> list[str]:
+    rede = rede or Rede()
+    rede.saude = saude_ok(rel.t)  # /saude sempre em dia: só o servidor alerta aqui
+    out = vigia.rodar(env=ENV, estado_path=tmp_path / "vigia.json", http=rede, relogio=rel,
+                      disco=lambda p: 10.0, discos=["/"], servidor=conf)
+    rel.t += timedelta(minutes=1)
+    return out
+
+
+def _resumo(conf) -> dict:
+    return json.loads(conf.resumo.read_text())
+
+
+def test_servidor_ok_resumo_completo_sem_alerta(tmp_path: Path, srv, rcon) -> None:
+    proc, docker, conf = srv
+    rel, rede = Relogio(), Rede()
+    for _ in range(3):
+        proc.passo(mc=60, ay=25)
+        assert _passar(tmp_path, conf, rel, rede) == []
+    assert rede.mensagens == []
+    r = _resumo(conf)
+    assert r["cpu"]["minecraft"] == {"nucleos": "0-5", "uso": 60.0}
+    assert r["cpu"]["ayanami"] == {"nucleos": "6-7", "uso": 25.0}
+    assert r["load"] == [5.5, 4.2, 3.1]
+    assert r["ram"]["disponivel_gib"] == 4.0 and r["swap"]["usado_gib"] == 0.5
+    mc = r["minecraft"]
+    assert mc["status"] == "running" and mc["restart_count"] == 0
+    assert mc["jogadores"] == 2 and mc["max_jogadores"] == 20 and mc["nomes"] == ["Pedro", "Rei"]
+    assert mc["spark"] is True and mc["tps"] == 20.0 and mc["rcon"] == "ok"
+    assert r["alertas"] == []
+    assert not conf.resumo.with_name("servidor.json.tmp").exists()
+    assert SENHA_RCON not in conf.resumo.read_text()
+    assert docker.chamadas[0] == ["docker", "inspect", "--type", "container", "minecraft"]
+
+
+def test_cpu_minecraft_alerta_na_quinta_leitura_alta(tmp_path: Path, srv) -> None:
+    proc, _, conf = srv
+    rel, rede = Relogio(), Rede()
+    for _ in range(4):
+        proc.passo(mc=97, ay=10)
+        assert _passar(tmp_path, conf, rel, rede) == []
+    proc.passo(mc=50, ay=10)  # uma leitura normal zera a contagem
+    assert _passar(tmp_path, conf, rel, rede) == []
+    for _ in range(4):
+        proc.passo(mc=97, ay=10)
+        assert _passar(tmp_path, conf, rel, rede) == []
+    proc.passo(mc=97, ay=10)
+    assert _passar(tmp_path, conf, rel, rede) == ["cpu:minecraft"]
+    proc.passo(mc=99, ay=10)
+    assert _passar(tmp_path, conf, rel, rede) == []  # 6 h de silêncio
+    assert len(rede.mensagens) == 1 and "0-5" in rede.mensagens[0]
+    _sem_vazamento(rede)
+
+
+def test_ayanami_alta_nao_alerta(tmp_path: Path, srv) -> None:
+    proc, _, conf = srv
+    rel = Relogio()
+    for _ in range(7):
+        proc.passo(mc=10, ay=100)
+        assert _passar(tmp_path, conf, rel) == []
+
+
+@pytest.mark.parametrize(("disp", "swap", "esperado"), [(0.8, 0.5, ["ram"]), (4.0, 6.5, ["swap"]),
+                                                        (1.2, 5.9, [])])
+def test_ram_e_swap(tmp_path: Path, srv, disp: float, swap: float, esperado: list[str]) -> None:
+    proc, _, conf = srv
+    proc.mem(disp_gib=disp, swap_usado_gib=swap)
+    assert _passar(tmp_path, conf, Relogio()) == esperado
+    assert _resumo(conf)["alertas"] == esperado
+
+
+def test_container_parado_e_reinicio(tmp_path: Path, srv, rcon) -> None:
+    _, docker, conf = srv
+    rel = Relogio()
+    docker.restarts = 3
+    assert _passar(tmp_path, conf, rel) == []  # 1ª leitura só guarda o RestartCount
+    docker.restarts = 4
+    assert _passar(tmp_path, conf, rel) == ["minecraft:reiniciou"]
+    assert _passar(tmp_path, conf, rel) == []
+    docker.status = "exited"
+    n = len(rcon.comandos)
+    assert _passar(tmp_path, conf, rel) == ["minecraft:parado"]
+    assert len(rcon.comandos) == n  # parado: nem tenta o RCON
+    assert _resumo(conf)["minecraft"]["status"] == "exited"
+
+
+def test_minecraft_ausente_nao_e_erro(tmp_path: Path, srv, rcon) -> None:
+    _, docker, conf = srv
+    docker.ausente = True
+    assert _passar(tmp_path, conf, Relogio()) == []
+    assert _resumo(conf)["minecraft"] == "ausente"
+    assert rcon.comandos == []
+
+
+def test_docker_inexistente_no_host(tmp_path: Path, srv) -> None:
+    _, _, conf = srv
+
+    def sem_docker(argv: list[str]) -> tuple[int, str, str]:
+        raise FileNotFoundError("docker")
+
+    conf.docker = sem_docker
+    assert _passar(tmp_path, conf, Relogio()) == []
+    assert _resumo(conf)["minecraft"] == {"status": "erro"}
+
+
+def test_tps_baixo_alerta_na_terceira_leitura(tmp_path: Path, srv, rcon) -> None:
+    _, _, conf = srv
+    rel, rede = Relogio(), Rede()
+    rcon.tps = "12.5"
+    assert _passar(tmp_path, conf, rel, rede) == []
+    assert _passar(tmp_path, conf, rel, rede) == []
+    assert _passar(tmp_path, conf, rel, rede) == ["minecraft:tps"]
+    assert "12.5" in rede.mensagens[0]
+    assert _resumo(conf)["minecraft"]["tps"] == 12.5
+    _sem_vazamento(rede)
+
+
+def test_sem_spark_so_list(tmp_path: Path, srv, rcon) -> None:
+    _, _, conf = srv
+    rcon.spark = False
+    rel = Relogio()
+    for _ in range(4):
+        assert _passar(tmp_path, conf, rel) == []
+    mc = _resumo(conf)["minecraft"]
+    assert mc["spark"] is False and mc["tps"] is None and mc["jogadores"] == 2
+
+
+def test_rcon_senha_errada_ou_fora(tmp_path: Path, srv, rcon) -> None:
+    _, _, conf = srv
+    (conf.mc_env).write_text("RCON_PASSWORD=outra\n")
+    assert _passar(tmp_path, conf, Relogio()) == []
+    assert _resumo(conf)["minecraft"]["rcon"] == "erro (PermissionError)"
+    conf.mc_env.write_text("# sem senha\n")
+    assert _passar(tmp_path, conf, Relogio()) == []
+    assert _resumo(conf)["minecraft"]["rcon"] == "sem_senha"
+    rcon.fechar()
+    conf.mc_env.write_text(f"RCON_PASSWORD={SENHA_RCON}\n")
+    _passar(tmp_path, conf, Relogio())
+    assert _resumo(conf)["minecraft"]["rcon"].startswith("erro")
+
+
+def test_config_pelo_env(tmp_path: Path) -> None:
+    c = vigia.ConfServidor.do_env({"VIGIA_MC_CONTAINER": "mc2", "VIGIA_CPU_LIMITE": "90",
+                                   "VIGIA_TPS_LEITURAS": "x", "VIGIA_NUCLEOS_MC": "0-3,8"})
+    assert c.container == "mc2" and c.cpu_limite == 90.0 and c.tps_leituras == 3
+    assert vigia._nucleos(c.nucleos_mc) == [0, 1, 2, 3, 8]
+    assert c.rcon_porta == 25575 and c.resumo == Path("/opt/ayanami/dados/servidor.json")
+
+
+def test_main_com_servidor_falso(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, srv) -> None:
+    _, _, conf = srv
+    monkeypatch.setattr(vigia.ConfServidor, "do_env", classmethod(lambda cls, env: conf))
+    monkeypatch.setattr(vigia.rodar, "__kwdefaults__",
+                        {**vigia.rodar.__kwdefaults__, "http": Rede(), "disco": lambda p: 1.0,
+                         "relogio": Relogio()})
+    (tmp_path / ".env").write_text(f"TELEGRAM_BOT_TOKEN={TOKEN}\nTELEGRAM_CHAT_ID={CHAT}\n")
+    assert vigia.main(["--env", str(tmp_path / ".env"), "--estado", str(tmp_path / "v.json"),
+                       "--disco", "/"]) == 0
+    assert _resumo(conf)["minecraft"]["status"] == "running"
 
 
 # ---- units (estático; nada é instalado) ----
