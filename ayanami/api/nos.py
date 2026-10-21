@@ -105,6 +105,10 @@ async def ws_nos(ws: WebSocket) -> None:
         await ws.close(code=FECHA_SEM_OLA)
         return
     canal = CanalWs(ws)
+    if disp.tipo == "pc":  # o ola do PC dispara a reconciliação dos turnos da nuvem (Y6.5)
+        from ayanami.reconciliacao import reconciliacao_de
+
+        reconciliacao_de(ctx)
     no = await hub.registrar(disp, canal, "ws")
     log.info("ws_conectado", extra={"dispositivo": disp.nome})
     try:
