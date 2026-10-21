@@ -120,8 +120,10 @@ async def ws_nos(ws: WebSocket) -> None:
             if msg.get("type") == "websocket.disconnect" or no.fechado:
                 return
             texto = msg.get("text")
-            if texto is None and msg.get("bytes") is not None:
-                log.debug("ws_quadro_binario_ignorado")  # quadros de áudio: Y6.x
+            if texto is None and msg.get("bytes") is not None:  # AUDIO_OUT do PC → turno (Y6.4)
+                from ayanami.turnos import turnos_de
+
+                await turnos_de(ctx).receber_quadro(msg["bytes"], disp)
     finally:
         hub.remover(no)
         log.info("ws_desconectado", extra={"dispositivo": disp.nome})
