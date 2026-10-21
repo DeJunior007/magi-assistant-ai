@@ -73,5 +73,3 @@ async def test_chave_publica(app, cliente, novo_token):
         app.state.ctx.segredos = Segredos({"VAPID_PUBLIC_KEY": "BPublicaFalsa_abc"})
         r = await c.get("/v1/push/chave")
         assert r.status_code == 200 and r.json() == {"chave": "BPublicaFalsa_abc"}
-    async with cliente(app, novo_token("pc-casa", "pc")) as c:
-        assert (await c.get("/v1/push/chave")).status_code in (403, 401)

@@ -53,8 +53,7 @@ def chave(
     request: Request,
     disp: Annotated[Dispositivo, Depends(exigir_rota("GET", "/v1/push/chave"))],
 ) -> dict[str, str]:
-    """Chave pública VAPID (``applicationServerKey`` do PWA; não é segredo)."""
-    _so_celular(disp)
+    """Chave pública VAPID (``applicationServerKey`` do PWA; não é segredo: qualquer tipo lê)."""
     segredos = request.app.state.ctx.segredos
     publica = segredos.get("VAPID_PUBLIC_KEY") if segredos is not None else None
     if not publica:
