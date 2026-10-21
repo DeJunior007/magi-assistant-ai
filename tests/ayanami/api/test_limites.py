@@ -76,10 +76,10 @@ async def test_corpo_grande_413(app, cliente, novo_token):
         r = await c.put("/v1/dispositivo/preferencias", content=pedacos(),
                         headers={"content-type": "application/json"})
         assert r.status_code == 413
-        # /v1/turno aceita até 1 MiB: passa do limite de corpo e chega na rota (stub)
+        # /v1/turno aceita até 1 MiB: passa do limite de corpo e chega na rota (JSON inválido → 422)
         r = await c.post("/v1/turno", content=b"x" * (300 * KIB),
                          headers={"content-type": "application/json"})
-        assert r.status_code == 501
+        assert r.status_code == 422
 
 
 @pytest.mark.pg
