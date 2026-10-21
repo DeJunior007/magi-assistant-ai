@@ -1,0 +1,7 @@
+# Frases fixas do modo nuvem (dono: Y6.3; spec §6.5). Ditas sem LLM e com o áudio em cache
+# (ayanami/voz_nuvem.py aquece estas frases); trocar uma frase só muda o cache na próxima subida.
+casa_offline: "A casa está fora do ar agora."
+pc_offline_pedido: "Isso só no PC, e ele está desligado."
+sem_verba: "Estou sem verba de nuvem este mês."
+erro_generico: "Deu ruim aqui na nuvem. Tenta de novo daqui a pouco."
+pc_caiu: "O PC caiu no meio do caminho. Pergunta de novo que eu respondo daqui."
