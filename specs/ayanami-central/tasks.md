@@ -585,7 +585,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
 
 ## Fase Y5 — MCP (spec §8)
 
-- [ ] **Y5.1 Servidor MCP** — `ayanami/mcp_server.py`: `VerificadorAyanami` (só tipo `mcp`, não
+- [x] **Y5.1 Servidor MCP** — `ayanami/mcp_server.py`: `VerificadorAyanami` (só tipo `mcp`, não
   revogado, escopos), `MCPServer` montado em `/mcp` como a Y0.5 confirmou, `exigir(escopo)`, as
   tools da §8 registradas só para escopos ligados em `[mcp] escopos` (padrão D13a), resources
   `ayanami://…`, auditoria de toda chamada, `tv_acao` com `tv.power_off` → `confirmacoes` (Y2.2) e
@@ -645,7 +645,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y21 (parte modo nuvem: bloqueado, "liga a TV da sala" gera `acao` sem LLM e "pesquisa X" dá `sem_verba`; agente falso nunca recebe ferramenta fora de `NUVEM_PODE`) e CA-Y20 (parte frase em cache com casa offline) verdes; troca para Kokoro na 2ª falha em 5 min (relógio falso).
   - Paralelo: Y3.2, Y3.4–Y3.6, Y4.2, Y5.1, Y6.2
 
-- [ ] **Y6.4 Rota do turno** — `ayanami/api/turno.py`: `POST /v1/turno` (texto ou `multipart`
+- [x] **Y6.4 Rota do turno** — `ayanami/api/turno.py`: `POST /v1/turno` (texto ou `multipart`
   `audio/webm;codecs=opus` ≤ 1 MiB/15 s, `413`/`415`/`429` > 20/min), decisão de modo pela §6.1
   (`visto` < `offline_apos_s`) fixa no turno, modo `pc` (ffmpeg injetado webm → PCM 16 kHz em ≤ 2 s,
   quadros de 80 ms + `AUDIO_FIM` pelo hub, `AUDIO_OUT` → ogg/opus), queda da WS do PC no meio →
@@ -887,7 +887,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y55 verde com `MediaRecorder`/`fetch`/`EventSource` falsos; o microfone nunca fica aberto depois de `parar`/erro.
   - Paralelo: P1.3, P1.4
 
-- [ ] **P1.3 Controle remoto** — `telas/tv.js`: abas por TV (`GET /v1/casa/estado`, `EstadoTv`
+- [x] **P1.3 Controle remoto** — `telas/tv.js`: abas por TV (`GET /v1/casa/estado`, `EstadoTv`
   vivo pelo SSE `estado`); botões **só** das `caps` (ligar/desligar, vol ±, mudo, canal ±, HDMI das
   `entradas`, apps do catálogo da TV, d-pad + OK/voltar/home/play, digitar texto); `POST
   /v1/casa/acao` direto; "desligar" pede 2º toque em ≤ 3 s e só então `confirmed=true` (DS16);
@@ -901,7 +901,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y56 na parte do controle (só desenha as `caps`; 2º toque em 3 s → `confirmed=true`; um toque só não manda nada) verde.
   - Paralelo: P1.2, P1.4
 
-- [ ] **P1.4 Feed, tarefas, ajustes, pareamento e confirmação** — `telas/parear.js` (6 dígitos;
+- [x] **P1.4 Feed, tarefas, ajustes, pareamento e confirmação** — `telas/parear.js` (6 dígitos;
   `?c=` do QR; `POST /v1/pareamento/trocar` → token no IndexedDB), `telas/feed.js` (rolagem
   infinita `GET /v1/feed?n=20&antes=…`; sem rede → feed do cache com a hora), `telas/tarefas.js`
   (lista por estado, progresso, idade, ver e cancelar), `telas/ajustes.js` (dispositivo,
@@ -931,7 +931,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
 
 ## Fase P2 — Web Push
 
-- [ ] **P2.1 Web Push no servidor** — `ayanami/push.py` (lógica + `cli(args)`, para onde a `ayanami/cli.py` da Y0.2 despacha
+- [x] **P2.1 Web Push no servidor** — `ayanami/push.py` (lógica + `cli(args)`, para onde a `ayanami/cli.py` da Y0.2 despacha
   `ayanami push chaves`: `gerar_chaves()` (VAPID P-256 via `py-vapid`; imprime as linhas do `.env`); `tipo` a partir
   do `EventoTipo`; payload ≤ 3 KB (`titulo` ≤ 40, `resumo` ≤ 120, sem dado sensível, `tag`, `url`);
   Urgency/TTL da tabela §15; silêncio (`[push] silencio_padrao` ou preferência `silencio`, fuso
@@ -1464,3 +1464,37 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   tem cliente pg); senha do contêiner descartável só por ambiente; 409 = arquivo presente com o
   tamanho registrado (sem refazer o sha256). (6) Restore real (`pg_restore` da base `magi`) fica
   para a Y4.3.
+- **Y5.1:** (1) `memoria_gravar` cria a confirmação `{"tipo":"memoria.gravar","fato":…}`, mas não há
+  executor `ao_confirmar("memoria.gravar", …)` nem mensagem do elo para levar o fato ao PC: o "sim"
+  não grava nada (precisa de dono Y6.x/PC). (2) `memoria_buscar` não registrada (D6/D13). (3) A
+  expiração auditada da confirmação da TV só vale com a API viva (varrer `confirmacoes` expiradas na
+  limpeza da Y3.x resolveria). (4) `montar()` roda em todo `criar_app`: os testes de API criam um
+  `MCPServer` (um pouco mais lentos). (5) Metadado RFC 9728 em `/mcp/.well-known/…`, não na raiz.
+  (6) `tarefa_criar` aceita `params` opcional além de `pedido`; `stt` recusado.
+- **Y6.4:** (1) Feito à parte (8855b59): `api/nos.py` entrega os quadros binários da WS a
+  `turnos_de(ctx).receber_quadro`. (2) `CanalWs` não tem `enviar_bytes`: `turnos._mandar_binario` usa
+  `canal.ws.send_bytes` com a trava privada; dar ao `CanalWs` um `enviar_bytes` (já é usado se
+  existir). (3) Em produção falta montar `ctx.extras["nuvem"|"escuta"|"fala"|"conversor"|
+  "dir_turnos"]` (registry/OpenAI da Y6.3) e o `FalaNuvem.aquecer(...)` na subida. (4) Modo pc: o
+  áudio fecha no 1º `AUDIO_FIM` depois do `TurnoFim` ou após 5 s sem `AUDIO_OUT`. (5) Sem `[turno]`
+  na config (`mkdtemp`, `PRAZO_PC_S = 50`, 20/min constantes); turnos só em memória (10 min). (6)
+  `test_limites.py`: asserção 501 → 422 (rota real). (7) `TurnoFim` ao PWA leva `audio=True` sempre
+  que há fala sem erro; o áudio do modo pc pode começar segundos depois (P1.2).
+- **P1.3:** (1) TV padrão lida de `estado.get().prefs.tv_padrao`; a P1.4 guarda as prefs na chave
+  `preferencias` do armazém — ligar as duas (o `app.js` pôr `prefs` no estado na subida). (2)
+  `ctx.relogio` opcional. (3) `estilo.css` sem regras para `.controle.cinza`, `.grupo-*`,
+  `.abas-tv`, `.botao-tv.armado`, `[data-papel=casa-fora]` e o d-pad. (4) Intents fora da §13.1:
+  `tv.channel` (`args.step`), `tv.key` (`args.key`), `tv.text` (`args.texto`); registrar na spec.
+- **P1.4:** (1) `app.js`: pôr `verificar` e o armazém no `ctx` (hoje o parear dispara
+  `visibilitychange`; as telas acham `ctx.armazem` → `armazemIdb()` → memória); ninguém assina o SSE
+  `confirma` globalmente — navegar para `rotaDe(c)` de `telas/confirma.js`. (2) `sw.js` guarda
+  qualquer `/v1/feed` (com `antes=` também) na mesma chave: cachear só sem `antes`. (3) P2.2:
+  preencher `[data-campo=push]` (a pref `push` já vai no PUT); push de confirmação pode abrir
+  `#/confirma/<ulid>?d=&expira=`. (4) `VERSAO_APP = "0.1.0"` solta no `ajustes.js`. (5) As telas
+  caem num texto simples sem `ownerDocument` (teste de stubs da P1.1); o teste aceita "Dono:".
+- **P2.1:** (1) Feito à parte (bbe3e6b): `Eventos.distribuir` defere `push.enviar` dos eventos com
+  `celular` em `para` (fila de `extras["fila"]` ou a de produção, com `extras["fila_producao"]` ligado
+  pelo `app_de_producao`). Evento criado com a API fora do ar não gera push (a distribuição recomeça
+  do último `seq`). (2) `/saude` não avisa da falta das chaves VAPID. (3) `falhas` acumuladas não
+  apagam a assinatura (só 404/410). (4) A `auditoria` (tipo `push`) é o livro-caixa: idempotência,
+  contagem por hora/dia e acumulados no silêncio; o limite por hora é a hora cheia local.
