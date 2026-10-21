@@ -125,3 +125,77 @@ async def test_pc_responde_pela_ws(db, relogio):
     assert pc.perguntas and pc.perguntas[0].corpo.pedido == c.id
     assert cf.obter(db, c.id).resposta is True
     await hub.fechar_dispositivo(disp.id)
+
+
+# --- Y2.2b: confirmação vira evento, SSE e push ------------------------------------------------
+
+
+class PcQueGuarda:
+    """Canal do PC que só guarda o que chega (não responde)."""
+
+    def __init__(self) -> None:
+        self.recebidos: list[Envelope] = []
+
+    async def enviar(self, texto: str) -> None:
+        self.recebidos.append(decode(texto))
+
+    async def fechar(self, codigo: int) -> None:
+        pass
+
+
+async def test_criar_grava_evento_publica_sse_e_defere_push(db, relogio):
+    from ayanami import push as pushmod
+    from ayanami.eventos import Eventos, listar_desde
+
+    publicados: list[tuple] = []
+    pushes: list[int] = []
+
+    async def push(seq: int) -> None:
+        pushes.append(seq)
+
+    def publicar(alvo, nome, corpo, *, id=None):  # noqa: A002
+        publicados.append((alvo, nome, corpo))
+        return 1
+
+    ev = Eventos(db, relogio, publicar=publicar, push=push)
+    svc = cf.Confirmacoes(db, relogio, eventos=ev, publicar=publicar)
+    c = await svc.criar(descricao="desligar a TV da sala", pedido={"tipo": "teste", "origem": "mcp"})
+    await asyncio.sleep(0)
+    evs = [e for e in listar_desde(db, 0, "celular") if e.ref == f"confirma:{c.id}"]
+    assert len(evs) == 1 and evs[0].resumo == "desligar a TV da sala"
+    assert listar_desde(db, 0, "pc") == []  # o PC recebe a pergunta pelo hub, não um evento
+    assert pushes == [evs[0].seq]
+    assert ("celular", "evento", evs[0]) in publicados
+    conf = [p for p in publicados if p[1] == "confirma"]
+    assert conf == [("celular", "confirma", c.para_elo())] and conf[0][2].expira_em == c.expira
+    # o push monta `?d=&expira=` a partir do evento (P2.1/P2.3)
+    pl = pushmod.montar_payload(evs[0], relogio.agora())
+    assert pl["tipo"] == "confirma" and pl["d"] == "desligar a TV da sala"
+    assert pl["expira"] == c.expira.strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert pl["url"].startswith(f"/app/#/confirma/{c.id}?d=")
+
+    publicados.clear()
+    await svc.responder(c.id, False)
+    assert [(a, n, x.pedido, x.resposta) for a, n, x in publicados] == [("celular", "confirma", c.id, False)]
+
+
+async def test_responder_fecha_no_pc_salvo_quando_o_pc_respondeu(db, relogio):
+    from ayanami.api.auth import criar_dispositivo
+    from magi.elo.mensagens import Ola, TipoDispositivo
+
+    with db.connection() as conn:
+        _, disp = criar_dispositivo(conn, f"pc-{uuid.uuid4().hex[:8]}", "pc")
+    hub = Hub(db, relogio)
+    pc = PcQueGuarda()
+    no = await hub.registrar(disp, pc)
+    await hub.receber(no, encode(Envelope(t=Tipo.OLA, corpo=Ola(tipo=TipoDispositivo.PC, versao="t"),
+                                          de=disp.nome, para="ayanami")))
+    pc.recebidos.clear()
+    svc = cf.Confirmacoes(db, relogio, hub)
+    a = await svc.criar(descricao="a", pedido={"tipo": "teste"}, perguntar=False)
+    b = await svc.criar(descricao="b", pedido={"tipo": "teste"}, perguntar=False)
+    await svc.responder(a.id, True)  # respondida no celular: o PC descarta a pergunta
+    assert [(e.t, e.corpo.pedido, e.corpo.resposta) for e in pc.recebidos] == [(Tipo.CONFIRMA, a.id, True)]
+    await svc.responder(b.id, False, de_pc=True)
+    assert len(pc.recebidos) == 1
+    await hub.fechar_dispositivo(disp.id)

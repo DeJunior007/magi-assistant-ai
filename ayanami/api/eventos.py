@@ -11,8 +11,10 @@
   repetir.
 - Revogação: no mesmo processo pelo gancho ``auth.ao_revogar`` (fecha na hora); de outro processo
   pela varredura de ``dispositivos.revogado`` a cada 2,5 s (≤ 5 s), como o hub da Y2.2. A mesma
-  varredura manda as confirmações pendentes ainda não mandadas (a ``Confirmacoes`` da Y2.2 não
-  avisa ninguém ao criar).
+  varredura manda as confirmações pendentes ainda não mandadas (a ``Confirmacoes`` publica ao vivo
+  desde a Y2.2b; a varredura cobre as criadas por outro processo) e, para as mandadas que saíram de
+  pendentes sem fechamento ao vivo, o fechamento: ``confirma`` relido do banco (``resposta`` preenchida,
+  ou ``null`` com ``expira_em`` ≤ agora = expirou).
 """
 
 from __future__ import annotations
@@ -159,6 +161,7 @@ async def fluxo(ctx: Any, pub: Publicador, a: Assinante, desde: int | None,
                 if len(lote) < 200:
                     break
         mandadas: set[str] = set()
+        fechadas: set[str] = set()
         prox_varre = relogio.monotonico()
         prox_ping = relogio.monotonico() + PING_S
         while not a.fechado:
@@ -170,9 +173,15 @@ async def fluxo(ctx: Any, pub: Publicador, a: Assinante, desde: int | None,
                     return
                 if desconectado is not None and await desconectado():
                     return
-                for c in await asyncio.to_thread(confirmacoes.pendentes, db, relogio):
+                pend = await asyncio.to_thread(confirmacoes.pendentes, db, relogio)
+                for c in pend:
                     if c.id not in mandadas:
                         mandadas.add(c.id)
+                        yield formatar("confirma", _json(c.para_elo()))
+                for id_ in sorted(mandadas - fechadas - {c.id for c in pend}):
+                    fechadas.add(id_)
+                    c = await asyncio.to_thread(confirmacoes.obter, db, id_)
+                    if c is not None:
                         yield formatar("confirma", _json(c.para_elo()))
             if agora >= prox_ping:
                 prox_ping = agora + PING_S
@@ -191,8 +200,16 @@ async def fluxo(ctx: Any, pub: Publicador, a: Assinante, desde: int | None,
                     continue  # já veio na releitura
                 ultimo = id_
             if nome == "confirma":
-                with contextlib.suppress(Exception):
-                    mandadas.add(json.loads(dados)["pedido"])
+                corpo = json.loads(dados)
+                pedido = corpo.get("pedido")
+                if corpo.get("resposta") is not None:
+                    if pedido in fechadas:
+                        continue  # a varredura já mandou o fechamento
+                    fechadas.add(pedido)
+                else:
+                    if pedido in mandadas:
+                        continue  # a varredura já mandou a pergunta
+                    mandadas.add(pedido)
             yield formatar(nome, dados, id_)
     finally:
         pub.fechar(a)

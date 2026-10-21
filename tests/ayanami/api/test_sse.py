@@ -180,3 +180,48 @@ async def test_sem_escopo_conversa_403(app, cliente, novo_token):
     token = novo_token("casa-sala", "casa")
     async with cliente(app, token) as c:
         assert (await c.get("/v1/eventos")).status_code == 403
+
+
+async def test_y22b_confirma_evento_fechamento_e_expiracao(ctx, celular, relogio):
+    """Cliente SSE de teste: criar → ``evento`` (ref ``confirma:``) + ``confirma``; responder →
+    ``confirma`` com ``resposta``; expirar → ``confirma`` sem resposta com ``expira_em`` vencido."""
+    from ayanami.confirmacoes import confirmacoes_de
+
+    _, disp = celular
+    pub, svc = sse_de(ctx), confirmacoes_de(ctx)
+    await eventos_de(ctx).preparar()
+    gen = fluxo(ctx, pub, pub.abrir(disp), None)
+    await anext(gen)
+    a = await svc.criar(descricao="desligar a TV da sala", pedido={"tipo": "x", "origem": "mcp"},
+                        perguntar=False)
+    vistos: dict[str, dict[str, Any]] = {}
+    while len(vistos) < 2:  # a varredura pode mandar o `confirma` antes do `evento`
+        b_ = _ler(await anext(gen))
+        if b_.get("event") in ("evento", "confirma"):
+            assert b_["event"] not in vistos
+            vistos[b_["event"]] = b_
+    ev, conf = vistos["evento"], vistos["confirma"]
+    assert ev["data"]["ref"] == f"confirma:{a.id}" and ev["data"]["resumo"] == "desligar a TV da sala"
+    assert conf["data"]["pedido"] == a.id and conf["data"]["resposta"] is None
+    assert conf["data"]["expira_em"]
+    await svc.responder(a.id, True)
+    fim = await _proximo(gen, "confirma")
+    assert fim["data"]["pedido"] == a.id and fim["data"]["resposta"] is True
+
+    b = await svc.criar(descricao="apagar a luz", pedido={"tipo": "x"}, perguntar=False)
+    assert (await _proximo(gen, "confirma"))["data"]["pedido"] == b.id
+    relogio.avancar(121)
+    exp = await _proximo(gen, "confirma")
+    assert exp["data"]["pedido"] == b.id and exp["data"]["resposta"] is None
+    # nada repete: a respondida não volta como fechamento na varredura
+    relogio.avancar(3)
+    criar_evento(ctx.db, "lembrete", "fim")
+    await eventos_de(ctx).distribuir()
+    resto = []
+    for _ in range(50):
+        bloco = _ler(await anext(gen))
+        resto.append(bloco)
+        if bloco.get("event") == "evento":
+            break
+    assert [b_ for b_ in resto if b_.get("event") == "confirma"] == []
+    await gen.aclose()

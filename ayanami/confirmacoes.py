@@ -1,7 +1,13 @@
 """Confirmações de ações perigosas (dono: Y2.2; R5.3, spec §1.2 ``Confirma``, §2.2, §3).
 
 Pedido ``danger`` vindo do MCP não roda direto: vira uma linha em ``confirmacoes`` (id ULID,
-``expira`` = agora + 120 s pelo relógio injetado) e uma pergunta ``confirma`` ao PC (e ao SSE, Y2.3).
+``expira`` = agora + 120 s pelo relógio injetado) e uma pergunta ``confirma`` ao PC. Y2.2b: vira também
+um ``Evento`` ``confirmacao`` só para o ``celular`` (``ref="confirma:<ulid>"``, ``resumo`` = descrição
+curta, ``criado`` = agora; o push da P2.1 monta ``#/confirma/<ulid>?d=&expira=`` dele) e o SSE
+``confirma`` (``Confirma`` com ``expira_em``). Ao responder, publica o fechamento: SSE ``confirma`` com
+``resposta`` preenchida e o mesmo ``Confirma`` ao PC (que descarta a pergunta), salvo quando foi o PC
+que respondeu. A expiração fecha pela varredura do SSE (``ayanami.api.eventos.fluxo``: ``confirma``
+com ``resposta: null`` e ``expira_em`` ≤ agora); o PC descarta sozinho pelo ``expira_em``.
 Quem responde (``POST /v1/confirma/{pedido}`` ou ``confirma`` com ``resp`` pela WS do PC):
 
 - não existe → :class:`NaoEncontrada` (404); vencida → :class:`Expirada` (410); já respondida →
@@ -25,12 +31,13 @@ from typing import Any, Final
 
 from ayanami.db import Db, transacao
 from magi.elo.ids import novo_id
-from magi.elo.mensagens import Confirma, Envelope, Tipo
+from magi.elo.mensagens import Confirma, Envelope, EventoTipo, Tipo
 
 log = logging.getLogger("ayanami.confirmacoes")
 
 EXPIRA_S: Final = 120
 PRAZO_PERGUNTA_S: Final = 30.0
+TITULO_EVENTO: Final = "Confirmação pendente"
 
 
 class ErroConfirmacao(Exception):
@@ -144,6 +151,8 @@ class Confirmacoes:
     db: Db
     relogio: Any
     hub: Any = None
+    eventos: Any = None  # ``ayanami.eventos.Eventos`` (grava o ``Evento`` e defere o push)
+    publicar: Callable[..., Any] | None = None  # ``Publicador.publicar`` do SSE
     executores: dict[str, Executor] = field(default_factory=dict)
 
     def ao_confirmar(self, tipo: str, fn: Executor) -> None:
@@ -153,9 +162,36 @@ class Confirmacoes:
                     perguntar: bool = True) -> Confirmacao:
         c = await asyncio.to_thread(criar, self.db, self.relogio, descricao=descricao, pedido=pedido,
                                     origem=origem)
+        await self._avisar_celular(c)
         if perguntar and self.hub is not None:
             asyncio.ensure_future(self._perguntar_ao_pc(c))
         return c
+
+    async def _avisar_celular(self, c: Confirmacao) -> None:
+        if self.eventos is not None:
+            try:
+                await self.eventos.criar(EventoTipo.CONFIRMACAO, TITULO_EVENTO, c.descricao,
+                                         f"confirma:{c.id}", para=("celular",))
+            except Exception:  # noqa: BLE001 - o aviso nunca derruba a confirmação
+                log.exception("confirma_evento_falhou")
+        self._sse(c)
+
+    def _sse(self, c: Confirmacao) -> None:
+        if self.publicar is not None:
+            try:
+                self.publicar("celular", "confirma", c.para_elo())
+            except Exception:  # noqa: BLE001
+                log.exception("confirma_sse_falhou")
+
+    async def _fechar(self, c: Confirmacao, *, avisar_pc: bool) -> None:
+        """Fechamento: SSE ``confirma`` com ``resposta`` e o mesmo ``Confirma`` ao PC."""
+        self._sse(c)
+        if avisar_pc and self.hub is not None:
+            env = Envelope(t=Tipo.CONFIRMA, corpo=c.para_elo(), de="ayanami", para="pc")
+            try:
+                await self.hub.enviar(env)
+            except Exception as e:  # noqa: BLE001 - PC offline: descarta sozinho pelo prazo
+                log.info("confirma_fechar_pc_falhou (%s)", type(e).__name__)
 
     async def _perguntar_ao_pc(self, c: Confirmacao) -> None:
         env = Envelope(t=Tipo.CONFIRMA, corpo=c.para_elo(), de="ayanami", para="pc")
@@ -166,12 +202,13 @@ class Confirmacoes:
             return
         if isinstance(r.corpo, Confirma) and r.corpo.resposta is not None:
             try:
-                await self.responder(c.id, r.corpo.resposta)
+                await self.responder(c.id, r.corpo.resposta, de_pc=True)
             except ErroConfirmacao as e:
                 log.info("confirma_pc_recusada (%s)", e.codigo)
 
-    async def responder(self, id_: str, resposta: bool) -> tuple[Confirmacao, Any]:
+    async def responder(self, id_: str, resposta: bool, *, de_pc: bool = False) -> tuple[Confirmacao, Any]:
         c = await asyncio.to_thread(responder, self.db, self.relogio, id_, resposta)
+        await self._fechar(c, avisar_pc=not de_pc)
         resultado: Any = None
         if resposta:
             fn = self.executores.get(str(c.pedido.get("tipo", "")))
@@ -186,20 +223,22 @@ class Confirmacoes:
         corpo = env.corpo
         if isinstance(corpo, Confirma) and corpo.resposta is not None:
             try:
-                await self.responder(corpo.pedido, corpo.resposta)
+                await self.responder(corpo.pedido, corpo.resposta, de_pc=True)
             except ErroConfirmacao as e:
                 log.info("confirma_pc_recusada (%s)", e.codigo)
         return None
 
 
 def confirmacoes_de(ctx: Any) -> Confirmacoes:
-    """O serviço da app (``ctx.extras["confirmacoes"]``), ligado ao hub na 1ª vez."""
+    """O serviço da app (``ctx.extras["confirmacoes"]``), ligado ao hub, aos eventos e ao SSE na 1ª vez."""
+    from ayanami.api.eventos import sse_de
+    from ayanami.eventos import eventos_de
     from ayanami.hub import hub_de
 
     svc = ctx.extras.get("confirmacoes")
     if svc is None:
         hub = hub_de(ctx)
-        svc = Confirmacoes(ctx.db, ctx.relogio, hub)
+        svc = Confirmacoes(ctx.db, ctx.relogio, hub, eventos=eventos_de(ctx), publicar=sse_de(ctx).publicar)
         hub.ao_receber(Tipo.CONFIRMA, svc.resposta_do_pc)
         ctx.extras["confirmacoes"] = svc
     return svc

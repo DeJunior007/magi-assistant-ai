@@ -430,6 +430,17 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y7 e CA-Y10 (parte casa) verdes; CA-Y5 de ponta a ponta pela WS (mesmo `acao` 3× → 1 execução); 2ª WS do mesmo `pc` fecha a 1ª com 4002; casa sem `ola` em 5 s → fechada; `ruff` limpo.
   - Paralelo: Y2.4, Y3.1, Y3.3, Y4.1
 
+- [x] **Y2.2b Confirmação vira evento, SSE e push** — sobra da P2.3: `Confirmacoes.criar` só
+  perguntava ao PC. Agora grava o `Evento` `confirmacao` pela `Eventos.criar` da Y2.3 (só `celular`;
+  `ref="confirma:<ulid>"`, `resumo` = descrição curta → `d`; `expira` = `criado` + 120 s no push da
+  P2.1) e publica o SSE `confirma`; ao responder publica o fechamento (`confirma` com `resposta`) no
+  SSE e manda o mesmo `Confirma` ao PC (salvo se foi o PC que respondeu), que descarta a pergunta. A
+  expiração fecha pela varredura do SSE (`confirma` relido, `resposta: null`, `expira_em` vencido);
+  a varredura e o ao vivo não se repetem. `confirmacoes_de` liga `eventos_de`/`sse_de`.
+  - Escreve: `ayanami/confirmacoes.py`, `ayanami/api/eventos.py` (só a varredura de `confirma`), `tests/ayanami/test_confirmacoes.py`, `tests/ayanami/api/test_sse.py`
+  - Depende de: Y2.2, Y2.3, P2.1
+  - Pronto: evento + SSE + push deferido na criação; fechamento na resposta (SSE e PC) e na expiração (SSE) com cliente SSE de teste e `pg`; `ruff` limpo.
+
 - [x] **Y2.3 Eventos, SSE e feed** — `ayanami/eventos.py` (`criar_evento(db, …)` grava em `eventos`
   com `seq`, faz `NOTIFY`, e entrega ao hub para o `pc` online; ouvinte `LISTEN` que relê pendentes
   ao reconectar — design §13), `ayanami/api/eventos.py` (`GET /v1/eventos` SSE com `Last-Event-ID`,
