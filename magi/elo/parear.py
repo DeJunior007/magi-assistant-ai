@@ -77,7 +77,7 @@ async def pedir_codigo(
     log.info("ayanami: código de pareamento criado (expira %s)", expira)
     res = CodigoPareamento(codigo, expira, url_app(url, codigo))
     if avisos is not None:
-        await avisos.codigo_pareamento(codigo)
+        await avisos.codigo_pareamento(codigo, res.url)
     return res
 
 

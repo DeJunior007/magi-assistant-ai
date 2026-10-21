@@ -51,6 +51,7 @@ from .main_screen import (
     text,
 )
 from .mascot import EXPRESSIONS, Mascot
+from .pairing_card import PairingCard, is_pairing
 from .portrait import make_mascot
 from .reactions import Reactor
 from .standby_screen import StandbyScreen
@@ -209,6 +210,9 @@ class WiredUI:
         # cartão LAST SESSION (LM4.6): o resumo e o instante de chegada ficam no learning_model
         self.summary_card = SummaryCard()
         self.main.summary = self.standby.summary = self.summary_now
+        # cartão do código de pareamento do celular (Y6.6c): mesmo lugar, por cima do LAST SESSION
+        self.pairing_card = PairingCard()
+        self.main.pairing = self.standby.pairing = self.pairing_now
         self.now_playing = now_playing if now_playing is not None else NowPlaying()
         self.net = net or NetRate()
         self.history = history or LoadHistory()
@@ -483,8 +487,11 @@ class WiredUI:
         if set_think is not None:
             set_think(kind, tool or None, time.monotonic() if mono is None else mono, n=n)
 
-    def on_card(self, card: dict, wall: float | None = None) -> None:
+    def on_card(self, card: dict, wall: float | None = None, now: float | None = None) -> None:
         title = card.get("title")
+        if is_pairing(card):  # cartão próprio; o código não vai para o rodapé de eventos
+            self.pairing_card.set(card, time.monotonic() if now is None else now)
+            return
         if card.get("source") == RADIO_SOURCE and title:
             hhmm = time.strftime("%H:%M", time.localtime(time.time() if wall is None else wall))
             if not self.news or self.news[0][1] != title:  # "conta mais" repete o card: não duplica
@@ -508,6 +515,16 @@ class WiredUI:
 
     def _lm_now(self) -> float:
         return getattr(self.learning.info, "clock", time.monotonic)()
+
+    def pairing_now(self, now: float | None = None) -> dict | None:
+        """Cartão do código de pareamento visível agora (Y6.6c), senão None."""
+        return self.pairing_card.current(time.monotonic() if now is None else now)
+
+    def pairing_deadline(self) -> float | None:
+        return self.pairing_card.deadline() if self.pairing_now() is not None else None
+
+    def pairing_close(self) -> None:
+        self.pairing_card.close()
 
     def summary_now(self, now: float | None = None) -> dict | None:
         """Resumo da última sessão se o cartão está visível agora (``visible(now)``), senão None."""
@@ -546,6 +563,8 @@ class WiredUI:
         i = scr.tip_hit(pos, size)  # ✗ do hover do medidor: por cima de tudo
         if i is not None:
             return f"{SEM_SENTIDO}{i}"
+        if scr.SUMMARY_RECT.contains(pt) and self.pairing_now() is not None:
+            return "pairing"  # cartão do código de pareamento: clique fecha (Y6.6c)
         if scr.SUMMARY_RECT.contains(pt) and self.summary_now() is not None:
             return "lm_summary"  # cartão LAST SESSION: clique fecha (LM4.6)
         if scr.MASCOT_RECT.contains(pt):

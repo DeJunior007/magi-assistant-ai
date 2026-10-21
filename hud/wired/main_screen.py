@@ -46,6 +46,7 @@ from PySide6.QtGui import (
 
 from . import fonts, kit, scene, sky
 from . import learning_summary as lsum
+from . import pairing_card as pcard
 from .caption_scroll import CaptionScroll
 from .mascot import Mascot
 from .theme import (
@@ -1376,6 +1377,7 @@ class MainScreen(Screen):
     CAPTION_RECT = CAPTION_RECT
     SUMMARY_RECT = SUMMARY_RECT
     summary = None  # () -> dict | None: resumo visível agora (o WiredUI liga, LM4.6)
+    pairing = None  # () -> dict | None: card do código de pareamento visível agora (Y6.6c)
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
@@ -1680,6 +1682,7 @@ class MainScreen(Screen):
             "konsole_status": [KONSOLE_STATUS],
             "footer": [FOOTER],
             "lm_summary": [SUMMARY_RECT],  # por último: sobrepõe o SPEC (LM4.6)
+            "pairing": [SUMMARY_RECT],  # código de pareamento (Y6.6c): por cima do LAST SESSION
             "mood_tip": [TIP_MAIN],  # hover do medidor: por cima de tudo
         }
         if self.kon_swap:  # câmera no slot do card; o Konsole (gamerhud) pinta a caixa do cam 01
@@ -1736,6 +1739,8 @@ class MainScreen(Screen):
             return tuple(sn.events)
         if name == "lm_summary":
             return lsum.card_key(self.summary() if self.summary else None)
+        if name == "pairing":
+            return pcard.card_key(self.pairing() if self.pairing else None)
         return ()
 
     def draw_group(self, name: str, p: QPainter, snap: Snapshot, now: datetime, s: float) -> None:
@@ -2122,6 +2127,11 @@ class MainScreen(Screen):
         dot(p, x1 - w - 5 - 3, y2 - 3.5, 6, M_GREEN if on else M_DARK)
 
     # ---------------------------------------------------------------- rodapé
+
+    def _g_pairing(self, p, snap, now, s):
+        cur = self.pairing() if self.pairing else None
+        if cur is not None:
+            pcard.paint_card(p, QRectF(*B_SUMMARY), cur, px=SUMMARY_PX)
 
     def _g_lm_summary(self, p, snap, now, s):
         cur = self.summary() if self.summary else None

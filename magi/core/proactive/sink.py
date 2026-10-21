@@ -131,12 +131,16 @@ class ProactiveSink:
         *,
         expression: Expression | None = None,
         offer: Offer | None = None,
+        translate: bool = True,
     ) -> Outcome:
         """Entrega um aviso (ver docstring do módulo). Não espera a fala terminar. Fala e título
-        do card saem no idioma de ``[speech] language`` (``magi.core.i18n``)."""
-        speech = tr(speech)
+        do card saem no idioma de ``[speech] language`` (``magi.core.i18n``); ``translate=False``
+        manda como veio (texto com segredo, como o código de pareamento: o ``tr`` loga o que não
+        traduz)."""
+        if translate:
+            speech = tr(speech)
         if card is not None:
-            if (title := tr(card.title)) != card.title:
+            if translate and (title := tr(card.title)) != card.title:
                 card = dataclasses.replace(card, title=title)
             await self.hud.send(card)
         targets = self._targets()

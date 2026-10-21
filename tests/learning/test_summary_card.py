@@ -210,7 +210,7 @@ def test_nao_cobre_retrato_nem_player(ui, view):
     else:
         assert not r.intersects(scr.learn_btn) and r.bottom() < scr.y_rule2
     # pintado por cima de tudo, menos do hover do medidor (V0.4/V1.8: ``mood_tip`` fica no topo quando aberto)
-    assert list(scr.groups())[-2:] == ["lm_summary", "mood_tip"]
+    assert list(scr.groups())[-3:] == ["lm_summary", "pairing", "mood_tip"]  # pareamento: Y6.6c
 
 
 def render(w: WiredUI, view: str) -> QImage:

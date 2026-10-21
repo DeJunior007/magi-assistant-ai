@@ -10,8 +10,9 @@ espera demais → legenda). Os cards usam o ``CardMsg`` que o HUD já conhece.
   ``proativo=False`` → só o card, sem fala.
 - ``pergunta(descricao, offer)``: ``confirma`` vindo da Ayanami, pela pergunta proativa
   (``Offer``) que a sugestão de música já usa: "sim" → ``accept``, "não" → ``decline``.
-- ``codigo_pareamento(codigo)``: card "Código de pareamento 123 456" (``magi.elo.parear``), só na
-  tela, sem fala (o código não vai a log nem a legenda).
+- ``codigo_pareamento(codigo, url)``: card "Código de pareamento 123 456" com ``source="pareamento"``
+  e o link do PWA (``magi.elo.parear``), só na tela, sem fala e sem tradução (o código não vai a
+  log nem a legenda; Y6.6c).
 - ``AvisoBackup``: card "backup não subiu" lendo ``<data_dir>/backup_state.json`` do
   ``magi-backup`` (pedido da Y4.1), uma vez por ``quando``.
 """
@@ -31,6 +32,7 @@ from magi.core.proactive.sink import Offer, Outcome, Priority, ProactiveSink
 log = logging.getLogger(__name__)
 
 KIND = "ayanami"
+PAREAMENTO_SOURCE = "pareamento"  # = hud/wired/pairing_card.SOURCE (Y6.6c)
 BACKUP_STATE_FILE = "backup_state.json"  # = magi.elo.backup.STATE_FILE (Y4.1)
 
 # tipo do Evento (spec §1.2) → (prefixo do card, nível, prioridade, expressão)
@@ -94,12 +96,17 @@ class AvisosAyanami:
         return await self.sink.deliver(f"{KIND}:confirma", fala, card, Priority.VOICE,
                                        expression=Expression.ALERT, offer=offer)
 
-    async def codigo_pareamento(self, codigo: str) -> Outcome | None:
+    async def codigo_pareamento(self, codigo: str, url: str = "") -> Outcome | None:
+        """Card ``source="pareamento"`` (o HUD desenha o código grande, "vale 5 min" e ``url``).
+        Não passa pela tradução: o ``tr`` loga a frase que não casa (``sem tradução: …``) e o
+        código iria junto (Y6.6c)."""
         if self.sink is None:
             return None
-        card = CardMsg(CardLevel.ALTA, f"Código de pareamento {formatar_codigo(codigo)}")
+        card = CardMsg(CardLevel.ALTA, f"Código de pareamento {formatar_codigo(codigo)}",
+                       url=url, source=PAREAMENTO_SOURCE)
         log.info("ayanami: card de pareamento mostrado")  # nunca o código
-        return await self.sink.deliver(f"{KIND}:pareamento", "", card, Priority.SCREEN)
+        return await self.sink.deliver(f"{KIND}:pareamento", "", card, Priority.SCREEN,
+                                       translate=False)
 
 
 class AvisoBackup:

@@ -735,6 +735,22 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
     `magi/core/actions/celular.py`, `magi/core/assemble.py` (só o registro), `tests/core/test_parear_celular.py`
   - Pronto: Ayanami falsa (`MockTransport`) gera o card e a fala curta sem o código; `tests/core` e
     `tests/agent` sem mudar asserção.
+- [x] **Y6.6c Card do pareamento aparece no HUD e o código não vaza no log** — bug ao vivo da Y6.6b:
+  (1) com `[speech] language = en-gb` o `ProactiveSink.deliver` passava o título do card pelo `tr`,
+  que logava `sem tradução: Código de pareamento 199 152`; agora `deliver(..., translate=False)` e
+  `AvisosAyanami.codigo_pareamento(codigo, url)` manda o card sem tradução, com `source="pareamento"`
+  e o link `…/app/#/parear?c=<código>`. (2) O HUD não desenhava card nenhum: o `WiredUI.on_card`
+  só punha "⚠ título" no rodapé de eventos (`magui_cards` era TODO). Novo `hud/wired/pairing_card.py`
+  (cartão no lugar do `LAST SESSION`, no painel e na espera: código grande, "vale 5 min · uso
+  único" e o link; sem QR, o HUD não tem gerador), some em 5 min ou no clique; o código não vai ao
+  rodapé de eventos.
+  - Escreve: `magi/core/proactive/{ayanami,sink}.py`, `magi/elo/parear.py` (passa a URL),
+    `hud/wired/{pairing_card,integration,main_screen,standby_screen}.py`, `hud/gamerhud.py` (prazo e
+    clique), `tests/elo/test_parear.py`, `tests/hud/test_pairing_card.py`,
+    `tests/learning/test_summary_card.py` (ordem dos grupos)
+  - Pronto: `caplog` sem o código nem `sem tradução` em en-gb; offscreen: `CardMsg` de pareamento
+    pela linha do socket → `hud_bridge` → `gamerhud` → cartão pintado, prazo de 5 min, clique fecha.
+    Precisa reiniciar o magi-core e reabrir o HUD.
 
 ---
 

@@ -1369,6 +1369,9 @@ class HUD(QWidget):
         if self.wired:
             self.wired.on_card(card)
             self.wired_refresh()
+            d = self.wired.pairing_deadline()   # código de pareamento (Y6.6c): some sozinho
+            if d is not None:
+                QTimer.singleShot(max(0, int((d - time.monotonic()) * 1000)) + 50, self.wired_refresh)
 
     def on_bridge_vote(self, verdict, label):
         self.magui_vote = (verdict, label)
@@ -2169,6 +2172,9 @@ class HUD(QWidget):
         self.face_tick()
         if target == "learning":
             self.bridge.send_lm("lm_mode", {"on": self.view != "learning"})
+        elif target == "pairing":   # clique no cartão do código de pareamento fecha (Y6.6c)
+            self.wired.pairing_close()
+            self.wired_refresh()
         elif target == "lm_summary":   # clique no cartão LAST SESSION fecha (LM4.6)
             self.wired.summary_close()
             self.wired_refresh()

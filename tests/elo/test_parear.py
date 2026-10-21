@@ -55,6 +55,27 @@ async def test_pedir_codigo_gera_card_e_nao_loga(caplog: pytest.LogCaptureFixtur
     assert CODIGO not in repr(res)
 
 
+async def test_card_em_ingles_nao_vaza_codigo_no_log(caplog: pytest.LogCaptureFixture) -> None:
+    """Y6.6c: com ``[speech] language = en-gb`` o título do card ia ao ``tr``, que logava
+    ``sem tradução: Código de pareamento 199 152``. O card vai sem tradução, com o link e
+    ``source="pareamento"`` (o HUD desenha o cartão próprio)."""
+    from magi.core import i18n
+
+    caplog.set_level(logging.DEBUG)
+    hud = Hud()
+    i18n.configure("en-gb")
+    try:
+        await pedir_codigo(URL, "tok-falso", http=_api(), avisos=AvisosAyanami(ProactiveSink(hud)))
+    finally:
+        i18n.configure("pt-br")
+    (card,) = [m for m in hud.msgs if isinstance(m, CardMsg)]
+    assert card.source == "pareamento" and card.url == f"{URL}/app/#/parear?c={CODIGO}"
+    assert card.title == "Código de pareamento 482 913"
+    assert "card de pareamento mostrado" in caplog.text
+    assert CODIGO not in caplog.text and "482 913" not in caplog.text
+    assert "sem tradução" not in caplog.text
+
+
 @pytest.mark.parametrize("status", [401, 403, 500])
 async def test_erro_sem_segredo(status: int) -> None:
     with pytest.raises(ErroPareamento) as e:
