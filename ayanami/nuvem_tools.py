@@ -4,6 +4,7 @@
   por :func:`ayanami.tarefas.criar_tarefa` e companhia (as funções vêm por :class:`PortaTarefas`,
   trocadas por falsos nos testes).
 - ``estado``: PC/casa online, gasto do mês e tarefas vivas.
+- ``servidor``: "como está o servidor?" pelo ``servidor.json`` do vigia (:mod:`ayanami.servidor`).
 - ``news_query``: novidades do ``ayanami-pg`` (``news_items``), sem pesquisar na internet.
 - ``tv_*``: as **mesmas** ferramentas de :mod:`magi.agent.tools.tv` ligadas a
   :class:`TvActionsNuvem`, que manda ``acao`` à casa pelo hub (``de="ayanami"``,
@@ -195,6 +196,7 @@ class NuvemFerramentasDeps:
     hub: Any = None
     budget: Any = None
     origem: Callable[[], int | None] = field(default=lambda: None)
+    servidor: Callable[[], dict[str, Any]] | None = None  # None = ayanami.servidor.ler_agora
 
 
 def ferramentas(d: NuvemFerramentasDeps) -> list[Ferramenta]:
@@ -252,6 +254,11 @@ def ferramentas(d: NuvemFerramentasDeps) -> list[Ferramenta]:
         texto = "; ".join(partes) + "."
         return ActionResult(ok=True, speech=texto[:1].upper() + texto[1:])
 
+    async def servidor(_a: Mapping[str, Any], _c: TurnContext) -> ActionResult:
+        from ayanami import servidor as srv
+        dados = await asyncio.to_thread(d.servidor or srv.ler_agora)
+        return ActionResult(ok=dados.get("estado") in ("ok", "velho"), speech=dados["resumo"])
+
     async def news_query(a: Mapping[str, Any], _c: TurnContext) -> ActionResult:
         topic = arg_str(a, "topic")
         try:
@@ -282,6 +289,8 @@ def ferramentas(d: NuvemFerramentasDeps) -> list[Ferramenta]:
                                                      "a_cada_h": {"type": "integer"}},
                                                     ("o_que", "condicao"))), monitor_criar, serial=True),
         Ferramenta(ToolSpec("estado", "Estado geral: PC, casa, gasto do mês e tarefas.", _obj({})), estado),
+        Ferramenta(ToolSpec("servidor", "Como está o servidor (node 2): CPU, RAM, swap, disco e "
+                            "Minecraft (online, jogadores, TPS).", _obj({})), servidor),
         Ferramenta(ToolSpec("news_query", "Novidades guardadas de jogos e anime. topic: obra ou "
                             "franquia (vazio = geral); days: janela em dias (padrão 30).",
                             _obj({"topic": _S, "days": {"type": "integer"}})), news_query),

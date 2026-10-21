@@ -53,8 +53,8 @@ from magi.elo.mensagens import AcaoPedido, TurnoFim
 log = logging.getLogger(__name__)
 
 NUVEM_PODE: Final = ("news_query", "tarefa_criar", "tarefa_listar", "tarefa_cancelar",
-                     "lembrete_criar", "monitor_criar", "estado", "tv_ligar", "tv_desligar",
-                     "tv_volume", "tv_mudo", "tv_app", "tv_entrada")
+                     "lembrete_criar", "monitor_criar", "estado", "servidor", "tv_ligar",
+                     "tv_desligar", "tv_volume", "tv_mudo", "tv_app", "tv_entrada")
 LINHA_NUVEM: Final = ("Agora você está na nuvem, sem a memória do PC; diga isso quando fizer "
                       "diferença. Aqui não dá para mexer em jogos, HUD, RGB, Spotify, volume do PC "
                       "nem abrir coisas no PC.")

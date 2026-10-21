@@ -43,7 +43,7 @@ log = logging.getLogger("ayanami.api")
 
 ROTEADORES = (
     "saude", "dispositivos", "nos", "eventos", "turno", "confirma", "casa", "feed",
-    "tarefas", "push", "noticias", "custos", "backup",
+    "tarefas", "push", "noticias", "custos", "backup", "servidor",
 )
 PWA_DIR = Path(__file__).resolve().parent.parent / "pwa"
 

@@ -42,7 +42,7 @@ pytestmark = pytest.mark.pg
 
 URL_BASE = "https://ayanami.exemplo.ts.net"
 PADRAO = {"noticias_buscar", "noticias_ultimas", "tarefas_listar", "tarefa_ver", "estado",
-          "tarefa_criar", "tarefa_cancelar"}
+          "tarefa_criar", "tarefa_cancelar", "servidor"}
 
 
 class RelogioManual:
@@ -164,7 +164,7 @@ async def test_ca_y26_sete_tools_escopo_e_tipo(db, relogio):
     so_ler = _token(db, "claude-code", "mcp", ["ler"])
     async with sessao(app, so_ler) as cli:
         nomes = {t.name for t in (await cli.list_tools()).tools}
-        assert nomes == PADRAO and len(nomes) == 7
+        assert nomes == PADRAO and len(nomes) == 8  # 7 da CA-Y26 + servidor (Y1.3c)
         r = await cli.call_tool("tarefa_criar", {"tipo": "pesquisa", "titulo": "t", "pedido": "x"})
         assert r.is_error and "escopo: falta 'tarefas'" in _texto(r)
         assert not app.state.ctx.extras["fila"].connector.jobs

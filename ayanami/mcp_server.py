@@ -41,7 +41,8 @@ log = logging.getLogger("ayanami.mcp")
 
 ESCOPO_DAS_TOOLS: dict[str, str] = {
     "noticias_buscar": "ler", "noticias_ultimas": "ler", "tarefas_listar": "ler",
-    "tarefa_ver": "ler", "estado": "ler", "tarefa_criar": "tarefas", "tarefa_cancelar": "tarefas",
+    "tarefa_ver": "ler", "estado": "ler", "servidor": "ler", "tarefa_criar": "tarefas",
+    "tarefa_cancelar": "tarefas",
     "tv_acao": "casa", "memoria_gravar": "memoria-escrever",
 }
 # campo principal de ``params`` que recebe o ``pedido`` da tool ``tarefa_criar``
@@ -256,6 +257,15 @@ class ServidorMcp:
             async def corpo(_: int | None) -> Any:
                 return await self._estado()
             return await self.chamar("estado", "ler", "", corpo)
+
+        @mcp.tool()
+        async def servidor() -> dict[str, Any]:
+            """Como está o servidor (node 2): CPU, RAM, swap, disco, Minecraft e alertas do vigia."""
+            async def corpo(_: int | None) -> Any:
+                from ayanami import servidor as srv
+                return await asyncio.to_thread(srv.ler, self.ctx.extras.get("servidor_json"),
+                                               agora=self.ctx.relogio.agora())
+            return await self.chamar("servidor", "ler", "", corpo)
 
         @mcp.resource("ayanami://estado", mime_type="application/json")
         async def recurso_estado() -> dict[str, Any]:

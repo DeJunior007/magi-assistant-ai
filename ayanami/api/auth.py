@@ -78,6 +78,7 @@ ESCOPO_DE_ROTA: dict[tuple[str, str], Exigencia | None] = {
     ("POST", "/v1/confirma/{pedido}"): _e("conversa"),
     ("POST", "/v1/casa/acao"): _e("casa"),
     ("GET", "/v1/casa/estado"): _e("casa", "ler"),
+    ("GET", "/v1/servidor"): _e("conversa", "ler"),
     ("GET", "/v1/feed"): _e("feed"),
     ("GET", "/v1/tarefas"): _e("tarefas"),
     ("POST", "/v1/tarefas"): _e("tarefas"),

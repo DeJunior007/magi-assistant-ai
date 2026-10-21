@@ -334,6 +334,21 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: `/proc` falso em tmp, docker injetado, RCON falso em 127.0.0.1:0, relógio falso; cada
     causa nova dispara 1× e respeita as 6 h; ausente não alerta; `ruff` limpo.
 
+- [x] **Y1.3c A Ayanami responde "como está o servidor?"** — `ayanami/servidor.py` lê o
+  `servidor.json` do vigia (`AYANAMI_SERVIDOR_JSON`, senão `$AYANAMI_DADOS/servidor.json`, senão
+  `/dados/servidor.json` no container), valida campo a campo, marca `velho` se `ts` > 3 min, mede o
+  disco da partição dos dados e monta um resumo curto em pt-BR (CPU dos grupos, RAM, swap, disco,
+  Minecraft no ar/jogadores/TPS ou ausente, alertas). Rota `GET /v1/servidor` (escopo `conversa` ou
+  `ler`; sempre 200, estado `ok|velho|ausente|corrompido`), tool `servidor` no MCP (`ler`) e no modo
+  nuvem (só leitura, em `NUVEM_PODE`). *(Sobras Y1.3b item 1)*
+  - Escreve: `ayanami/servidor.py`, `ayanami/api/servidor.py`, `ayanami/api/auth.py` (1 linha),
+    `ayanami/api/app.py` (`ROTEADORES`), `ayanami/mcp_server.py` e `ayanami/nuvem_tools.py` (tool
+    `servidor`), `ayanami/nuvem.py` (`NUVEM_PODE`), `tests/ayanami/test_servidor.py`,
+    `tests/ayanami/test_mcp.py` (contagem de tools)
+  - Depende de: Y1.3b
+  - Pronto: JSON falso em tmp (ok, velho, ausente, corrompido, campos tortos), rota por ASGI com o
+    escopo sobrescrito, tool da nuvem com leitor injetado; sem rede; `ruff` limpo.
+
 - [ ] **Y1.4 CI no GitHub Actions** — `.github/workflows/ayanami.yml`: em push no `main` que toque
   `ayanami/**`, `magi/elo/**`, `magi/news/**`, `deploy/ayanami/**`: `uv sync`, `ruff`, `pytest -q
   tests/elo tests/ayanami tests/deploy` (com serviço `pgvector/pgvector:pg16` e `AYANAMI_TEST_DSN`),
