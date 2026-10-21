@@ -121,6 +121,42 @@ Siga na ordem. Anote aqui o que for diferente do esperado (a Y1.5 corrige este r
 8. **CI (opcional, item 7):** cadastre os secrets `AYANAMI_HOST`, `AYANAMI_USER` (`ayanami`) e
    `AYANAMI_SSH_KEY` no GitHub. Sem eles, o job de deploy é pulado.
 
+### 2.1 O que divergiu no primeiro deploy (2026-10-21, node 2 compartilhado)
+
+Feito por agente, com autorização do Pedro. Diferenças do roteiro acima:
+
+- **`preparar.sh` não rodou inteiro:** o node 2 já tinha Docker/compose; só os trechos de usuário
+  `ayanami`, clone, `dados/`, links e `.git/info/exclude`. O SSH continua aceitando senha (o
+  `preparar.sh` desligaria; decisão do Pedro). `ufw.sh` e `limpar-multivideos.sh` **não** rodaram
+  (o ufw do Minecraft fica como está; a Ayanami não abre porta, sai pelo `tailscale serve`).
+- **Swap:** `/swapfile` de 8 GiB no fstab e `vm.swappiness=10` (`/etc/sysctl.d/99-swap.conf`). O
+  Minecraft não usa swap (`memswap_limit` = `mem_limit`).
+- **Imagens vêm do PC, nada de build no node 2** (os núcleos 0-5 são do jogo). No PC, de um
+  `git archive HEAD` limpo:
+  ```
+  docker build -f deploy/ayanami/Dockerfile -t ayanami:local .
+  docker build -f deploy/ayanami/Dockerfile --build-arg AYANAMI_ML=1 -t ayanami:local-ml .
+  docker save ayanami:local | gzip -1 | ssh <node2> 'gunzip | nice -n 19 ionice -c3 docker load'
+  ```
+  (idem `ayanami:local-ml`, ~2,3 GB). No node 2: `deploy.sh --sem-build` (pula o `build` e sobe
+  com `--no-build --pull never`).
+- **Permissões:** a imagem roda como uid/gid `10740`: `chown -R 10740:10740 /opt/ayanami/dados`;
+  o `ayanami.toml` (sem segredo) fica `0644` para o contêiner ler pelo bind mount.
+- **`git` em `/opt/ayanami`:** o clone é do usuário `ayanami`; como root use `sudo -u ayanami git …`
+  (senão "dubious ownership").
+- **`.env`:** `POSTGRES_PASSWORD` e `RESTIC_PASSWORD` gerados no node 2 (`openssl rand`), VAPID por
+  `ayanami push chaves --sub https://…` num contêiner `--network none`, `COMPOSE_FILE` e
+  `DOCKER_GID`; Gemini, OpenAI, Telegram e B2 vazios: a API sobe e a `/saude` lista em `faltando`.
+  Guarde uma cópia do `RESTIC_PASSWORD` fora do node.
+- **`ayanami-api`:** sobe com `uvicorn ayanami.api.app:app_de_producao --factory` (com
+  `ayanami.api:app` o uvicorn recebia o submódulo `app` e a `/saude` dava 500).
+- **Vigia sem Telegram:** o `vigia.py` sai 1 sem `TELEGRAM_*`; até o Telegram existir há um drop-in
+  `/etc/systemd/system/ayanami-vigia.service.d/sem-telegram.conf` com `SuccessExitStatus=1`
+  (apague-o quando o Telegram entrar no `.env`).
+- **`url_base`** do `ayanami.toml` = o nome do tailnet (`https://ayanami.<tailnet>.ts.net`): o MCP só
+  aceita o host do `url_base` (mais `127.0.0.1`/`localhost`). Para atender também pelo domínio
+  próprio é preciso mudar o código (lista de hosts) ou trocar o `url_base`.
+
 ## 3. Deploy de rotina
 
 ```

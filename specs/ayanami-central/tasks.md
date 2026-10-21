@@ -362,7 +362,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: teste estático verde (gatilhos, gate de secrets, nenhum segredo literal); `actionlint` se houver no PC, senão anotar.
   - Paralelo: Y2.x, Y3.x
 
-- [ ] **Y1.5 Provisionar o node 2** — **precisa do Pedro (não implementar por agente).**
+- [x] **Y1.5 Provisionar o node 2** — *(feita por agente com autorização do Pedro em 2026-10-21; desvios no runbook §2.1; pendências em Sobras)* **precisa do Pedro (não implementar por agente).**
   Confirmar no painel da Contabo que o node 2 existe e não está para cancelar (requirements "O que
   precisa do Pedro" 1); revisar e rodar `limpar-multivideos.sh` (item 2); criar a conta Tailscale,
   instalar no PC/node 2/celular, aprovar ACL (item 3); rodar `preparar.sh`, `ufw.sh`,
@@ -375,7 +375,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: `tailscale status` mostra `ayanami`; `ufw status` como no script; restos do MultiVideos removidos ou anotados como "fica".
   - Paralelo: Y2.x, Y3.x
 
-- [ ] **Y1.6 Primeiro deploy** — **precisa do Pedro (não implementar por agente).** Criar
+- [x] **Y1.6 Primeiro deploy** — *(feita por agente com autorização do Pedro em 2026-10-21; runbook §2.1; pendências em Sobras)* **precisa do Pedro (não implementar por agente).** Criar
   `/opt/ayanami/.env` (`0600`, §9.1) e `ayanami.toml`; `deploy.sh`; `ayanami dispositivo criar pc
   --tipo pc` e guardar o token no keyring do PC; instalar o vigia (Y1.3) e testar uma mensagem do
   Telegram (item 6); `curl https://ayanami.<tailnet>.ts.net/saude` do PC e do celular; parte
@@ -1629,3 +1629,13 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   campo `ouvido: str = ""` no `TurnoFim`, preenchido pelo PC e pelo STT da nuvem, e a Conversa troca
   "(voz)" por ele. (4) Áudio com Bearer segue para o P1.S4. (5) Badge e ícones: conferir aparência
   real no P1.S4.
+- **Y1.5/Y1.6 (primeiro deploy, 2026-10-21, por agente):** no ar no node 2 os 6 serviços `healthy`
+  (perfil `compose.node2.yml`, núcleos 6-7), `/saude` com `banco=ok` e `ok=false` só por segredos;
+  pelo tailnet (`tailscale serve` ligado pelo orquestrador) do PC com token `pc` (keyring) e `casa`
+  (`ayanami-casa.token`); vigia ligado; `magi-news-sync`/`magi-backup` timers ligados no PC.
+  Faltam (Pedro): (1) Telegram (`TELEGRAM_*` no `.env`, apagar o drop-in `sem-telegram.conf` e testar
+  o alerta); (2) B2/restic (`B2_*`; copiar o `RESTIC_PASSWORD` gerado para fora do node);
+  (3) `OPENAI_API_KEY`/`GEMINI_API_KEY` dedicadas; (4) DNS de `ayanami.dekasis.com.br` e, se for
+  usado, o MCP aceitar mais de um host (hoje só o do `url_base`, que está no `.ts.net`); (5) ACL do
+  tailnet/`nmap` de fora; (6) `claude mcp add` + token `mcp`; (7) secrets da CI (Y1.4) — e o job
+  de deploy precisa de `--sem-build` (sem build no node 2); (8) SSH do node 2 ainda aceita senha.

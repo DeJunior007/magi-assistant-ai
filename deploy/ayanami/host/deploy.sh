@@ -5,6 +5,8 @@
 #   ./deploy.sh                 # git pull + imagens + migrar + up -d + /saude
 #   ./deploy.sh --tag <sha>     # fixa AYANAMI_TAG no .env (rollback por tag de imagem)
 #   ./deploy.sh --sem-git       # não faz git pull (rollback sem mexer no código)
+#   ./deploy.sh --sem-build     # não constrói: as imagens vêm prontas do PC (docker save | docker load),
+#                               # como no node 2 compartilhado com o Minecraft (runbook §2.1)
 #
 # Sequência (§9.3): git pull → docker compose pull --ignore-buildable (+ build enquanto a imagem
 # for local, sem ghcr) → docker compose --profile ops run --rm migrar → docker compose up -d →
@@ -18,14 +20,16 @@ ESPERA="${AYANAMI_SAUDE_ESPERA:-2}"
 URL_SAUDE="http://127.0.0.1:8740/saude"
 TAG=""
 GIT=1
+BUILD=1
 
-uso() { echo "uso: $0 [--tag <tag>] [--sem-git]" >&2; exit 2; }
+uso() { echo "uso: $0 [--tag <tag>] [--sem-git] [--sem-build]" >&2; exit 2; }
 log() { echo "[deploy] $*"; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --tag) TAG="${2:-}"; [ -n "$TAG" ] || uso; shift 2 ;;
     --sem-git) GIT=0; shift ;;
+    --sem-build) BUILD=0; shift ;;
     -h|--help) uso ;;
     *) echo "argumento desconhecido: $1" >&2; uso ;;
   esac
@@ -58,7 +62,7 @@ cd "$DEPLOY"
 log "imagens"
 docker compose pull --ignore-buildable
 # Sem AYANAMI_IMAGEM (ghcr) a imagem é local (A1): constrói aqui.
-if [ -z "${AYANAMI_IMAGEM:-}" ] && ! grep -q '^AYANAMI_IMAGEM=.' "$ENV_ARQ"; then
+if [ "$BUILD" -eq 1 ] && [ -z "${AYANAMI_IMAGEM:-}" ] && ! grep -q '^AYANAMI_IMAGEM=.' "$ENV_ARQ"; then
   log "imagem local: docker compose build"
   docker compose build
 fi
@@ -67,7 +71,11 @@ log "migrações"
 docker compose --profile ops run --rm migrar
 
 log "subindo"
-docker compose up -d
+if [ "$BUILD" -eq 1 ]; then
+  docker compose up -d
+else
+  docker compose up -d --no-build --pull never
+fi
 
 log "conferindo $URL_SAUDE"
 i=1
