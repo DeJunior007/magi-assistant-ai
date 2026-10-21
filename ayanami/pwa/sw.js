@@ -1,0 +1,101 @@
+/*
+ * Service worker do PWA (spec §14.6). Dono: P1.1; a P2.2 acrescenta `push`/`notificationclick` (§15).
+ *
+ * - `condessa-shell-v<N>`: lista fixa de TODOS os arquivos (cache-first); `N` sobe a cada deploy
+ *   que muda algum arquivo, e o `activate` apaga as versões antigas;
+ * - `/v1/feed`: network-first com cópia em `condessa-feed` (só o último, 1 entrada) e recaída nela;
+ * - resto de `/v1/*`, `/saude`, `/ws`, `/mcp`: network-only, nunca cacheado (token, casa, tarefas).
+ */
+
+const VERSAO = 1;
+const CACHE_SHELL = "condessa-shell-v" + VERSAO;
+const CACHE_FEED = "condessa-feed";
+const CHAVE_FEED = "/v1/feed";
+const ARQUIVOS = [
+  "./",
+  "index.html",
+  "app.js",
+  "api.js",
+  "estado.js",
+  "estilo.css",
+  "gravador.js",
+  "manifest.webmanifest",
+  "telas/conversa.js",
+  "telas/tv.js",
+  "telas/feed.js",
+  "telas/tarefas.js",
+  "telas/ajustes.js",
+  "telas/parear.js",
+  "telas/confirma.js",
+  "icones/192.png",
+  "icones/512.png",
+  "icones/maskable-512.png",
+  "rosto/dormindo.webp",
+  "rosto/ouvindo.webp",
+  "rosto/pensando.webp",
+  "rosto/falando.webp",
+];
+
+self.addEventListener("install", (e) => {
+  e.waitUntil(caches.open(CACHE_SHELL).then((c) => c.addAll(ARQUIVOS)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
+    caches
+      .keys()
+      .then((nomes) =>
+        Promise.all(
+          nomes.filter((n) => n.startsWith("condessa-shell-") && n !== CACHE_SHELL).map((n) => caches.delete(n)),
+        ),
+      )
+      .then(() => self.clients && self.clients.claim()),
+  );
+});
+
+async function feedPrimeiroRede(req) {
+  try {
+    const r = await fetch(req);
+    if (r.ok) {
+      const cache = await caches.open(CACHE_FEED);
+      const copia = r.clone();
+      const headers = new Headers(copia.headers);
+      headers.set("X-Condessa-Cache-Em", new Date().toISOString());
+      const corpo = await copia.blob();
+      await cache.put(CHAVE_FEED, new Response(corpo, { status: copia.status, headers }));
+    }
+    return r;
+  } catch (erro) {
+    const cache = await caches.open(CACHE_FEED);
+    const guardado = await cache.match(CHAVE_FEED);
+    if (guardado) return guardado;
+    throw erro;
+  }
+}
+
+async function shellPrimeiroCache(req) {
+  const cache = await caches.open(CACHE_SHELL);
+  const achado = await cache.match(req, { ignoreSearch: true });
+  if (achado) return achado;
+  if (req.mode === "navigate") {
+    const casca = await cache.match("./");
+    if (casca) return casca;
+  }
+  return fetch(req);
+}
+
+self.addEventListener("fetch", (e) => {
+  const req = e.request;
+  if (req.method !== "GET") return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+  const escopo = new URL("./", self.location.href).pathname;
+  if (url.pathname === CHAVE_FEED) {
+    e.respondWith(feedPrimeiroRede(req));
+    return;
+  }
+  if (url.pathname.startsWith(escopo) && url.pathname !== escopo + "sw.js") {
+    e.respondWith(shellPrimeiroCache(req));
+  }
+  // resto (/v1/*, /saude, /ws, /mcp): network-only, sem respondWith.
+});
