@@ -90,7 +90,7 @@ services:
 
   ayanami-api:
     <<: *ayanami
-    command: ["uvicorn", "ayanami.api:app", "--host", "0.0.0.0", "--port", "8740", "--workers", "1"]
+    command: ["uvicorn", "ayanami.api.app:app_de_producao", "--factory", "--host", "0.0.0.0", "--port", "8740", "--workers", "1"]
     ports:
       - "127.0.0.1:8740:8740"
     cpus: 1

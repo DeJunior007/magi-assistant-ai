@@ -1,0 +1,21 @@
+# Túnel SSH do PC para a API da Ayanami no node 2 (Y1.6, enquanto não há Tailscale).
+# Leva 127.0.0.1:8740 do PC para 127.0.0.1:8740 do node 2, onde a ayanami-api escuta.
+# O usuário `tunel` do node 2 não tem shell; a chave em authorized_keys é restrita a
+#   restrict,port-forwarding,permitopen="127.0.0.1:8740",command="/usr/sbin/nologin"
+# Instalação (user unit): troque @HOST@ pelo IP/host do node 2 (fora do git) e copie para
+#   ~/.config/systemd/user/ayanami-tunel.service
+#   sed "s/@HOST@/<ip>/" deploy/systemd/ayanami-tunel.service > ~/.config/systemd/user/ayanami-tunel.service
+#   systemctl --user daemon-reload && systemctl --user enable --now ayanami-tunel.service
+# Chave: ssh-keygen -t ed25519 -N '' -f ~/.ssh/ayanami_tunel
+[Unit]
+Description=Túnel SSH do PC para a Ayanami (127.0.0.1:8740)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -i %h/.ssh/ayanami_tunel -L 127.0.0.1:8740:127.0.0.1:8740 tunel@@HOST@
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

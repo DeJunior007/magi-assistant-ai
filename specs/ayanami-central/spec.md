@@ -1061,7 +1061,7 @@ unless-stopped`, `env_file: .env`, `TZ=America/Sao_Paulo`, rede `ayanami`, logs 
 | --- | --- | --- | --- | --- | --- |
 | `ayanami-pg` | imagem `pgvector/pgvector:pg16`, `-c shared_buffers=512MB -c max_connections=40` | `127.0.0.1:54339:5432` | `cpus: 2`, `mem_limit: 2g` | `pg_isready -U ayanami` | — |
 | `migrar` (`profiles: ["ops"]`) | `ayanami migrar && procrastinate --app=ayanami.fila.app schema --apply` | — | — | — | pg saudável |
-| `ayanami-api` | `uvicorn ayanami.api:app --host 0.0.0.0 --port 8740 --workers 1` | `127.0.0.1:8740:8740` | `cpus: 1`, `mem_limit: 1g` | `curl -fsS localhost:8740/saude` | pg saudável |
+| `ayanami-api` | `uvicorn ayanami.api.app:app_de_producao --factory --host 0.0.0.0 --port 8740 --workers 1` | `127.0.0.1:8740:8740` | `cpus: 1`, `mem_limit: 1g` | `curl -fsS localhost:8740/saude` | pg saudável |
 | `worker-rapido` | `ayanami worker rapida` | — | `cpus: 1`, `mem_limit: 512m` | `ayanami batimento rapida --max 90` | pg |
 | `worker-agendado` | `ayanami worker agendada` | — | `cpus: 1.5`, `mem_limit: 1g`; monta `docker.sock` | `ayanami batimento agendada --max 90` | pg |
 | `worker-lento` | `ayanami worker lenta` | — | `cpus: 4`, `mem_limit: 6g`, `cpu_shares: 512` | `ayanami batimento lenta --max 90` | pg |

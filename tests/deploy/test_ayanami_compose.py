@@ -118,7 +118,7 @@ def test_comandos_e_dependencias(servicos: dict) -> None:
     assert "shared_buffers=512MB" in servicos["ayanami-pg"]["command"]
     assert "max_connections=40" in servicos["ayanami-pg"]["command"]
     api = " ".join(servicos["ayanami-api"]["command"])
-    assert api == "uvicorn ayanami.api:app --host 0.0.0.0 --port 8740 --workers 1"
+    assert api == "uvicorn ayanami.api.app:app_de_producao --factory --host 0.0.0.0 --port 8740 --workers 1"
     assert servicos["ayanami-voz"]["command"] == ["ayanami", "voz", "--port", "8741"]
     migrar = " ".join(servicos["migrar"]["command"])
     assert "ayanami migrar && procrastinate --app=ayanami.fila.app schema --apply" in migrar
