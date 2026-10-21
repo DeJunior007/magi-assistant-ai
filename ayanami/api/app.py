@@ -97,6 +97,7 @@ def criar_app(
     for nome in ROTEADORES:
         app.include_router(importlib.import_module(f"ayanami.api.{nome}").router)
     app.state.pwa_montado = montar_pwa_se_houver(app, PWA_DIR if pwa_dir is None else pwa_dir)
+    importlib.import_module("ayanami.mcp_server").montar(app)  # mount("/mcp") + lifespan (Y5.1)
     app.add_middleware(LimiteCorpo)
     app.add_middleware(LogAcesso, relogio=relogio)
     return app
