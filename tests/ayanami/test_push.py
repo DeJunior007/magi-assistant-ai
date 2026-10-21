@@ -54,8 +54,15 @@ def test_payload_cortado_e_pequeno():
     assert p["id"] == "7" and p["ts"] == "2026-03-01T12:00:00Z" and p["v"] == 1
     assert len(push.serializar(p).encode()) <= 3 * 1024
     c = push.montar_payload(Evento(seq=8, tipo=EventoTipo.CONFIRMACAO, titulo="Confirmar?",
-                                   ref="confirma:01J0000000000000000000ABCD"), datetime.now(UTC))
-    assert c["url"] == "/app/#/confirma/01J0000000000000000000ABCD" and c["tipo"] == "confirma"
+                                   resumo="desligar a TV da sala",
+                                   ref="confirma:01J0000000000000000000ABCD"),
+                            datetime(2026, 3, 1, 12, tzinfo=UTC))
+    assert c["url"] == ("/app/#/confirma/01J0000000000000000000ABCD"
+                        "?d=desligar%20a%20TV%20da%20sala&expira=2026-03-01T12%3A02%3A00Z")
+    assert c["tipo"] == "confirma" and c["d"] == "desligar a TV da sala"
+    assert c["expira"] == "2026-03-01T12:02:00Z"
+    from ayanami.confirmacoes import EXPIRA_S
+    assert push.EXPIRA_CONFIRMA_S == EXPIRA_S
     estranho = push.montar_payload(Evento(seq=9, tipo=EventoTipo.MONITOR, titulo="x", ref="tarefa:../a b"),
                                    datetime.now(UTC))
     assert estranho["url"] == "/app/#/feed" and estranho["tag"] == "monitor-9"

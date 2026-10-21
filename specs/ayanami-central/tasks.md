@@ -974,6 +974,20 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y59 (parte do PWA: notificação de `confirma` sem ação de confirmar; clique abre a `url`) verde; CA-Y57 continua verde.
   - Paralelo: —
 
+- [x] **P2.3 Sobras do PWA (P1.2, P1.4, P2.2, P1.x)** — badge monocromático `icones/badge-96.png`
+  (desenho geométrico próprio, cinza+alfa) no `ARQUIVOS` e no `push`; `pushsubscriptionchange` no
+  `sw.js` reassina com o token do IndexedDB (`GET /v1/push/chave` → `subscribe` → `POST
+  /v1/push/assinar`; `DELETE` da velha); push de `confirma` abre `#/confirma/<ulid>?d=&expira=`
+  (servidor manda na `url` + campos `d`/`expira`; o SW completa payload antigo); `VERSAO_APP`
+  centralizada em `versao.js` (= `VERSAO` do `sw.js`, conferido no teste); transcrição no
+  `turno.fim` avaliada (anotada em *Sobras*).
+  - Lê: *Sobras* da P1.2, P1.4, P2.2 e P1.x; `ayanami/pwa/sw.js`, `telas/ajustes.js`, `telas/confirma.js` (`rotaDe`); `ayanami/push.py` (`montar_payload`)
+  - Escreve: `ayanami/pwa/sw.js`, `ayanami/pwa/versao.js` (novo), `ayanami/pwa/icones/badge-96.png` (novo), `ayanami/pwa/telas/ajustes.js` (só a `VERSAO_APP`), `ayanami/push.py` (só `montar_payload` de `confirma`), `tests/ayanami/pwa/test_push_sw.mjs`, `tests/ayanami/pwa/test_sw.mjs`, `tests/ayanami/test_push.py` (só o caso `confirma`)
+  - Depende de: P2.2, P1.x
+  - Orçamento: ~60k
+  - Pronto: `node --test 'tests/ayanami/pwa/*.mjs'` e `tests/ayanami/test_push.py` verdes; CA-Y57/CA-Y59 continuam verdes.
+  - Paralelo: Y1.3c, Y6.5b, Y6.6b, F.2
+
 ## Fase F — Fechamento
 
 - [ ] **F.1 Validação ponta a ponta (precisa do Pedro)** — com tudo no `main` e no ar: critério 1
@@ -1559,3 +1573,12 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   Falta, depois da F.1: trocar esses trechos pelos números/comportamento medidos, o nome real
   (`ayanami.dekasis.com.br` × `.ts.net`, certificado), o "Condessa, pareia o celular" quando a Y6.6b
   entrar, e marcar a F.2 `[x]`. Runbook não foi tocado.
+- **P2.3:** (1) Ninguém cria hoje um `Evento` `CONFIRMACAO` com `ref="confirma:<ulid>"` nem publica o
+  SSE `confirma` (`Confirmacoes.criar` só pergunta ao PC): sem isso não há push nem card ao vivo de
+  confirmação — tarefa nova (em `ayanami/confirmacoes.py`, `descricao` no `resumo`). (2) O `expira` do
+  payload é `criado + 120 s` (`EXPIRA_CONFIRMA_S` = `confirmacoes.EXPIRA_S`; o `Evento` não leva
+  `expira_em`). (3) Transcrição da voz no `turno.fim`: não é pouco esforço — o `TurnoFim` (contrato do
+  elo, `magi/elo/mensagens.py` + schema) não tem campo e no modo pc quem transcreve é o PC; caminho:
+  campo `ouvido: str = ""` no `TurnoFim`, preenchido pelo PC e pelo STT da nuvem, e a Conversa troca
+  "(voz)" por ele. (4) Áudio com Bearer segue para o P1.S4. (5) Badge e ícones: conferir aparência
+  real no P1.S4.

@@ -18,8 +18,9 @@
  */
 
 import { armazemIdb, armazemMemoria } from "../api.js";
+import { VERSAO_APP } from "../versao.js";
 
-export const VERSAO_APP = "0.1.0";
+export { VERSAO_APP };
 export const CHAVE_PREFS = "preferencias";
 export const CHAVE_PUSH = "push_chave";
 export const PREFS_PADRAO = Object.freeze({

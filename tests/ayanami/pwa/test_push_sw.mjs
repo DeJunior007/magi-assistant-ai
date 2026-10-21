@@ -15,7 +15,7 @@ const CODIGO = readFileSync(join(PWA, "sw.js"), "utf8");
 
 // ---------- service worker
 
-function carregarSw({ janelas = [] } = {}) {
+function carregarSw({ janelas = [], idb = idbFalso({}), rede = async () => new Response("{}"), pushManager = null } = {}) {
   const ouvintes = {};
   const mostradas = [];
   const abertas = [];
@@ -23,14 +23,14 @@ function carregarSw({ janelas = [] } = {}) {
     location: new URL(ORIGEM + "/app/sw.js"),
     addEventListener: (t, fn) => (ouvintes[t] = fn),
     skipWaiting: async () => {},
-    registration: { showNotification: async (titulo, opcoes) => mostradas.push({ titulo, opcoes }) },
+    registration: { showNotification: async (titulo, opcoes) => mostradas.push({ titulo, opcoes }), pushManager },
     clients: {
       claim: async () => {},
       matchAll: async () => janelas,
       openWindow: async (u) => abertas.push(u),
     },
   };
-  vm.runInNewContext(CODIGO, { self, caches: {}, fetch: async () => {}, URL, Response, Request, Headers, Promise, console });
+  vm.runInNewContext(CODIGO, { self, caches: {}, fetch: rede, indexedDB: idb, URL, URLSearchParams, atob, Response, Request, Headers, Promise, console });
   async function despachar(tipo, extra) {
     let espera = null;
     ouvintes[tipo]({ ...extra, waitUntil: (p) => (espera = p) });
@@ -42,7 +42,25 @@ function carregarSw({ janelas = [] } = {}) {
     const n = { data, fechada: false, close() { this.fechada = true; } };
     return despachar("notificationclick", { notification: n }).then(() => n);
   };
-  return { push, clicar, mostradas, abertas, ouvintes };
+  return { push, clicar, mostradas, abertas, ouvintes, despachar };
+}
+
+/** IndexedDB falso só com `open` → `kv.get` (o que o SW usa). */
+function idbFalso(kv) {
+  const pedido = (fn) => {
+    const r = {};
+    queueMicrotask(() => fn(r));
+    return r;
+  };
+  return {
+    open: () =>
+      pedido((r) => {
+        r.result = {
+          transaction: () => ({ objectStore: () => ({ get: (k) => pedido((g) => ((g.result = kv[k]), g.onsuccess())) }) }),
+        };
+        r.onsuccess();
+      }),
+  };
 }
 
 function janela(url) {
@@ -73,7 +91,8 @@ test("CA-Y59 sw: notificação de confirma sem botão de confirmar (DS17)", asyn
   const { opcoes } = sw.mostradas[0];
   assert.equal(opcoes.actions, undefined);
   assert.doesNotMatch(JSON.stringify(opcoes), /Confirmar/i);
-  assert.equal(opcoes.data.url, ORIGEM + "/app/#/confirma/01HXXXXXXXXXXXXXXXXXXXXXXX");
+  // payload sem `d`/`expira` na url (antigo): o SW completa com o resumo (P2.3)
+  assert.equal(opcoes.data.url, ORIGEM + "/app/#/confirma/01HXXXXXXXXXXXXXXXXXXXXXXX?d=TV+da+sala");
   assert.doesNotMatch(CODIGO, /actions\s*:/); // nenhuma notificação do SW tem ações
 });
 
@@ -308,4 +327,74 @@ test("reassinarSeMudou: sem permissão ou com push desligado não faz nada", asy
   await arm.gravar(ajustes.CHAVE_PREFS, { push: false });
   assert.equal(await ajustes.reassinarSeMudou({ api, armazem: arm, push: nav2.push }), "nada");
   assert.deepEqual([...nav.log, ...nav2.log], []);
+});
+
+// ---------- P2.3
+
+test("P2.3 sw: badge monocromático de 96 px, separado do ícone", async () => {
+  const sw = carregarSw();
+  await sw.push({ titulo: "x" });
+  assert.equal(sw.mostradas[0].opcoes.badge, ORIGEM + "/app/icones/badge-96.png");
+  const png = readFileSync(join(PWA, "icones/badge-96.png"));
+  assert.equal(png.readUInt32BE(16), 96);
+  assert.equal(png.readUInt32BE(20), 96);
+  assert.equal(png[25], 4); // tons de cinza + alfa (monocromático)
+});
+
+test("P2.3 sw: confirma abre #/confirma/<ulid>?d=&expira= (url do servidor fica como veio)", async () => {
+  const sw = carregarSw();
+  const url = "/app/#/confirma/01HY?d=desligar%20a%20TV&expira=2026-10-21T10%3A02%3A00Z";
+  await sw.push({ tipo: "confirma", titulo: "Confirmar?", resumo: "desligar a TV", url, d: "desligar a TV", expira: "2026-10-21T10:02:00Z" });
+  await sw.push({ tipo: "confirma", titulo: "Confirmar?", resumo: "r", url: "/app/#/confirma/01HZ", d: "desligar a TV", expira: "2026-10-21T10:02:00Z" });
+  assert.equal(sw.mostradas[0].opcoes.data.url, ORIGEM + url);
+  const u = new URL(sw.mostradas[1].opcoes.data.url);
+  const [caminho, busca] = u.hash.split("?");
+  assert.equal(caminho, "#/confirma/01HZ");
+  const q = new URLSearchParams(busca);
+  assert.equal(q.get("d"), "desligar a TV");
+  assert.equal(q.get("expira"), "2026-10-21T10:02:00Z");
+});
+
+function assinatura(endpoint) {
+  return { endpoint, options: { applicationServerKey: new Uint8Array([4, 1, 2]) }, toJSON: () => ({ endpoint, keys: { p256dh: "p", auth: "a" } }) };
+}
+
+function redeFalsa(chave = "BAEC") {
+  const pedidos = [];
+  const rede = async (url, opc = {}) => {
+    pedidos.push({ url, metodo: opc.method, auth: opc.headers?.Authorization, corpo: opc.body ? JSON.parse(opc.body) : undefined });
+    if (url.endsWith("/v1/push/chave")) return new Response(JSON.stringify({ chave }), { status: 200 });
+    return new Response(null, { status: 204 });
+  };
+  return { rede, pedidos };
+}
+
+test("P2.3 sw: pushsubscriptionchange com a nova pronta → POST dela e DELETE da velha, com Bearer", async () => {
+  const { rede, pedidos } = redeFalsa();
+  const sw = carregarSw({ idb: idbFalso({ token: "tok-falso" }), rede });
+  await sw.despachar("pushsubscriptionchange", { oldSubscription: assinatura("https://push.exemplo/velha"), newSubscription: assinatura("https://push.exemplo/nova") });
+  assert.deepEqual(pedidos.map((p) => [p.metodo, new URL(p.url).pathname]), [["POST", "/v1/push/assinar"], ["DELETE", "/v1/push/assinar"]]);
+  assert.equal(pedidos[0].corpo.endpoint, "https://push.exemplo/nova");
+  assert.equal(pedidos[1].corpo.endpoint, "https://push.exemplo/velha");
+  assert.ok(pedidos.every((p) => p.auth === "Bearer tok-falso"));
+});
+
+test("P2.3 sw: pushsubscriptionchange sem a nova assina com a chave do servidor", async () => {
+  const { rede, pedidos } = redeFalsa("BAEC");
+  const subs = [];
+  const pushManager = { subscribe: async (o) => (subs.push(o), assinatura("https://push.exemplo/nova")) };
+  const sw = carregarSw({ idb: idbFalso({ token: "tok-falso" }), rede, pushManager });
+  await sw.despachar("pushsubscriptionchange", { oldSubscription: null, newSubscription: null });
+  assert.equal(subs.length, 1);
+  assert.equal(subs[0].userVisibleOnly, true);
+  assert.deepEqual([...subs[0].applicationServerKey], [4, 1, 2]);
+  assert.deepEqual(pedidos.map((p) => p.metodo), ["GET", "POST"]);
+});
+
+test("P2.3 sw: pushsubscriptionchange sem token (desconectado) não chama a rede", async () => {
+  const { rede, pedidos } = redeFalsa();
+  const pushManager = { subscribe: async () => assert.fail("não assina") };
+  const sw = carregarSw({ idb: idbFalso({}), rede, pushManager });
+  await sw.despachar("pushsubscriptionchange", { oldSubscription: assinatura("https://push.exemplo/velha"), newSubscription: null });
+  assert.deepEqual(pedidos, []);
 });

@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any, TextIO
+from urllib.parse import quote, urlencode
 from zoneinfo import ZoneInfo
 
 from magi.elo.mensagens import Evento, EventoTipo
@@ -84,6 +85,7 @@ POLITICA_AGRUPADO = Politica("normal", 12 * 3600, "acumula")
 SEM_ESPERA_DE_LIMITE = frozenset({"confirma", "lembrete"})
 
 _ID_OK = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+EXPIRA_CONFIRMA_S = 120  # = ``ayanami.confirmacoes.EXPIRA_S`` (o teste confere; sem importar o banco)
 _HORARIO = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})\s*$")
 
 
@@ -117,8 +119,17 @@ def montar_payload(evento: Evento, criado: datetime) -> dict[str, Any]:
     """Payload da §15 a partir do ``Evento`` (títulos cortados; só o que o evento já traz)."""
     tipo = tipo_push(evento.tipo) or "operacao"
     url, tag = _url_e_tag(tipo, evento.seq, evento.ref)
+    resumo = cortar(evento.resumo, MAX_RESUMO)
+    extra: dict[str, Any] = {}
+    if tipo == "confirma" and url.startswith("/app/#/confirma/"):
+        # P2.3: o card abre com a descrição e o prazo (`#/confirma/<ulid>?d=&expira=`); o `Evento` não
+        # traz o `expira_em`, então vale `criado + EXPIRA_CONFIRMA_S` (a confirmação nasce junto).
+        expira = _iso_z(criado + timedelta(seconds=EXPIRA_CONFIRMA_S))
+        q = {"d": resumo or cortar(evento.titulo, MAX_TITULO), "expira": expira}
+        url = f"{url}?{urlencode(q, quote_via=quote)}"
+        extra = {"d": q["d"], "expira": expira}
     return {"v": 1, "tipo": tipo, "id": str(evento.seq), "titulo": cortar(evento.titulo, MAX_TITULO),
-            "resumo": cortar(evento.resumo, MAX_RESUMO), "url": url, "tag": tag, "ts": _iso_z(criado)}
+            "resumo": resumo, "url": url, "tag": tag, "ts": _iso_z(criado), **extra}
 
 
 def payload_agrupado(n: int, agora: datetime, seq: int) -> dict[str, Any]:

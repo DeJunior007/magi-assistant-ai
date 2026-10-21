@@ -168,3 +168,12 @@ test("manifest com os campos da §14.6 e ícones existentes", () => {
     assert.equal(`${w}x${h}`, i.sizes);
   }
 });
+
+test("P2.3: VERSAO do sw.js = VERSAO_SHELL do versao.js; ajustes usa a VERSAO_APP de lá", async () => {
+  const v = await import("../../../ayanami/pwa/versao.js");
+  const ajustes = await import("../../../ayanami/pwa/telas/ajustes.js");
+  assert.equal(versao(), v.VERSAO_SHELL);
+  assert.equal(ajustes.VERSAO_APP, v.VERSAO_APP);
+  assert.match(v.VERSAO_APP, /^\d+\.\d+\.\d+$/);
+  assert.doesNotMatch(readFileSync(join(PWA, "telas/ajustes.js"), "utf8"), /VERSAO_APP\s*=\s*"/);
+});

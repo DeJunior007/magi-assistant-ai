@@ -8,9 +8,12 @@
  * - resto de `/v1/*`, `/saude`, `/ws`, `/mcp`: network-only, nunca cacheado (token, casa, tarefas).
  * - `push` / `notificationclick` (P2.2, spec §15): notificação **sem** botões de ação, nem no
  *   `confirma` (DS17: o card abre no PWA); o clique foca a janela do PWA e leva à `url`, ou abre.
+ * - P2.3: badge monocromático `icones/badge-96.png`; push de `confirma` abre
+ *   `#/confirma/<ulid>?d=&expira=` (o servidor já manda na `url`; aqui completa se faltar);
+ *   `pushsubscriptionchange` reassina sozinho com o token do IndexedDB (`condessa`/`kv`).
  */
 
-const VERSAO = 3;
+const VERSAO = 4; // = VERSAO_SHELL do versao.js
 const CACHE_SHELL = "condessa-shell-v" + VERSAO;
 const CACHE_FEED = "condessa-feed";
 const CHAVE_FEED = "/v1/feed";
@@ -23,6 +26,7 @@ const ARQUIVOS = [
   "estilo.css",
   "gravador.js",
   "manifest.webmanifest",
+  "versao.js",
   "telas/conversa.js",
   "telas/tv.js",
   "telas/feed.js",
@@ -33,6 +37,7 @@ const ARQUIVOS = [
   "icones/192.png",
   "icones/512.png",
   "icones/maskable-512.png",
+  "icones/badge-96.png",
   "rosto/dormindo.webp",
   "rosto/ouvindo.webp",
   "rosto/pensando.webp",
@@ -108,6 +113,7 @@ self.addEventListener("fetch", (e) => {
 
 const URL_PADRAO = "./#/conversa";
 const ICONE = "icones/192.png";
+const BADGE = "icones/badge-96.png";
 
 /** `url` do payload só se for do mesmo escopo do PWA; senão a Conversa. Devolve absoluta. */
 function urlSegura(u) {
@@ -131,14 +137,25 @@ function lerPayload(dados) {
   }
 }
 
+/** `confirma` sem `?d=&expira=` na `url` (payload antigo): completa com os campos do payload. */
+function urlDoPush(d) {
+  const u = d.url;
+  if (d.tipo !== "confirma" || typeof u !== "string" || !u.includes("#/confirma/") || u.includes("?")) return u;
+  const q = new URLSearchParams();
+  if (d.d || d.resumo) q.set("d", String(d.d || d.resumo));
+  if (d.expira) q.set("expira", String(d.expira));
+  const s = q.toString();
+  return s ? `${u}?${s}` : u;
+}
+
 self.addEventListener("push", (e) => {
   const d = lerPayload(e.data);
   const icone = new URL(ICONE, self.location.href).href;
   const opcoes = {
     body: String(d.resumo ?? ""),
-    data: { url: urlSegura(d.url), tipo: d.tipo ?? null },
+    data: { url: urlSegura(urlDoPush(d)), tipo: d.tipo ?? null },
     icon: icone,
-    badge: icone,
+    badge: new URL(BADGE, self.location.href).href,
     // DS17: nenhum `actions` (nem "Confirmar" no `confirma`): tocar só abre o card no PWA.
   };
   if (d.tag) opcoes.tag = String(d.tag);
@@ -167,4 +184,78 @@ self.addEventListener("notificationclick", (e) => {
       await self.clients.openWindow(alvo);
     })(),
   );
+});
+
+// ---------- pushsubscriptionchange (P2.3, spec §15 *Assinatura*)
+
+/** Lê uma chave do armazém do app (IndexedDB `condessa`/`kv`, o mesmo do `api.js`); `null` se falhar. */
+function lerKv(chave) {
+  return new Promise((ok) => {
+    try {
+      const req = indexedDB.open("condessa", 1);
+      req.onupgradeneeded = () => req.result.createObjectStore("kv");
+      req.onerror = () => ok(null);
+      req.onsuccess = () => {
+        try {
+          const g = req.result.transaction("kv", "readonly").objectStore("kv").get(chave);
+          g.onsuccess = () => ok(g.result ?? null);
+          g.onerror = () => ok(null);
+        } catch {
+          ok(null);
+        }
+      };
+    } catch {
+      ok(null);
+    }
+  });
+}
+
+function b64urlParaBytes(s) {
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
+
+async function apiSw(token, metodo, caminho, corpo) {
+  const url = new URL(caminho, self.location.origin).href;
+  const opc = { method: metodo, headers: { Authorization: `Bearer ${token}` } };
+  if (corpo !== undefined) {
+    opc.headers["Content-Type"] = "application/json";
+    opc.body = JSON.stringify(corpo);
+  }
+  const r = await fetch(url, opc);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.status === 204 ? null : r.json().catch(() => null);
+}
+
+/**
+ * O navegador trocou (ou perdeu) a assinatura: assina de novo com a chave do servidor
+ * (`GET /v1/push/chave`; recai na da assinatura velha) e manda a nova em `POST /v1/push/assinar`.
+ * A velha sai com `DELETE` (melhor esforço; o servidor também a apaga no 404/410). Sem token
+ * (aparelho desconectado) não faz nada. Devolve `"reassinou" | "nada"`.
+ */
+async function reassinarNoSw(e) {
+  const token = await lerKv("token");
+  if (!token) return "nada";
+  const velha = e.oldSubscription ?? null;
+  let nova = e.newSubscription ?? null;
+  if (!nova) {
+    let chave = null;
+    try {
+      chave = b64urlParaBytes((await apiSw(token, "GET", "/v1/push/chave"))?.chave ?? "");
+    } catch {
+      chave = null;
+    }
+    if (!chave?.length) chave = velha?.options?.applicationServerKey ?? null;
+    if (!chave) return "nada";
+    nova = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: chave });
+  }
+  await apiSw(token, "POST", "/v1/push/assinar", nova.toJSON());
+  if (velha?.endpoint && velha.endpoint !== nova.endpoint) {
+    await apiSw(token, "DELETE", "/v1/push/assinar", { endpoint: velha.endpoint }).catch(() => {});
+  }
+  return "reassinou";
+}
+
+self.addEventListener("pushsubscriptionchange", (e) => {
+  e.waitUntil(reassinarNoSw(e).catch(() => "nada"));
 });
