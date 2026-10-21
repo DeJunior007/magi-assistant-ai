@@ -237,7 +237,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: tempos de transcodificação medidos (p50/p90 de 20 rodadas); linha exata do gancho e do registro do satélite `celular` anotadas no doc para a Y6.2; spec atualizada se o gancho mudar.
   - Paralelo: Y0.3, Y0.4, Y0.5, Y0.7
 
-- [ ] **Y0.7 Spike S1 — script de bancada** — `spikes/ayanami_s1_bancada.py` que mede, sem rede:
+- [x] **Y0.7 Spike S1 — script de bancada** — `spikes/ayanami_s1_bancada.py` que mede, sem rede:
   Kokoro int8 `pf_dora` (RTF em 10 frases pt-BR), faster-whisper `small` int8 `cpu_threads=4` (RTF
   e RAM de pico num áudio de 5 min), fastembed e5-small (vazão em lotes de 64) e imprime uma tabela;
   baixa os modelos só para `--modelos <dir>`. Roda uma vez no PC para ter a linha de base. A rodada
@@ -659,7 +659,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y20 verde (29 s → `pc`, 31 s → `nuvem`; casa offline → 503 no REST); queda do PC no meio → `pc_caiu` sem refazer; áudio some em 60 s (relógio falso); outro dispositivo pedindo o turno → 404.
   - Paralelo: Y6.5, Y6.6, Y4.2, Y5.1
 
-- [ ] **Y6.5 Reconciliação `resumo_nuvem`** — na Ayanami, `ayanami/reconciliacao.py` (no `ola` do
+- [x] **Y6.5 Reconciliação `resumo_nuvem`** — na Ayanami, `ayanami/reconciliacao.py` (no `ola` do
   `pc`, pelo gancho `hub.ao_ola`: `nuvem_turnos` não sincronizados em envelopes de ≤ 50 por `ts`;
   `ack` marca só os ids confirmados; sem `ack` reenvia no próximo `ola`); no PC,
   `magi/elo/reconciliar.py` (`gravar_resumo`: grava em `turns` com satélite `celular` marcado
@@ -873,7 +873,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y57 verde; CA-Y56 na parte global (`/saude` falhando → `sem_ayanami` + faixa; 401 → Parear) verde; `GET /app/` responde 200 no teste da API; `gzip -c` dos arquivos sem sprites ≤ 80 KB.
   - Paralelo: C1.x, C2.x, P2.1
 
-- [ ] **P1.2 Conversa, push-to-talk, SSE e áudio** — `gravador.js` (máquina da §14.4:
+- [x] **P1.2 Conversa, push-to-talk, SSE e áudio** — `gravador.js` (máquina da §14.4:
   `getUserMedia` no gesto, `MediaRecorder` opus 24 kbps após `isTypeSupported`, < 400 ms descarta,
   15 s para sozinho, sair do botão cancela, `track.stop()` sempre; sem opus → só texto) e
   `telas/conversa.js` (histórico do dia, rosto por estado, selo PC/nuvem pelo `modo` do `POST
@@ -949,7 +949,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y59 (parte do servidor: payload, 410, 429, silêncio, limite por hora, `push_com_pc`) verde com `webpush` falso e relógio injetado.
   - Paralelo: P1.x, C1.x, C2.x, Y3.4, Y4.2, Y6.3, Y6.6
 
-- [ ] **P2.2 Web Push no PWA** — `sw.js`: handlers `push` (`showNotification(titulo, {body,
+- [x] **P2.2 Web Push no PWA** — `sw.js`: handlers `push` (`showNotification(titulo, {body,
   tag, data:{url}, icon, badge})`, **sem** botão "Confirmar" em `confirma`, DS17) e
   `notificationclick` (foca a janela ou abre `url`); `telas/ajustes.js`: interruptor de push
   (`Notification.requestPermission()` só após toque → `pushManager.subscribe` com a chave pública
@@ -1498,3 +1498,41 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   do último `seq`). (2) `/saude` não avisa da falta das chaves VAPID. (3) `falhas` acumuladas não
   apagam a assinatura (só 404/410). (4) A `auditoria` (tipo `push`) é o livro-caixa: idempotência,
   contagem por hora/dia e acumulados no silêncio; o limite por hora é a hora cheia local.
+- **Y0.7:** (1) Só o Kokoro fp32 medido no PC (10 frases, 43 s): 2 threads RTF p50 0,404 / p90 0,425,
+  576 MB; 4 threads 0,279 / 0,293. Kokoro int8, whisper `small` e e5-small ficaram sem número (sem
+  modelos no disco e sem rede): o Pedro roda `uv run --extra ayanami-ml python
+  spikes/ayanami_s1_bancada.py all --modelos ~/.cache/magi/ayanami-s1` (≈ 1 GB) para fechar a seção
+  "PC". (2) O `ayanami-ml` é extra, não grupo: o *Pronto* diz `--group`, vale `--extra`. (3) O
+  fastembed 0.9.0 não traz o `intfloat/multilingual-e5-small`: o script usa `add_custom_model`
+  (MEAN, normalizado), não testado sem rede; anotar na §5.6 ou trocar por um 384-dim da lista
+  (`paraphrase-multilingual-MiniLM-L12-v2`).
+- **Y1.4 (parcial, 05567e6):** testes (pgvector na 54340, ruff, pytest) e imagens no ghcr
+  (`:<sha>[-ml]`, `:main[-ml]`) prontos; **falta o job de deploy** — a gravação foi bloqueada pela
+  permissão do modo automático e não foi contornada. Falta: job `portao` (lê `secrets.AYANAMI_HOST`
+  por `env:` → `outputs.tem_host`) e job `deploy` (`needs: [imagem, portao]`, `if:
+  needs.portao.outputs.tem_host == 'true'`, `appleboy/ssh-action@v1.2.0` com `AYANAMI_HOST`/
+  `AYANAMI_USER`/`AYANAMI_SSH_KEY`, `deploy.sh --tag ${{ github.sha }}` e `curl -fsS
+  http://127.0.0.1:8740/saude`). O teste do job já existe (pula enquanto ele não existir). No node 2:
+  `AYANAMI_IMAGEM=ghcr.io/<dono>/ayanami` no `.env` (e `docker login ghcr.io` se o pacote for
+  privado). actionlint não rodado (não está no PC). Gatilho também em `.github/workflows/ayanami.yml`.
+- **P1.2:** (1) O áudio é lido por `api.bruto` (o `<audio>` não manda o Bearer), virado blob e só
+  toca com o stream fechado; provar latência e autoplay no P1.S4 (saídas: token curto na URL ou
+  cookie). (2) `voz_em_texto` lido de `estado.get().prefs` — mesma pendência do `app.js` carregar as
+  `preferencias` do armazém no estado e passar `armazem` no `ctx` (P1.3/P1.4). (3) `estilo.css` sem
+  regras para `.ptt`, `.historico`, `.fala.*`, `.selo`, `.toast`, `.aviso*`, `.area-ptt[data-estado]`,
+  `.campo-texto`. (4) A fala do usuário aparece como "(voz)" (o servidor não devolve a transcrição);
+  `modo` não fica no histórico.
+- **P2.2:** (1) Feito à parte (d46f177, 0486c0b): `GET /v1/push/chave` → `{"chave": VAPID_PUBLIC_KEY}`
+  (escopo `conversa`, qualquer tipo; 503 `sem_vapid` sem chave). (2) `app.js` deveria chamar
+  `reassinarSeMudou(ctx)` (de `telas/ajustes.js`) na subida; hoje só ao montar os Ajustes. (3) Badge
+  usa `icones/192.png` (Android pede monocromático de 96 px; arquivo novo entra em `ARQUIVOS`). (4)
+  Sem `pushsubscriptionchange` no SW. (5) Push de `confirma` abre `#/confirma/<ulid>` sem `?d=&expira=`.
+  (6) O interruptor só aparece ligado com permissão concedida e assinatura ativa (`PREFS_PADRAO.push`
+  é `true`).
+- **Y6.5:** (1) Feito à parte: `api/nos.py` chama `reconciliacao_de(ctx)` quando o `pc` conecta pela WS
+  (o long-poll do PC não liga); `Reconciliacao.fechar()` não é chamado na parada da app. (2)
+  Extrator: `magi.memory.profile.ProfileUpdater.maybe_update()` via `PerfilIngest`, uma vez por lote
+  com turno novo (respeita o `due` diário); memórias só saem do `memory_remember`. (3) Marca e chave
+  anti-duplicação em `turns.intent = "nuvem:<uid>"` (sem coluna de uid); migração aditiva sugerida
+  `turns.nuvem_uid uuid UNIQUE` (as `ferramentas` do `TurnoNuvem` se perdem hoje). (4) `TurnRepo`
+  ganhou `ja_gravados(uids)`; `PRAZO_PC_S = 60` constante.
