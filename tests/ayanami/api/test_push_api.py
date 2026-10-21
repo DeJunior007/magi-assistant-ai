@@ -60,3 +60,18 @@ async def test_recusas(app, db, cliente, novo_token):
                      {**SUB, "keys": {"p256dh": "não base64!", "auth": "authFalso_12"}}):
             assert (await c.post("/v1/push/assinar", json=ruim)).status_code == 422
     assert _assinaturas(db) == []
+
+
+async def test_chave_publica(app, cliente, novo_token):
+    from ayanami.config import Segredos
+
+    token = novo_token("celular-pedro", "celular")
+    async with cliente(app, token) as c:
+        app.state.ctx.segredos = None
+        r = await c.get("/v1/push/chave")
+        assert r.status_code == 503 and r.json()["erro"] == "sem_vapid"
+        app.state.ctx.segredos = Segredos({"VAPID_PUBLIC_KEY": "BPublicaFalsa_abc"})
+        r = await c.get("/v1/push/chave")
+        assert r.status_code == 200 and r.json() == {"chave": "BPublicaFalsa_abc"}
+    async with cliente(app, novo_token("pc-casa", "pc")) as c:
+        assert (await c.get("/v1/push/chave")).status_code in (403, 401)

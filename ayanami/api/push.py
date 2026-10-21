@@ -48,6 +48,20 @@ def _so_celular(disp: Dispositivo) -> None:
         raise ErroApi(403, "tipo_proibido", "só o celular assina Web Push")
 
 
+@router.get("/v1/push/chave")
+def chave(
+    request: Request,
+    disp: Annotated[Dispositivo, Depends(exigir_rota("GET", "/v1/push/chave"))],
+) -> dict[str, str]:
+    """Chave pública VAPID (``applicationServerKey`` do PWA; não é segredo)."""
+    _so_celular(disp)
+    segredos = request.app.state.ctx.segredos
+    publica = segredos.get("VAPID_PUBLIC_KEY") if segredos is not None else None
+    if not publica:
+        raise ErroApi(503, "sem_vapid", "Web Push sem chaves VAPID (rode `ayanami push chaves`)")
+    return {"chave": publica}
+
+
 @router.post("/v1/push/assinar", status_code=201)
 def assinar(
     request: Request,
