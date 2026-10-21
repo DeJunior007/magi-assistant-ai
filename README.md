@@ -33,6 +33,34 @@ Todas as fases do MVP estão implementadas e rodando como serviços `systemd --u
 Desempenho medido (`docs/perf/fase1.md`): CPU dormindo 1,12%, RAM dormindo 233 MB, comando conhecido
 p90 1,17 s (todos dentro da meta); pergunta ao agente p90 **3,39 s** (meta 3 s, fora por pouco).
 
+## Ayanami central, casa e celular (`specs/ayanami-central/`)
+
+Código no `main` (2026-10-21); **ainda não está no ar**: falta o Pedro provisionar o node 2 e fazer
+o primeiro deploy, e a validação ao vivo (F.1). O que está aqui descreve o código; números e
+comportamento real ficam "a confirmar no F.1".
+
+- **Ayanami** (`ayanami/`, comando `ayanami`): a API central da Condessa no node 2 (VPS), só no
+  Tailscale. Fila de jobs (rápida, agendada, lenta), notícias para o PC (`magi-news-sync`), backup
+  do PC e da própria Ayanami (`magi-backup`, restic), MCP, modo nuvem (responde quando o PC está
+  desligado e depois reconcilia) e Web Push. Operação no node 2: [`docs/ayanami/runbook.md`](docs/ayanami/runbook.md).
+- **Casa** (`magi/casa/`, comando `magi-casa`): controla as TVs (Samsung, Roku, Android TV) pela
+  rede local, sem nuvem obrigatória. A Condessa usa pelas intents `tv.*` ("liga a TV da sala").
+- **Celular** (`ayanami/pwa/`, servido em `/app/` pela Ayanami): PWA para Android com conversa
+  (texto e voz), controle das TVs, confirmações e notificações push.
+
+```bash
+uv run magi-casa descobrir                         # acha TVs na rede (SSDP + mDNS)
+uv run magi-casa nomear 1 sala "TV da sala"        # grava a TV no ~/.config/magi/casa.toml
+uv run magi-casa parear sala                       # código ou "Permitir" na tela da TV
+uv run magi-casa testar sala volume volume=+2      # roda uma ação e mostra o resultado
+uv run magi-casa estado                            # estado de cada TV
+uv run magi-casa servir                            # sobe a API local (unit magi-casa.service)
+uv run python -m magi.elo.parear --nome celular    # código de pareamento do celular
+ayanami --help                                     # no contêiner: migrar, worker, voz, dispositivo, backup, push
+```
+
+Como usar: [`docs/GUIA.md`](docs/GUIA.md) §15. O que falta: [`docs/PROXIMOS-PASSOS.md`](docs/PROXIMOS-PASSOS.md) §13.
+
 ## Mapa do repositório
 
 | Caminho | O que tem |
@@ -44,9 +72,12 @@ p90 1,17 s (todos dentro da meta); pergunta ao agente p90 **3,39 s** (meta 3 s, 
 | `magi/news/` | **Ayanami**, o agente de notícias (`magi-ayanami`, persona em `persona/ayanami.md`): coletores (RSS, Steam, AniList, Reddit, scraping), agrupamento, classificação, anti-spoiler, prioridade; fontes em `sources.toml` |
 | `magi/providers/` | Provedores OpenAI e Gemini, rodízio de chaves (KeyPool) e registro por tarefa |
 | `magi/common/` | Config (`config.py`), chaves (`secrets.py`), contratos e eventos do protocolo |
+| `magi/casa/` | `magi-casa`: TVs da casa (descoberta, pareamento, drivers Samsung/Roku/Android TV, API local) |
+| `magi/elo/` | Ligação do PC com a Ayanami: cliente, notícias, backup, pareamento do celular, reconciliação |
+| `ayanami/` | Ayanami central (node 2): API, fila e workers, MCP, voz (Kokoro), push e o PWA (`ayanami/pwa/`) |
 | `magi/cli/` | `magi-keys` e `magi-spotify-login` |
 | `hud/` | MAGI Gamer (PySide6): `gamerhud.py`, vigia, ponte com a Magui, tema `wired/`, instalador. Ver [`hud/README.md`](hud/README.md) |
-| `deploy/` | `docker-compose.yml` (Postgres + pgvector) e units `systemd/` |
+| `deploy/` | `docker-compose.yml` (Postgres + pgvector), units `systemd/` e `ayanami/` (compose, perfil do node 2, vigia, scripts do host) |
 | `tools/` | `perf.py` (medição de desempenho) e `wakeword/` (gravar, treinar e avaliar a "Condessa") |
 | `spikes/` | Scripts dos spikes S1–S3 |
 | `tests/` | Testes (`uv run pytest -q`) |
@@ -98,6 +129,8 @@ Se mover o repositório, rode `hud/install.sh` de novo: as units guardam o camin
 | [`specs/magi-assistant/requirements.md`](specs/magi-assistant/requirements.md) | Requisitos em formato EARS, ligados aos RF do PRD |
 | [`specs/magi-assistant/design.md`](specs/magi-assistant/design.md) | Design técnico: processos, protocolos, dados, algoritmos, erros, testes |
 | [`specs/magi-assistant/tasks.md`](specs/magi-assistant/tasks.md) | Tarefas por fase com critério de pronto |
+| [`docs/ayanami/runbook.md`](docs/ayanami/runbook.md) | Runbook da Ayanami no node 2: provisionar, deploy, perfil compartilhado, rollback, restore, alertas |
+| [`specs/ayanami-central/`](specs/ayanami-central/) | SDD da Ayanami central, da casa e do celular |
 | [`docs/spikes/`](docs/spikes/) | S1 áudio, S2 atalho, S3 modelos e custos, S4 wake word "Condessa" |
 | [`docs/perf/fase1.md`](docs/perf/fase1.md) | Medições de CPU, RAM e latência |
 | [`docs/design/MAGI-HANDOFF.md`](docs/design/MAGI-HANDOFF.md) | Design da interface "wired" do HUD |

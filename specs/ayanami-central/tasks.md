@@ -1553,3 +1553,9 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   globalmente (navega para `rotaDe(c)` fora da tela) e chama `reassinarSeMudou` na subida sem esperar;
   `sw.js` não cacheia `/v1/feed?antes=` (VERSAO 3); `estilo.css` com as classes da Conversa/TV e
   d-pad 3×3. Restam: aparência real no P1.S4; P2.2 itens 3–5; P1.4 item 4 (`VERSAO_APP` solta).
+- **F.2 (parcial, antes da F.1):** README (seção Ayanami/casa/celular), `docs/GUIA.md` §15 (casa,
+  PWA, pareamento, push, domínio, node 2 compartilhado, vigia) e `docs/PROXIMOS-PASSOS.md` §13–§15
+  descrevem o `main` de 2026-10-21; o que depende do ao vivo está marcado "a confirmar no F.1".
+  Falta, depois da F.1: trocar esses trechos pelos números/comportamento medidos, o nome real
+  (`ayanami.dekasis.com.br` × `.ts.net`, certificado), o "Condessa, pareia o celular" quando a Y6.6b
+  entrar, e marcar a F.2 `[x]`. Runbook não foi tocado.

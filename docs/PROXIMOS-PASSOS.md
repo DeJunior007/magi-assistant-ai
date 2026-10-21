@@ -178,7 +178,7 @@ Próximos passos, do mais rápido ao mais trabalhoso:
 ## 13. Ideias para desenvolver (Pedro, 2026-10-09)
 
 Cada uma virou SDD (decisões em [`specs/DECISOES-2026-10-10.md`](../specs/DECISOES-2026-10-10.md)).
-Estado em 2026-10-12:
+Estado em 2026-10-12 (Ayanami: 2026-10-21):
 
 | Ideia | Estado | O que entrou / o que falta |
 | --- | --- | --- |
@@ -187,7 +187,25 @@ Estado em 2026-10-12:
 | **Overlay só da Condessa** | **feito (2026-10-11/12)** — `specs/condessa-overlay/` | Janela própria (`hud/condessa_overlay.py`), retrato sem fundo, gestos, autostart e regra do KWin; esconde com o HUD e foge do jogo. Falta a validação do Pedro (O3.1/O3.2). |
 | **FIFA 22: reagir a lances** | SDD pronto, não começado — `specs/fifa-lances/` | 12 tarefas (OCR do placar primeiro; narrador só com o "vai" do Pedro). |
 | **Retrato com ângulos de verdade** | SDD pronto, não começado — `specs/condessa-angulos/` | 9 tarefas; o código (A0–A2) anda sem o Pedro, a arte (A3.1) é dele. |
-| **Ayanami central + casa + celular** (nova) | SDD pronto, não começado — `specs/ayanami-central/` | Ayanami como API central no node 2 (fila, notícias, backup, MCP, modo nuvem), `magi-casa` para as TVs (Samsung, Roku, Android TV) e PWA no Android. 54 tarefas em 10 ondas. Trava: o Pedro confirmar o node 2 e dar acesso SSH, o Tailscale (PC, node 2, celular) e as decisões D1–D15 (seção 10). As ondas 1–3 andam sem ele. |
+| **Ayanami central + casa + celular** | **código no `main` (2026-10-21), não está no ar** — `specs/ayanami-central/` | 48 tarefas feitas: API, fila e workers, notícias para o PC, backup (restic), MCP, modo nuvem com reconciliação, `magi-casa` (Samsung, Roku, Android TV), intents `tv.*`, PWA com push, vigia (inclui servidor e Minecraft), perfil do node 2 compartilhado. Rodando agora por agentes: Y1.3c (rota/tool do `servidor.json`), Y6.5b, Y6.6b ("pareia o celular" pela voz), P2.3. Esperam o Pedro: ver abaixo. |
+
+**Ayanami: o que espera o Pedro** (em ordem; nada disso roda por agente):
+
+| Tarefa | O que é |
+| --- | --- |
+| **Y1.5** | Provisionar o node 2: usuário, `ufw`, Tailscale (`deploy/ayanami/host/`), ACL no painel; limpar os restos do MultiVideos só lá. Runbook §1. |
+| **Y1.6** | Primeiro deploy (`.env` com os segredos, `COMPOSE_FILE` com o perfil do node 2, `deploy.sh`), tokens do PC e do celular. Runbook §2. |
+| **Y1.4 (job de deploy)** | Testes e imagens no ghcr já prontos; falta o job `portao`/`deploy` no `.github/workflows/ayanami.yml` (gravação bloqueada pela permissão do modo automático) e os segredos `AYANAMI_HOST/USER/SSH_KEY` no GitHub. Detalhes nas *Sobras* do `tasks.md`. |
+| **Y0.8** | Spike S1 (STT/TTS/embeddings) medido no próprio node 2. |
+| **Y4.3** | Backup de verdade: bucket B2 restrito, senha do restic no cofre, primeiro snapshot e restore de teste. |
+| **C1.S2** | Spike S2 com as TVs reais na sala (pareamento, ligar pela rede, Roku "Acesso à rede", Samsung "Ligar com celular"). |
+| **P1.S4** | Spike S4 do PWA no Android dele: `tailscale serve`, instalação WebAPK, voz, autoplay, push com a tela bloqueada. |
+| **F.1** | Validação ponta a ponta e uma semana de uso (8 critérios de sucesso). Depois dela, a F.2 revisa a documentação (hoje o GUIA §15 marca o que é "a confirmar no F.1"). |
+| **Domínio** | Apontar `ayanami.dekasis.com.br` para o endereço da Ayanami no tailnet (DNS é do Pedro) e decidir o certificado (o do `tailscale serve` é do nome `.ts.net`). |
+
+Fica para depois da F.1 (decisões do requirements): **Pi** como casa fora do PC (D10b; o
+`[casa] endereco` já aceita outro host), **TWA** empacotado pelo Bubblewrap (D4b; hoje é WebAPK pelo
+Chrome) e **ADB** pela rede nas Android TV (o driver hoje usa só o Android TV Remote v2 com pareamento por código).
 
 Primeira leitura de viabilidade (2026-10-09, mantida como histórico):
 
@@ -219,14 +237,15 @@ de limpeza por grupo, cada uma com testes.
 | Frases soltas do audiolivro | Sem leitura, "chega" vira pergunta de `book.stop` e "lê mais rápido" vira `book.read` ("não achei esse livro"); legenda de call sem en-gb. *(A2.2, A2.3)* |
 | Gestos do overlay diferentes do HUD | `Gestos` usa `LONG_S = 0,6` / `DRAG_PX = 18`; o HUD usa `0,8` / `40`. Igualar (o comentário "copiados" não bate). *(O1.1)* |
 | Overlay sem descobrir o monitor do jogo | `tela_jogo` = monitor principal (descobrir exigiria D-Bus do KWin); `reacoes_relatorio.py` pode não aceitar caminho do `reacoes-overlay.jsonl`. *(O0.1, O3.2)* |
-| `magi-elo parear` sem script | O design da Ayanami fala em `magi-elo parear`, mas a Y6.6 só prevê `uv run python -m magi.elo.parear` (sem script no `pyproject`). Alinhar o design/GUIA ou criar o script quando a Y6.6 entrar. *(Y6.6, design §12)* |
+| `magi-elo parear` sem script | O design fala em `magi-elo parear`; o que existe é `uv run python -m magi.elo.parear` (sem script no `pyproject`), e a Y6.6b põe o "Condessa, pareia o celular". O GUIA §15 já documenta o módulo; criar o script ou alinhar o design. *(Y6.6, design §12)* |
+| Sobras da Ayanami | P2.2 itens 3–5 (badge monocromático, `pushsubscriptionchange`, push de `confirma` sem `?d=&expira=`), P1.4 item 4 (`VERSAO_APP` solta), Y6.5 (`Reconciliacao.fechar()` na parada) — nas *Sobras* do `specs/ayanami-central/tasks.md`. |
 
 ## 15. Ordem sugerida
 
 1. **Pedro valida o que está pronto** e reabre o HUD (seção 9): overlay, audiolivro, espera viva,
    learning imersivo e o placar da vida; decide o que está na seção 10.
-2. **Rodada de limpeza** das sobras (seção 14), por agentes, sem o Pedro.
-3. **Ayanami ondas 1–3** (sem o Pedro: contratos, esqueleto, spikes locais, drivers das TVs com
-   dublês) enquanto ele confirma o node 2 (SSH) e o Tailscale.
+2. **Ayanami no ar** (seção 13, só o Pedro): Y1.5 → Y1.6 (+ job de deploy da Y1.4) → Y4.3 e Y0.8;
+   com ela no ar, C1.S2 (TVs) e P1.S4 (celular); por fim a F.1 e a revisão da documentação (F.2).
+3. **Rodada de limpeza** das sobras (seção 14), por agentes, sem o Pedro.
 4. Depois, **`condessa-angulos`** (o código; a arte é do Pedro) e, com o "ok" dele,
    **`condessa-engine`** e **FIFA** (`fifa-lances`).

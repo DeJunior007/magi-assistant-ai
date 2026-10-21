@@ -19,6 +19,7 @@ Guia de uso direto ao ponto. Instalação no [`README.md`](../README.md); o que 
 12. [Condessa (wake word)](#12-condessa-wake-word)
 13. [Problemas comuns](#13-problemas-comuns)
 14. [Custos e desempenho](#14-custos-e-desempenho)
+15. [Casa, Ayanami e celular](#15-casa-ayanami-e-celular)
 
 ---
 
@@ -289,6 +290,8 @@ Hoje: 0 falso/h nas 1,6 h de teste, mas 10 de 11 acertos (perde com música alta
 | Erro de chave / "não peguei" | `uv run magi-keys list` mostra se as chaves do config estão no keyring. |
 | Banco fora | `docker ps` deve mostrar `magi-pg`; sobe com `docker compose -f deploy/docker-compose.yml up -d`. Sem banco, memória, notícias, gosto musical e registro de gasto não funcionam; as correções valem só até reiniciar. |
 | Gasto estourou | Card no HUD; "aumenta o teto pra N dólares" ou espera virar o mês. |
+| "A casa está fora do ar." | A `magi-casa` não está rodando ou falta o `~/.config/magi/casa.token`: `systemctl --user status magi-casa` (a unit é copiada pelo instalador, mas não habilitada). Veja a seção 15. |
+| Celular: "Sem conexão com a Ayanami — ligue o Tailscale" | O app do celular só fala com a Ayanami pelo Tailscale: ligue o Tailscale no celular e tente de novo. |
 
 ## 14. Custos e desempenho
 
@@ -314,3 +317,96 @@ Hoje: 0 falso/h nas 1,6 h de teste, mas 10 de 11 acertos (perde com música alta
 | Pergunta ao agente, fim da fala → voz | ≤ 3 s p90 | 3,39 s (fora por pouco) |
 | Falsos disparos da Condessa | ≤ 1 por hora | 0/h nas 1,6 h de teste (falta 1 h de jogo real) |
 | HUD wired (CPU) | 10% painel / 3% espera | ~1,5% / ~0,3% |
+
+## 15. Casa, Ayanami e celular
+
+SDD em [`specs/ayanami-central/`](../specs/ayanami-central/). O código está no `main`, mas a
+Ayanami **ainda não está no ar** (falta o Pedro provisionar o node 2 e fazer o primeiro deploy) e a
+validação ao vivo (F.1) não foi feita: tempos, telas e comportamento real das TVs e do celular
+estão **a confirmar no F.1**.
+
+### O que é cada parte
+
+| Parte | Onde roda | Para quê |
+| --- | --- | --- |
+| **Ayanami** | node 2 (VPS), em Docker, só no Tailscale | API central: notícias, backup, fila de jobs, MCP, modo nuvem (responde quando o PC está desligado e depois passa a conversa para a memória do PC), Web Push, e serve o PWA em `/app/` |
+| **Casa** (`magi-casa`) | PC (ou um Pi, depois) | Controla as TVs pela rede de casa. A Condessa usa pelas intents `tv.*` |
+| **Celular** (PWA) | Android, instalado pelo Chrome | Conversa por texto e voz, controle das TVs, confirmações e notificações |
+
+### Casa: parear uma TV
+
+```bash
+uv run magi-casa descobrir                        # lista as TVs achadas (SSDP + mDNS)
+uv run magi-casa nomear 1 sala "TV da sala"       # linha, chave ou IP do descobrir → casa.toml
+uv run magi-casa nomear 2 quarto "TV do quarto" --apelido quarto --driver roku
+uv run magi-casa parear sala                      # Samsung: "Permitir" na TV (60 s); Android TV: código de 6 caracteres; Roku: nada
+uv run magi-casa testar sala power_off            # ações: power_on, power_off, volume, mute, app, input, key, text, state
+uv run magi-casa testar sala app app=netflix
+uv run magi-casa estado
+systemctl --user enable --now magi-casa           # sobe a API local (magi-casa servir)
+```
+
+- O `casa.toml` fica em `~/.config/magi/`; tokens e certificados das TVs em
+  `~/.local/share/magi/casa/` (`0700`). `magi-casa esquecer <tv>` apaga um pareamento.
+- No `config.toml`, a seção `[casa]` é opcional (padrão: ligada, `127.0.0.1:10760`).
+- Pela voz: "Condessa, liga a TV", "desliga a TV da sala", "abre a Netflix na TV". Toda frase de
+  TV precisa ter "TV"/"televisão", o nome da TV ou "HDMI"; "aumenta o volume" sozinho continua
+  sendo o volume do PC.
+- **Samsung:** para ligar a TV pela rede, ative **"Ligar com celular"** (Power On with Mobile) nas
+  configurações da TV. Sem isso ela só desliga e a Condessa avisa que não conseguiu ligar.
+- **Roku:** em Configurações → Sistema → Configurações avançadas → Controle por apps móveis, deixe
+  **"Acesso à rede"** em *Ativado*. Em *Limitado* (Roku OS 14.1.4+) a TV recusa os comandos.
+- Comportamento com as TVs reais (Spike S2): **a confirmar no F.1**.
+
+### Celular: instalar o PWA e parear
+
+1. Tailscale ligado no celular (a Ayanami só existe dentro do tailnet; nada fica exposto na
+   internet).
+2. Peça o código de pareamento no PC:
+   - pela voz: **"Condessa, pareia o celular"** — *quando a tarefa Y6.6b entrar* (mostra o código
+     no HUD);
+   - hoje: `uv run python -m magi.elo.parear --nome celular-pedro` imprime o código de 6 dígitos
+     (vale 5 min, uso único), a URL `…/app/#/parear?c=<código>` e, se a lib `qrcode` estiver
+     instalada, o QR em texto.
+3. Abra a URL no Chrome do celular (ou leia o QR) e confirme. O código nunca vai para log.
+4. Chrome → menu → **"Instalar app"** (vira WebAPK, com ícone próprio). O app empacotado (TWA) fica
+   para depois.
+5. **Push:** em Ajustes, ligue o interruptor de notificações; o Chrome pede a permissão nesse toque.
+   Notificação com a tela bloqueada e instalação: **a confirmar no F.1** (Spike S4).
+
+Se o app mostrar "sem conexão com a Ayanami — ligue o Tailscale", é o Tailscale do celular
+desligado (ou a Ayanami fora do ar).
+
+### PC ligado à Ayanami
+
+No `config.toml`, a seção `[ayanami]` (comentada no `config.example.toml`) aponta para a URL da
+Ayanami no tailnet. O token do PC fica no keyring (serviço `magi`, nome `ayanami_pc`) ou em
+`~/.config/magi/ayanami.token` (`0600`), nunca no config. Com ela, `magi-news-sync.timer` puxa as
+notícias a cada 15 min (a coleta local só roda se a nuvem passar 6 h sem entregar) e
+`magi-backup.timer` manda o backup do PC. Sem a seção o PC funciona sozinho, como antes.
+
+### Domínio
+
+O nome previsto é `ayanami.dekasis.com.br`, apontando para o endereço da Ayanami **dentro do
+Tailscale** (acesso continua só privado; o DNS é do Pedro). Hoje o código e os scripts usam o nome
+`ayanami.<tailnet>.ts.net` do `tailscale serve`. O certificado do `tailscale serve` é do nome
+`.ts.net`; usar o nome próprio pede certificado próprio. **A decidir pelo Pedro / a confirmar no
+F.1.**
+
+### Node 2 compartilhado com o Minecraft
+
+O node 2 também roda o servidor de Minecraft (núcleos 0-5, 13 GiB). A Ayanami fica nos **núcleos
+6-7** com ~6,4 GiB no total, pelo override `deploy/ayanami/compose.node2.yml`, ligado com
+`COMPOSE_FILE=compose.yml:compose.node2.yml` no `.env` do node 2. Limites por serviço e comandos:
+[runbook §3](ayanami/runbook.md#perfil-node-2-compartilhado-y10b).
+
+### Vigia (alertas do node 2)
+
+`deploy/ayanami/vigia/vigia.py` roda no host do node 2 a cada minuto (`ayanami-vigia.timer`) e manda
+alerta no Telegram (1 mensagem por causa a cada 6 h) quando: a `/saude` falha 3 vezes, o disco passa
+de 85%, um worker fica sem batimento por 5 min, o backup do PC ou da Ayanami passa de 36 h, um
+backup falha ou o restore de teste fica vermelho; e, do servidor: CPU do Minecraft > 95%, RAM livre
+< 1 GiB, swap > 6 GiB, Minecraft parado/reiniciado ou TPS < 15. Tudo vai também para
+`/opt/ayanami/dados/servidor.json` (para a Condessa responder "como está o servidor?" — a rota/tool
+que lê esse arquivo está em andamento, Y1.3c). O que fazer em cada alerta:
+[runbook §8](ayanami/runbook.md#8-alertas-do-vigia-telegram).
