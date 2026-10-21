@@ -305,3 +305,21 @@ async def test_job_sem_tarefa_passa_direto_pelo_middleware(db, rel):
     jid = await app.configure_task("teste.periodica").defer_async(timestamp=0)
     await _rodar(app, Deps(db=db, cfg=CFG, relogio=rel), "agendada")
     assert (await app.job_manager.get_job_status_async(jid)).value == "succeeded"
+
+
+@pytest.mark.pg
+async def test_job_que_segue_nao_vira_ok(db, rel):
+    # monitor.passo que não bateu já devolveu a tarefa à fila: o middleware não pode marcar ok
+    app = procrastinate.App(connector=testing.InMemoryConnector())
+
+    async def reagenda(deps, contexto, *, tarefa_id):
+        tf.marcar(deps.db, tarefa_id, "na_fila", deps.relogio.agora())
+        return {"segue": True}
+
+    fila.registrar(app, fila.Def("teste.segue", "rapida", 0, 1), reagenda)
+    with db.connection() as conn:
+        tid = conn.execute("INSERT INTO tarefas (tipo, titulo, avisar) VALUES ('monitor', 'm', false)"
+                           " RETURNING id").fetchone()[0]
+    await app.configure_task("teste.segue").defer_async(tarefa_id=str(tid))
+    await _rodar(app, Deps(db=db, cfg=CFG, relogio=rel))
+    assert tf.obter_tarefa(db, tid).estado == "na_fila"

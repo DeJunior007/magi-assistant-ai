@@ -421,6 +421,8 @@ def on_job_status(deps: Any) -> Callable[[ProximoJob, Any, Any], Awaitable[Any]]
             else:
                 await asyncio.to_thread(_falhar, db, tid, msg, agora())
             raise
+        if isinstance(r, Mapping) and r.get("segue"):  # monitor que não bateu: o job já reagendou
+            return r
         await asyncio.to_thread(marcar, db, tid, "ok", agora(), resultado=_resultado(r), erro=None)
         return r
 
