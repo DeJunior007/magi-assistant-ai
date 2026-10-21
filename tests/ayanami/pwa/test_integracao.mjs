@@ -43,7 +43,7 @@ function ambiente(hash = "#/conversa") {
   return { janela, documento, montadas, carregarTela };
 }
 
-function montarApp({ hash, prefs, token = "ayn_falso", reassinar = async () => "nada" } = {}) {
+function montarApp({ hash, prefs, token = "ayn_falso", reassinar = async () => "nada", avisos = [] } = {}) {
   const amb = ambiente(hash);
   const inicial = token ? { [CHAVE_TOKEN]: token } : {};
   if (prefs) inicial[CHAVE_PREFS] = prefs;
@@ -57,7 +57,8 @@ function montarApp({ hash, prefs, token = "ayn_falso", reassinar = async () => "
         : new Response(new ReadableStream({ start() {} }), { headers: { "Content-Type": "text/event-stream" } }),
   });
   const estado = criarEstado();
-  const app = criarApp({ ...amb, api, armazem, estado, reassinar });
+  const agora = () => Date.parse("2026-10-21T11:59:00Z"); // relógio fixo (P2.4: expira_em decide)
+  const app = criarApp({ ...amb, api, armazem, estado, reassinar, agora, avisarSw: (m) => avisos.push(m) });
   return { amb, app, estado, armazem };
 }
 
@@ -198,4 +199,19 @@ test("estilo.css tem regra para as classes da Conversa e da TV", () => {
   ]) {
     assert.ok(css.includes(sel + " ") || css.includes(sel + ",") || css.includes(sel + "{"), sel);
   }
+});
+
+test("P2.4: confirma que fecha (outro lugar/expirada) não navega e fecha a notificação no SW", async () => {
+  const avisos = [];
+  const { amb, app } = montarApp({ hash: "#/feed", avisos });
+  await app.iniciar();
+  app.eventos.emitir("confirma", { pedido: "01HZXA", resposta: false, expira_em: "2026-10-21T12:00:00Z" }, "11");
+  app.eventos.emitir("confirma", { pedido: "01HZXB", resposta: null, expira_em: "2026-10-21T11:58:00Z" }, "12");
+  await tick();
+  assert.equal(amb.janela.location.hash, "#/feed");
+  assert.deepEqual(avisos, [
+    { tipo: "fechar-notificacao", tag: "confirma-01HZXA" },
+    { tipo: "fechar-notificacao", tag: "confirma-01HZXB" },
+  ]);
+  app.parar();
 });

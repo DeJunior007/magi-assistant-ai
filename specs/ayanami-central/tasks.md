@@ -1023,6 +1023,18 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: `node --test 'tests/ayanami/pwa/*.mjs'` e `tests/ayanami/test_push.py` verdes; CA-Y57/CA-Y59 continuam verdes.
   - Paralelo: Y1.3c, Y6.5b, Y6.6b, F.2
 
+- [x] **P2.4 O PWA fecha o card de confirmação** — sobra da Y2.2b: o SSE `confirma` também fecha
+  (`resposta` preenchida = respondida em outro lugar; `resposta: null` com `expira_em` vencido =
+  expirou). `telas/confirma.js` ganha `fechamentoDe(c, agoraMs)`/`tagDe(pedido)`: o card aberto fecha
+  com "respondida em outro lugar"/"expirou" (o eco do próprio POST em voo não conta), fechamento sem
+  card não desenha nada; o assinante global do `app.js` não navega para confirmação fechada e manda
+  ao SW `{tipo: "fechar-notificacao", tag: "confirma-<ulid>"}` (tag de `push._url_e_tag`); o `sw.js`
+  fecha pela `registration.getNotifications({tag})`. Shell v5.
+  - Lê: `ayanami/push.py` (`_url_e_tag`), `ayanami/confirmacoes.py` (fechamento)
+  - Escreve: `ayanami/pwa/telas/confirma.js`, `ayanami/pwa/app.js`, `ayanami/pwa/sw.js`, `ayanami/pwa/versao.js`, `tests/ayanami/pwa/test_telas.mjs`, `tests/ayanami/pwa/test_integracao.mjs`, `tests/ayanami/pwa/test_push_sw.mjs`
+  - Depende de: Y2.2b, P2.3
+  - Pronto: `node --test 'tests/ayanami/pwa/*.mjs'` verde.
+
 ## Fase F — Fechamento
 
 - [ ] **F.1 Validação ponta a ponta (precisa do Pedro)** — com tudo no `main` e no ar: critério 1

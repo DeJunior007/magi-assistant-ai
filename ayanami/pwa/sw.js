@@ -11,9 +11,11 @@
  * - P2.3: badge monocromático `icones/badge-96.png`; push de `confirma` abre
  *   `#/confirma/<ulid>?d=&expira=` (o servidor já manda na `url`; aqui completa se faltar);
  *   `pushsubscriptionchange` reassina sozinho com o token do IndexedDB (`condessa`/`kv`).
+ * - P2.4: `message` `{tipo: "fechar-notificacao", tag}` (do app, no SSE `confirma` que fecha)
+ *   fecha a notificação dessa `tag` se ainda estiver na bandeja.
  */
 
-const VERSAO = 4; // = VERSAO_SHELL do versao.js
+const VERSAO = 5; // = VERSAO_SHELL do versao.js
 const CACHE_SHELL = "condessa-shell-v" + VERSAO;
 const CACHE_FEED = "condessa-feed";
 const CHAVE_FEED = "/v1/feed";
@@ -184,6 +186,21 @@ self.addEventListener("notificationclick", (e) => {
       await self.clients.openWindow(alvo);
     })(),
   );
+});
+
+// ---------- fechar notificação (P2.4)
+
+/** Fecha as notificações da bandeja com essa `tag` (confirmação respondida em outro lugar/expirada). */
+async function fecharNotificacoes(tag) {
+  if (typeof tag !== "string" || !tag) return 0;
+  const lista = (await self.registration.getNotifications({ tag })) || [];
+  for (const n of lista) n.close();
+  return lista.length;
+}
+
+self.addEventListener("message", (e) => {
+  const d = e.data;
+  if (d?.tipo === "fechar-notificacao") e.waitUntil(fecharNotificacoes(d.tag));
 });
 
 // ---------- pushsubscriptionchange (P2.3, spec §15 *Assinatura*)

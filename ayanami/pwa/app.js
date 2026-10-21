@@ -16,12 +16,15 @@
  * Integração (P1.x): na subida as `preferencias` do armazém viram `estado.prefs` (e cada gravação
  * delas pelo `ctx.armazem` atualiza o estado); um SSE `confirma` fora da tela Confirmação leva a
  * `rotaDe(c)`; `reassinarSeMudou` (Ajustes, P2.2) roda na subida, sem pedir permissão.
+ *
+ * P2.4: `confirma` que fecha (`fechamentoDe`: respondida em outro lugar ou expirada) não navega;
+ * pede ao SW (`postMessage({tipo: "fechar-notificacao", tag})`) que tire a notificação da bandeja.
  */
 
 import { armazemIdb, armazemMemoria, criarApi } from "./api.js";
 import { estado as estadoPadrao } from "./estado.js";
 import { CHAVE_PREFS, normalizarPrefs, reassinarSeMudou } from "./telas/ajustes.js";
-import { rotaDe } from "./telas/confirma.js";
+import { fechamentoDe, rotaDe, tagDe } from "./telas/confirma.js";
 
 export const TELAS = Object.freeze(["conversa", "tv", "feed", "tarefas", "confirma", "ajustes", "parear"]);
 export const FAIXA_SEM_AYANAMI = "sem conexão com a Ayanami — ligue o Tailscale";
@@ -62,6 +65,15 @@ function criarBarramento() {
   };
 }
 
+/** Mensagem ao SW ativo (sem SW/controlador: nada). */
+function mensagemAoSw(msg) {
+  try {
+    globalThis.navigator?.serviceWorker?.controller?.postMessage(msg);
+  } catch {
+    /* sem SW: a notificação some sozinha ao tocar */
+  }
+}
+
 export function criarApp({
   janela = globalThis.window,
   documento = globalThis.document,
@@ -72,6 +84,8 @@ export function criarApp({
   push = undefined,
   carregarTela = (nome) => import(`./telas/${nome}.js`),
   intervaloMs = INTERVALO_SAUDE_MS,
+  agora = () => Date.now(),
+  avisarSw = mensagemAoSw,
 } = {}) {
   const eventos = criarBarramento();
   let sse = null;
@@ -114,8 +128,9 @@ export function criarApp({
   }
 
   eventos.on("confirma", (c) => {
-    if (!c?.pedido || c.resposta != null) return;
-    if (estado.get().rota?.tela !== "confirma") navegar(rotaDe(c));
+    if (!c?.pedido) return;
+    if (fechamentoDe(c, agora())) avisarSw({ tipo: "fechar-notificacao", tag: tagDe(c.pedido) });
+    else if (estado.get().rota?.tela !== "confirma") navegar(rotaDe(c));
   });
 
   function pararSse() {

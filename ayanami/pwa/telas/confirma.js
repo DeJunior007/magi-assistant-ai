@@ -6,10 +6,26 @@
  * `200` → feito; `410` (ou `expira_em` vencido no relógio local) → "expirou"; `409` → "já
  * respondida". As confirmações vistas pelo SSE ficam em `CONFIRMAS` (descrição para a rota).
  * Relógio injetável: `ctx.agora()` (ms) e `ctx.agendar(fn, ms)`.
+ *
+ * P2.4: o SSE `confirma` também fecha (Y2.2b): com `resposta` preenchida (respondida em outro
+ * lugar) ou com `resposta: null` e `expira_em` vencido (expirou). O card aberto fecha com o aviso
+ * (`TEXTO_OUTRO_LUGAR` / `TEXTO_EXPIROU`); fechamento de card que não está aberto não desenha nada.
  */
 
 export const CONFIRMAS = new Map();
 export const TEXTO_EXPIROU = "expirou";
+export const TEXTO_OUTRO_LUGAR = "respondida em outro lugar";
+
+/** P2.4: `confirma` que fecha → texto do aviso; `null` se ainda está aberta. `agoraMs` em ms. */
+export function fechamentoDe(c, agoraMs) {
+  if (!c) return null;
+  if (c.resposta != null) return TEXTO_OUTRO_LUGAR;
+  const expira = c.expira_em ? new Date(c.expira_em).getTime() : NaN;
+  return !Number.isNaN(expira) && expira <= agoraMs ? TEXTO_EXPIROU : null;
+}
+
+/** P2.4: a `tag` da notificação do push dessa confirmação (`ayanami/push.py`, `_url_e_tag`). */
+export const tagDe = (pedido) => `confirma-${pedido}`;
 
 function h(doc, tag, props = {}, ...filhos) {
   const e = doc.createElement(tag);
@@ -58,6 +74,7 @@ export function montar(el, ctx) {
       c.origem ? h(doc, "small", { textContent: `pedido por: ${c.origem}` }) : null,
       estadoEl, sim, nao,
     );
+    let enviando = false;
     const fechar = (texto) => {
       estadoEl.textContent = texto;
       sim.disabled = nao.disabled = true;
@@ -78,6 +95,7 @@ export function montar(el, ctx) {
     async function responder(resposta) {
       if (raiz.dataset.fim) return;
       sim.disabled = nao.disabled = true;
+      enviando = true;
       try {
         await ctx.api.post(`/v1/confirma/${encodeURIComponent(c.pedido)}`, { resposta });
         if (vivo) fechar(resposta ? "confirmado" : "recusado");
@@ -90,11 +108,14 @@ export function montar(el, ctx) {
           estadoEl.textContent = e?.status ? `falhou (HTTP ${e.status})` : "sem conexão; tente de novo";
           sim.disabled = nao.disabled = false;
         }
+      } finally {
+        enviando = false;
       }
     }
     sim.addEventListener("click", () => responder(true));
     nao.addEventListener("click", () => responder(false));
-    cards.set(c.pedido, raiz);
+    // o eco do próprio POST (SSE com `resposta`) não vira "outro lugar": o POST decide o texto
+    cards.set(c.pedido, { raiz, fecharFora: (t) => !enviando && !raiz.dataset.fim && fechar(t) });
     lista.append(raiz);
   }
 
@@ -109,7 +130,13 @@ export function montar(el, ctx) {
     });
   }
   const sair = ctx.eventos?.on?.("confirma", (c) => {
-    if (!c?.pedido || c.resposta != null) return;
+    if (!c?.pedido) return;
+    const fim = fechamentoDe(c, agora());
+    if (fim) {
+      CONFIRMAS.delete(c.pedido);
+      if (vivo) cards.get(c.pedido)?.fecharFora(fim);
+      return;
+    }
     CONFIRMAS.set(c.pedido, c);
     if (vivo) card(c);
   });

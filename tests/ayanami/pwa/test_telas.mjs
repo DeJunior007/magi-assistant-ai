@@ -467,10 +467,11 @@ test("confirma: SSE confirma desenha o card e expira pelo relógio sem POST", as
   const r = relogio(AGORA);
   const t = montarTela(confirma, { extra: r, rotas: {} });
   t.eventos.emitir("confirma", { pedido: "01JSSE", descricao: "abrir a Netflix", origem: "mcp", expira_em: new Date(AGORA + 120000).toISOString() });
-  t.eventos.emitir("confirma", { pedido: "01JVELHO", descricao: "x", expira_em: new Date(AGORA - 1).toISOString() });
+  // P2.4: `expira_em` vencido é o fechamento por expiração; sem card aberto, nada se desenha
+  t.eventos.emitir("confirma", { pedido: "01JVELHO", descricao: "x", resposta: null, expira_em: new Date(AGORA - 1).toISOString() });
   const card = achar(t.el, (e) => e.dataset?.pedido === "01JSSE");
   assert.ok(card);
-  assert.equal(campo(achar(t.el, (e) => e.dataset?.pedido === "01JVELHO"), "estado").textContent, "expirou");
+  assert.ok(!achar(t.el, (e) => e.dataset?.pedido === "01JVELHO"));
   assert.equal(campo(card, "estado").textContent, "");
   r.andar(120000);
   assert.equal(campo(card, "estado").textContent, "expirou");
@@ -483,4 +484,48 @@ test("confirma: SSE confirma desenha o card e expira pelo relógio sem POST", as
   assert.match(t2.el.textContent, /Abrir a Netflix\?/);
   t.desmontar();
   t2.desmontar();
+});
+
+test("P2.4: SSE confirma de fechamento fecha o card aberto (outro lugar / expirou)", async () => {
+  const r = relogio(AGORA);
+  const t = montarTela(confirma, { params: { id: "01JROTA", d: "abrir a Netflix" }, extra: r, rotas: {} });
+  const exp = new Date(AGORA + 120000).toISOString();
+  t.eventos.emitir("confirma", { pedido: "01JVIVO", descricao: "x", resposta: null, expira_em: exp });
+  const rota = achar(t.el, (e) => e.dataset?.pedido === "01JROTA");
+  const vivo = achar(t.el, (e) => e.dataset?.pedido === "01JVIVO");
+  t.eventos.emitir("confirma", { pedido: "01JROTA", descricao: "abrir a Netflix", resposta: true, expira_em: exp });
+  assert.equal(campo(rota, "estado").textContent, confirma.TEXTO_OUTRO_LUGAR);
+  assert.equal(acao(rota, "sim").disabled, true);
+  r.andar(120000 + 1);
+  t.eventos.emitir("confirma", { pedido: "01JVIVO", descricao: "x", resposta: null, expira_em: exp });
+  assert.equal(campo(vivo, "estado").textContent, confirma.TEXTO_EXPIROU);
+  assert.equal(confirma.CONFIRMAS.has("01JVIVO"), false);
+  assert.equal(t.chamadas.length, 0);
+  t.desmontar();
+});
+
+test("P2.4: o eco do próprio POST não vira 'respondida em outro lugar'", async () => {
+  let soltar;
+  const t = montarTela(confirma, {
+    params: { id: "01JECO" },
+    rotas: { "POST /v1/confirma/01JECO": () => new Promise((ok) => (soltar = () => ok(json({ ok: true })))) },
+  });
+  const card = achar(t.el, (e) => e.dataset?.pedido === "01JECO");
+  acao(card, "sim").disparar("click");
+  await tique();
+  t.eventos.emitir("confirma", { pedido: "01JECO", resposta: true });
+  assert.equal(campo(card, "estado").textContent, "");
+  soltar();
+  await tique();
+  await tique();
+  assert.equal(campo(card, "estado").textContent, "confirmado");
+  t.desmontar();
+});
+
+test("P2.4: fechamentoDe e tagDe", () => {
+  assert.equal(confirma.fechamentoDe({ pedido: "a", resposta: false }, 0), confirma.TEXTO_OUTRO_LUGAR);
+  assert.equal(confirma.fechamentoDe({ pedido: "a", resposta: null, expira_em: "2026-10-21T12:00:00Z" }, Date.parse("2026-10-21T12:00:00Z")), confirma.TEXTO_EXPIROU);
+  assert.equal(confirma.fechamentoDe({ pedido: "a", resposta: null, expira_em: "2026-10-21T12:00:00Z" }, Date.parse("2026-10-21T11:59:59Z")), null);
+  assert.equal(confirma.fechamentoDe({ pedido: "a" }, 0), null);
+  assert.equal(confirma.tagDe("01JX"), "confirma-01JX");
 });

@@ -15,7 +15,7 @@ const CODIGO = readFileSync(join(PWA, "sw.js"), "utf8");
 
 // ---------- service worker
 
-function carregarSw({ janelas = [], idb = idbFalso({}), rede = async () => new Response("{}"), pushManager = null } = {}) {
+function carregarSw({ janelas = [], idb = idbFalso({}), rede = async () => new Response("{}"), pushManager = null, bandeja = [] } = {}) {
   const ouvintes = {};
   const mostradas = [];
   const abertas = [];
@@ -23,7 +23,11 @@ function carregarSw({ janelas = [], idb = idbFalso({}), rede = async () => new R
     location: new URL(ORIGEM + "/app/sw.js"),
     addEventListener: (t, fn) => (ouvintes[t] = fn),
     skipWaiting: async () => {},
-    registration: { showNotification: async (titulo, opcoes) => mostradas.push({ titulo, opcoes }), pushManager },
+    registration: {
+      showNotification: async (titulo, opcoes) => mostradas.push({ titulo, opcoes }),
+      pushManager,
+      getNotifications: async ({ tag } = {}) => bandeja.filter((n) => !tag || n.tag === tag),
+    },
     clients: {
       claim: async () => {},
       matchAll: async () => janelas,
@@ -397,4 +401,15 @@ test("P2.3 sw: pushsubscriptionchange sem token (desconectado) não chama a rede
   const sw = carregarSw({ idb: idbFalso({}), rede, pushManager });
   await sw.despachar("pushsubscriptionchange", { oldSubscription: assinatura("https://push.exemplo/velha"), newSubscription: null });
   assert.deepEqual(pedidos, []);
+});
+
+test("P2.4: message fechar-notificacao fecha só a notificação da tag na bandeja", async () => {
+  const nova = (tag) => ({ tag, fechada: false, close() { this.fechada = true; } });
+  const bandeja = [nova("confirma-01JA"), nova("confirma-01JB"), nova("tarefa-01JA")];
+  const sw = carregarSw({ bandeja });
+  await sw.despachar("message", { data: { tipo: "fechar-notificacao", tag: "confirma-01JA" } });
+  assert.deepEqual(bandeja.map((n) => n.fechada), [true, false, false]);
+  await sw.despachar("message", { data: { tipo: "outra", tag: "confirma-01JB" } }).catch(() => {});
+  await sw.despachar("message", { data: { tipo: "fechar-notificacao", tag: "" } });
+  assert.deepEqual(bandeja.map((n) => n.fechada), [true, false, false]);
 });
