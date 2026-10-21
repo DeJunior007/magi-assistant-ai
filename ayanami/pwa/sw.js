@@ -5,9 +5,11 @@
  *   que muda algum arquivo, e o `activate` apaga as versões antigas;
  * - `/v1/feed`: network-first com cópia em `condessa-feed` (só o último, 1 entrada) e recaída nela;
  * - resto de `/v1/*`, `/saude`, `/ws`, `/mcp`: network-only, nunca cacheado (token, casa, tarefas).
+ * - `push` / `notificationclick` (P2.2, spec §15): notificação **sem** botões de ação, nem no
+ *   `confirma` (DS17: o card abre no PWA); o clique foca a janela do PWA e leva à `url`, ou abre.
  */
 
-const VERSAO = 1;
+const VERSAO = 2;
 const CACHE_SHELL = "condessa-shell-v" + VERSAO;
 const CACHE_FEED = "condessa-feed";
 const CHAVE_FEED = "/v1/feed";
@@ -98,4 +100,69 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(shellPrimeiroCache(req));
   }
   // resto (/v1/*, /saude, /ws, /mcp): network-only, sem respondWith.
+});
+
+// ---------- Web Push (P2.2, spec §15)
+
+const URL_PADRAO = "./#/conversa";
+const ICONE = "icones/192.png";
+
+/** `url` do payload só se for do mesmo escopo do PWA; senão a Conversa. Devolve absoluta. */
+function urlSegura(u) {
+  const escopo = new URL("./", self.location.href);
+  try {
+    const alvo = new URL(u || URL_PADRAO, escopo);
+    if (alvo.origin === escopo.origin && alvo.pathname.startsWith(escopo.pathname)) return alvo.href;
+  } catch {
+    /* url inválida: cai no padrão */
+  }
+  return new URL(URL_PADRAO, escopo).href;
+}
+
+function lerPayload(dados) {
+  if (!dados) return {};
+  try {
+    const d = dados.json();
+    return d && typeof d === "object" ? d : {};
+  } catch {
+    return {};
+  }
+}
+
+self.addEventListener("push", (e) => {
+  const d = lerPayload(e.data);
+  const icone = new URL(ICONE, self.location.href).href;
+  const opcoes = {
+    body: String(d.resumo ?? ""),
+    data: { url: urlSegura(d.url), tipo: d.tipo ?? null },
+    icon: icone,
+    badge: icone,
+    // DS17: nenhum `actions` (nem "Confirmar" no `confirma`): tocar só abre o card no PWA.
+  };
+  if (d.tag) opcoes.tag = String(d.tag);
+  e.waitUntil(self.registration.showNotification(String(d.titulo || "Condessa"), opcoes));
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const alvo = urlSegura(e.notification.data?.url);
+  const escopo = new URL("./", self.location.href).href;
+  e.waitUntil(
+    (async () => {
+      const janelas = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const minha = janelas.find((c) => c.url.startsWith(escopo));
+      if (minha) {
+        const focada = (await minha.focus()) || minha;
+        if (focada.url !== alvo && focada.navigate) {
+          try {
+            await focada.navigate(alvo);
+          } catch {
+            /* janela não controlada: fica só focada */
+          }
+        }
+        return;
+      }
+      await self.clients.openWindow(alvo);
+    })(),
+  );
 });
