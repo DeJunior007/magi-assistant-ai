@@ -1,0 +1,95 @@
+# CI da Ayanami (Y1.4; R10.4, design §11 "Deploy").
+#
+# Em push no main que toque a Ayanami: testes (com Postgres descartável) → imagens no ghcr.io.
+# O job de deploy por SSH (deploy.sh + smoke /saude, gate por AYANAMI_HOST) fica para o Pedro
+# acrescentar (ver Sobras da Y1.4). Secret usado aqui: só o GITHUB_TOKEN do Actions (ghcr.io).
+name: ayanami
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ayanami/**"
+      - "magi/elo/**"
+      - "magi/news/**"
+      - "deploy/ayanami/**"
+      - ".github/workflows/ayanami.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ayanami-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      # Mesmo papel do `ayanami-pg-teste` local (deploy/ayanami/pg-teste.sh): porta 54340, senha
+      # falsa só de teste. Nunca a 54329 nem a base `magi` (o fixture recusa).
+      ayanami-pg-teste:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ayanami
+          POSTGRES_PASSWORD: teste
+          POSTGRES_DB: ayanami_teste
+        ports:
+          - 54340:5432
+        options: >-
+          --health-cmd "pg_isready -U ayanami -d ayanami_teste"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      AYANAMI_TEST_DSN: postgresql://ayanami:teste@127.0.0.1:54340/ayanami_teste
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Dependências de sistema (áudio, D-Bus)
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 libdbus-1-dev
+      - name: uv sync
+        run: uv sync --extra ayanami
+      - name: ruff
+        run: uv run ruff check ayanami magi/elo magi/news tests/elo tests/ayanami tests/deploy
+      - name: pytest
+        run: uv run pytest -q tests/elo tests/ayanami tests/deploy
+
+  imagem:
+    needs: testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - ml: "0"
+            sufixo: ""
+          - ml: "1"
+            sufixo: "-ml"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Nome da imagem (ghcr exige minúsculas)
+        id: nome
+        run: echo "imagem=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ayanami" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/ayanami/Dockerfile
+          build-args: |
+            AYANAMI_ML=${{ matrix.ml }}
+          push: true
+          tags: |
+            ${{ steps.nome.outputs.imagem }}:${{ github.sha }}${{ matrix.sufixo }}
+            ${{ steps.nome.outputs.imagem }}:main${{ matrix.sufixo }}
+          cache-from: type=gha,scope=ayanami${{ matrix.sufixo }}
+          cache-to: type=gha,mode=max,scope=ayanami${{ matrix.sufixo }}
