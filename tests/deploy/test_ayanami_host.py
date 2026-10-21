@@ -361,6 +361,7 @@ def test_deploy_rollback_por_tag_sem_git_e_com_ghcr(ambiente, tmp_path: Path) ->
     feitas = chamadas(log)
     assert not any(c.startswith("git") for c in feitas)
     assert "docker compose build" not in feitas
+    assert "docker compose pull" in feitas  # com ghcr baixa também os serviços com `build:`
     env = (opt / ".env").read_text()
     assert "AYANAMI_TAG=abc123" in env and "AYANAMI_TAG=novo" not in env
 

@@ -119,7 +119,7 @@ Siga na ordem. Anote aqui o que for diferente do esperado (a Y1.5 corrige este r
    - Claude Desktop: `npx mcp-remote https://ayanami.<tailnet>.ts.net/mcp/ --header "Authorization: Bearer …"`.
    - Confira com `claude mcp list`.
 8. **CI (opcional, item 7):** cadastre os secrets `AYANAMI_HOST`, `AYANAMI_USER` (`ayanami`) e
-   `AYANAMI_SSH_KEY` no GitHub. Sem eles, o job de deploy é pulado.
+   `AYANAMI_SSH_KEY` no GitHub. Sem eles, o job de deploy é pulado. Ver §3 "Deploy automático".
 
 ### 2.1 O que divergiu no primeiro deploy (2026-10-21, node 2 compartilhado)
 
@@ -168,6 +168,29 @@ imagem for local) → `docker compose --profile ops run --rm migrar` → `docker
 `curl /saude`, com até 30 tentativas a cada 2 s.
 O script nunca derruba a pilha nem apaga volume. Se a `/saude` não responder, ele sai com 1:
 veja a §6.
+
+### Deploy automático (CI, Y1.4)
+
+Todo push no `main` que toque `ayanami/**`, `magi/elo/**`, `magi/news/**`, `deploy/ayanami/**`,
+`pyproject.toml`, `uv.lock` ou o próprio `.github/workflows/ayanami.yml` roda testes → imagens
+`ghcr.io/dejunior007/ayanami:<sha>[-ml]` (pacote **público**: o node 2 baixa sem `docker login`) →
+deploy no node 2. O job `deploy` só existe quando o secret `AYANAMI_HOST` está cadastrado (job
+`portao`) e roda um por vez. O PC não é tocado.
+
+- **Secrets** (GitHub): `AYANAMI_HOST` (IP do node 2), `AYANAMI_USER` (`ayanami`),
+  `AYANAMI_SSH_KEY` (privada de um par ed25519 só da CI; a do PC fica em `~/.ssh/ayanami_ci`).
+- **No node 2:** a pública está em `~ayanami/.ssh/authorized_keys` como
+  `restrict,command="/usr/local/bin/ayanami-ci-deploy" …` — cópia root:root 0755 de
+  `deploy/ayanami/host/ci-deploy.sh`. A chave não abre shell; aceita só `deploy <sha>` (leva o
+  clone ao commit com `fetch` + `merge --ff-only` e roda `deploy.sh --tag <sha> --sem-git
+  --sem-build`) e `saude` (exige `banco == "ok"`; o `ok` geral fica false enquanto faltarem
+  segredos de terceiros). Se o `ci-deploy.sh` mudar no repo, reinstale a cópia:
+  `install -o root -g root -m 0755 /opt/ayanami/deploy/ayanami/host/ci-deploy.sh /usr/local/bin/ayanami-ci-deploy`.
+- **`.env`:** `AYANAMI_IMAGEM=ghcr.io/dejunior007/ayanami`; o `deploy.sh --tag` grava `AYANAMI_TAG`.
+  Com `AYANAMI_IMAGEM` o `deploy.sh` faz `docker compose pull` (sem `--ignore-buildable`) e nunca
+  constrói no node 2.
+- **Rollback:** §4 (`deploy.sh --tag <sha antigo> --sem-git --sem-build`) ou "Re-run" de um run
+  antigo no Actions. Para desligar o deploy automático, apague o secret `AYANAMI_HOST`.
 
 ### Perfil node 2 compartilhado (Y1.0b)
 

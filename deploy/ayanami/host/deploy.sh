@@ -59,10 +59,19 @@ fi
 
 cd "$DEPLOY"
 
+GHCR=0
+if [ -n "${AYANAMI_IMAGEM:-}" ] || grep -q '^AYANAMI_IMAGEM=.' "$ENV_ARQ"; then GHCR=1; fi
+
 log "imagens"
-docker compose pull --ignore-buildable
+if [ "$GHCR" -eq 1 ]; then
+  # Com ghcr os serviços da Ayanami (que têm `build:`) também vêm do registro: sem
+  # --ignore-buildable, senão a tag nova nunca é baixada e o `up --pull never` falha.
+  docker compose pull
+else
+  docker compose pull --ignore-buildable
+fi
 # Sem AYANAMI_IMAGEM (ghcr) a imagem é local (A1): constrói aqui.
-if [ "$BUILD" -eq 1 ] && [ -z "${AYANAMI_IMAGEM:-}" ] && ! grep -q '^AYANAMI_IMAGEM=.' "$ENV_ARQ"; then
+if [ "$BUILD" -eq 1 ] && [ "$GHCR" -eq 0 ]; then
   log "imagem local: docker compose build"
   docker compose build
 fi

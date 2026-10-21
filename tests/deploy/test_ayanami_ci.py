@@ -47,12 +47,13 @@ def test_gatilho_so_push_no_main_com_caminhos(wf: dict) -> None:
     push = on["push"]
     assert push["branches"] == ["main"]
     caminhos = set(push["paths"])
-    assert {"ayanami/**", "magi/elo/**", "magi/news/**", "deploy/ayanami/**"} <= caminhos
     assert caminhos - {".github/workflows/ayanami.yml"} == {
         "ayanami/**",
         "magi/elo/**",
         "magi/news/**",
         "deploy/ayanami/**",
+        "pyproject.toml",
+        "uv.lock",
     }
 
 
@@ -129,11 +130,32 @@ def test_if_nunca_le_secrets(wf: dict) -> None:
     assert not any("secrets" in str(cond) for cond in ifs)
 
 
-def test_deploy_se_existir_tem_gate_e_usa_deploy_sh(wf: dict) -> None:
-    deploy = wf["jobs"].get("deploy")
-    if deploy is None:
-        pytest.skip("job deploy ainda não escrito (Sobras da Y1.4)")
-    assert "if" in deploy and "secrets" not in deploy["if"]
-    scripts = "\n".join(p.get("with", {}).get("script", "") for p in deploy["steps"])
-    assert "deploy/ayanami/host/deploy.sh" in scripts
-    assert "/saude" in scripts
+def test_deploy_com_portao_e_comando_forcado(wf: dict) -> None:
+    portao = wf["jobs"]["portao"]
+    (passo,) = portao["steps"]
+    assert passo["env"] == {"AYANAMI_HOST": "${{ secrets.AYANAMI_HOST }}"}
+    assert "tem_host" in passo["run"] and "GITHUB_OUTPUT" in passo["run"]
+    assert portao["outputs"]["tem_host"] == "${{ steps.ver.outputs.tem_host }}"
+
+    deploy = wf["jobs"]["deploy"]
+    assert deploy["needs"] == ["imagem", "portao"]
+    assert "refs/heads/main" in deploy["if"]
+    assert "needs.portao.outputs.tem_host == 'true'" in deploy["if"]
+    assert deploy["concurrency"]["cancel-in-progress"] is False
+    for passo in deploy["steps"]:
+        assert passo["uses"] == "appleboy/ssh-action@v1.2.0"
+        assert passo["with"]["host"] == "${{ secrets.AYANAMI_HOST }}"
+        assert passo["with"]["username"] == "${{ secrets.AYANAMI_USER }}"
+        assert passo["with"]["key"] == "${{ secrets.AYANAMI_SSH_KEY }}"
+    scripts = [p["with"]["script"] for p in deploy["steps"]]
+    assert scripts == ["deploy ${{ github.sha }}", "saude"]
+
+
+def test_comando_forcado_da_chave_de_ci() -> None:
+    """A chave da CI só roda deploy.sh com o sha validado e o smoke da /saude (banco == ok)."""
+    texto = (RAIZ / "deploy" / "ayanami" / "host" / "ci-deploy.sh").read_text(encoding="utf-8")
+    assert "SSH_ORIGINAL_COMMAND" in texto
+    assert "^[0-9a-f]{40}$" in texto
+    assert 'deploy.sh" --tag "$arg" --sem-git --sem-build' in texto
+    assert "http://127.0.0.1:8740/saude" in texto and '"banco") == "ok"' in texto
+    assert "restrict," in texto

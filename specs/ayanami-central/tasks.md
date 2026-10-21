@@ -349,7 +349,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: JSON falso em tmp (ok, velho, ausente, corrompido, campos tortos), rota por ASGI com o
     escopo sobrescrito, tool da nuvem com leitor injetado; sem rede; `ruff` limpo.
 
-- [ ] **Y1.4 CI no GitHub Actions** — `.github/workflows/ayanami.yml`: em push no `main` que toque
+- [x] **Y1.4 CI no GitHub Actions** — *(deploy automático ligado por agente com autorização do Pedro em 2026-10-21; runbook §3 "Deploy automático")* `.github/workflows/ayanami.yml`: em push no `main` que toque
   `ayanami/**`, `magi/elo/**`, `magi/news/**`, `deploy/ayanami/**`: `uv sync`, `ruff`, `pytest -q
   tests/elo tests/ayanami tests/deploy` (com serviço `pgvector/pgvector:pg16` e `AYANAMI_TEST_DSN`),
   build da imagem → `ghcr.io`; job `deploy` (`appleboy/ssh-action` rodando `deploy.sh`, smoke
@@ -1588,6 +1588,14 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   http://127.0.0.1:8740/saude`). O teste do job já existe (pula enquanto ele não existir). No node 2:
   `AYANAMI_IMAGEM=ghcr.io/<dono>/ayanami` no `.env` (e `docker login ghcr.io` se o pacote for
   privado). actionlint não rodado (não está no PC). Gatilho também em `.github/workflows/ayanami.yml`.
+- **Y1.4 (deploy, 2026-10-21):** jobs `portao` + `deploy` no workflow; gatilho ganhou `pyproject.toml`
+  e `uv.lock`. A chave da CI é `restrict,command=` → `deploy/ayanami/host/ci-deploy.sh` (instalado em
+  `/usr/local/bin/ayanami-ci-deploy`; aceita só `deploy <sha40>` e `saude`), então o `script` do
+  `appleboy/ssh-action` é `deploy <sha>`/`saude`, não o `deploy.sh` cru. `deploy.sh` com
+  `AYANAMI_IMAGEM` agora faz `docker compose pull` sem `--ignore-buildable` (os serviços da Ayanami
+  têm `build:` e eram pulados). Pacote ghcr `ayanami` público (as `-ml` são tags do mesmo pacote).
+  Pendentes: `fingerprint` do host no `ssh-action` (hoje sem verificação da chave do host; exigiria
+  um 4º secret); `actionlint` segue fora do PC; mudança no `ci-deploy.sh` exige reinstalar a cópia.
 - **P1.2:** (1) O áudio é lido por `api.bruto` (o `<audio>` não manda o Bearer), virado blob e só
   toca com o stream fechado; provar latência e autoplay no P1.S4 (saídas: token curto na URL ou
   cookie). (2) `voz_em_texto` lido de `estado.get().prefs` — mesma pendência do `app.js` carregar as

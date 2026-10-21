@@ -1,8 +1,10 @@
 # CI da Ayanami (Y1.4; R10.4, design §11 "Deploy").
 #
-# Em push no main que toque a Ayanami: testes (com Postgres descartável) → imagens no ghcr.io.
-# O job de deploy por SSH (deploy.sh + smoke /saude, gate por AYANAMI_HOST) fica para o Pedro
-# acrescentar (ver Sobras da Y1.4). Secret usado aqui: só o GITHUB_TOKEN do Actions (ghcr.io).
+# Em push no main que toque a Ayanami: testes (com Postgres descartável) → imagens no ghcr.io
+# (público) → deploy no node 2 por SSH, só se o secret AYANAMI_HOST existir (job `portao`; `if:`
+# não lê `secrets`). A chave AYANAMI_SSH_KEY é restrita no node 2 a um comando forçado
+# (deploy/ayanami/host/ci-deploy.sh): `deploy <sha>` roda deploy.sh --tag <sha> --sem-git
+# --sem-build; `saude` confere banco == "ok" na /saude. O PC não é tocado.
 name: ayanami
 
 on:
@@ -13,6 +15,8 @@ on:
       - "magi/elo/**"
       - "magi/news/**"
       - "deploy/ayanami/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - ".github/workflows/ayanami.yml"
 
 permissions:
@@ -93,3 +97,43 @@ jobs:
             ${{ steps.nome.outputs.imagem }}:main${{ matrix.sufixo }}
           cache-from: type=gha,scope=ayanami${{ matrix.sufixo }}
           cache-to: type=gha,mode=max,scope=ayanami${{ matrix.sufixo }}
+
+  portao:
+    runs-on: ubuntu-latest
+    outputs:
+      tem_host: ${{ steps.ver.outputs.tem_host }}
+    steps:
+      - id: ver
+        env:
+          AYANAMI_HOST: ${{ secrets.AYANAMI_HOST }}
+        run: |
+          if [ -n "$AYANAMI_HOST" ]; then echo "tem_host=true"; else echo "tem_host=false"; fi >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: [imagem, portao]
+    if: github.ref == 'refs/heads/main' && needs.portao.outputs.tem_host == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Um deploy por vez, nunca cancelado no meio (o seguinte espera).
+    concurrency:
+      group: ayanami-deploy
+      cancel-in-progress: false
+    steps:
+      - name: deploy.sh --tag <sha> --sem-build no node 2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.AYANAMI_HOST }}
+          username: ${{ secrets.AYANAMI_USER }}
+          key: ${{ secrets.AYANAMI_SSH_KEY }}
+          command_timeout: 15m
+          # Comando forçado no node 2 → deploy/ayanami/host/deploy.sh --tag ${{ github.sha }}
+          # --sem-git --sem-build (depois de levar o clone a esse commit).
+          script: deploy ${{ github.sha }}
+      - name: Smoke /saude (banco == ok)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.AYANAMI_HOST }}
+          username: ${{ secrets.AYANAMI_USER }}
+          key: ${{ secrets.AYANAMI_SSH_KEY }}
+          # Comando forçado → curl -fsS http://127.0.0.1:8740/saude e exige banco == "ok".
+          script: saude
