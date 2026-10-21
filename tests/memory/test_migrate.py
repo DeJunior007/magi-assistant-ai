@@ -111,7 +111,7 @@ def _dim(conn, schema, table):
 
 @pytest.mark.db
 def test_cria_esquema_e_e_idempotente(schema, conn):
-    assert mig.migrate(conn, schema=schema) == ["001", "002", "003", "004", "005"]
+    assert mig.migrate(conn, schema=schema) == ["001", "002", "003", "004", "005", "006"]
     assert _tables(conn, schema) == TABLES
     assert _dim(conn, schema, "memories") == 1536
     assert _dim(conn, schema, "news_items") == 768
@@ -123,7 +123,7 @@ def test_cria_esquema_e_e_idempotente(schema, conn):
 
     assert mig.migrate(conn, schema=schema) == []
     rows = conn.execute("SELECT version, params FROM schema_migrations ORDER BY version").fetchall()
-    assert [r[0] for r in rows] == ["001", "002", "003", "004", "005"]
+    assert [r[0] for r in rows] == ["001", "002", "003", "004", "005", "006"]
     assert rows[0] == ("001", {"MEMORIES_DIM": 1536, "NEWS_DIM": 768})
 
 

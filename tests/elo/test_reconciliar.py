@@ -54,15 +54,19 @@ class TurnsFalso:
         self.linhas: list[TurnRecord] = []
         self.falha_em = falha_em or set()
 
-    async def add(self, turn: TurnRecord) -> int:
-        if turn.intent and turn.intent.removeprefix(rc.MARCA) in self.falha_em:
+        self.uids: list[str] = []
+        self.ferramentas: list[tuple[str, ...]] = []
+
+    async def add_nuvem(self, turn: TurnRecord, uid: str, ferramentas: Sequence[str]) -> int:
+        if uid in self.falha_em:
             raise RuntimeError("banco")
         self.linhas.append(turn)
+        self.uids.append(uid)
+        self.ferramentas.append(tuple(ferramentas))
         return len(self.linhas)
 
     async def ja_gravados(self, uids: Sequence[str]) -> set[str]:
-        marcas = {rc.marca(u): u for u in uids}
-        return {marcas[t.intent] for t in self.linhas if t.intent in marcas}
+        return set(self.uids) & set(uids)
 
 
 class MemoriaFalsa:
@@ -83,8 +87,8 @@ async def test_grava_celular_marcado_nuvem_e_passa_pelo_extrator() -> None:
     assert ids == tuple(t.uid for t in r.turnos)
     t0 = turns.linhas[0]
     assert (t0.satellite, t0.intent, t0.text_heard, t0.text_final, t0.reply, t0.at) == (
-        "celular", f"nuvem:{r.turnos[0].uid}", "liga a tv 0", "liga a tv 0", "ok 0", T0)
-    assert not t0.routed_local
+        "celular", "nuvem", "liga a tv 0", "liga a tv 0", "ok 0", T0)
+    assert not t0.routed_local and turns.ferramentas[0] == ("tv_ligar",)
     assert [[t.id for t in lote] for lote in mem.lotes] == [[1, 2, 3]]
 
 
@@ -148,12 +152,50 @@ async def test_pg_reenvio_nao_duplica_turns(base: str) -> None:
         assert len(await rc.gravar_resumo(ResumoNuvem(turnos=lote, restam=70), repo, mem)) == 50
         ids = await rc.gravar_resumo(ResumoNuvem(turnos=(*lote[10:], *_turnos(5, 100))), repo, mem)
         assert len(ids) == 45
-        cur = await conn.execute("SELECT count(*), count(DISTINCT intent) FROM turns "
-                                 "WHERE satellite = 'celular' AND intent LIKE 'nuvem:%'")
+        cur = await conn.execute("SELECT count(*), count(DISTINCT nuvem_uid) FROM turns "
+                                 "WHERE satellite = 'celular' AND intent = 'nuvem'")
         assert await cur.fetchone() == (55, 55)
+        cur = await conn.execute("SELECT ferramentas FROM turns WHERE nuvem_uid = %s", [lote[0].uid])
+        assert (await cur.fetchone())[0] == ["tv_ligar"]  # type: ignore[index]
         cur = await conn.execute("SELECT count(*) FROM turns WHERE satellite = 'pc'")
         assert (await cur.fetchone())[0] == 1  # type: ignore[index]
         assert [len(lote) for lote in mem.lotes] == [50, 5]
         assert await repo.ja_gravados([lote[0].uid, str(uuid.uuid4())]) == {lote[0].uid}
     finally:
         await raw.close()
+
+
+@pytest.mark.pg
+async def test_pg_formato_antigo_y65_conta_como_gravado(base: str) -> None:
+    """Linhas da Y6.5 (``intent = 'nuvem:<uid>'``, sem ``nuvem_uid``) não são regravadas."""
+    raw = await psycopg.AsyncConnection.connect(base, autocommit=True)
+    try:
+        conn = SerialConn(raw)
+        velho, novo = _turnos(2, 300)
+        await conn.execute("INSERT INTO turns (satellite, text_heard, intent) VALUES ('celular', 'x', %s)",
+                           [rc.marca(velho.uid)])
+        repo = rc.TurnosNuvemPg(conn)
+        assert await repo.ja_gravados([velho.uid, novo.uid]) == {velho.uid}
+        ids = await rc.gravar_resumo(ResumoNuvem(turnos=(velho, novo)), repo, None)
+        assert ids == (velho.uid, novo.uid)
+        cur = await conn.execute("SELECT count(*) FROM turns WHERE satellite = 'celular'")
+        assert (await cur.fetchone())[0] == 2  # type: ignore[index]
+        # corrida: insert direto do mesmo uid devolve o id existente, sem duplicar
+        rec = rc.registro(novo)
+        primeiro = await repo.add_nuvem(rec, novo.uid, ())
+        assert await repo.add_nuvem(rec, novo.uid, ()) == primeiro
+        cur = await conn.execute("SELECT count(*) FROM turns WHERE nuvem_uid = %s", [novo.uid])
+        assert (await cur.fetchone())[0] == 1  # type: ignore[index]
+    finally:
+        await raw.close()
+
+
+@pytest.mark.pg
+def test_pg_migracao_006_idempotente(base: str) -> None:
+    with psycopg.connect(base) as conn:
+        assert pc_migrate.migrate(conn) == []
+        sql = (pc_migrate.MIGRATIONS_DIR / "006_turns_nuvem_uid.sql").read_text()
+        conn.execute(sql)  # reexecutar à mão não quebra (IF NOT EXISTS)
+        cols = {r[0] for r in conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'turns'")}
+        assert {"nuvem_uid", "ferramentas"} <= cols

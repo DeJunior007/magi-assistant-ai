@@ -2,9 +2,11 @@
 
 O ``NoPc`` (Y6.2) despacha ``resumo_nuvem`` → :meth:`Reconciliador.gravar_resumo` e responde
 ``Ack(ids=…)`` com o que ela devolver. :func:`gravar_resumo` grava cada ``TurnoNuvem`` em
-``turns`` (satélite ``celular``, ``intent = "nuvem:<uid>"`` — a marca ``nuvem`` e a chave da
-idempotência, sem migração), ignora ``uid`` já gravado (devolve-o no ``ack`` mesmo assim: está no
-PC) e passa os turnos novos pelo extrator de memória dos turnos normais.
+``turns`` (satélite ``celular``, ``intent = "nuvem"``; a chave da idempotência é a coluna
+``turns.nuvem_uid`` com índice único parcial e as ferramentas vão em ``turns.ferramentas`` —
+migração 006, Y6.5b), ignora ``uid`` já gravado (devolve-o no ``ack`` mesmo assim: está no PC) e
+passa os turnos novos pelo extrator de memória dos turnos normais. O formato antigo da Y6.5
+(``intent = "nuvem:<uid>"``, sem ``nuvem_uid``) continua contando como já gravado.
 
 Extrator: os turnos normais não têm extração síncrona; quem aprende com ``turns`` é o
 ``magi.memory.profile.ProfileUpdater`` (perfil + vocabulário do STT, lê ``TurnsRepo.recent``, 1×/dia
@@ -26,18 +28,19 @@ from magi.elo.mensagens import ResumoNuvem, TurnoNuvem
 log = logging.getLogger(__name__)
 
 SATELITE: Final = "celular"
-MARCA: Final = "nuvem:"
+INTENT: Final = "nuvem"
+MARCA: Final = "nuvem:"  # formato antigo (Y6.5): intent = "nuvem:<uid>"
 
 
 def marca(uid: str) -> str:
-    """``turns.intent`` de um turno do modo nuvem."""
+    """``turns.intent`` de um turno do modo nuvem no formato antigo (só leitura)."""
     return f"{MARCA}{uid}"
 
 
 class TurnRepo(Protocol):
     """O que a reconciliação usa de ``turns``."""
 
-    async def add(self, turn: TurnRecord) -> int: ...
+    async def add_nuvem(self, turn: TurnRecord, uid: str, ferramentas: Sequence[str]) -> int: ...
     async def ja_gravados(self, uids: Sequence[str]) -> set[str]: ...
 
 
@@ -49,25 +52,37 @@ class TurnosNuvemPg:
     """``TurnRepo`` sobre a conexão async compartilhada do PC (``Repos.conn``, ``SerialConn``)."""
 
     def __init__(self, conn: Any, turns: Any = None) -> None:
-        self._conn = conn
-        self._turns = turns  # PgTurnsRepo; None → insert próprio na mesma conexão
+        self._conn = conn  # ``turns`` (PgTurnsRepo) aceito por compatibilidade; o insert é próprio
 
-    async def add(self, turn: TurnRecord) -> int:
-        if self._turns is not None:
-            return int(await self._turns.add(turn))
-        from magi.memory.memories_repo import PgTurnsRepo
+    async def add_nuvem(self, turn: TurnRecord, uid: str, ferramentas: Sequence[str]) -> int:
+        """Insere com ``nuvem_uid``; corrida com outro envelope → devolve o id que já estava."""
+        from psycopg.types.json import Jsonb
 
-        return int(await PgTurnsRepo(self._conn).add(turn))
+        async with self._conn.transaction():
+            cur = await self._conn.execute(
+                "INSERT INTO turns (at, satellite, text_heard, text_final, intent, routed_local, reply,"
+                " nuvem_uid, ferramentas) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                " ON CONFLICT (nuvem_uid) WHERE nuvem_uid IS NOT NULL DO NOTHING RETURNING id",
+                [turn.at, turn.satellite, turn.text_heard, turn.text_final, turn.intent,
+                 turn.routed_local, turn.reply, uid, Jsonb(list(ferramentas))])
+            row = await cur.fetchone()
+            if row is None:
+                cur = await self._conn.execute("SELECT id FROM turns WHERE nuvem_uid = %s", [uid])
+                row = await cur.fetchone()
+        assert row is not None
+        return int(row[0])
 
     async def ja_gravados(self, uids: Sequence[str]) -> set[str]:
         if not uids:
             return set()
         async with self._conn.transaction():
             cur = await self._conn.execute(
-                "SELECT intent FROM turns WHERE satellite = %s AND intent = ANY(%s)",
-                [SATELITE, [marca(u) for u in uids]])
+                "SELECT nuvem_uid::text FROM turns WHERE nuvem_uid = ANY(%s::uuid[])"
+                " UNION SELECT substr(intent, %s) FROM turns WHERE satellite = %s AND intent = ANY(%s)",
+                [list(uids), len(MARCA) + 1, SATELITE, [marca(u) for u in uids]])
             linhas = await cur.fetchall()
-        return {r[0][len(MARCA):] for r in linhas}
+        pedidos = {str(u).lower(): u for u in uids}
+        return {pedidos[r[0].lower()] for r in linhas if r[0] and r[0].lower() in pedidos}
 
 
 class PerfilIngest:
@@ -83,7 +98,7 @@ class PerfilIngest:
 
 def registro(t: TurnoNuvem) -> TurnRecord:
     return TurnRecord(satellite=SATELITE, text_heard=t.texto_usuario, text_final=t.texto_usuario,
-                      at=t.ts, intent=marca(t.uid), routed_local=False, reply=t.texto_resposta)
+                      at=t.ts, intent=INTENT, routed_local=False, reply=t.texto_resposta)
 
 
 async def gravar_resumo(r: ResumoNuvem, turns: TurnRepo, memoria: MemoryIngest | None) -> tuple[str, ...]:
@@ -103,7 +118,7 @@ async def gravar_resumo(r: ResumoNuvem, turns: TurnRepo, memoria: MemoryIngest |
             continue
         rec = registro(t)
         try:
-            tid = await turns.add(rec)
+            tid = await turns.add_nuvem(rec, t.uid, t.ferramentas)
         except Exception:  # noqa: BLE001 - um turno ruim não derruba o envelope
             log.exception("reconciliar: falha ao gravar turno da nuvem")
             continue

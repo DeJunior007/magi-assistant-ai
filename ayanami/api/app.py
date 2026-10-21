@@ -73,7 +73,13 @@ async def _vida(app: FastAPI) -> AsyncIterator[None]:
     async with AsyncExitStack() as pilha:
         for fabrica in list(app.state.ctx.ciclo):
             await pilha.enter_async_context(fabrica())
-        yield
+        try:
+            yield
+        finally:
+            # Y6.5b: a reconciliação nasce no 1º WS do pc (reconciliacao_de); fecha as rodadas pendentes
+            svc = app.state.ctx.extras.get("reconciliacao")
+            if svc is not None:
+                await svc.fechar()
 
 
 def criar_app(

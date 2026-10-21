@@ -263,7 +263,7 @@ def test_migracao_no_fixture_nao_muda_tabelas_003(tmp_path) -> None:
         with psycopg.connect(mig.dsn_from_env()) as c:
             mig.migrate(c, schema=SCHEMA, memories_dim=3, news_dim=2, directory=only_003)
             before = columns(c)
-            assert mig.migrate(c, schema=SCHEMA, memories_dim=3, news_dim=2) == ["004", "005"]
+            assert mig.migrate(c, schema=SCHEMA, memories_dim=3, news_dim=2) == ["004", "005", "006"]
             assert columns(c) == before and before
             assert mig.migrate(c, schema=SCHEMA, memories_dim=3, news_dim=2) == []
             c.execute(SQL_FILE.read_text(encoding="utf-8"))  # IF NOT EXISTS: rodar de novo não falha

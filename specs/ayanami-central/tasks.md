@@ -672,6 +672,15 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y22 (parte reconciliação: 120 → 50/50/20; `ack` parcial; reenvio não duplica `turns`) verde; nome exato do extrator anotado em *Sobras* (a spec deixou "nome exato no tasks").
   - Paralelo: Y6.4, Y6.6
 
+- [x] **Y6.5b Sobras da reconciliação** — `Reconciliacao.fechar()` na parada da app (lifespan de
+  `ayanami/api/app.py`); migração aditiva `006_turns_nuvem_uid.sql` (`turns.nuvem_uid uuid` +
+  índice único parcial, `turns.ferramentas jsonb`); o PC grava `intent = "nuvem"` com `nuvem_uid`
+  e as `ferramentas` do `TurnoNuvem` (`ON CONFLICT … DO NOTHING`) e ainda lê o formato antigo
+  `intent = 'nuvem:<uid>'` para não duplicar. *(R8.5, spec §6.6)*
+  - Escreve: `ayanami/api/app.py` (só `_vida`), `magi/memory/migrations/006_turns_nuvem_uid.sql`, `magi/elo/reconciliar.py`, `tests/elo/test_reconciliar.py`, `tests/ayanami/test_reconciliacao.py`, `tests/ayanami/test_migrar.py`, `tests/memory/test_migrate.py` e `tests/learning/test_interview_store.py` (só as listas de migrações)
+  - Depende de: Y6.5
+  - Pronto: 006 reexecutável e só aditiva (testada no `ayanami-pg-teste`); reenvio e linhas antigas não duplicam `turns`; parada da app fecha as rodadas pendentes. A 006 entra no magi-pg no próximo reinício do magi-core.
+
 - [x] **Y6.6 PC: eventos, confirmações e custos** — `magi/elo/eventos_pc.py` (`evento` → `sink`
   novo da proatividade em `magi/core/proactive/` respeitando silêncio/jogo; cards existentes
   "Pesquisa pronta", "código de pareamento", "celular conectado"; `confirma` → pergunta ao Pedro

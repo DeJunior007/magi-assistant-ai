@@ -206,3 +206,23 @@ async def test_pg_120_turnos_ack_parcial_e_reenvio(pg: psycopg.Connection) -> No
     marcados = pg.execute("SELECT count(*) FROM nuvem_turnos WHERE sincronizado = %s",
                           [T0 + timedelta(days=1)]).fetchone()[0]  # type: ignore[index]
     assert marcados == 60
+
+
+async def test_y65b_parada_da_app_fecha_a_reconciliacao() -> None:
+    """O lifespan de ``ayanami.api.app`` chama ``Reconciliacao.fechar()`` na parada (Y6.5b)."""
+    from types import SimpleNamespace
+
+    from ayanami.api.app import _vida
+
+    fechou: list[bool] = []
+
+    class Svc:
+        async def fechar(self) -> None:
+            fechou.append(True)
+
+    app = SimpleNamespace(state=SimpleNamespace(ctx=SimpleNamespace(ciclo=[], extras={})))
+    async with _vida(app):  # type: ignore[arg-type]
+        app.state.ctx.extras["reconciliacao"] = Svc()  # nasce no 1º WS do pc, depois da subida
+    assert fechou == [True]
+    async with _vida(app):  # sem reconciliação: nada a fechar, não quebra
+        app.state.ctx.extras.clear()

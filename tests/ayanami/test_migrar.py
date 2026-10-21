@@ -15,6 +15,7 @@ from magi.memory import migrate as pc_migrate
 
 RAIZ = Path(__file__).resolve().parents[2]
 PC_005 = RAIZ / "magi/memory/migrations/005_ayanami_sync.sql"
+PC_006 = RAIZ / "magi/memory/migrations/006_turns_nuvem_uid.sql"
 PROIBIDO = re.compile(r"\b(DROP|TRUNCATE)\b", re.IGNORECASE)
 
 TABELAS = {
@@ -51,7 +52,7 @@ def test_lista_migracoes():
 
 def test_migracoes_sem_drop_nem_truncate():
     """CA-Y11 (parte em texto): nenhuma migração da Ayanami nem a 005 do PC apaga nada."""
-    arquivos = [m.path for m in mod.migracoes()] + [PC_005]
+    arquivos = [m.path for m in mod.migracoes()] + [PC_005, PC_006]
     for arq in arquivos:
         texto = arq.read_text(encoding="utf-8")
         assert not PROIBIDO.search(texto), arq.name
@@ -64,7 +65,20 @@ def test_005_do_pc_e_aditiva():
         "ALTER TABLE news_items ADD COLUMN IF NOT EXISTS ayanami_uid uuid UNIQUE",
         "ALTER TABLE costs ADD COLUMN IF NOT EXISTS origem_uid uuid UNIQUE",
     ]
-    assert [m.version for m in pc_migrate.available_migrations()][-1] == "005"
+    assert "005" in [m.version for m in pc_migrate.available_migrations()]
+
+
+def test_006_do_pc_e_aditiva():
+    """Y6.5b: só colunas novas nulas e índice único parcial, tudo reexecutável."""
+    texto = PC_006.read_text(encoding="utf-8")
+    comandos = [c.strip() for c in re.sub(r"--[^\n]*", "", texto).split(";") if c.strip()]
+    assert comandos == [
+        "ALTER TABLE turns ADD COLUMN IF NOT EXISTS nuvem_uid uuid",
+        "ALTER TABLE turns ADD COLUMN IF NOT EXISTS ferramentas jsonb",
+        "CREATE UNIQUE INDEX IF NOT EXISTS turns_nuvem_uid_key ON turns (nuvem_uid)"
+        " WHERE nuvem_uid IS NOT NULL",
+    ]
+    assert [m.version for m in pc_migrate.available_migrations()][-1] == "006"
 
 
 def test_002_e_copia_das_noticias_do_pc_com_o_mesmo_renderizador():
@@ -262,7 +276,7 @@ def test_db_protocolo_e_pool(pg_base):
 def test_005_no_banco_do_pc(pg_base_pc):
     with psycopg.connect(pg_base_pc) as conn:
         versoes = [r[0] for r in conn.execute("SELECT version FROM schema_migrations ORDER BY 1")]
-        assert versoes[-1] == "005"
+        assert versoes[-2:] == ["005", "006"]
         colunas = conn.execute(
             "SELECT table_name, column_name, is_nullable FROM information_schema.columns"
             " WHERE column_name IN ('ayanami_uid', 'origem_uid') ORDER BY 1"
