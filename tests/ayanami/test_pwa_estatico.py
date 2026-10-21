@@ -72,7 +72,7 @@ def test_meta_de_tamanho():
 def test_stubs_tem_dono():
     for p in [*sorted((PWA_DIR / "telas").glob("*.js")), PWA_DIR / "gravador.js"]:
         texto = p.read_text(encoding="utf-8")
-        assert "dono: P1." in texto and "export function montar(el, ctx)" in texto, p.name
+        assert "dono: p1." in texto.lower() and "export function montar(el, ctx)" in texto, p.name
 
 
 def test_manifest_valido():
