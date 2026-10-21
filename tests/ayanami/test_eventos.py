@@ -107,6 +107,19 @@ async def test_criar_distribui_so_o_novo(db: Db):
     assert await svc.distribuir() == 0  # nada novo: não repete
 
 
+async def test_evento_para_celular_defere_push(db: Db):
+    pedidos: list[int] = []
+
+    async def push(seq: int) -> None:
+        pedidos.append(seq)
+
+    svc = Eventos(db, RelogioFalso(), push=push)
+    ev = await svc.criar(EventoTipo.LEMBRETE, "Remédio")
+    so_pc = await svc.criar(EventoTipo.LEMBRETE, "só PC", para=("pc",))
+    await asyncio.sleep(0)
+    assert pedidos == [ev.seq] and so_pc.seq not in pedidos
+
+
 async def test_pc_recebe_e_marca_entregue(db: Db):
     hub = HubFalso()
     svc = Eventos(db, RelogioFalso(), hub=hub)

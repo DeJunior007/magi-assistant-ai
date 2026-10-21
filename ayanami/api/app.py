@@ -151,4 +151,6 @@ def app_de_producao() -> FastAPI:
     segredos = cfgmod.ler_segredos(cfg)
     if segredos.faltando:
         log.warning("segredos faltando: %s", ", ".join(segredos.faltando))
-    return criar_app(cfg, abrir_pool(dsn_padrao()), RelogioReal(), segredos=segredos)
+    app = criar_app(cfg, abrir_pool(dsn_padrao()), RelogioReal(), segredos=segredos)
+    app.state.ctx.extras["fila_producao"] = True  # eventos para o celular deferem push.enviar
+    return app

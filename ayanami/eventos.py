@@ -128,8 +128,10 @@ class Eventos:
     """Distribui eventos ao SSE e ao ``pc``. Um por app (``ctx.extras["eventos"]``)."""
 
     def __init__(self, db: Db, relogio: Any, *, hub: Any = None, publicar: Publicar | None = None,
-                 prazo_pc_s: float = PRAZO_PC_S) -> None:
+                 prazo_pc_s: float = PRAZO_PC_S,
+                 push: Callable[[int], Awaitable[Any]] | None = None) -> None:
         self.db = db
+        self.push = push  # defere ``push.enviar`` dos eventos para ``celular`` (P2.1)
         self.relogio = relogio
         self.hub = hub
         self.publicar = publicar
@@ -172,11 +174,19 @@ class Eventos:
                         for alvo in para:  # SSE de quem é desse tipo ("celular", e "pc" se abrir)
                             self.publicar(alvo, "evento", ev, id=ev.seq)
                     pc = pc or "pc" in para
+                    if self.push is not None and "celular" in para:
+                        self._agendar(self._push(ev.seq))
                 if len(linhas) < LOTE:
                     break
         if pc:
             self.entregar_pc_logo()
         return n
+
+    async def _push(self, seq: int) -> None:
+        try:
+            await self.push(seq)
+        except Exception:  # noqa: BLE001 - push nunca derruba a distribuição
+            log.exception("push_agendar_falhou (evento %s)", seq)
 
     # --- PC ------------------------------------------------------------------------------------
 
@@ -269,7 +279,17 @@ def eventos_de(ctx: Any) -> Eventos:
 
     sse = sse_de(ctx)
     hub = hub_de(ctx)
-    svc = Eventos(ctx.db, ctx.relogio, hub=hub, publicar=sse.publicar)
+    async def push(seq: int) -> None:
+        # fila dos testes (``extras["fila"]``) ou a de produção (``app_de_producao`` liga a flag)
+        app = ctx.extras.get("fila")
+        if app is None and not ctx.extras.get("fila_producao"):
+            return
+        from ayanami import fila
+        from ayanami import push as pushmod
+
+        await pushmod.agendar(await fila.app_aberto(app), seq)
+
+    svc = Eventos(ctx.db, ctx.relogio, hub=hub, publicar=sse.publicar, push=push)
     hub.ao_ola("pc", svc.ao_ola_pc)
 
     def estado_ao_sse(_disp: Any, env: Envelope) -> None:
