@@ -1536,3 +1536,8 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   anti-duplicação em `turns.intent = "nuvem:<uid>"` (sem coluna de uid); migração aditiva sugerida
   `turns.nuvem_uid uuid UNIQUE` (as `ferramentas` do `TurnoNuvem` se perdem hoje). (4) `TurnRepo`
   ganhou `ja_gravados(uids)`; `PRAZO_PC_S = 60` constante.
+- **P1.x integração (b108467):** `app.js` carrega as `preferencias` no `estado.prefs` (invólucro do
+  armazém mantém o estado em dia), passa `armazem`/`verificar` no `ctx`, assina o SSE `confirma`
+  globalmente (navega para `rotaDe(c)` fora da tela) e chama `reassinarSeMudou` na subida sem esperar;
+  `sw.js` não cacheia `/v1/feed?antes=` (VERSAO 3); `estilo.css` com as classes da Conversa/TV e
+  d-pad 3×3. Restam: aparência real no P1.S4; P2.2 itens 3–5; P1.4 item 4 (`VERSAO_APP` solta).
