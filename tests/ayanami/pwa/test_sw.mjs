@@ -116,7 +116,7 @@ test("/v1/feed: network-first, guarda o último e recai nele sem rede", async ()
   const feed = sw.caches.lojas.get("condessa-feed");
   assert.equal(feed.size, 1);
   online = false;
-  const r2 = await sw.pedir("/v1/feed?n=20&antes=2026-10-20T10:00:00Z");
+  const r2 = await sw.pedir("/v1/feed?n=20");
   assert.deepEqual(await r2.json(), { cards: [{ titulo: "a" }] });
   assert.ok(r2.headers.get("X-Condessa-Cache-Em"));
   assert.equal(sw.chamadas.length, 2);

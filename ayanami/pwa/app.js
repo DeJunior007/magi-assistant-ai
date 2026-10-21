@@ -9,12 +9,19 @@
  * vai a Parear.
  *
  * Contrato das telas (`telas/<nome>.js`): `export function montar(el, ctx)`, que pode devolver uma
- * função de desmontagem. `ctx` = `{api, estado, eventos, params, navegar}`; `eventos.on(nome, fn)`
- * recebe o SSE de `/v1/eventos` (`turno.texto`, `turno.fim`, `evento`, `estado`, `confirma`).
+ * função de desmontagem. `ctx` = `{api, estado, eventos, params, navegar, armazem, verificar}`;
+ * `eventos.on(nome, fn)` recebe o SSE de `/v1/eventos` (`turno.texto`, `turno.fim`, `evento`,
+ * `estado`, `confirma`).
+ *
+ * Integração (P1.x): na subida as `preferencias` do armazém viram `estado.prefs` (e cada gravação
+ * delas pelo `ctx.armazem` atualiza o estado); um SSE `confirma` fora da tela Confirmação leva a
+ * `rotaDe(c)`; `reassinarSeMudou` (Ajustes, P2.2) roda na subida, sem pedir permissão.
  */
 
-import { armazemIdb, criarApi } from "./api.js";
+import { armazemIdb, armazemMemoria, criarApi } from "./api.js";
 import { estado as estadoPadrao } from "./estado.js";
+import { CHAVE_PREFS, normalizarPrefs, reassinarSeMudou } from "./telas/ajustes.js";
+import { rotaDe } from "./telas/confirma.js";
 
 export const TELAS = Object.freeze(["conversa", "tv", "feed", "tarefas", "confirma", "ajustes", "parear"]);
 export const FAIXA_SEM_AYANAMI = "sem conexão com a Ayanami — ligue o Tailscale";
@@ -60,6 +67,9 @@ export function criarApp({
   documento = globalThis.document,
   estado = estadoPadrao,
   api = null,
+  armazem = null,
+  reassinar = reassinarSeMudou,
+  push = undefined,
   carregarTela = (nome) => import(`./telas/${nome}.js`),
   intervaloMs = INTERVALO_SAUDE_MS,
 } = {}) {
@@ -80,7 +90,33 @@ export function criarApp({
     if (rota(janela.location.hash).tela !== "parear") navegar("#/parear");
   }
 
-  api ??= criarApi({ armazem: armazemIdb(), aoNaoAutorizado: irParear });
+  const base = armazem ?? (globalThis.indexedDB ? armazemIdb() : armazemMemoria());
+  api ??= criarApi({ armazem: base, aoNaoAutorizado: irParear });
+
+  /** O armazém das telas: gravar as `preferencias` também atualiza `estado.prefs`. */
+  const armazemCtx = {
+    ler: (k) => base.ler(k),
+    apagar: (k) => base.apagar(k),
+    async gravar(k, v) {
+      await base.gravar(k, v);
+      if (k === CHAVE_PREFS) estado.set({ prefs: normalizarPrefs(v) });
+    },
+  };
+
+  async function carregarPrefs() {
+    let p;
+    try {
+      p = await base.ler(CHAVE_PREFS);
+    } catch {
+      p = null; // armazém indisponível: fica nos padrões
+    }
+    estado.set({ prefs: normalizarPrefs(p) });
+  }
+
+  eventos.on("confirma", (c) => {
+    if (!c?.pedido || c.resposta != null) return;
+    if (estado.get().rota?.tela !== "confirma") navegar(rotaDe(c));
+  });
 
   function pararSse() {
     sse?.parar();
@@ -128,7 +164,9 @@ export function criarApp({
     if (minha !== montagem || !el) return;
     el.replaceChildren?.();
     if (el.dataset) el.dataset.tela = r.tela;
-    const fim = mod.montar(el, { api, estado, eventos, params: r.params, navegar });
+    const ctx = { api, estado, eventos, params: r.params, navegar, armazem: armazemCtx, verificar };
+    if (push !== undefined) ctx.push = push;
+    const fim = mod.montar(el, ctx);
     desmontar = typeof fim === "function" ? fim : null;
   }
 
@@ -149,10 +187,17 @@ export function criarApp({
     relogio = janela.setInterval(() => {
       if (documento.visibilityState !== "hidden") verificar();
     }, intervaloMs);
+    await carregarPrefs();
     if (!(await api.token())) estado.set({ conexao: "sem_token" });
     if (!janela.location.hash) janela.location.hash = "#/conversa";
     await aoMudarHash();
     await verificar();
+    if (estado.get().conexao !== "sem_token") {
+      const ctxPush = { api, armazem: armazemCtx };
+      if (push !== undefined) ctxPush.push = push;
+      // sem await: `serviceWorker.ready` pode nunca resolver (SW não registrado)
+      Promise.resolve().then(() => reassinar(ctxPush)).catch(() => {});
+    }
   }
 
   function parar() {
@@ -163,7 +208,7 @@ export function criarApp({
     desmontar?.();
   }
 
-  return { iniciar, parar, verificar, navegar, irParear, aoMudarHash, eventos, api, estado };
+  return { iniciar, parar, verificar, navegar, irParear, aoMudarHash, eventos, api, estado, armazem: armazemCtx };
 }
 
 if (typeof window !== "undefined" && typeof document !== "undefined" && !globalThis.__CONDESSA_TESTE__) {

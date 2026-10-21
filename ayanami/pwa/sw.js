@@ -3,13 +3,14 @@
  *
  * - `condessa-shell-v<N>`: lista fixa de TODOS os arquivos (cache-first); `N` sobe a cada deploy
  *   que muda algum arquivo, e o `activate` apaga as versões antigas;
- * - `/v1/feed`: network-first com cópia em `condessa-feed` (só o último, 1 entrada) e recaída nela;
+ * - `/v1/feed` sem `antes=` (a 1ª página): network-first com cópia em `condessa-feed` (só o último,
+ *   1 entrada) e recaída nela; com `antes=` (páginas antigas): network-only, nunca cacheado;
  * - resto de `/v1/*`, `/saude`, `/ws`, `/mcp`: network-only, nunca cacheado (token, casa, tarefas).
  * - `push` / `notificationclick` (P2.2, spec §15): notificação **sem** botões de ação, nem no
  *   `confirma` (DS17: o card abre no PWA); o clique foca a janela do PWA e leva à `url`, ou abre.
  */
 
-const VERSAO = 2;
+const VERSAO = 3;
 const CACHE_SHELL = "condessa-shell-v" + VERSAO;
 const CACHE_FEED = "condessa-feed";
 const CHAVE_FEED = "/v1/feed";
@@ -93,6 +94,7 @@ self.addEventListener("fetch", (e) => {
   if (url.origin !== self.location.origin) return;
   const escopo = new URL("./", self.location.href).pathname;
   if (url.pathname === CHAVE_FEED) {
+    if (url.searchParams.has("antes")) return; // página antiga: rede, sem cópia nem recaída
     e.respondWith(feedPrimeiroRede(req));
     return;
   }
