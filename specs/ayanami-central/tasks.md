@@ -69,7 +69,7 @@ quando mudarem, o próprio spike corrige o trecho da spec antes das tarefas que 
     HTTP/WS falsos em `127.0.0.1:0` (`aiohttp.test_utils`), `AndroidTVRemote`/`send_magic_packet`/
     keyring falsos, respostas SSDP/mDNS injetadas, relógio injetado, `tmp_path` para
     `~/.config/magi`, `~/.local/share/magi/casa` e `~/.local/state/magi`. JS do PWA: `node --test
-    tests/ayanami/pwa/` com `fetch`/`MediaRecorder`/`caches` falsos, **sem navegador**. A casa roda
+    'tests/ayanami/pwa/*.mjs'` (o Node 24 não aceita o diretório) com `fetch`/`MediaRecorder`/`caches` falsos, **sem navegador**. A casa roda
     **sem** a Ayanami: C1.1–C1.5 e C2.x não esperam Y1/Y2 (só a C1.6 usa o `EloCliente` da Y2.4).
 
 Estimativa: 1k tokens ≈ 3,5 KB de português ou 4 KB de código. Tamanhos: `requirements.md` ~9k
@@ -488,7 +488,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y17 (`pg`, base com as migrações do PC no `ayanami-pg-teste`) e CA-Y18 verdes; `tests/deploy/test_units.py` sem mudar asserção; sem `[ayanami]` o timer de notícias do PC roda como hoje.
   - Paralelo: Y2.1, Y3.1, Y4.1; **não** com C2.2 (`config.example.toml`)
 
-- [ ] **Y3.4 Tarefas do agente** — `ayanami/workers/agente.py`: `agente.pesquisar` (`GraphAgent`
+- [x] **Y3.4 Tarefas do agente** — `ayanami/workers/agente.py`: `agente.pesquisar` (`GraphAgent`
   com persona da Condessa, busca web, `deps.budget`, prazo 30 min, ≤ 12 passos, `pessoal=True`
   recusa `free_tier`, progresso/frase a cada passo, resultado ≤ 6000 caracteres + fontes, `evento
   tarefa_pronta`), `agente.lembrete`, `monitores.varrer` e `monitor.passo` (juízo `condicao` no LLM
@@ -554,7 +554,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Orçamento: ≤ 30k
   - Pronto: `uv run pytest -q tests/elo tests/deploy` código 0.
 
-- [ ] **Y4.2 Backup na Ayanami: recebimento, restic e restore de teste** — `ayanami/api/backup.py`
+- [x] **Y4.2 Backup na Ayanami: recebimento, restic e restore de teste** — `ayanami/api/backup.py`
   (`PUT /v1/backup/pc` em streaming para `/dados/entrada/pc/<data>/`, sha256, `400` apaga, `409`,
   `413`, defere `backup.restic`), `ayanami/workers/backup.py` (os 6 jobs da §7.2 gerando comandos
   num executor injetado; `forget` sempre com `--group-by host,tags` e `--keep-*` [DS7];
@@ -628,7 +628,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: CA-Y22 (parte gancho: `celular` emite 1 `TurnoFim`, `pc` nada) verde; turno de texto e de áudio (PCM falso) com core de teste devolvem `TurnoFim` com cards; resposta nunca vai ao satélite do headset; sem `[ayanami]` nada muda (regra 10); `tests/core/` sem mudar asserção.
   - Paralelo: Y3.x, Y4.2, Y5.1, Y6.1, Y6.3, C1.x; **não** com C2.2 (`turn.py`, `assemble.py`)
 
-- [ ] **Y6.3 Modo nuvem** — `ayanami/nuvem.py` (`NUVEM_PODE`, `atender(texto, dispositivo, deps)`:
+- [x] **Y6.3 Modo nuvem** — `ayanami/nuvem.py` (`NUVEM_PODE`, `atender(texto, dispositivo, deps)`:
   `GraphAgent` só com as ferramentas permitidas e a linha "Agora você está na nuvem…", contexto dos
   últimos `contexto_turnos` de `nuvem_turnos`, `tv_*` só com casa online, `tv_desligar` → `confirma`;
   teto batido → roteador sem LLM com as frases `tv.*` do `intents.yaml` (rapidfuzz) e frase
@@ -854,7 +854,7 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
 
 ## Fase P1 — Celular (PWA, `ayanami/pwa/`)
 
-- [ ] **P1.1 Esqueleto do PWA** — HTML + JS em módulos ES, sem build e sem CDN (DS15):
+- [x] **P1.1 Esqueleto do PWA** — HTML + JS em módulos ES, sem build e sem CDN (DS15):
   `index.html`, `app.js` (roteador por hash da §14.1 e estados globais da §14.3: `/saude` com 4 s na
   abertura, em `visibilitychange` e a cada 30 s; 401 → apaga o token e vai a Parear; faixa "sem
   conexão com a Ayanami — ligue o Tailscale"), `api.js` (fetch com Bearer do IndexedDB, SSE com
@@ -1428,3 +1428,39 @@ Critérios de sucesso 1–8 (ao vivo): C1.S2 (1), P1.S4 (2), F.1 (todos).
   se o `worker-rapido` encostar nos 384m, baixar para 4 (não há variável de ambiente para isso).
   (4) A tabela/RNF-A6 da spec não foi editada (spec compartilhada): anotar o perfil node 2 nela se o
   Pedro quiser.
+- **P1.1:** (1) Contrato das telas: `montar(el, ctx)` pode devolver a função de desmontagem; `ctx` =
+  `{api, estado, eventos, params, navegar}`; `eventos.on(nome, fn)` recebe o SSE (`turno.texto`,
+  `turno.fim`, `evento`, `estado`, `confirma`; `"*"` = todos); `api.pedir` lança `ErroApi`
+  (`status`, `corpo`); `estado` tem `conexao`, `casa_fora`, `rota`, `saude` e `instalar` (o
+  `beforeinstallprompt`, para a P1.4). (2) SSE lido por `fetch` + `ReadableStream` (o `EventSource`
+  não manda `Authorization` nem `Last-Event-ID`). (3) `.precisa-rede` e `.precisa-casa` já ficam
+  desabilitadas pelo CSS conforme `body[data-conexao]`/`body[data-casa]`. (4) Cópia do feed em
+  `condessa-feed`, chave `/v1/feed`, cabeçalho `X-Condessa-Cache-Em` (ISO) para a P1.4. (5) A P2.2
+  acrescenta `push`/`notificationclick` no `sw.js` e sobe `VERSAO`; arquivo novo tem de entrar em
+  `ARQUIVOS` (o `test_sw.mjs` confere). (6) `gravador.js` exporta `suportado()`. (7) Ícones são a
+  arte do HUD ampliada (cabem nos 80 KB, mas com pouca resolução): trocar se houver arte maior.
+  (8) `montar_pwa(app, pwa_dir=None)`: a `criar_app` não repassa o `pwa_dir` dela (só decide se monta).
+- **Y6.3:** (1) A Y6.4 monta `NuvemDeps.de_deps(deps, hub, confirmacoes=, app=)`, aquece a
+  `FalaNuvem` com `carregar_frases().values()` na subida, chama `FalaNuvem.sintetizar(fim.fala)`
+  ("opus" da OpenAI ou "pcm16" do Kokoro) e avisa o PWA da confirmação criada (o `TurnoFim` não leva
+  o id; talvez SSE `confirma`); `atender` aceita `turno=`. (2) O `ProviderRegistry` da nuvem (com
+  `chat(AGENT)` gravando no `BudgetNuvem`) e o `openai.AsyncOpenAI` com `OPENAI_API_KEY` não estão
+  montados. (3) Sem reserva local de STT (o `WhisperLocal` trabalha por arquivo): `EscutaNuvem`
+  aceita uma reserva injetável, `None` → `VozIndisponivel`. (4) `tv_estado` ficou fora (não está
+  em `NUVEM_PODE`). (5) `news_query` da nuvem é SQL simples em `news_items`, sem embeddings.
+- **Y3.4:** (1) Feito à parte (a56ba88): `tarefas.on_job_status` não marca `ok` quando o job
+  devolve `{"segue": True}` (o monitor que não bateu já voltou a `na_fila`). (2) O 1º `monitor.passo`
+  (da `criar_tarefa`) sai com `queueing_lock=chave`, não `monitor:<id>`: a varredura pode deferir um
+  2º enquanto ele espera; inofensivo (o `lock` serializa e o passo antes da hora não faz nada).
+  (3) `deps.registry` continua `None` no worker de produção (mesma pendência da Y3.2/Y6.1). (4) O
+  juízo do monitor usa `ProviderTask.NEWS` como "LLM barato"; trocar se houver tarefa própria.
+- **Y4.2:** (1) CA-Y25 não fecha por dois arquivos de outros donos: `deploy/ayanami/host/
+  limpar-multivideos.sh:158` (Y1.2, comando de remover volume) e a docstring de
+  `magi/elo/backup.py:12` (Y4.1, cita TRUNCATE e `--clean`); `test_varredura_completa_sem_excecoes`
+  está `xfail(strict=True)` até corrigirem. (2) A imagem precisa de `zstd` (`tar --zstd` do restore
+  de teste; conferir o Dockerfile da Y1.1). (3) `/saude` ainda não expõe `backup_falhou` nem
+  `restore_teste` (tabela `restore_testes` pronta). (4) `ayanami backup` só tem `iniciar`; `rodar` e
+  `testar` dão código 2. (5) Dump da Ayanami por `docker exec ayanami-pg pg_dump -Fc` (a imagem não
+  tem cliente pg); senha do contêiner descartável só por ambiente; 409 = arquivo presente com o
+  tamanho registrado (sem refazer o sha256). (6) Restore real (`pg_restore` da base `magi`) fica
+  para a Y4.3.
