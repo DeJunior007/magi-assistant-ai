@@ -542,6 +542,7 @@ async def assemble(
     found = handlers(catalog, hud_sink, core.corrections)
     found = _wire_casa(core, config, found)  # TVs pela magi-casa (ayanami-central C2.2)
     _wire_ayanami(core, config)  # elo do PC com a Ayanami (ayanami-central Y6.2)
+    found = _wire_celular(core, config, found)  # "pareia o celular" (ayanami-central Y6.6b)
     found = _wire_memory_store(core, found)
     found = _wire_mood(core, config, hud_sink, found)
     found = _wire_news_query(core, found)
@@ -581,6 +582,16 @@ def _wire_ayanami(core: Core, config: Config) -> None:
         core.ayanami = NoPc.de_config(config, core)
     except Exception as e:
         core.warn(f"elo com a Ayanami desligado: {e}")
+
+
+def _wire_celular(core: Core, config: Config, found: list[ActionHandler]) -> list[ActionHandler]:
+    """``celular.parear`` (Y6.6b) sempre registrado: sem ``[ayanami]`` responde que não está
+    configurada; com ela, o código vai só para o card do HUD pelo ``core.proactive``."""
+    if any(IntentId.CELULAR_PAREAR.value in h.intents for h in found):
+        return found
+    from magi.core.actions.celular import CelularActions
+
+    return [*found, CelularActions.de_config(config, core)]
 
 
 def _wire_casa(core: Core, config: Config, found: list[ActionHandler]) -> list[ActionHandler]:

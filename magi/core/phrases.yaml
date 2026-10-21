@@ -63,6 +63,11 @@ lazy:
   - "Mudo alternado."
   - "A TV recusou o comando."
   - "Essa TV ainda não foi pareada."
+  # pareamento do celular (ayanami-central Y6.6b, ``SAY_*`` de magi/core/actions/celular.py)
+  - "Código na tela, vale 5 minutos."
+  - "A Ayanami não está configurada."
+  - "Falta o token do PC para a Ayanami."
+  - "Não consegui falar com a Ayanami."
   # audiolivro (A2.3)
   - "Tô numa call; leio quando ela acabar."
   - "Não achei esse livro na pasta."

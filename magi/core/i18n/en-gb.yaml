@@ -23,6 +23,11 @@ fixed:
   "Mudo alternado.": "Mute toggled."
   "A TV recusou o comando.": "The TV refused the command."
   "Essa TV ainda não foi pareada.": "That TV hasn't been paired yet."
+  # pareamento do celular (ayanami-central Y6.6b)
+  "Código na tela, vale 5 minutos.": "Code's on the screen; it's good for 5 minutes."
+  "A Ayanami não está configurada.": "Ayanami isn't set up."
+  "Falta o token do PC para a Ayanami.": "The PC's token for Ayanami is missing."
+  "Não consegui falar com a Ayanami.": "I couldn't reach Ayanami."
   # audiolivro (A2.3)
   "Tô numa call; leio quando ela acabar.": "I'm in a call; I'll read once it's over."
   "Não achei esse livro na pasta.": "I couldn't find that book in the folder."

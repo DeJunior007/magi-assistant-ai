@@ -510,6 +510,8 @@ class IntentId(StrEnum):
     TV_UNMUTE = "tv.unmute"
     TV_APP = "tv.app"  # slot app
     TV_INPUT = "tv.input"  # slot input
+    # celular pela Ayanami (ayanami-central Y6.6b): código de pareamento só no card do HUD
+    CELULAR_PAREAR = "celular.parear"
 
 
 @dataclass(frozen=True, slots=True)

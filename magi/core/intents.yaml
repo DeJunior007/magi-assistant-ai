@@ -1030,3 +1030,18 @@ intents:
       - "quanto falta do livro"
       - "quanto falta do capítulo"
       - "quanto tempo leva {query}"
+
+  # -- Celular pela Ayanami (ayanami-central Y6.6b, spec §2.2 /v1/pareamento) --
+  # Sem ``reply``: o handler responde (o código vai só para o card do HUD, nunca para a fala).
+  - id: celular.parear
+    label: "parear o celular"
+    phrases:
+      - "pareia o celular"
+      - "parear o celular"
+      - "pareia meu celular"
+      - "conectar celular"
+      - "conecta o celular"
+      - "conectar o celular na ayanami"
+      - "código do celular"
+      - "código de pareamento"
+      - "gera o código do celular"

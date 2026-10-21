@@ -689,6 +689,18 @@ P2.1) · `ayanami/deps.py` (Y3.1 → Y6.1) · `ayanami/api/tarefas.py` (Y3.1 →
   - Pronto: evento em jogo/silêncio fica na fila da proatividade como os locais; 2 puxadas seguidas de custos não duplicam (`db` ou repo falso); `confirma` sem resposta em 120 s não manda nada; `pedir_codigo` com API falsa gera o card e nunca loga o código; `tests/core/` sem mudar asserção.
   - Paralelo: Y6.4, Y6.5
 
+- [x] **Y6.6b "Condessa, pareia o celular"** — sobra da Y6.6: o card do código só saía quando o
+  core chamava `pedir_codigo(avisos=…)`. Intent `celular.parear` ("pareia o celular", "conectar
+  celular", "código do celular"…) + `IntentId.CELULAR_PAREAR`; `magi/core/actions/celular.py`
+  (`CelularActions`) chama `pedir_codigo` com `AvisosAyanami(core.proactive)` e fala "Código na
+  tela, vale 5 minutos." (a spec §2.2 diz 5 min); sem `[ayanami]` → "A Ayanami não está
+  configurada."; registrado sempre no `assemble.py`. O código só vai ao card (nem fala nem log).
+  - Escreve: `magi/core/intents.yaml` (bloco `celular.*`), `magi/common/contracts.py` (só o
+    `IntentId`), `magi/core/phrases.yaml` e `magi/core/i18n/en-gb.yaml` (frases do pareamento),
+    `magi/core/actions/celular.py`, `magi/core/assemble.py` (só o registro), `tests/core/test_parear_celular.py`
+  - Pronto: Ayanami falsa (`MockTransport`) gera o card e a fala curta sem o código; `tests/core` e
+    `tests/agent` sem mudar asserção.
+
 ---
 
 ## Fase C1 — `magi-casa`
