@@ -121,7 +121,9 @@ def test_comandos_e_dependencias(servicos: dict) -> None:
     assert api == "uvicorn ayanami.api.app:app_de_producao --factory --host 0.0.0.0 --port 8740 --workers 1"
     assert servicos["ayanami-voz"]["command"] == ["ayanami", "voz", "--port", "8741"]
     migrar = " ".join(servicos["migrar"]["command"])
-    assert "ayanami migrar && procrastinate --app=ayanami.fila.app schema --apply" in migrar
+    assert migrar.startswith("sh -c ayanami migrar &&")
+    assert "procrastinate --app=ayanami.fila.app schema --apply" in migrar
+    assert "to_regclass" in migrar and "procrastinate_jobs" in migrar  # idempotente
     for nome in ("migrar", "ayanami-api", "worker-rapido", "worker-agendado", "worker-lento"):
         assert servicos[nome]["depends_on"]["ayanami-pg"]["condition"] == "service_healthy", nome
     assert "depends_on" not in servicos["ayanami-voz"]

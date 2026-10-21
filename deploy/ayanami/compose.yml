@@ -83,7 +83,18 @@ services:
     <<: *ayanami
     profiles: ["ops"]
     restart: "no"
-    command: ["sh", "-c", "ayanami migrar && procrastinate --app=ayanami.fila.app schema --apply"]
+    # `procrastinate schema --apply` não é idempotente (recria tipos): só aplica se a tabela
+    # procrastinate_jobs ainda não existe (o deploy roda migrar a cada push).
+    command:
+      - sh
+      - -c
+      - >-
+        ayanami migrar &&
+        if python -c "import psycopg, sys; from ayanami.db import dsn_padrao;
+        c = psycopg.connect(dsn_padrao());
+        sys.exit(0 if c.execute('select to_regclass(%s)', ['procrastinate_jobs']).fetchone()[0] else 1)";
+        then echo 'schema do procrastinate já aplicado';
+        else procrastinate --app=ayanami.fila.app schema --apply; fi
     depends_on:
       ayanami-pg:
         condition: service_healthy

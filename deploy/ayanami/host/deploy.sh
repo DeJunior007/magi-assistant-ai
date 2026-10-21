@@ -66,7 +66,7 @@ log "imagens"
 if [ "$GHCR" -eq 1 ]; then
   # Com ghcr os serviços da Ayanami (que têm `build:`) também vêm do registro: sem
   # --ignore-buildable, senão a tag nova nunca é baixada e o `up --pull never` falha.
-  docker compose pull
+  docker compose pull --quiet
 else
   docker compose pull --ignore-buildable
 fi
