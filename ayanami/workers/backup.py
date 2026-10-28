@@ -254,9 +254,14 @@ def _segredos(deps: Deps) -> Any:
     return s
 
 
+def segredos_faltando(segredos: Any) -> list[str]:
+    """Nomes de :data:`SEGREDOS_BACKUP` sem valor (nunca os valores)."""
+    return [n for n in SEGREDOS_BACKUP if not (segredos.get(n) if segredos is not None else None)]
+
+
 def ambiente_restic(segredos: Any, dados: Path) -> dict[str, str]:
     """Ambiente do ``restic`` (§7.2). Faltando segredo → :class:`ErroBackup` (só os nomes)."""
-    faltando = [n for n in SEGREDOS_BACKUP if not (segredos.get(n) if segredos is not None else None)]
+    faltando = segredos_faltando(segredos)
     if faltando:
         raise ErroBackup(f"segredos do backup faltando: {', '.join(faltando)}")
     return {
@@ -279,6 +284,16 @@ def _desligado(deps: Deps) -> dict[str, Any] | None:
     if not deps.cfg.backup.ligado:
         log.info("backup desligado ([backup] ligado = false)")
         return {"pulado": "desligado"}
+    return None
+
+
+def _sem_segredos(deps: Deps, job: str) -> dict[str, Any] | None:
+    """Sem os segredos do B2/restic (ainda não configurados) o job **pula com aviso** em vez de
+    falhar todo dia na fila ``agendada`` (``failed_24h`` da /saude). Só os nomes vão para o log."""
+    faltando = segredos_faltando(_segredos(deps))
+    if faltando:
+        log.warning("%s pulado: segredos do backup faltando: %s", job, ", ".join(faltando))
+        return {"pulado": "sem_segredos", "faltando": faltando}
     return None
 
 
@@ -306,6 +321,8 @@ async def restic(
         return p
     if origem != "pc":
         raise ValueError("backup.restic só sobe o backup do PC")
+    if (p := _sem_segredos(deps, "backup.restic")) is not None:
+        return p
     sql = "SELECT data FROM backups WHERE origem = 'pc' AND snapshot IS NULL"
     args: list[Any] = []
     if data is not None:
@@ -398,6 +415,8 @@ async def enviar(deps: Deps, contexto: JobContext | None = None, *, timestamp: i
     sobe o que do PC ficou sem snapshot."""
     if (p := _desligado(deps)) is not None:
         return p
+    if (p := _sem_segredos(deps, "backup.enviar")) is not None:
+        return p
     d = _data_do(timestamp)
     pasta = pasta_ayanami(deps.dados, d)
     if not (pasta / DUMP_AYANAMI).exists():
@@ -423,6 +442,8 @@ async def reter(deps: Deps, contexto: JobContext | None = None, *, timestamp: in
     ``backup.reter`` [DS7]: ``forget --group-by host,tags`` com os três ``--keep-*``, por tag."""
     if (p := _desligado(deps)) is not None:
         return p
+    if (p := _sem_segredos(deps, "backup.reter")) is not None:
+        return p
     env = ambiente_restic(_segredos(deps), deps.dados)
     for tag in ("pc", "ayanami"):
         await _rodar(
@@ -439,6 +460,8 @@ async def verificar(
 
     ``backup.verificar``: ``restic check --read-data-subset=5%``."""
     if (p := _desligado(deps)) is not None:
+        return p
+    if (p := _sem_segredos(deps, "backup.verificar")) is not None:
         return p
     env = ambiente_restic(_segredos(deps), deps.dados)
     await _rodar(deps, Comando(("restic", "check", "--read-data-subset=5%"), env=env))
@@ -507,6 +530,8 @@ async def restore_teste(
         return p
     if not deps.cfg.backup.restore_teste:
         return {"pulado": "restore_teste desligado"}
+    if (p := _sem_segredos(deps, "backup.restore_teste")) is not None:
+        return p
     alvo = deps.dados / "tmp" / f"restore-{uuid4().hex[:12]}"
     detalhes: dict[str, Any] = {}
     snapshot: str | None = None

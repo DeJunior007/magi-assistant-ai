@@ -190,6 +190,22 @@ async def test_desligado_nao_roda_nada(tmp_path):
     assert ex.cmds == []
 
 
+async def test_sem_segredos_pula_com_aviso_sem_falhar(tmp_path, caplog):
+    # Node 2 sem B2/RESTIC_PASSWORD (ainda não configurados): os jobs da fila `agendada` pulam com
+    # aviso (só os nomes) em vez de levantar ErroBackup todo dia e contar em failed_24h.
+    ex = Executor()
+    deps = _deps(None, tmp_path, ex)
+    deps.extras["segredos"] = {"RESTIC_PASSWORD": "senha-falsa"}
+    esperado = {"pulado": "sem_segredos", "faltando": ["B2_ACCOUNT_ID", "B2_ACCOUNT_KEY", "B2_BUCKET"]}
+    with caplog.at_level("WARNING", logger=bk.log.name):
+        for job in (bk.enviar, bk.reter, bk.verificar, bk.restore_teste):
+            assert await job(deps, None, timestamp=TS) == esperado
+        assert await bk.restic(deps, None, data=DATA) == esperado
+    assert ex.cmds == []
+    assert "backup.enviar pulado: segredos do backup faltando: B2_ACCOUNT_ID" in caplog.text
+    assert "senha-falsa" not in caplog.text
+
+
 async def test_reter_e_verificar_batem_com_a_tabela(tmp_path):
     ex = Executor()
     deps = _deps(None, tmp_path, ex)
