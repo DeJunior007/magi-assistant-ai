@@ -1,5 +1,7 @@
 name: ci
 
+# Testes do PC (sem os extras da nuvem). A Ayanami (tests/ayanami, com `--extra ayanami` e o
+# Postgres descartável) roda no workflow `ayanami`; aqui só os JS do PWA, que são baratos e sem extras.
 on:
   push:
   pull_request:
@@ -7,11 +9,25 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - name: Dependências de sistema (áudio, D-Bus)
-        run: sudo apt-get update && sudo apt-get install -y libportaudio2 libdbus-1-dev
+      - name: Dependências de sistema (áudio, D-Bus, Qt sem tela)
+        run: >-
+          sudo apt-get update && sudo apt-get install -y libportaudio2 libdbus-1-dev
+          libegl1 libgl1 libxkbcommon0 libfontconfig1
       - run: uv sync
       - run: uv run ruff check magi tests
-      - run: uv run pytest -m "not db and not live"
+      - run: uv run pytest -m "not db and not live and not pg" --ignore=tests/ayanami
+
+  pwa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      # O Node 24 não aceita o diretório; o glob vai entre aspas para o próprio node expandir.
+      - run: node --test 'tests/ayanami/pwa/*.mjs'
