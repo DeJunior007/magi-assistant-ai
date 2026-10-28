@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       QT_QPA_PLATFORM: offscreen
+      # venv novo: sem isto o import preguiçoso do numpy.ma grava .pyc durante o teste e o
+      # `no_disk_writes` de tests/core/test_stt.py acusa escrita em disco.
+      PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
