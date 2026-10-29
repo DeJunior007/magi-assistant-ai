@@ -131,7 +131,7 @@ A0.1 toolchain ── A0.2 esqueleto ─┬─ A0.3 CI android (+M1.7) ──┼
   - Pronto: CA-M27 (parte retrato), CA-M29, CA-M30, CA-M31 verdes (arte sintética gerada no teste; nunca a do Pedro).
   - Paralelo: A0.2, M1.4
 
-- [ ] **M1.4 `magi-retrato` no PC** — spec §12 (DSC8): `magi/elo/retrato.py` (`enviar`, `estado`;
+- [x] **M1.4 `magi-retrato` no PC** — spec §12 (DSC8): `magi/elo/retrato.py` (`enviar`, `estado`;
   tar só com caminhos permitidos; `zstd`; `PUT` com `X-Sha256`; credenciais do `magi-backup`) e a linha
   `magi-retrato` no `[project.scripts]`.
   - Lê: spec §12; `magi/elo/backup.py` (cliente HTTP, credenciais, `dormir`; por trecho), `magi/satellite/wake.py` (`grep -n "wake_\|WakeSettings"`)

@@ -63,6 +63,7 @@ magi-spotify-login = "magi.cli.spotify_login:main"
 ayanami = "ayanami.cli:main"  # API central no node 2 (specs/ayanami-central, Y0.2)
 magi-news-sync = "magi.elo.news_sync:main"  # PC puxa notícias da Ayanami (spec §5.2)
 magi-backup = "magi.elo.backup:main"  # backup do PC para a Ayanami (spec §7.1)
+magi-retrato = "magi.elo.retrato:main"  # arte da Condessa para a Ayanami (condessa-celular §12)
 magi-casa = "magi.casa.__main__:main"  # TVs da casa (specs/ayanami-central §10, C1.1)
 
 [project.optional-dependencies]
