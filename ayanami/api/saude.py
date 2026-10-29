@@ -7,24 +7,43 @@ tabela do ``procrastinate`` não existe), batimento dos workers, último backup,
 ``online``: ``pc``/``casa`` = dispositivo ativo com ``visto`` (último ``ola``/``bate``) dentro de
 ``[rede] offline_apos_s``; ``celulares`` = celulares ativos com ``ultimo_uso`` na mesma janela. A
 Y2.2 pode trocar a fonte por ``ctx.extras["online"]`` (função ``() -> dict``) com o hub em memória.
+
+``app``/``retrato`` (condessa-celular M1.1, spec §9.2/§9.3): ``{"versao": versionCode|null}`` do
+``versao.json`` de ``[app] dir`` e ``{"versao": sha12|null}`` do ponteiro ``<dados>/retrato/atual``
+(arquivo com a versão, ou link para a pasta dela); ausente ou ilegível → ``null``.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 import psycopg
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from ayanami.api.app_android import dir_app, version_code_publicado
 from ayanami.api.auth import iso_z
+from ayanami.deps import DADOS_PADRAO
 
 log = logging.getLogger("ayanami.api.saude")
 router = APIRouter()
 
 FILAS = ("rapida", "agendada", "lenta")
+_VERSAO_RETRATO_RE = re.compile(r"^[0-9a-f]{12,64}$")
+
+
+def versao_retrato(dados: Path) -> str | None:
+    """Os 12 primeiros hex da versão atual do retrato, ou ``None``."""
+    atual = dados / "retrato" / "atual"
+    try:
+        texto = atual.resolve().name if atual.is_dir() else atual.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return texto[:12] if _VERSAO_RETRATO_RE.match(texto) else None
 
 
 def _fila(conn: Any) -> dict[str, dict[str, int]]:
@@ -85,6 +104,8 @@ def coletar(ctx: Any) -> dict:
         "ultimo_backup": {"pc": iso_z(pc), "ayanami": iso_z(ayn), "restic": iso_z(restic)},
         "online": online,
         "faltando": faltando,
+        "app": {"versao": version_code_publicado(dir_app(ctx))},
+        "retrato": {"versao": versao_retrato(Path(ctx.extras.get("dados") or DADOS_PADRAO))},
     }
 
 

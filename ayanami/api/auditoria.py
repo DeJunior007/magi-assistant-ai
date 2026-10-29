@@ -11,7 +11,7 @@ from typing import Any
 
 from ayanami.db import Db, transacao
 
-TIPOS = ("casa", "mcp", "dispositivo", "backup", "tarefa", "push")
+TIPOS = ("casa", "mcp", "dispositivo", "backup", "tarefa", "push", "app", "retrato")
 MAX_RESUMO = 300
 
 

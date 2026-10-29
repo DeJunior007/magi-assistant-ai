@@ -35,9 +35,9 @@ NOME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 TTL_CACHE_S = 5.0
 
 ESCOPOS_PADRAO: dict[str, tuple[str, ...]] = {
-    "pc": ("conversa", "casa", "tarefas", "feed", "backup", "noticias", "custos"),
+    "pc": ("conversa", "casa", "tarefas", "feed", "backup", "noticias", "custos", "retrato-enviar"),
     "casa": ("casa-executar",),
-    "celular": ("conversa", "casa", "tarefas", "feed"),
+    "celular": ("conversa", "casa", "tarefas", "feed", "retrato"),
     "mcp": ("ler", "tarefas"),  # o real vem de [mcp] escopos (cfg)
 }
 
@@ -92,6 +92,13 @@ ESCOPO_DE_ROTA: dict[tuple[str, str], Exigencia | None] = {
     ("PUT", "/v1/noticias/preferencias"): _e("noticias"),
     ("GET", "/v1/custos"): _e("custos"),
     ("PUT", "/v1/backup/pc"): _e("backup"),
+    # condessa-celular (spec §9.1, DSC4): celular antigo (só ``conversa``) também lê o retrato
+    ("GET", "/v1/app/versao"): _e("conversa"),
+    ("GET", "/v1/app/apk"): _e("conversa"),
+    ("GET", "/v1/retrato/versao"): _e("retrato", "conversa"),
+    ("GET", "/v1/retrato/pacote"): _e("retrato", "conversa"),
+    ("GET", "/v1/retrato/modelos"): _e("retrato", "conversa"),
+    ("PUT", "/v1/retrato"): Exigencia(escopos=("retrato-enviar", "backup"), tipos=("pc",)),
 }
 
 

@@ -93,7 +93,7 @@ A0.1 toolchain ── A0.2 esqueleto ─┬─ A0.3 CI android (+M1.7) ──┼
 
 ## Fase M — Ayanami e PC (Python)
 
-- [ ] **M1.1 Escopos, rotas `/v1/app/*` e `/saude`** — `auth.py`: `ESCOPOS_PADRAO` (`retrato` no
+- [x] **M1.1 Escopos, rotas `/v1/app/*` e `/saude`** — `auth.py`: `ESCOPOS_PADRAO` (`retrato` no
   celular, `retrato-enviar` no pc) e as 6 linhas novas do `ESCOPO_DE_ROTA` (spec §9.1, DSC4);
   `app.py`: `"app_android"` e `"retrato"` em `ROTEADORES` (só a tupla); `ayanami/api/app_android.py`
   (§9.2: `versao.json` validado, APK com `Range`/`If-Range`/`ETag`/`416`, limite 6/h fora do 60/min);
@@ -107,7 +107,7 @@ A0.1 toolchain ── A0.2 esqueleto ─┬─ A0.3 CI android (+M1.7) ──┼
   - Pronto: CA-M27 (parte de escopos), CA-M28 e CA-Y9 verdes; `tests/ayanami` verde.
   - Paralelo: M1.2, M1.5, M1.6, M1.7, A0.1 (cuidado: Y6.5b mexe no lifespan do `app.py`; aqui só a tupla)
 
-- [ ] **M1.2 Turno com Ogg Opus e SSE `turno.ouvido`** — spec §9.4 e §9.5 (DSC5): `MIME_AUDIO` aceita
+- [x] **M1.2 Turno com Ogg Opus e SSE `turno.ouvido`** — spec §9.4 e §9.5 (DSC5): `MIME_AUDIO` aceita
   `audio/ogg`; `Conversor.audio_para_pcm` com alias `webm_para_pcm`; `TurnoFim.ouvido` no elo e no
   `schema.py`; a ponte do PC preenche `ouvido`; `turnos.py` publica `turno.ouvido` (nuvem/long-poll
   após o STT; PC antes do `turno.texto`). Fixture `tests/ayanami/fixtures/turno.ogg` (≤ 4 KB, seno
@@ -420,6 +420,20 @@ Critérios de sucesso 1–8 (ao vivo): F.3 (2, 3, 5), F.1 (6, 7), F.4 (todos).
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
+
+- **M1.2:** `ayanami/app/elo.schema.json` (fora do *Escreve*) regenerado com `python -m magi.elo.schema`
+  por causa do campo `TurnoFim.ouvido` (o `test_schema_deterministico_e_igual_ao_arquivo` compara);
+  `magi/elo/schema.py` não precisou mudar (gera dos dataclasses). O `magi-core` só preenche `ouvido`
+  depois que o Pedro reiniciar.
+
+- **M1.1**: `ayanami/api/retrato.py` nasce com as 4 rotas do `ESCOPO_DE_ROTA` como `rota_stub` (501,
+  "dono: M1.3") e não com `router` vazio — o `test_rotas_da_app_batem_com_a_tabela` exige rota para
+  cada linha. Fora do *Escreve*: `ayanami/api/auditoria.py` ganhou `"app"` e `"retrato"` em `TIPOS`
+  (sem isso `registrar(tipo="app")` levanta). Para a M1.3: os downloads do retrato chamam
+  `ctx.limites.por_download(request, disp, etag)` (o 60/min já os isenta) e podem usar
+  `app_android.servir_arquivo` (ETag/Range/If-Range/416); `/saude` lê `<dados>/retrato/atual`
+  (arquivo com a versão ou link para a pasta). No `tests/ayanami` completo, falhas só de trabalho em
+  curso de outras tarefas (`test_turno_ogg` da M1.2; `NTFY_BASE_URL` no `env.example` vs `test_config`).
 
 - **M1.6** (fora do *Escreve*, necessários para o "Pronto"): `compose.node2.yml` ganhou `ntfy`
   (cpuset 6,7, 0.25 CPU, 64m sem swap; soma do perfil 6592 MiB) para o perfil enxuto;

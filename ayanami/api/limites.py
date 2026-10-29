@@ -3,7 +3,10 @@
 - :class:`Janela`: N eventos por janela deslizante de 60 s por chave, relógio injetado
   (``monotonico``); estourou → ``ErroApi(429)`` com ``Retry-After`` em segundos inteiros.
 - :class:`Limites`: 60 req/min por dispositivo (exceto ``/ws``, ``/v1/eventos``,
-  ``/v1/longpoll``) e 5 tentativas/min por IP no ``/v1/pareamento/trocar``.
+  ``/v1/longpoll`` e os downloads grandes) e 5 tentativas/min por IP no ``/v1/pareamento/trocar``.
+  Downloads (``/v1/app/apk``, ``/v1/retrato/pacote|modelos``; condessa-celular §9.1): 6/h por
+  dispositivo em :meth:`Limites.por_download`; a continuação com ``Range`` do mesmo download
+  (mesmo ETag em 10 min) não conta de novo.
 - :class:`LimiteCorpo`: middleware ASGI que recusa corpo grande com ``413`` — 256 KiB por padrão,
   1 MiB em ``/v1/turno``, 2 GiB em ``/v1/backup/pc`` — pelo ``Content-Length`` e, sem ele, contando
   os bytes que chegam.
@@ -23,6 +26,10 @@ POR_MINUTO = 60
 JANELA_S = 60.0
 ISENTAS = ("/ws", "/v1/eventos", "/v1/longpoll")
 TROCAR_POR_MINUTO = 5
+DOWNLOADS = ("/v1/app/apk", "/v1/retrato/pacote", "/v1/retrato/modelos")
+DOWNLOADS_POR_HORA = 6
+HORA_S = 3600.0
+MESMO_DOWNLOAD_S = 600.0
 
 KIB = 1024
 MIB = 1024 * KIB
@@ -57,11 +64,32 @@ class Limites:
     def __init__(self, relogio: Any) -> None:
         self.dispositivo = Janela(relogio, POR_MINUTO)
         self.trocar_ip = Janela(relogio, TROCAR_POR_MINUTO)
+        self.download = Janela(relogio, DOWNLOADS_POR_HORA, HORA_S)
+        self._relogio = relogio
+        self._em_curso: dict[tuple[int, str, str], float] = {}
+        self._trava = threading.Lock()
 
     def por_dispositivo(self, request: Any, disp: Dispositivo) -> None:
-        if request.url.path in ISENTAS:
+        if request.url.path in ISENTAS or request.url.path in DOWNLOADS:
             return
         self.dispositivo.contar(disp.id)
+
+    def por_download(self, request: Any, disp: Dispositivo, etag: str) -> None:
+        """Conta um download (6/h): pedido com ``Range`` e ``If-Range`` (se vier) = ``etag`` dentro
+        de 10 min do último pedido do mesmo dispositivo/caminho/ETag é o mesmo download."""
+        chave = (disp.id, request.url.path, etag)
+        agora = self._relogio.monotonico()
+        if_range = request.headers.get("if-range")
+        continua = request.headers.get("range") is not None and if_range in (None, etag)
+        with self._trava:
+            for k in [k for k, t in self._em_curso.items() if agora - t >= MESMO_DOWNLOAD_S]:
+                del self._em_curso[k]
+            if continua and chave in self._em_curso:
+                self._em_curso[chave] = agora
+                return
+        self.download.contar(disp.id)
+        with self._trava:
+            self._em_curso[chave] = agora
 
     def por_ip(self, request: Any) -> None:
         ip = request.client.host if request.client else "?"

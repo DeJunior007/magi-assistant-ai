@@ -54,3 +54,6 @@ descarregar_apos_s = 600
 
 [embeddings]
 ligado = false            # só com a A8
+
+[app]
+dir = "/dados/app"       # versao.json + condessa-<vc>.apk do app Android (o ci-deploy.sh grava)

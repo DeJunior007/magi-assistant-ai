@@ -114,6 +114,13 @@ class Embeddings:
 
 
 @dataclass(frozen=True)
+class App:
+    """``[app]`` (condessa-celular M1.1): onde ficam ``versao.json`` e ``condessa-<vc>.apk``."""
+
+    dir: str = "/dados/app"
+
+
+@dataclass(frozen=True)
 class AyanamiConfig:
     geral: Geral
     rede: Rede = field(default_factory=Rede)
@@ -126,6 +133,7 @@ class AyanamiConfig:
     mcp: Mcp = field(default_factory=Mcp)
     voz: Voz = field(default_factory=Voz)
     embeddings: Embeddings = field(default_factory=Embeddings)
+    app: App = field(default_factory=App)
 
 
 # --------------------------------------------------------------------------- validação
@@ -159,6 +167,10 @@ def _fuso(v: str) -> str | None:
 
 def _nao_vazio(v: str) -> str | None:
     return None if v.strip() else "não pode ser vazio"
+
+
+def _absoluto(v: str) -> str | None:
+    return None if v.startswith("/") else "esperado caminho absoluto"
 
 
 def _horario(v: str) -> str | None:
@@ -256,6 +268,7 @@ _ESQUEMA: dict[str, tuple[type, dict[str, _Campo]]] = {
         },
     ),
     "embeddings": (Embeddings, {"ligado": (bool, False, None)}),
+    "app": (App, {"dir": (str, "/dados/app", _absoluto)}),
 }
 
 
