@@ -133,7 +133,7 @@ Formato: **Lê** · **Escreve** · **Depende de** · **Orçamento** · **Pronto*
   - Pronto: CA-P7, CA-P8, CA-P9 verdes; `tests/ayanami/test_mcp.py` e `tests/ayanami/api` verdes.
   - Paralelo: P0.1, P0.3, P0.4, P0.5
 
-- [ ] **P0.3 Redator** — `ayanami/redator.py` (`redigir`, `envelope`, regras da spec §5) e testes.
+- [x] **P0.3 Redator** — `ayanami/redator.py` (`redigir`, `envelope`, regras da spec §5) e testes.
   - Lê: spec §5, DSP6; R0.8
   - Escreve: `ayanami/redator.py`, `tests/ayanami/test_redator.py`
   - Depende de: —
