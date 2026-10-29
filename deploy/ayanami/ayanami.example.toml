@@ -41,6 +41,7 @@ alerta_sem_snapshot_h = 36
 max_hora = 10             # 1..60, por dispositivo (§15)
 noticias_dia = 3          # 0..10
 silencio_padrao = "23:00-07:30"
+ntfy_hosts = []           # host[:porta] do ntfy aceitos no push unifiedpush, ex.: ["ayanami.exemplo.ts.net:8443"]
 
 [mcp]
 escopos = ["ler", "tarefas"]   # subconjunto de {"ler","tarefas","casa","memoria-escrever"}

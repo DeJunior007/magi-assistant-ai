@@ -272,12 +272,16 @@ class Resultado:
         return self.status == 0 or self.status == 429 or self.status >= 500
 
 
+TTL_MIN_UNIFIEDPUSH = 60  # s; o ntfy descarta push com TTL 0 (spec §9.6)
+
+
 @dataclass(frozen=True)
 class Assinatura:
     id: int
     endpoint: str
     p256dh: str
     auth: str
+    tipo: str = "webpush"  # "webpush" (PWA) | "unifiedpush" (app Android via ntfy, spec §9.6)
 
     def info(self) -> dict[str, Any]:
         return {"endpoint": self.endpoint, "keys": {"p256dh": self.p256dh, "auth": self.auth}}
@@ -297,8 +301,15 @@ def _webpush_padrao() -> Callable[..., Any]:
 
 async def enviar_um(webpush: Callable[..., Any], ass: Assinatura, dados: str, vapid: Vapid, *,
                     urgencia: str, ttl: int, tag: str, agora: datetime) -> Resultado:
-    """Um ``webpush`` em thread; devolve status e ``Retry-After`` (nunca levanta)."""
+    """Um ``webpush`` em thread; devolve status e ``Retry-After`` (nunca levanta).
+
+    ``unifiedpush`` vai pelo mesmo ``pywebpush`` e payload; só o ``ttl`` tem piso de
+    :data:`TTL_MIN_UNIFIEDPUSH` (o ntfy descarta TTL 0). O ``Topic`` já sai com ≤ 32 caracteres.
+    """
     from pywebpush import WebPushException
+
+    if ass.tipo == "unifiedpush":
+        ttl = max(ttl, TTL_MIN_UNIFIEDPUSH)
 
     def chamar() -> Any:
         return webpush(subscription_info=ass.info(), data=dados, vapid_private_key=vapid.privada,
@@ -345,13 +356,13 @@ def _ler_evento(db: Any, evento_id: int) -> tuple[Evento, datetime, tuple[str, .
 def _destinos(db: Any) -> list[Destino]:
     with db.connection() as conn:
         linhas = conn.execute(
-            "SELECT d.id, d.preferencias, s.id, s.endpoint, s.p256dh, s.auth FROM dispositivos d"
+            "SELECT d.id, d.preferencias, s.id, s.endpoint, s.p256dh, s.auth, s.tipo FROM dispositivos d"
             " JOIN push_assinaturas s ON s.dispositivo = d.id"
             " WHERE d.tipo = 'celular' AND d.revogado IS NULL ORDER BY d.id, s.id").fetchall()
     por_id: dict[int, Destino] = {}
-    for did, prefs, sid, endpoint, p256dh, auth in linhas:
+    for did, prefs, sid, endpoint, p256dh, auth, tipo in linhas:
         d = por_id.setdefault(did, Destino(did, dict(prefs or {})))
-        d.assinaturas.append(Assinatura(sid, endpoint, p256dh, auth))
+        d.assinaturas.append(Assinatura(sid, endpoint, p256dh, auth, tipo))
     return list(por_id.values())
 
 

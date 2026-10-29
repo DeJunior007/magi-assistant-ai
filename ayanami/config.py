@@ -92,6 +92,7 @@ class Push:
     max_hora: int = 10
     noticias_dia: int = 3
     silencio_padrao: str = "23:00-07:30"
+    ntfy_hosts: tuple[str, ...] = ()  # hosts aceitos no endpoint ``unifiedpush`` (spec §9.6)
 
 
 @dataclass(frozen=True)
@@ -164,6 +165,16 @@ def _horario(v: str) -> str | None:
     return None if _HORARIO_RE.match(v) else "formato HH:MM-HH:MM"
 
 
+_HOST_PORTA = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?$")
+
+
+def _hosts(v: tuple[str, ...]) -> str | None:
+    ruins = [h for h in v if not _HOST_PORTA.match(h)]
+    if ruins:
+        return f"cada item é host[:porta], sem esquema nem caminho: {ruins}"
+    return None
+
+
 def _escopos(v: tuple[str, ...]) -> str | None:
     fora = [e for e in v if e not in ESCOPOS_MCP]
     if fora:
@@ -232,6 +243,7 @@ _ESQUEMA: dict[str, tuple[type, dict[str, _Campo]]] = {
             "max_hora": (int, 10, _faixa(1, 60)),
             "noticias_dia": (int, 3, _faixa(0, 10)),
             "silencio_padrao": (str, "23:00-07:30", _horario),
+            "ntfy_hosts": ("strs", (), _hosts),
         },
     ),
     "mcp": (Mcp, {"escopos": ("strs", ("ler", "tarefas"), _escopos), "memoria_ler": (bool, False, None)}),

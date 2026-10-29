@@ -141,7 +141,7 @@ A0.1 toolchain ── A0.2 esqueleto ─┬─ A0.3 CI android (+M1.7) ──┼
   - Pronto: CA-M38 verde; `uv run magi-retrato --help` funciona (sem `uv sync`: `uv run python -m magi.elo.retrato --help` se o script ainda não estiver instalado).
   - Paralelo: A0.2, M1.3
 
-- [ ] **M1.5 Push `unifiedpush` no servidor** — spec §9.6: migração `003_push_tipo.sql`;
+- [x] **M1.5 Push `unifiedpush` no servidor** — spec §9.6: migração `003_push_tipo.sql`;
   `Assinar.tipo` com checagem de `[push] ntfy_hosts` (`422 endpoint_proibido`); `Assinatura.tipo` e TTL
   mínimo 60 s no envio; `ntfy_hosts` em `config.py` e no exemplo.
   - Lê: spec §6 (só o corpo do `assinar`), §9.6; `ayanami/api/push.py`; `ayanami/push.py` (linhas 270–360, 560–600); `ayanami/migrations/001_base.sql` (`push_assinaturas`); `ayanami/migrar.py` (assinaturas)

@@ -47,7 +47,8 @@ TABELAS = {
 
 
 def test_lista_migracoes():
-    assert [(m.version, m.name) for m in mod.migracoes()] == [("001", "base"), ("002", "noticias")]
+    assert [(m.version, m.name) for m in mod.migracoes()] == [
+        ("001", "base"), ("002", "noticias"), ("003", "push_tipo")]
 
 
 def test_migracoes_sem_drop_nem_truncate():
@@ -202,11 +203,11 @@ def _dim(conn, tabela: str) -> int:
 def test_ca_y11_banco_vazio_aplica_e_e_idempotente(pg_nova_base):
     dsn = pg_nova_base()
     with psycopg.connect(dsn) as conn:
-        assert mod.migrar(conn, dim=384) == ["001", "002"]
+        assert mod.migrar(conn, dim=384) == ["001", "002", "003"]
         assert _tabelas(conn) == TABELAS
         assert _dim(conn, "news_items") == 384
         assert mod.migrar(conn, dim=384) == []
-        assert mod.aplicadas(conn) == ["001", "002"]
+        assert mod.aplicadas(conn) == ["001", "002", "003"]
     assert mod.cli(["--dsn", dsn, "--dim", "384"]) == 0
 
 
@@ -269,7 +270,7 @@ def test_db_protocolo_e_pool(pg_base):
     with abrir_pool(pg_base, minimo=1, maximo=2) as pool:
         assert isinstance(pool, Db)
         with transacao(pool) as c:
-            assert c.execute("SELECT count(*) FROM schema_migracoes").fetchone() == (2,)
+            assert c.execute("SELECT count(*) FROM schema_migracoes").fetchone() == (3,)
 
 
 @pytest.mark.pg
