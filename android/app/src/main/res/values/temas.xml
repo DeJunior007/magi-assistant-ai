@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="fundo0">#FF07060B</color>
+    <color name="rosa">#FFF2A7C3</color>
+    <color name="lilas">#FFB392F0</color>
+    <style name="Tema.Condessa" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/fundo0</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

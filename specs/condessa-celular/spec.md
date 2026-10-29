@@ -71,21 +71,25 @@ android/
   rede/src/main/kotlin/…/rede/{logica/{ParserSse,Modelos,Diagnostico,VerificaApk},android/{ApiAyanami,SseCliente,Conectividade,Atualizador,Cofre}}
 ```
 
-`libs.versions.toml` (2026-10-21; **(S0)** = confirmar e gravar a exata na A0.2):
+`libs.versions.toml` (fixadas pela A0.2 em 2026-10-29, conferidas no Google Maven/Maven Central; a fonte
+única é `android/gradle/libs.versions.toml`):
 
 | Chave | Versão | Chave | Versão |
 | --- | --- | --- | --- |
-| `agp` | 9.0.1 (S0) | `kotlin` | 2.3.20 |
-| `gradle` (wrapper) | 9.1.0 (S0) | `compose-bom` | 2026.09.00 |
-| `activity-compose` | 1.11.0 (S0) | `lifecycle` | 2.9.4 (S0) |
-| `navigation-compose` | 2.9.5 (S0) | `media3` | 1.11.1 |
-| `onnxruntime-android` | 1.27.0 | `okhttp` (+`okhttp-sse`, `mockwebserver3`) | 5.1.0 (S0) |
-| `kotlinx-serialization-json` | 1.9.0 (S0) | `kotlinx-coroutines` | 1.10.2 (S0) |
-| `datastore-preferences` | 1.1.7 (S0) | `work-runtime-ktx` | 2.10.5 (S0) |
-| `unifiedpush-connector` (`org.unifiedpush.android:connector`) | 3.0.10 (S0) | `core-ktx` | 1.17.0 (S0) |
-| `junit` | 4.13.2 | `robolectric` | 4.16 (S0) |
-| `turbine` | 1.2.1 (S0) | `androidx-test-ext-junit` / `compose-ui-test-junit4` | da BOM / 1.3.0 (S0) |
-| `benchmark-macro` (L) | 1.4.1 (S0) | `jankstats` | 1.0.0 (S0) |
+| `agp` | 9.0.1 | `kotlin` | 2.3.20 |
+| `gradle` (wrapper, sha256 fixado) | 9.1.0 | `compose-bom` | 2026.06.01 (Compose 1.11.4) ¹ |
+| `activity-compose` | 1.11.0 | `lifecycle` | 2.9.4 |
+| `navigation-compose` | 2.9.5 | `media3` | 1.11.1 |
+| `onnxruntime-android` | 1.27.0 | `okhttp` (+`okhttp-sse`, `mockwebserver3`) | 5.1.0 |
+| `kotlinx-serialization-json` | 1.9.0 | `kotlinx-coroutines` | 1.10.2 |
+| `datastore-preferences` | 1.1.7 | `work-runtime-ktx` | 2.10.5 |
+| `unifiedpush-connector` (`org.unifiedpush.android:connector`) | 3.0.10 | `core-ktx` | 1.17.0 |
+| `junit` | 4.13.2 | `robolectric` | 4.16 |
+| `turbine` | 1.2.1 | `androidx-test-ext-junit` / `compose-ui-test-junit4` | 1.3.0 / da BOM |
+| `benchmark-macro` (L, `benchmark-macro-junit4`) | 1.4.1 | `jankstats` (`androidx.metrics:metrics-performance`) | 1.0.0 |
+
+¹ A BOM 2026.09.00 (Compose 1.12.1) exige `compileSdk 37` e AGP ≥ 9.1.0; com `compileSdk 36` (D2) e
+AGP 9.0.1 a mais nova que compila é a 2026.06.01. Subir para a 2026.09.00 = AGP 9.1+ e `compileSdk 37`.
 
 - `minSdk 29`, `targetSdk 36`, `compileSdk 36` (D2; a S0 anota se o celular do Pedro é ≥ 12 → `minSdk 31`).
   Plataforma `android-36` instalada pela A0.1 se o `android-36.1` local não servir ao AGP.

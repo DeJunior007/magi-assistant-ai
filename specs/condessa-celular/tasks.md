@@ -186,7 +186,7 @@ A0.1 toolchain ── A0.2 esqueleto ─┬─ A0.3 CI android (+M1.7) ──┼
   - Pronto: `~/Android/Sdk/cmdline-tools/latest/bin/sdkmanager --list_installed` mostra plataforma 36 e build-tools; nada fora de `~`; doc com os comandos que rodaram.
   - Paralelo: M1.x
 
-- [ ] **A0.2 Esqueleto Gradle e versões (S0 no PC)** — projeto `android/` da spec §1 com os 4
+- [x] **A0.2 Esqueleto Gradle e versões (S0 no PC)** — projeto `android/` da spec §1 com os 4
   módulos, wrapper, `libs.versions.toml` com as versões **(S0)** conferidas no Maven (grava a exata e
   corrige a tabela da spec §1), `AndroidManifest.xml` completo (permissões R10.5, `allowBackup=false`,
   `dataExtractionRules`, `network_security_config`, `VOICE_COMMAND`, serviços `SessaoMidia`/`ReceptorPush`/
@@ -445,3 +445,20 @@ Critérios de sucesso 1–8 (ao vivo): F.3 (2, 3, 5), F.1 (6, 7), F.4 (todos).
   instalado). Até reinstalar (`sudo dnf install java-21-openjdk-devel`, se o F44 tiver), o Gradle usa
   `JAVA_HOME=/opt/android-studio/jbr` (JBR 21.0.10); a regra 9 e a A0.2 devem ler esse caminho.
   Licenças: só `android-sdk-license` aceita; as outras 7 ficam para o Pedro (`sdkmanager --licenses`).
+- **A0.2**: CA-M1 e CA-M2 verdes no PC (`JAVA_HOME=/opt/android-studio/jbr`, `--offline`). Tamanhos: release
+  `arm64-v8a` sem assinatura **13,0 MB** (≤ 25 MB do RNF-C2, com `jniLibs.useLegacyPackaging = true`:
+  o `libonnxruntime.so` tem 28 MB e vai comprimido); debug **95,6 MB** (4 ABIs × onnxruntime + dex sem
+  R8) — o "≤ 8 MB" do *Pronto* é inatingível com o onnxruntime 1.27.0 completo; o critério real é o
+  release. Compose BOM **2026.06.01** (não a 2026.09.00 do D1a/design §2): a 2026.09.00 exige
+  `compileSdk 37` + AGP ≥ 9.1.0 (spec §1 corrigida; o design §2 ainda diz 2026.09.00 — atualizar quem
+  dona o design). Contratos que mudaram de módulo para não fazer ciclo (`:app` depende dos outros):
+  `Gatilho` em `:voz` (`voz.logica`), `Conexao` em `:rede` (`rede.logica.Diagnostico`); `PipelineVoz`/
+  `EventoVoz` em `voz/android/PipelineVoz.kt`; `ErroAyanami`/`ClienteAyanami`/`VersaoApp` em
+  `rede/logica/Modelos.kt`; `EstadoUpdate` e `Atualizador` em `rede/android/Atualizador.kt`; `Cofre` é
+  interface (`ler`/`gravar`/`apagar`). Modelos (`Saude`, `Card`…) nascem classes vazias (A1.1 preenche).
+  CA-M2 ignora `br.com.dekasis.condessa.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` (permissão de
+  assinatura do androidx.core para o próprio app); `RECEIVE_BOOT_COMPLETED` do WorkManager sai com
+  `tools:node="remove"`. `EscutaService` (L) em `app/…/escuta/`. `splits.abi` só liga quando a tarefa
+  pedida contém "Release". Fontes: Rajdhani SemiBold e JetBrains Mono (variável) do `google/fonts`,
+  Inter 400/600 do pacote `rsms-inter-fonts` do sistema, licenças OFL em `assets/licencas/`. Regra 9
+  ainda cita `/usr/lib/jvm/java-21-openjdk` (fora do meu Escreve).
