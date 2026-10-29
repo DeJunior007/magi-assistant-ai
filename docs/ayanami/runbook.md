@@ -316,3 +316,30 @@ O vigia manda 1 mensagem por causa a cada 6 h (spec §7.3).
 - Nada de Funnel.
 - Nenhuma porta publicada fora de `127.0.0.1`.
 - Segredos só no `/opt/ayanami/.env` (`0600`) e no cofre do Pedro.
+
+## 10. ntfy (push do app Android)
+
+O app Android da Condessa recebe push pelo ntfy da própria Ayanami (condessa-celular spec §10, DSC6).
+O serviço `ntfy` do `compose.yml` publica só `127.0.0.1:8742`; o `tailscale.sh` serve em
+`https://ayanami.<tailnet>.ts.net:8443` (só tailnet, nunca Funnel). No perfil enxuto
+(`COMPOSE_FILE=compose.yml:compose.node2.yml`) ele fica nos núcleos 6-7 com 64m, sem swap.
+
+1. No `/opt/ayanami/.env`, ponha `NTFY_BASE_URL=https://ayanami.<tailnet>.ts.net:8443` (host real só
+   ali; o `ntfy/server.yml` versionado traz o placeholder) e, no `/opt/ayanami/ayanami.toml`,
+   `[push] ntfy_hosts = ["ayanami.<tailnet>.ts.net:8443"]`. Rode de novo `sudo host/tailscale.sh`
+   (cria o serve da 8443) e `docker compose up -d ntfy`.
+2. Saúde: `curl -fsS http://127.0.0.1:8742/v1/health` no node 2 e `docker compose ps ntfy` (healthy).
+3. ACL (uma vez; fica no volume `ntfy-auth`). O padrão é `deny-all`, sem cadastro nem login web:
+   - `docker compose exec ntfy ntfy access everyone 'up*' write-only` (a Ayanami e o
+     UnifiedPush publicam sem conta, mas ninguém lê sem usuário);
+   - `docker compose exec ntfy ntfy user add celular` (a senha é digitada por você, no terminal;
+     guarde no cofre, nunca em arquivo do repo);
+   - `docker compose exec ntfy ntfy access celular 'up*' read-only`;
+   - confira com `docker compose exec ntfy ntfy access`.
+4. No celular: instale o app ntfy, adicione o servidor `https://ayanami.<tailnet>.ts.net:8443` com o
+   usuário `celular`, e libere o app ntfy da otimização de bateria (Configurações → Apps → ntfy →
+   Bateria → Sem restrições). Sem isso o Android adia as entregas com a tela apagada.
+5. Girar a senha: `docker compose exec ntfy ntfy user change-pass celular` e atualize o app ntfy.
+   Tirar o acesso: `docker compose exec ntfy ntfy user del celular`.
+
+Nunca apague o volume `ntfy-auth` (perde usuários e ACL); `ntfy-cache` guarda só 12 h de mensagens.

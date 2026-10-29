@@ -4,12 +4,14 @@
 #   - `tailscale up` com hostname `ayanami`, tag `tag:ayanami` e Tailscale SSH (login interativo,
 #     ou TS_AUTHKEY no ambiente — nunca em arquivo);
 #   - `tailscale serve --bg --https=443 http://127.0.0.1:8740` (só tailnet);
+#   - `tailscale serve --bg --https=8443 http://127.0.0.1:8742` (ntfy, só tailnet);
 #   - recusa Funnel ligado (proibido salvo D2c/D1b).
 # Sem subnet router nem exit node. ACL (grants) é aprovada pelo Pedro no painel (runbook).
 set -euo pipefail
 
 HOSTNAME_TS="ayanami"
 ALVO="http://127.0.0.1:8740"
+ALVO_NTFY="http://127.0.0.1:8742"
 
 log() { echo "[tailscale] $*"; }
 
@@ -51,6 +53,13 @@ if tailscale serve status 2>/dev/null | grep -qF "$ALVO"; then
   log "serve já aponta para $ALVO"
 else
   tailscale serve --bg --https=443 "$ALVO"
+fi
+
+# ntfy (push do app Android, condessa-celular spec §10): https://ayanami.<tailnet>:8443 -> 127.0.0.1:8742.
+if tailscale serve status 2>/dev/null | grep -qF "$ALVO_NTFY"; then
+  log "serve já aponta para $ALVO_NTFY"
+else
+  tailscale serve --bg --https=8443 "$ALVO_NTFY"
 fi
 
 if tailscale funnel status 2>/dev/null | grep -qi 'funnel on'; then

@@ -173,6 +173,30 @@ services:
       <<: *saude
       test: ["CMD", "curl", "-fsS", "localhost:8741/saude"]
 
+  # Push do app Android (condessa-celular spec §10, DSC6). Sem `.env` nem docker.sock: só o
+  # NTFY_BASE_URL (host do tailnet, do .env de /opt/ayanami via interpolação) e o server.yml versionado.
+  # Sai pelo `tailscale serve --https=8443` (host/tailscale.sh); ACL e usuário `celular` no runbook.
+  ntfy:
+    image: binwiederhier/ntfy:v2.14.0
+    command: ["serve"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8742:80"
+    environment:
+      TZ: America/Sao_Paulo
+      NTFY_BASE_URL: ${NTFY_BASE_URL:-https://ayanami.exemplo.ts.net:8443}
+    volumes:
+      - ./ntfy:/etc/ntfy:ro
+      - ntfy-cache:/var/cache/ntfy
+      - ntfy-auth:/var/lib/ntfy
+    cpus: 0.5
+    mem_limit: 128m
+    healthcheck:
+      <<: *saude
+      test: ["CMD", "wget", "-qO-", "http://localhost/v1/health"]
+    networks: [ayanami]
+    logging: *logs
+
 networks:
   ayanami:
     name: ayanami
@@ -182,3 +206,7 @@ volumes:
     name: ayanami-pgdata
   ayanami-modelos:
     name: ayanami-modelos
+  ntfy-cache:
+    name: ntfy-cache
+  ntfy-auth:
+    name: ntfy-auth

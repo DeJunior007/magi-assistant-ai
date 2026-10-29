@@ -1,0 +1,20 @@
+# ntfy da Ayanami (condessa-celular spec §10, DSC6). Versionado, SEM segredo nem host real.
+# Montado read-only em /etc/ntfy pelo serviço `ntfy` do compose.yml.
+# O base-url de verdade vem de NTFY_BASE_URL (no .env de /opt/ayanami; a variável de ambiente
+# sobrepõe este arquivo). Aqui fica só o placeholder.
+# ACL (runbook, seção "ntfy"): everyone 'up*' write-only; usuário `celular` 'up*' read-only.
+
+base-url: "https://ayanami.exemplo.ts.net:8443"
+listen-http: ":80"
+behind-proxy: true
+
+cache-file: /var/cache/ntfy/cache.db
+cache-duration: "12h"
+
+auth-file: /var/lib/ntfy/user.db
+auth-default-access: deny-all
+enable-signup: false
+enable-login: false
+
+web-root: disable
+visitor-request-limit-burst: 60

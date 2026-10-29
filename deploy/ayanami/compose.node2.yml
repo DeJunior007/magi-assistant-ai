@@ -1,6 +1,6 @@
 # Perfil enxuto da Ayanami no node 2 compartilhado (Y1.0b). Sobrepõe o compose.yml (que segue a
 # spec §9.3 genérica) só nos limites: o outro serviço do node fica com os núcleos 0-5 e 13 GiB sem swap; a
-# Ayanami cabe nos núcleos 6-7 com ~6,4 GiB de RAM no total (soma dos mem_limit = 6528 MiB).
+# Ayanami cabe nos núcleos 6-7 com ~6,4 GiB de RAM no total (soma dos mem_limit = 6592 MiB, com o ntfy).
 # Uso: docker compose -f compose.yml -f compose.node2.yml <...>
 #      (ou COMPOSE_FILE=compose.yml:compose.node2.yml no .env de /opt/ayanami).
 # Swap: só worker-lento (+2g) e ayanami-voz (+1g); o resto com memswap_limit = mem_limit.
@@ -50,3 +50,10 @@ services:
     cpus: 1.5
     mem_limit: 1g
     memswap_limit: 2g
+
+  # Push do app Android (condessa-celular spec §10): ocioso quase sempre; 64m sem swap.
+  ntfy:
+    cpuset: "6,7"
+    cpus: 0.25
+    mem_limit: 64m
+    memswap_limit: 64m

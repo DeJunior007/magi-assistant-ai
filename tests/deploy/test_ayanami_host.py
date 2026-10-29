@@ -412,12 +412,16 @@ def test_tailscale_up_e_serve_e_idempotente(ambiente) -> None:
     feitas = chamadas(log)
     assert "tailscale up --hostname=ayanami --advertise-tags=tag:ayanami --ssh" in feitas
     assert "tailscale serve --bg --https=443 http://127.0.0.1:8740" in feitas
+    assert "tailscale serve --bg --https=8443 http://127.0.0.1:8742" in feitas  # ntfy (M1.6)
 
     log.write_text("")
     r = rodar(
         "tailscale.sh",
         FAKE_TS_JSON='{"BackendState":"Running","Self":{"HostName":"ayanami"}}',
-        FAKE_TS_SERVE="https://ayanami.x (tailnet only)\\n|-- / proxy http://127.0.0.1:8740\\n",
+        FAKE_TS_SERVE=(
+            "https://ayanami.x (tailnet only)\\n|-- / proxy http://127.0.0.1:8740\\n"
+            "https://ayanami.x:8443 (tailnet only)\\n|-- / proxy http://127.0.0.1:8742\\n"
+        ),
     )
     assert r.returncode == 0, r.stderr
     feitas = chamadas(log)

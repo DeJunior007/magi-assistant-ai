@@ -22,7 +22,10 @@ SERVICOS = {
     "worker-agendado",
     "worker-lento",
     "ayanami-voz",
+    "ntfy",  # condessa-celular M1.6 (detalhes em test_compose_ntfy.py)
 }
+# Imagens de terceiros: sem .env, sem ./dados nem ayanami.toml.
+TERCEIROS = {"ayanami-pg", "ntfy"}
 # Limites da spec §9.3 / §4.1 / design §4.4.
 LIMITES = {
     "ayanami-pg": (2, "2g"),
@@ -31,6 +34,7 @@ LIMITES = {
     "worker-agendado": (1.5, "1g"),
     "worker-lento": (4, "6g"),
     "ayanami-voz": (2, "1536m"),
+    "ntfy": (0.5, "128m"),
 }
 # Nada do node 1 (MultiVideos, wedding, gold-crm) aparece na infra da Ayanami.
 NODE1 = re.compile(r"multivideos|wedding|gold-?crm", re.I)
@@ -78,7 +82,11 @@ def test_ca_y29_portas_so_em_loopback(servicos: dict) -> None:
             assert isinstance(p, str), f"{nome}: use a forma curta com IP ('127.0.0.1:h:c')"
             assert p.startswith("127.0.0.1:"), f"{nome}: porta {p} fora de 127.0.0.1"
             publicadas[nome] = p
-    assert publicadas == {"ayanami-pg": "127.0.0.1:54339:5432", "ayanami-api": "127.0.0.1:8740:8740"}
+    assert publicadas == {
+        "ayanami-pg": "127.0.0.1:54339:5432",
+        "ayanami-api": "127.0.0.1:8740:8740",
+        "ntfy": "127.0.0.1:8742:80",
+    }
     assert "ports" not in servicos["ayanami-voz"]
     assert "network_mode" not in str(servicos)  # nada de rede do host
 
@@ -146,12 +154,14 @@ def test_ca_y29_env_nunca_montado(servicos: dict) -> None:
         for v in _volumes(svc):
             origem = v.split(":", 1)[0]
             assert not re.search(r"(^|/)\.env(\.|$)", origem), f"{nome} monta {v}"
-        if not _ops(svc):
+        if nome == "ntfy":
+            assert "env_file" not in svc
+        elif not _ops(svc):
             assert svc["env_file"] == ".env", nome
 
 
 def test_volumes_rede_e_logs(compose: dict, servicos: dict) -> None:
-    assert set(compose["volumes"]) == {"ayanami-pgdata", "ayanami-modelos"}
+    assert set(compose["volumes"]) == {"ayanami-pgdata", "ayanami-modelos", "ntfy-cache", "ntfy-auth"}
     assert "ayanami-pgdata:/var/lib/postgresql/data" in _volumes(servicos["ayanami-pg"])
     com_modelos = {
         n for n, s in servicos.items() if any(v.startswith("ayanami-modelos:") for v in _volumes(s))
@@ -161,7 +171,7 @@ def test_volumes_rede_e_logs(compose: dict, servicos: dict) -> None:
         assert svc["networks"] == ["ayanami"], nome
         assert svc["logging"]["driver"] == "json-file", nome
         assert svc["logging"]["options"] == {"max-size": "10m", "max-file": "3"}, nome
-        if nome != "ayanami-pg":
+        if nome not in TERCEIROS:
             vols = _volumes(svc)
             assert "./dados:/dados" in vols, nome
             assert "./ayanami.toml:/etc/ayanami/ayanami.toml:ro" in vols, nome
@@ -219,6 +229,7 @@ LIMITES_NODE2 = {
     "worker-agendado": (0.5, "512m", "512m"),
     "worker-lento": (2, "3g", "5g"),
     "ayanami-voz": (1.5, "1g", "2g"),
+    "ntfy": (0.25, "64m", "64m"),
 }
 
 
@@ -263,6 +274,7 @@ def test_node2_swap_so_no_lento_e_voz(mesclado: dict) -> None:
         "worker-agendado": 0,
         "worker-lento": 2 * 1024**3,
         "ayanami-voz": 1 * 1024**3,
+        "ntfy": 0,
     }
 
 

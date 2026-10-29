@@ -151,7 +151,7 @@ A0.1 toolchain ── A0.2 esqueleto ─┬─ A0.3 CI android (+M1.7) ──┼
   - Pronto: CA-M34 verde (`pg`); `tests/ayanami/test_push.py` e `tests/ayanami/api/test_push_api.py` verdes sem mudar asserção.
   - Paralelo: M1.1 (os dois tocam `config.py` e o exemplo em seções diferentes: commit com `git add -p`), M1.2, M1.6, M1.7, A0.1
 
-- [ ] **M1.6 ntfy no Compose** — spec §10 (DSC6): serviço `ntfy` no `compose.yml`, `deploy/ayanami/ntfy/
+- [x] **M1.6 ntfy no Compose** — spec §10 (DSC6): serviço `ntfy` no `compose.yml`, `deploy/ayanami/ntfy/
   server.yml` (placeholder, sem host real), porta 8443 no `tailscale.sh`, `NTFY_BASE_URL` no
   `env.example`, seção "ntfy" no fim do runbook (ACL `up*`, usuário `celular`, liberar o app ntfy da
   otimização de bateria).
@@ -420,6 +420,12 @@ Critérios de sucesso 1–8 (ao vivo): F.3 (2, 3, 5), F.1 (6, 7), F.4 (todos).
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
+
+- **M1.6** (fora do *Escreve*, necessários para o "Pronto"): `compose.node2.yml` ganhou `ntfy`
+  (cpuset 6,7, 0.25 CPU, 64m sem swap; soma do perfil 6592 MiB) para o perfil enxuto;
+  `tests/deploy/test_ayanami_compose.py` (CA-Y29 com `ntfy`: porta, limites, sem `.env`, volumes) e
+  `tests/deploy/test_ayanami_host.py` (serve 8443 e idempotência) ajustados. O `[push] ntfy_hosts` do
+  exemplo é da M1.5; o runbook (§10, passo 1) manda pôr o host real no `ayanami.toml` do node 2.
 
 - **A0.1** (Pedro): `/usr/lib/jvm/java-21-openjdk` está vazio (só `man/`; pacote do JDK 21 não
   instalado). Até reinstalar (`sudo dnf install java-21-openjdk-devel`, se o F44 tiver), o Gradle usa
