@@ -34,7 +34,7 @@ from typing import Any, Final, Protocol
 from ayanami.api.auth import Dispositivo
 from ayanami.api.limites import Janela
 from magi.elo.ids import novo_id
-from magi.elo.mensagens import EloError, Envelope, Tipo, Turno, TurnoFim
+from magi.elo.mensagens import MAX_TURNO_FIM_OUVIDO, EloError, Envelope, Tipo, Turno, TurnoFim
 from magi.elo.quadros import Quadro, QuadroTipo, decode_quadro, encode_quadro
 
 log = logging.getLogger("ayanami.turnos")
@@ -54,7 +54,7 @@ CHECA_S: Final = 0.05  # passo da espera (tempo real) para notar a queda do PC
 
 
 class AudioInvalido(ValueError):
-    """O webm não decodificou (``415``)."""
+    """O áudio (webm ou ogg) não decodificou (``415``)."""
 
 
 class AudioLongo(ValueError):
@@ -69,8 +69,14 @@ class AudioExpirado(Exception):
 
 
 class Conversor(Protocol):
-    async def webm_para_pcm(self, webm: bytes) -> bytes: ...  # PCM s16le mono 16 kHz
+    async def audio_para_pcm(self, audio: bytes) -> bytes: ...  # webm/ogg opus → PCM s16le mono 16 kHz
     def ogg_de(self, pcm: AsyncIterator[bytes]) -> AsyncIterator[bytes]: ...  # PCM 24 kHz → ogg/opus
+
+
+async def _para_pcm(conversor: Any, audio: bytes) -> bytes:
+    """``audio_para_pcm`` do conversor; um conversor antigo só com ``webm_para_pcm`` segue valendo."""
+    fn = getattr(conversor, "audio_para_pcm", None) or conversor.webm_para_pcm
+    return await fn(audio)
 
 
 WEBM_PARA_PCM: Final = ("ffmpeg", "-hide_banner", "-loglevel", "error", "-i", "pipe:0",
@@ -90,18 +96,21 @@ class FfmpegConversor:
         self.criar = criar or asyncio.create_subprocess_exec
         self.prazo_s = prazo_s
 
-    async def webm_para_pcm(self, webm: bytes) -> bytes:
+    async def audio_para_pcm(self, audio: bytes) -> bytes:
+        """webm ou ogg (opus) → PCM; o ``-i pipe:0`` do ``ffmpeg`` detecta o contêiner (§9.4)."""
         p = await self.criar(*WEBM_PARA_PCM, stdin=asyncio.subprocess.PIPE,
                              stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
         try:
-            saida, _ = await asyncio.wait_for(p.communicate(webm), self.prazo_s)
+            saida, _ = await asyncio.wait_for(p.communicate(audio), self.prazo_s)
         except TimeoutError as e:
             with contextlib.suppress(ProcessLookupError):
                 p.kill()
             raise AudioInvalido("ffmpeg passou do prazo") from e
         if p.returncode != 0 or not saida:
-            raise AudioInvalido("webm não decodificou")
+            raise AudioInvalido("áudio não decodificou")
         return saida
+
+    webm_para_pcm = audio_para_pcm  # nome antigo (Y6.4), mantido
 
     async def ogg_de(self, pcm: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
         p = await self.criar(*PCM_PARA_OGG, stdin=asyncio.subprocess.PIPE,
@@ -226,6 +235,7 @@ class TurnoAndamento:
     ogg: _PcmParaOgg | None = None
     ultimo_out: float | None = None
     tarefa: asyncio.Task[Any] | None = None
+    ouvido_publicado: bool = False
 
     @property
     def estado(self) -> str:
@@ -293,10 +303,10 @@ class Turnos:
         return self._dir
 
     async def preparar_audio(self, webm: bytes) -> bytes:
-        """webm/opus → PCM 16 kHz; ``AudioLongo`` acima de 15 s, ``AudioInvalido`` se não decodifica."""
+        """webm/ogg opus → PCM 16 kHz; ``AudioLongo`` acima de 15 s, ``AudioInvalido`` se não decodifica."""
         if len(webm) > AUDIO_MAX_BYTES:
             raise AudioLongo("mais de 1 MiB")
-        pcm = await self.conversor.webm_para_pcm(webm)
+        pcm = await _para_pcm(self.conversor, webm)
         if len(pcm) > int(AUDIO_MAX_S * PCM_IN_HZ * 2):
             raise AudioLongo("mais de 15 s")
         return pcm
@@ -365,6 +375,8 @@ class Turnos:
             fim = dataclasses.replace(fim, audio=audio)
         t.fim, t.fim_em = fim, self.relogio.monotonico()
         t.feito.set()
+        if t.modo == "pc" and fim.ouvido:  # PC ouviu pelo STT local: a linha do Pedro antes da resposta
+            self._publicar_ouvido(t, fim.ouvido)
         if self.publicar is not None:
             try:
                 self.publicar(t.dono, "turno.texto", {"turno": t.id, "texto": fim.texto})
@@ -372,6 +384,19 @@ class Turnos:
             except Exception as e:  # noqa: BLE001 - SSE fora não derruba o turno
                 log.warning("turno_sse_falhou (%s)", type(e).__name__)
         return True
+
+    def _publicar_ouvido(self, t: TurnoAndamento, texto: str) -> None:
+        """SSE ``turno.ouvido`` ``{"turno","texto"}`` (condessa-celular §9.5, DSC5): uma vez por turno,
+        nunca vazio; o texto não vai a log (só o tamanho)."""
+        texto = (texto or "").strip()[:MAX_TURNO_FIM_OUVIDO]
+        if not texto or t.ouvido_publicado or self.publicar is None:
+            return
+        t.ouvido_publicado = True
+        log.debug("turno_ouvido", extra={"turno": t.id, "tamanho": len(texto)})
+        try:
+            self.publicar(t.dono, "turno.ouvido", {"turno": t.id, "texto": texto})
+        except Exception as e:  # noqa: BLE001 - SSE fora não derruba o turno
+            log.warning("turno_sse_falhou (%s)", type(e).__name__)
 
     async def _fechar_audio(self, t: TurnoAndamento) -> None:
         if t.ogg is not None:
@@ -407,13 +432,14 @@ class Turnos:
             self._fechar(t, self._frase_fim(t, "pc_caiu", "pc_caiu"))
             return
         if pcm is None and webm is not None:
-            pcm = await self.conversor.webm_para_pcm(webm)
+            pcm = await _para_pcm(self.conversor, webm)
         binario = pcm is not None and _pode_binario(no.canal)
         if pcm is not None and not binario:  # long-poll não leva quadros: STT da nuvem e vai texto
             if self.escuta is None or webm is None:
                 self._fechar(t, self._frase_fim(t, "sem_audio", "erro_generico"))
                 return
             texto, pcm = await self.escuta.transcrever(webm, mime), None
+            self._publicar_ouvido(t, texto)
         corpo = Turno(turno=t.id, texto=texto if pcm is None else None, audio=pcm is not None,
                       dispositivo=t.dono_nome)
         env = Envelope(Tipo.TURNO, corpo, "ayanami", no.disp.nome)
@@ -497,6 +523,7 @@ class Turnos:
                     self._fechar(t, self._frase_fim(t, "stt", "erro_generico"))
                     return
                 texto = await self.escuta.transcrever(webm, mime)
+                self._publicar_ouvido(t, texto)
             atender = self._atender
             if atender is None:
                 from ayanami.nuvem import atender

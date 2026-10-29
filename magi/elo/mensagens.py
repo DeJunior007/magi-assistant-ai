@@ -28,6 +28,7 @@ NOME_RE: Final = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")  # nomes de dispositiv
 
 MAX_TURNO_TEXTO: Final = 4000
 MAX_TURNO_FIM_TEXTO: Final = 16_000
+MAX_TURNO_FIM_OUVIDO: Final = 1000
 MAX_DADOS_BYTES: Final = 4096
 MAX_TVS: Final = 16
 MAX_RESUMO_TURNOS: Final = 50
@@ -192,6 +193,7 @@ class TurnoFim:
     expressao: str | None = None
     audio: bool = False  # True → houve AUDIO_OUT antes deste envelope
     erro: str | None = None  # código curto, nunca texto de exceção
+    ouvido: str = ""  # o que o STT do PC ouviu (turno de áudio); ≤ 1000 caracteres (condessa-celular §9.5)
 
 
 @dataclass(frozen=True, slots=True)
@@ -377,6 +379,7 @@ def _checa_corpo(c: object) -> None:
             if not valido(c.turno):
                 raise EloError("campo", "turno_fim.turno não é ULID")
             _excede("turno_fim.texto", c.texto, MAX_TURNO_FIM_TEXTO)
+            _excede("turno_fim.ouvido", c.ouvido, MAX_TURNO_FIM_OUVIDO)
         case Acao():
             if not PRAZO_MIN_MS <= c.prazo_ms <= PRAZO_MAX_MS:
                 raise EloError("campo", f"acao.prazo_ms fora de {PRAZO_MIN_MS}..{PRAZO_MAX_MS}")

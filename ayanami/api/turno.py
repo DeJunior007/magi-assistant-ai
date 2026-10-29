@@ -1,9 +1,10 @@
 """Turno do celular (dono: Y6.4; spec §2.2 linhas ``/v1/turno*``, §6.1, §6.2).
 
 - ``POST /v1/turno``: JSON ``{"texto": "…"}`` ou ``multipart`` com o campo ``audio``
-  (``audio/webm;codecs=opus``, ≤ 1 MiB, ≤ 15 s) → ``202 {"turno", "modo"}``. Outro tipo → ``415``;
-  grande/longo → ``413``; mais de 20 por minuto do mesmo dispositivo → ``429``. O modo (``pc`` /
-  ``nuvem``) sai da §6.1 neste instante e não muda no meio do turno.
+  (``audio/webm;codecs=opus`` ou ``audio/ogg;codecs=opus`` do app Android, ≤ 1 MiB, ≤ 15 s) →
+  ``202 {"turno", "modo"}``. Outro tipo → ``415``; grande/longo → ``413``; mais de 20 por minuto
+  do mesmo dispositivo → ``429``. O modo (``pc`` / ``nuvem``) sai da §6.1 neste instante e não muda
+  no meio do turno.
 - ``GET /v1/turno/{id}``: ``{"turno","modo","estado","fim"}``; turno de outro dispositivo → ``404``.
 - ``GET /v1/turno/{id}/audio``: ``audio/ogg;codecs=opus`` em streaming enquanto gera; ``410``
   depois de 60 s do fim (arquivo apagado).
@@ -24,7 +25,7 @@ from ayanami.turnos import AUDIO_MAX_BYTES, AudioExpirado, AudioInvalido, AudioL
 router = APIRouter()
 
 TEXTO_MAX = 4000
-MIME_AUDIO = "audio/webm"
+MIME_AUDIO = frozenset({"audio/webm", "audio/ogg"})  # condessa-celular §9.4 (D7a)
 
 
 async def _corpo(request: Request) -> tuple[str | None, bytes | None, str]:
@@ -44,14 +45,14 @@ async def _corpo(request: Request) -> tuple[str | None, bytes | None, str]:
         if arquivo is None or isinstance(arquivo, str):
             raise ErroApi(422, "invalido", "falta o campo audio")
         mime = (arquivo.content_type or "").lower()
-        if mime.split(";")[0].strip() != MIME_AUDIO:
-            raise ErroApi(415, "tipo_nao_suportado", "áudio só em audio/webm;codecs=opus")
-        webm = await arquivo.read(AUDIO_MAX_BYTES + 1)
-        if len(webm) > AUDIO_MAX_BYTES:
+        if mime.split(";")[0].strip() not in MIME_AUDIO:
+            raise ErroApi(415, "tipo_nao_suportado", "áudio só em audio/webm ou audio/ogg (opus)")
+        dados = await arquivo.read(AUDIO_MAX_BYTES + 1)
+        if len(dados) > AUDIO_MAX_BYTES:
             raise ErroApi(413, "corpo_grande", "áudio acima de 1 MiB")
-        if not webm:
+        if not dados:
             raise ErroApi(422, "invalido", "áudio vazio")
-        return None, webm, mime
+        return None, dados, mime
     raise ErroApi(415, "tipo_nao_suportado", "use JSON com texto ou multipart com audio")
 
 

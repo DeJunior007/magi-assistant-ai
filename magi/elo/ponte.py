@@ -36,7 +36,7 @@ from magi.common.contracts import (
 from magi.core.hud_client import NullHud
 from magi.core.turn import TurnMachine, TurnPipeline
 from magi.elo.converte import card_de_cardmsg
-from magi.elo.mensagens import MAX_TURNO_FIM_TEXTO, Envelope, Tipo, Turno, TurnoFim
+from magi.elo.mensagens import MAX_TURNO_FIM_OUVIDO, MAX_TURNO_FIM_TEXTO, Envelope, Tipo, Turno, TurnoFim
 from magi.elo.quadros import Quadro
 from magi.elo.remote import ENTRADA_FMT, QUADRO_MS, SATELITE, RemoteLink
 
@@ -51,6 +51,7 @@ class PipelineCelular(TurnPipeline):
     def __init__(self, base: TurnPipeline) -> None:
         super().__init__(base.deps)
         self.texto_pronto: str | None = None
+        self.ouvido = ""  # texto do STT do turno de áudio → ``TurnoFim.ouvido`` (turno de texto: vazio)
 
     async def transcribe(  # type: ignore[override]
         self, audio: bytes, fmt: PcmFormat, ctx: TurnContext, *, stream: Any = None
@@ -60,7 +61,9 @@ class PipelineCelular(TurnPipeline):
             if stream is not None:
                 await stream.cancel()
             return Transcript.raw(texto)
-        return await super().transcribe(audio, fmt, ctx, stream=stream)
+        tr = await super().transcribe(audio, fmt, ctx, stream=stream)
+        self.ouvido = (tr.final or tr.heard).strip()[:MAX_TURNO_FIM_OUVIDO]
+        return tr
 
 
 @dataclass
@@ -128,10 +131,11 @@ class PonteTurnos:
         machine = await self._maquina()
         f = ENTRADA_FMT
         await machine.handle(WakeEvent(WakeSource.PTT, SATELITE))
+        assert self.pipeline is not None
+        self.pipeline.ouvido = ""
         await machine.handle(AudioStart(rate=f.rate, width=f.width, channels=f.channels))
         try:
             if t.texto is not None:
-                assert self.pipeline is not None
                 self.pipeline.texto_pronto = t.texto
                 mudo = bytes(f.bytes_for_ms(QUADRO_MS))  # não conta como "silencioso"
                 await machine.handle(
@@ -164,6 +168,7 @@ class PonteTurnos:
             cards=tuple(card_de_cardmsg(c) for c in result.cards),
             expressao=result.expression.value if result.expression is not None else None,
             audio=self.link.quadros_out > 0,
+            ouvido=self.pipeline.ouvido if self.pipeline is not None else "",
         )
         self._fecha(ativo, fim)
 

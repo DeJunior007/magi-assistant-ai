@@ -534,6 +534,9 @@
         "ok": {
           "type": "boolean"
         },
+        "ouvido": {
+          "type": "string"
+        },
         "texto": {
           "type": "string"
         },

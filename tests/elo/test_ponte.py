@@ -184,6 +184,21 @@ async def test_turno_de_audio_pcm_falso_vira_ptt() -> None:
     await ponte.aclose()
 
 
+async def test_turno_fim_ouvido_tem_o_stt_no_audio_e_vazio_no_texto() -> None:
+    """CA-M33 (ponte do PC): ``TurnoFim.ouvido`` = texto do STT; turno de texto → vazio."""
+    _service, cliente, ponte, _stt, _agente = _montar()
+    t = novo_id()
+    await ponte.receber(_env(Turno(turno=t, audio=True)))
+    ponte.receber_quadro(Quadro(QuadroTipo.AUDIO_IN, t, bytes(range(256)) * 10))
+    ponte.receber_quadro(Quadro(QuadroTipo.AUDIO_FIM, t))
+    await _ate(lambda: _fim_da_fala(cliente, ponte))
+    t2 = novo_id()
+    await ponte.receber(_env(Turno(turno=t2, texto="e agora?")))
+    await _ate(lambda: len(cliente.fins()) == 2)
+    assert [(f.turno, f.ouvido) for f in cliente.fins()] == [(t, "que horas são"), (t2, "")]
+    await ponte.aclose()
+
+
 async def test_gancho_celular_emite_um_turno_fim_e_pc_nada() -> None:
     """CA-Y22 (parte gancho)."""
     _service, cliente, ponte, _stt, _ag = _montar()
