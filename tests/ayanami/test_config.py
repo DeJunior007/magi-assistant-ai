@@ -155,7 +155,8 @@ def test_env_example_tem_todos_os_nomes():
         for linha in ENV_EXEMPLO.read_text().splitlines()
         if linha and not linha.startswith("#")
     }
-    assert nomes == set(config.NOMES_SEGREDOS)
+    # NTFY_BASE_URL só é lido pelo compose (serviço ntfy, M1.6), não pela Ayanami
+    assert nomes - {"NTFY_BASE_URL"} == set(config.NOMES_SEGREDOS)
 
 
 # --------------------------------------------------------------------------- relógio
