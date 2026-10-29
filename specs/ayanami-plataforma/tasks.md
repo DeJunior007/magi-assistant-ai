@@ -107,7 +107,7 @@ Formato: **Lê** · **Escreve** · **Depende de** · **Orçamento** · **Pronto*
 
 ## Fase P0 — Base (perfil, MCP único, redator, vigia, config)
 
-- [ ] **P0.1 Perfil "node 2 inteiro"** — `deploy/ayanami/compose.node2-inteiro.yml` com os limites dos
+- [x] **P0.1 Perfil "node 2 inteiro"** — `deploy/ayanami/compose.node2-inteiro.yml` com os limites dos
   serviços existentes da spec §1 (pg com `shared_buffers=768MB`, `worker-lento`/`migrar` em `2-7`,
   `ntfy` só `cpu_shares`); mesclador de compose em Python para testes (`tests/deploy/compose_mesclado.py`,
   dict merge à moda do Compose: `services.*` campo a campo, listas substituídas); cabeçalho explicando
@@ -597,3 +597,7 @@ M2–M7 → F.10. Critérios de sucesso 1–7: F.2 (1, 2), F.4 (3, 7), F.10 (tod
   `uv lock` por agente).
 - Digests das imagens novas (`@sha256:`) são fixados por cada tarefa de serviço com o valor do dia; sem
   rede no agente, deixar `@sha256:PREENCHER` falha o CA-P2 de propósito e vira item do F.2.
+- P0.1: o CA-P2 ("nenhum serviço monta `docker.sock`") foi lido como "nenhum serviço **novo**": o
+  `worker-agendado` segue com o socket da central (CA-Y29) até a P2.6 decidir; `migrar` (perfil `ops`)
+  fica fora da exigência de `mem_limit`/`cpus`/`cpu_shares` do CA-P1 (a tabela §1 só dá o `cpuset`).
+  Serviço novo: acrescente a linha em `ORCAMENTO`/`LOTE` de `tests/deploy/test_compose_inteiro.py`.

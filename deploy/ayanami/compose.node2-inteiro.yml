@@ -1,0 +1,60 @@
+# Perfil "node 2 inteiro" da Ayanami (ayanami-plataforma spec §1, design §4.1): a VPS é toda dela
+# (8 vCPU, ~24 GiB). Sobrepõe o compose.yml só nos limites dos serviços EXISTENTES; serviço novo
+# entra no compose.yml já com os seus limites (DSP1). O enxuto compose.node2.yml fica intocado.
+#
+# Uso: no .env de /opt/ayanami
+#        COMPOSE_FILE=compose.yml:compose.node2-inteiro.yml
+#      (equivale a `docker compose -f compose.yml -f compose.node2-inteiro.yml <...>`). O Compose
+#      mescla `services.<nome>` campo a campo; listas (`command`) do override substituem as da base.
+#
+# CPU (design §4.1): núcleos 0-1 nunca vão para o lote, porque todo lote (worker-lento, migrar e, nas
+# tarefas seguintes, sandbox-db/llm-local/runner) tem cpuset "2-7". Interativos (pg, api,
+# worker-rapido, voz, ntfy) ficam sem cpuset e com cpu_shares 1024; leves 512; lote 256; llm 128.
+# Memória: memswap_limit = mem_limit, salvo worker-lento (+2 GiB) e ayanami-voz (+1 GiB).
+# Soma dos mem_limit (sem o perfil runner) ≤ 18 GiB (CA-P1).
+
+services:
+  ayanami-pg:
+    command: ["postgres", "-c", "shared_buffers=768MB", "-c", "max_connections=80"]
+    cpus: 2
+    cpu_shares: 1024
+    mem_limit: 3g
+    memswap_limit: 3g
+
+  ayanami-api:
+    cpus: 1
+    cpu_shares: 1024
+    mem_limit: 1g
+    memswap_limit: 1g
+
+  worker-rapido:
+    cpus: 1
+    cpu_shares: 1024
+    mem_limit: 512m
+    memswap_limit: 512m
+
+  worker-agendado:
+    cpus: 1.5
+    cpu_shares: 512
+    mem_limit: 1g
+    memswap_limit: 1g
+
+  worker-lento:
+    cpuset: "2-7"
+    cpus: 4
+    cpu_shares: 256
+    mem_limit: 3584m
+    memswap_limit: 5632m
+
+  ayanami-voz:
+    cpus: 4
+    cpu_shares: 1024
+    mem_limit: 1536m
+    memswap_limit: 2560m
+
+  # Os limites do ntfy (128m, 0.5 vCPU) já vêm do compose.yml (condessa-celular §10).
+  ntfy:
+    cpu_shares: 1024
+
+  migrar:
+    cpuset: "2-7"
