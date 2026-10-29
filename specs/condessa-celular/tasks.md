@@ -55,9 +55,9 @@ estão no `main`. Fases: **M** = mudanças na Ayanami e no PC (Python), **A** = 
    - nada de `qdbus`/`gdbus`/`dbus-send` para KGlobalAccel/KWin; nada de `docker compose down`,
      `DROP`, `TRUNCATE`; nada de `git stash`, worktree, `--amend`, `rebase`, `push`.
 9. **Toolchain Android no usuário**: SDK em `~/Android/Sdk` (já existe: `platforms/android-36.1`,
-   `build-tools/36.1.0`, `37.0.0`; **sem** `cmdline-tools`); JDK 21 em `/usr/lib/jvm/java-21-openjdk`
+   `build-tools/36.1.0`, `37.0.0`; **sem** `cmdline-tools`); JDK 21 do Android Studio em `/opt/android-studio/jbr` (o `/usr/lib/jvm/java-21-openjdk` está vazio)
    (o padrão do sistema é o 25). Nada com `sudo`, nada em `/opt` ou `/usr`. `android/local.properties`
-   nunca vai a commit. Rodar o Gradle com `JAVA_HOME=/usr/lib/jvm/java-21-openjdk`.
+   nunca vai a commit. Rodar o Gradle com `JAVA_HOME=/opt/android-studio/jbr`.
 10. **Uma tarefa = um commit** no `main`, mensagem com o ID (`A2.1: animador do retrato`) e a linha
     final `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`, sempre `git commit -m … --
     <seus caminhos>` (nunca `git commit` puro; no `tasks.md` só os seus hunks com `git add -p`).
