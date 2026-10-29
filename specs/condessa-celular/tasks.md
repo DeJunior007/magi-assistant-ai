@@ -162,7 +162,7 @@ A0.1 toolchain ── A0.2 esqueleto ─┬─ A0.3 CI android (+M1.7) ──┼
   - Pronto: CA-M35 e o teste estático do compose existente (CA-Y29) verdes.
   - Paralelo: M1.1, M1.2, M1.5, M1.7, A0.1
 
-- [ ] **M1.7 Verbo `app` no `ci-deploy.sh`** — spec §11 (DSC7): `app <vc> <sha> <b64url>` com APK no
+- [x] **M1.7 Verbo `app` no `ci-deploy.sh`** — spec §11 (DSC7): `app <vc> <sha> <b64url>` com APK no
   stdin, validação em python3, `mv` atômico, 3 APKs, `flock` próprio; `deploy`/`saude` intactos.
   - Lê: spec §7 (`versao.json`), §11 (último item); `deploy/ayanami/host/ci-deploy.sh`; `tests/deploy/` (`grep -ln ci-deploy`)
   - Escreve: `deploy/ayanami/host/ci-deploy.sh`, `tests/deploy/test_ci_deploy_app.py`
@@ -173,7 +173,7 @@ A0.1 toolchain ── A0.2 esqueleto ─┬─ A0.3 CI android (+M1.7) ──┼
 
 ## Fase A — App Android (`android/`)
 
-- [ ] **A0.1 Toolchain no usuário** — confere JDK 21 (`/usr/lib/jvm/java-21-openjdk`) e o SDK em
+- [x] **A0.1 Toolchain no usuário** — confere JDK 21 (`/usr/lib/jvm/java-21-openjdk`) e o SDK em
   `~/Android/Sdk`; baixa as *command-line tools* do site oficial para `~/Android/Sdk/cmdline-tools/latest`
   (sem `sudo`; confere o sha256 publicado), `sdkmanager --licenses` (só se já aceitas pelo Android
   Studio; senão anota para o Pedro) e instala `platforms;android-36` e `build-tools;36.0.0` se o AGP
@@ -420,3 +420,8 @@ Critérios de sucesso 1–8 (ao vivo): F.3 (2, 3, 5), F.1 (6, 7), F.4 (todos).
 ## Sobras
 
 (agentes anotam aqui o que faltou no pacote ou ficou para depois)
+
+- **A0.1** (Pedro): `/usr/lib/jvm/java-21-openjdk` está vazio (só `man/`; pacote do JDK 21 não
+  instalado). Até reinstalar (`sudo dnf install java-21-openjdk-devel`, se o F44 tiver), o Gradle usa
+  `JAVA_HOME=/opt/android-studio/jbr` (JBR 21.0.10); a regra 9 e a A0.2 devem ler esse caminho.
+  Licenças: só `android-sdk-license` aceita; as outras 7 ficam para o Pedro (`sdkmanager --licenses`).

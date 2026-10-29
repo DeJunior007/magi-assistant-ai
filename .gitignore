@@ -13,3 +13,10 @@ scratch/
 # Ayanami (node 2): segredos e dados nunca no git
 deploy/ayanami/.env
 deploy/ayanami/dados/
+# Android (condessa-celular): SDK local, build e chaves nunca no git
+android/local.properties
+android/**/build/
+android/.gradle/
+*.jks
+*.keystore
+*.apk
